@@ -245,6 +245,9 @@ public sealed class PathCommands
 
     /// <summary>Runs body in one locked transaction; when it returns true, refreshes arrows (unless refreshArrows is false) and commits. Errors go to the command line.
     /// unitsPerMeter comes from settings the caller already loaded; null loads (or creates) ash.settings.tsv via ExportCommands.UnitsPerMeter.</summary>
+    /// <summary>A body that returns false may set this for its final status line instead of "변경 없음".</summary>
+    internal static string? FinalStatus;
+
     internal static void Run(Document doc, string cmd, Func<Database, Transaction, bool> body, bool refreshArrows = true, double? unitsPerMeter = null)
     {
         DrawingUnits.PerMeter = unitsPerMeter ?? ExportCommands.UnitsPerMeter(doc.Editor);
@@ -254,7 +257,8 @@ public sealed class PathCommands
             using (var tr = doc.Database.TransactionManager.StartTransaction())
             {
                 InitCommands.Init(doc.Database, tr); // layers/blocks must exist before any Layer set or block insert
-                if (!body(doc.Database, tr)) { Ui.PaletteStatus.Set($"{cmd}: 변경 없음"); return; }
+                FinalStatus = null;
+                if (!body(doc.Database, tr)) { Ui.PaletteStatus.Set(FinalStatus ?? $"{cmd}: 변경 없음"); FinalStatus = null; return; }
                 if (refreshArrows) DrawingWriter.RefreshDirectionArrows(doc.Database, tr);
                 tr.Commit();
                 Ui.PaletteStatus.Set($"{cmd} 완료");

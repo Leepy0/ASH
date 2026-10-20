@@ -78,11 +78,12 @@ public sealed class ModelCommands
                 // Excel wins over ash.settings.tsv Groups
                 var groups = input.Groups.Count == 0 ? SettingsFile.ParseGroups(s.Groups) : input.Groups.Select(g =>
                 {
-                    var t = input.AgvTypes.FirstOrDefault(x => x.Type == g.Type) ?? throw new InvalidOperationException($"AGV_Groups {g.Group}: 유형 {g.Type}이 AGV_Types에 없습니다.");
+                    var t = input.AgvTypes.FirstOrDefault(x => string.Equals(x.Type, g.Type, StringComparison.OrdinalIgnoreCase)) ?? throw new InvalidOperationException($"AGV_Groups {g.Group}: 유형 {g.Type}이 AGV_Types에 없습니다.");
                     return new VehicleGroupSpec(g.Group, g.Type, g.MaxCount, t.SpeedLoaded, t.Length, t.Width);
                 }).ToList();
                 var options = new ExportOptions(Units: s.Units, Origin: s.Origin, Scale: s.Scale, Groups: groups);
                 Ui.PaletteStatus.Set("AGVMODEL 빌드 중…");
+                ed.WriteMessage("\nAutoMod 빌드 중… 최대 10분");
                 r = ModelBuilder.Build(new ModelBuildRequest(dir, s.ModelName, input, layout, options), s.AmHome, TimeSpan.FromMinutes(10));
             }
             catch (ExportException ex)
@@ -107,10 +108,10 @@ public sealed class ModelCommands
                     foreach (var t in new[] { r.Build.MakeErrText, r.Build.Am2ErrText })
                         foreach (var line in (t ?? "").Split('\n').Take(20)) ed.WriteMessage("\n  " + line.TrimEnd());
             }
-            Ui.PaletteStatus.Set(ok ? "AGVMODEL 완료" : "AGVMODEL 오류");
+            PathCommands.FinalStatus = ok ? "AGVMODEL 완료" : "AGVMODEL 오류";
             return false; // nothing in the drawing changed
         }, refreshArrows: false, unitsPerMeter: UnitScale.FromSettings(s));
     }
 
-    private static bool Fail() { Ui.PaletteStatus.Set("AGVMODEL 오류"); return false; }
+    private static bool Fail() { PathCommands.FinalStatus = "AGVMODEL 오류"; return false; }
 }

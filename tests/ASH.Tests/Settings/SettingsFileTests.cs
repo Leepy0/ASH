@@ -8,6 +8,7 @@ namespace ASH.Tests.Settings;
 
 public class SettingsFileTests
 {
+    [Fact] public void AmHome_Default_Is_Clean() { var h = new ProjectSettings().AmHome; Assert.Equal(@"C:\AutoMod\12_6", h); Assert.DoesNotContain(h, char.IsControl); }
     [Fact] public void Missing_File_Gives_Defaults() => Assert.Equal(new ProjectSettings(), SettingsFile.Load(Path.Combine(Path.GetTempPath(), Guid.NewGuid()+".tsv")));
     [Fact] public void Save_Then_Load_RoundTrips()
     {
