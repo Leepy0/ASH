@@ -1,10 +1,12 @@
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 using System.Text;
 using ASH.Core.Update;
 
 namespace AshRelease;
 
-/// <summary>Release PC tool: keygen / manifest / sign / verify. Exit codes: 0 ok, 1 error.</summary>
+/// <summary>Release PC tool: keygen / manifest / sign / verify / check-resource. Exit codes: 0 ok, 1 error.</summary>
 public static class Program
 {
     public static int Main(string[] args)
@@ -28,6 +30,7 @@ public static class Program
                 case "manifest": return Manifest(opt, o);
                 case "sign": return Sign(opt, o);
                 case "verify": return Verify(opt, o, e);
+                case "check-resource": return CheckResource(opt, o, e);
                 default: return Usage(e);
             }
         }
@@ -45,6 +48,7 @@ public static class Program
         e.WriteLine("  AshRelease manifest --file <Setup.exe> --version <v> --min <v> [--notes <파일>] [--rid win-x64] --out <ASH.json>");
         e.WriteLine("  AshRelease sign     --key <ash-signing.pem> --in <ASH.json>      (-> <ASH.json>.sig)");
         e.WriteLine("  AshRelease verify   --pub <update-key.pub> --in <ASH.json>");
+        e.WriteLine("  AshRelease check-resource --dll <어셈블리> --name <리소스 이름>      (없으면 종료 코드 1)");
         return 1;
     }
 
@@ -129,6 +133,23 @@ public static class Program
             return 0;
         }
         e.WriteLine("서명이 맞지 않습니다.");
+        return 1;
+    }
+
+    /// <summary>Exit 0 when the managed assembly embeds a manifest resource with this exact name (metadata only, nothing is loaded).</summary>
+    private static int CheckResource(Dictionary<string, string> opt, TextWriter o, TextWriter e)
+    {
+        string dll = Req(opt, "dll"), name = Req(opt, "name");
+        using var pe = new PEReader(File.OpenRead(dll));
+        if (!pe.HasMetadata) throw new InvalidDataException("관리 어셈블리가 아닙니다: " + dll);
+        var md = pe.GetMetadataReader();
+        foreach (var h in md.ManifestResources)
+            if (md.GetString(md.GetManifestResource(h).Name) == name)
+            {
+                o.WriteLine($"리소스 확인: {Path.GetFileName(dll)} 에 {name} 있음");
+                return 0;
+            }
+        e.WriteLine($"리소스 없음: {dll} 에 {name} 이(가) 내장되어 있지 않습니다.");
         return 1;
     }
 }

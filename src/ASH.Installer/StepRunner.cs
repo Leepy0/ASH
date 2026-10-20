@@ -62,12 +62,12 @@ sealed class StepRunner : IDisposable
         var me = WindowsIdentity.GetCurrent();
         bool system = me.User?.IsWellKnown(WellKnownSidType.LocalSystemSid) == true;
         var u = InteractiveUser.Find();
-        if (u == null ? silent || system : system && u.Value.Sid == me.User) return NoUserHive();
+        if (u == null ? silent || system : system && u.Value.Sid == me.User) return NoUserHive(system);
         if (u == null || u.Value.Sid == me.User) { Log("등록 대상 사용자: " + me.Name); return (null, false); }
         var sid = u.Value.Sid.Value;
         if (!Win32Registry.UserHiveLoaded(sid))
         {
-            if (system) return NoUserHive();
+            if (system) return NoUserHive(system);
             Warn($"{u.Value.Account} 사용자 하이브가 로드되지 않아 현재 계정({me.Name})의 HKCU에 등록합니다.");
             return (null, false);
         }
@@ -75,11 +75,12 @@ sealed class StepRunner : IDisposable
         return (sid, false);
     }
 
-    (string?, bool) NoUserHive()
+    // under SYSTEM (IT deployment) HKLM already covers every user, so skipping HKCU is expected and not a warning (exit code stays 0)
+    (string?, bool) NoUserHive(bool system)
     {
         const string w = "사용자 하이브를 알 수 없어 HKCU 등록을 건너뜀";
-        _session.Warnings.Add(w);
-        Log("경고: " + w);
+        if (system) Log(w);
+        else { _session.Warnings.Add(w); Log("경고: " + w); }
         return (null, true);
     }
 
@@ -90,20 +91,45 @@ sealed class StepRunner : IDisposable
         Log("경고: " + w);
     }
 
-    /// <summary>ServerUrl saved for the install target user ("" when none or unknown).</summary>
-    public string ExistingServerUrl() => _userAppData == null ? "" : UserSettings.Load(UserSettings.PathIn(_userAppData)).ServerUrl;
+    /// <summary>ServerUrl saved for the install target user, else the PC-wide one ("" when none).</summary>
+    public string ExistingServerUrl() =>
+        UserSettings.Load(_userAppData == null ? UserSettings.MachinePath : UserSettings.PathIn(_userAppData), UserSettings.MachinePath).ServerUrl;
 
-    /// <summary>Writes ServerUrl to the target user's %APPDATA%\ASH\ash.user.tsv (the user the HKCU registration is for, not necessarily the elevated account).</summary>
+    /// <summary>
+    /// Writes ServerUrl to %ProgramData%\ASH\ash.machine.tsv (always: covers SYSTEM deployments and every user of the PC)
+    /// and, when a target user profile is known, to that user's %APPDATA%\ASH\ash.user.tsv (the user the HKCU registration is for, not necessarily the elevated account).
+    /// A warning (exit code 2) only when nothing was written, or when the machine file fails although we are elevated.
+    /// </summary>
     public void SaveServerUrl(string url)
     {
-        if (_userAppData == null) { Warn("사용자 폴더를 알 수 없어 서버 주소를 저장하지 못했습니다"); return; }
-        var path = UserSettings.PathIn(_userAppData);
-        try
+        var machine = UserSettings.MachinePath;
+        bool machineOk = false, userOk = false;
+        if (!Elevated) Log("관리자 권한이 아님: PC 공용 서버 주소 파일은 쓰지 않음"); // a non-admin must not create the folder (its ACL has to be locked)
+        else
+            try
+            {
+                var dir = Path.GetDirectoryName(machine)!;
+                var acl = RealFileSystem.LockedAcl(); // Administrators/SYSTEM full, Users read
+                if (Directory.Exists(dir)) new DirectoryInfo(dir).SetAccessControl(acl); else Directory.CreateDirectory(dir, acl);
+                new UserSettings(url).Save(machine);
+                machineOk = true;
+                Log($"서버 주소 저장(PC 공용): {url} → {machine}");
+            }
+            catch (Exception ex) { Log($"PC 공용 서버 주소 파일을 쓰지 못했습니다 ({machine}): {ex.Message}"); }
+        if (_userAppData != null)
         {
-            (UserSettings.Load(path) with { ServerUrl = url }).Save(path);
-            Log($"서버 주소 저장: {url} → {path}");
+            var path = UserSettings.PathIn(_userAppData);
+            try
+            {
+                (UserSettings.Load(path) with { ServerUrl = url }).Save(path);
+                userOk = true;
+                Log($"서버 주소 저장: {url} → {path}");
+            }
+            catch (Exception ex) { Warn($"서버 주소를 저장하지 못했습니다 ({path}): {ex.Message}"); }
         }
-        catch (Exception ex) { Warn($"서버 주소를 저장하지 못했습니다 ({path}): {ex.Message}"); }
+        else Log("사용자 폴더를 알 수 없어 사용자 파일은 쓰지 않음");
+        if (!machineOk && !userOk) Warn($"서버 주소를 저장하지 못했습니다 (PC 공용 파일 {machine}, 사용자 파일 없음/실패)");
+        else if (!machineOk && Elevated) Warn($"서버 주소를 PC 공용 파일에 저장하지 못했습니다 ({machine})");
     }
 
     public void Log(string line)

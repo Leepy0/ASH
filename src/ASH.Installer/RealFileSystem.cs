@@ -34,7 +34,7 @@ sealed class RealFileSystem(string? secureRoot = null) : IFileSystem, IFileOps
     }
 
     // inheritance off; Administrators/SYSTEM full control, Users read & execute
-    static DirectorySecurity LockedAcl()
+    internal static DirectorySecurity LockedAcl()
     {
         var s = new DirectorySecurity();
         s.SetAccessRuleProtection(true, false);

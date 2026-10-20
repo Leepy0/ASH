@@ -69,6 +69,17 @@ public sealed class AshReleaseToolTests : IDisposable
         Assert.Equal(0, Run("verify", "--pub", P("both.pub"), "--in", json).rc);
     }
 
+    [Fact] public void CheckResource_Finds_Embedded_Resource_And_Fails_When_Missing()
+    {
+        var core = typeof(ReleaseManifest).Assembly;
+        var name = core.GetManifestResourceNames()[0];
+        Assert.Equal(0, Run("check-resource", "--dll", core.Location, "--name", name).rc);
+        var miss = Run("check-resource", "--dll", core.Location, "--name", "update-key.pub");
+        Assert.Equal(1, miss.rc);
+        Assert.Contains("update-key.pub", miss.e);
+        Assert.Equal(1, Run("check-resource", "--dll", P("nope.dll"), "--name", "x").rc); // missing file = error exit
+    }
+
     [Fact] public void Sign_Rejects_Non_P256_Key()
     {
         using var k = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP384);
