@@ -17,6 +17,7 @@ $plugin = "$root\src\ASH.Plugin\bin\Release\net48"
 $zip = "$dist\ASH-Plugin-$version.zip"
 Compress-Archive -Path "$plugin\ASH.Plugin.dll", "$plugin\ASH.Core.dll" -DestinationPath $zip -Force
 $pub = "$root\src\ASH.Runner\bin\Release\publish"
+if (Test-Path $pub) { Remove-Item $pub -Recurse -Force }
 dotnet publish "$root\src\ASH.Runner" -c Release -o $pub --self-contained false -nologo -v q
 if ($LASTEXITCODE) { throw "dotnet publish ash-run failed (exit $LASTEXITCODE)" }
 $runnerZip = "$dist\ASH-Runner-$version.zip"

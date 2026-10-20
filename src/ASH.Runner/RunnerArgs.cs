@@ -5,7 +5,7 @@ namespace ASH.Runner;
 public sealed record RunnerArgs(string ProjectDir, string Model, string? AmHome = null, int Parallel = 2, string? DialogButton = "Student Version",
     int TimeoutMin = 30, int InitialReps = 1, bool Impact = true, bool Debug = false)
 {
-    public const string Usage = "usage: ash-run <ProjectDir> --model <name> [--am-home <dir>] [--parallel 2] [--dialog-button \"Student Version\"] [--timeout-min 30] [--initial-reps 1] [--no-impact] [--debug]";
+    public const string Usage = "usage: ash-run <ProjectDir> --model <name> [--am-home <AutoMod dir>] [--parallel 2] [--dialog-button \"Student Version\"] [--timeout-min 30] [--initial-reps 1] [--no-impact] [--debug]";
 
     /// <summary>Null result = error (message in <paramref name="error"/>).</summary>
     public static RunnerArgs? Parse(string[] args, out string? error)

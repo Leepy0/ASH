@@ -18,7 +18,7 @@ public static class ArcLayout
     public static (Layout.Layout Layout, TrafficTable Traffic) Load(string arcDir)
     {
         var asyPath = Path.Combine(arcDir, "agv.asy");
-        if (!File.Exists(asyPath)) throw new FileNotFoundException("agv.asy not found", asyPath);
+        if (!File.Exists(asyPath)) throw new FileNotFoundException("agv.asy not found in " + arcDir, asyPath);
         var sys = AsyReader.ReadFile(asyPath);
         var l = new Layout.Layout();
         var byName = new Dictionary<string, LayoutPath>();

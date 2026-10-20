@@ -13,9 +13,10 @@ using ASH.Core.Model;
 namespace ASH.Core.Runner;
 
 /// <param name="WorkDir">Execution cwd holding &lt;Model&gt;.exe/.arc/.dir (default ProjectDir; see PrepareWorkSlot for parallel runs).</param>
+/// <param name="AmHome">When set, &lt;AmHome&gt;in is put first on the child process PATH (as AmBuilder does).</param>
 /// <param name="RunsDir">Where runs\&lt;RunId&gt; land (default &lt;ProjectDir&gt;\runs).</param>
 public sealed record RunRequest(string ProjectDir, string ModelName, ProjectInput Input, RunScenario Scenario, TimeSpan Timeout,
-    string? DialogButton, string? WorkDir = null, string? RunsDir = null)
+    string? DialogButton, string? WorkDir = null, string? RunsDir = null, string? AmHome = null)
 {
     /// <summary>Test hook: run this executable (with ExeArgs) instead of &lt;WorkDir&gt;\&lt;Model&gt;.exe -w.</summary>
     internal string? ExeOverride { get; init; }
@@ -106,7 +107,9 @@ public static class ModelRunner
         int? exit = null; string? error = null;
         try
         {
-            using var proc = Process.Start(new ProcessStartInfo(exe, r.ExeArgs) { WorkingDirectory = workDir, UseShellExecute = false })!;
+            var psi = new ProcessStartInfo(exe, r.ExeArgs) { WorkingDirectory = workDir, UseShellExecute = false };
+            if (r.AmHome != null) psi.EnvironmentVariables["PATH"] = Path.Combine(r.AmHome, "bin") + ";" + Environment.GetEnvironmentVariable("PATH");
+            using var proc = Process.Start(psi)!;
             using var closer = r.DialogButton == null ? null
                 : DialogCloser.Start(proc.Id, new[] { "Authorization" }, t => { lock (clicked) clicked.Add(t); }, r.DialogButton);
             if (proc.WaitForExit((int)r.Timeout.TotalMilliseconds)) exit = proc.ExitCode;

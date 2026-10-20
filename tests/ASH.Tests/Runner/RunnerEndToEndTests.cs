@@ -33,6 +33,24 @@ public class RunnerEndToEndTests
         Directory.Delete(dir, true);
     }
 
+    [Fact]
+    public void Ok_Exit_With_Unparsable_Result_Counts_As_Failure()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "ash_e2e_t_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        var tsv = Path.Combine(dir, "result.tsv");
+        File.WriteAllText(tsv, "kind\tname\tgroup\tvalue1\nmaterial\tM1\tG1\tnot-a-number\n"); // garbage
+        var mx = new ModelExecutor(new RunnerArgs(dir, Model, Parallel: 1), LogicGeneratorTests.Sample(),
+            r => new RunOutcome(ModelRunner.RunId(r.Input, r.Scenario), true, dir, TimeSpan.FromSeconds(1), null, 0, null, tsv, null));
+        mx.Run(1, new RunScenario(1, new Dictionary<string, int> { ["G1"] = 1 }));
+        Assert.Equal(1, mx.Failures);
+        var row = Assert.Single(SummaryTsv.ReadAll(Path.Combine(dir, "runs", "summary.tsv")));
+        Assert.False(row.Ok);
+        Assert.DoesNotContain("NaN", row.Reason);
+        Assert.False(string.IsNullOrEmpty(row.Reason));
+        Directory.Delete(dir, true);
+    }
+
     [SkippableFact] public Task AshRun_Searches_A_Real_Model_In_Two_Slots() => Search(1);
 
     // two replications: the replication batch runs in both slots at once

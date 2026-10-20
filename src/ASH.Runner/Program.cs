@@ -15,7 +15,7 @@ public static class Program
         var a = RunnerArgs.Parse(args, out var err);
         if (a == null) { o.WriteLine("error: " + err); o.WriteLine(RunnerArgs.Usage); return 1; }
         try { return await Task.Run(() => Execute(a, input, o)); }
-        catch (Exception e) { o.WriteLine("error: " + e.Message); if (a.Debug) o.WriteLine(e); return 1; }
+        catch (Exception ex) { var e = ex is AggregateException ag && ag.InnerException != null ? ag.InnerException : ex; o.WriteLine("error: " + e.Message); if (a.Debug) o.WriteLine(e); return 1; }
     }
 
     static int Execute(RunnerArgs a, ProjectInput? input, TextWriter o)

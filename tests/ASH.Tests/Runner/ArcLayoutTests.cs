@@ -43,6 +43,27 @@ public class ArcLayoutTests
     }
 
     [Fact]
+    public void Arcs_RoundTrip_Through_Export_And_Load_Cw_And_Ccw()
+    {
+        var ccw = new ASH.Core.Layout.LayoutPath("a1") { Segments = { new ArcSeg(new Point2(0, 0), new Point2(5, 0), 90) } };
+        var cw = new ASH.Core.Layout.LayoutPath("a2") { Segments = { new ArcSeg(new Point2(10, 0), new Point2(5, 0), -90) } };
+        var l = L.Of(ccw, cw, L.Line("p3", 0, 5, 5, 5));
+        l.Cps.Add(L.Cp("S001", 0, 5, "standby", "G1"));
+        var dir = Tmp();
+        ExportRunner.Run(l, new ExportOptions(Groups: new[] { new VehicleGroupSpec("G1", "Tug", 1, 1.0, 1, 1) }), dir);
+        var (r, _) = ArcLayout.Load(dir);
+        foreach (var src in new[] { ccw, cw })
+        {
+            var got = r.Paths.Single(p => p.Name == src.Name);
+            Assert.Equal(src.End.X, got.End.X, 4); Assert.Equal(src.End.Y, got.End.Y, 4);
+            Assert.Equal(src.Length, got.Length, 4);
+            var a = src.PointAt(src.Length / 2); var b = got.PointAt(got.Length / 2);
+            Assert.Equal(a.X, b.X, 4); Assert.Equal(a.Y, b.Y, 4);
+        }
+        Directory.Delete(dir, true);
+    }
+
+    [Fact]
     public void Missing_Asy_Throws_And_Missing_Tsv_Is_Empty()
     {
         var dir = Tmp();

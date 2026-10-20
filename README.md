@@ -33,3 +33,5 @@ ash-run C:\Projects\Plant1 --model plant1 --parallel 2 --dialog-button "Student 
 - 결과: `runs\summary.tsv`(실행마다 그룹별 KPI 누적), `runs\impact.tsv`(그룹 +1일 때 다른 그룹 KPI 변화), `runs\<RunId>\`(원본 결과·보고서). 콘솔에 그룹별 결정 대수와 실행 수·소요 시간을 표로 출력한다.
 - 겹치는 경로·block을 쓰는 그룹은 `<Model>.arc\agv.asy`·`blocks.tsv`·`traffic.tsv`로 묶어 함께 판정한다(없으면 그룹별 단독 탐색 + 경고).
 - 종료 코드: 0 성공, 1 오류(인자·모델 없음 등), 2 성공했으나 경고(판정 실패·실행 실패 포함).
+- `--am-home <AutoMod 폴더>`를 주면 모델 실행 프로세스의 PATH 앞에 `<폴더>\bin`이 붙는다(생략하면 PATH 그대로).
+- `summary.tsv`의 `ok`/`reason`은 그 실행 하나의 한 그룹만 단일 반복으로 판정한 값이다. 탐색의 최종 판정은 반복 평균이라 다를 수 있다.
