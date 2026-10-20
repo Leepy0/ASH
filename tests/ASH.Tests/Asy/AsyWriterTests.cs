@@ -22,7 +22,7 @@ public class AsyWriterTests
         var sys = AsyReader.Read(new StringReader(string.Join("\n", src)));
         var sw = new StringWriter(); AsyWriter.Write(sys, sw);
         var outLines = sw.ToString().Split('\n').Select(l => l.TrimEnd('\r'));
-        static string Norm(string l) => string.Join(" ", l.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries)
+        static string Norm(string l) => string.Join(" ", l.Trim().Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries)
             .Select(t => double.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out var d) ? d.ToString("R", CultureInfo.InvariantCulture) : t));
         string[] keys = { "GPATH ", "CPOINT ", "GPATHTYPE ", "CPOINTTYPE ", "PARKLST ", "WORKLST " };
         foreach (var k in keys)

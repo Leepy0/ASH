@@ -27,7 +27,12 @@ public class LargeLayoutTests
         var findings = LayoutChecker.Check(l, new());
         l.Cps.Add(L.Cp("S1", 0, 0, "standby", "G1"));
         var sys = LayoutExporter.ToAgvs(l, ASH.Tests.Export.LayoutExporterTests.G);
-        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(5), sw.Elapsed.ToString());
+        #if NETFRAMEWORK
+        var budget = TimeSpan.FromSeconds(8); // net48 JIT/runtime is ~1.4x slower (4.0 s vs 3.0 s alone); guard targets O(n^2) blowups, not tuning
+#else
+        var budget = TimeSpan.FromSeconds(5);
+#endif
+        Assert.True(sw.Elapsed < budget, sw.Elapsed.ToString());
         Assert.True(l.Cps.Count > 1000); Assert.Equal(l.Paths.Count, sys.Paths.Count);
     }
 }
