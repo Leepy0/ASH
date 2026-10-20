@@ -86,6 +86,8 @@ public static class InputValidator
             if (m.Station.Length > 0 && !stations.Contains(m.Station)) Err("Materials", m.Row, i, $"자재 '{m.Material}'의 Station '{m.Station}'이(가) Stations에 없습니다.");
             if (!(m.TaktTime > 0)) Err("Materials", m.Row, i, $"자재 '{m.Material}'의 TaktTime은 0보다 커야 합니다.");
             if (!(m.UnitsPerContainer >= 1)) Err("Materials", m.Row, i, $"자재 '{m.Material}'의 UnitsPerContainer는 1 이상이어야 합니다.");
+            else if (m.CallThreshold < m.UnitsPerCycle / m.UnitsPerContainer)
+                Add(FindingCode.InputWarning, "Materials", m.Row, i, $"자재 '{m.Material}': 호출 임계값이 1회 소비량보다 작습니다(CallThreshold {m.CallThreshold} < {m.UnitsPerCycle / m.UnitsPerContainer} 용기).");
         }
         for (int i = 0; i < input.Routes.Count; i++)
         {

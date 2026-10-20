@@ -2,7 +2,8 @@
 /* one consumer cycle per takt: call check, then consume or stay stopped; a stopped cycle re-checks every takt */
 begin P_consume_{{M}} arriving procedure
 	while 1 = 1 do begin
-		if V_stock({{M}}) <= V_call({{M}}) + 0.000001 and V_pending({{M}}) = 0 then begin
+		/* also call when stock cannot cover one cycle, or a call threshold below the per-cycle need would stop forever */
+		if (V_stock({{M}}) <= V_call({{M}}) + 0.000001 or V_stock({{M}}) < V_need({{M}}) - 0.000001) and V_pending({{M}}) = 0 then begin
 			set V_pending({{M}}) to 1
 			set V_extMat to {{M}}
 			set V_tmp to F_ext_on_call()

@@ -113,7 +113,8 @@ public class ModelRunIntegrationTests
         Skip.If(AmHome is null, "ASH_AM_HOME not set");
         var p = LogicGeneratorTests.Sample();
         p.Materials[0] = p.Materials[0] with { InitStock = 0 };                              // starts stopped, must call anyway
-        p.Materials[1] = p.Materials[1] with { UnitsPerCycle = 2, UnitsPerContainer = 1 };   // need 2 containers per cycle
+        // need 2 containers per cycle, Call 0 below that need, stock 1: only the below-need call can start supply
+        p.Materials[1] = p.Materials[1] with { UnitsPerCycle = 2, UnitsPerContainer = 1, CallThreshold = 0, InitStock = 1 };
         var run = BuildAndRun(p, 1);
         var span = p.Settings.SimLengthSec - p.Settings.WarmupSec;
         foreach (var m in new[] { "M1", "M2" })
@@ -155,7 +156,8 @@ public class ModelRunIntegrationTests
         }
         var active = new Dictionary<string, int> { ["G1"] = 2 };
         // the seed reaches the model through params.txt init stocks; the logic itself draws no random numbers
-        Assert.NotEqual(ParamsFile.Render(Uniform(), new RunScenario(1, active)), ParamsFile.Render(Uniform(), new RunScenario(2, active)));
+        static string[] Body(string p) => p.Split('\n').Where(x => !x.StartsWith("SEED ")).ToArray();
+        Assert.NotEqual(Body(ParamsFile.Render(Uniform(), new RunScenario(1, active))), Body(ParamsFile.Render(Uniform(), new RunScenario(2, active))));
         var a = BuildAndRun(Uniform(), active);
         var b = BuildAndRun(Uniform(), active);
         Assert.Equal(File.ReadAllBytes(a.Result.ResultTsvPath), File.ReadAllBytes(b.Result.ResultTsvPath));

@@ -32,6 +32,17 @@ public class InputValidatorTests
     }
 
     [Fact]
+    public void Validate_Warns_Call_Threshold_Below_Cycle_Need()
+    {
+        var p = Good();
+        p.Materials[0] = p.Materials[0] with { CallThreshold = 0, UnitsPerCycle = 2, UnitsPerContainer = 1 };
+        var f = InputValidator.Validate(p, Cps);
+        Assert.Single(f);
+        Assert.Equal(FindingCode.InputWarning, f[0].Code);
+        Assert.Contains("호출 임계값이 1회 소비량보다 작습니다", f[0].Message);
+    }
+
+    [Fact]
     public void Validate_Flags_Type_Shared_By_Two_Groups()
     {
         var p = Good();
