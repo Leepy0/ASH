@@ -44,4 +44,53 @@ public class ZwcadLocatorTests
         var r = ZwcadLocator.Find(reg, fs, Pf, Pf86);
         Assert.Equal("2024", Assert.Single(r).Version);
     }
+
+    static ZwcadInstall One(FakeRegistry reg, string dir) =>
+        Assert.Single(ZwcadLocator.Find(reg, new FakeFs(new[] { dir }, new[] { dir + @"\ZWCAD.exe" }), Pf, Pf86));
+
+    [Fact] public void Locator_Takes_Year_From_Middle_Of_Name()
+    {
+        const string d = @"C:\Program Files\ZWSOFT\ZWCAD 2026 Pro";
+        Assert.Equal("2026", One(new FakeRegistry(), d).Version);
+    }
+
+    [Fact] public void Locator_Keeps_Two_Languages_For_Same_Dir()
+    {
+        var reg = new FakeRegistry();
+        reg.Add(@"HKLM\SOFTWARE\ZWSoft\ZWCAD\2026\ko_KR", "InstallPath", D26);
+        reg.Add(@"HKLM\SOFTWARE\ZWSoft\ZWCAD\2026\en_US", "InstallPath", D26.ToUpperInvariant());
+        var fs = new FakeFs(new[] { D26 }, new[] { D26 + @"\ZWCAD.exe" });
+        var r = ZwcadLocator.Find(reg, fs, Pf, Pf86);
+        Assert.Equal(new[] { "en_US", "ko_KR" }, r.Select(i => i.Language).OrderBy(x => x).ToArray());
+    }
+
+    [Fact] public void Locator_Accepts_Quoted_Exe_Path_Value_And_Wow6432Key()
+    {
+        var reg = new FakeRegistry();
+        reg.Add(@"HKLM\SOFTWARE\WOW6432Node\ZWSoft\ZWCAD\2026\ko_KR", "Exe", "\"" + D26 + @"\ZWCAD.exe" + "\"");
+        var i = One(reg, D26);
+        Assert.Equal(D26, i.InstallDir);
+        Assert.Equal("ko_KR", i.Language);
+    }
+
+    [Fact] public void Locator_Handles_Quoted_UninstallString_And_Trailing_Slash_InstallLocation()
+    {
+        var reg2 = new FakeRegistry();
+        reg2.Add(@"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\B", "DisplayName", "ZWCAD 2026");
+        reg2.Add(@"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\B", "InstallLocation", D26 + @"\");
+        Assert.Equal(D26, One(reg2, D26).InstallDir);
+
+        var reg3 = new FakeRegistry();
+        reg3.Add(@"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\C", "DisplayName", "ZWCAD 2026");
+        reg3.Add(@"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\C", "UninstallString", "\"" + D26 + @"\uninst.exe" + "\" /x");
+        Assert.Equal(D26, One(reg3, D26).InstallDir);
+    }
+
+    [Fact] public void Locator_Dedupes_Case_Insensitively_Across_Registry_And_Folder()
+    {
+        var reg = new FakeRegistry();
+        reg.Add(@"HKLM\SOFTWARE\ZWSoft\ZWCAD\2026\ko_KR", "InstallPath", D26.ToLowerInvariant());
+        var fs = new FakeFs(new[] { D26, D26.ToLowerInvariant() }, new[] { D26 + @"\ZWCAD.exe" });
+        Assert.Single(ZwcadLocator.Find(reg, fs, Pf, Pf86));
+    }
 }

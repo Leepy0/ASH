@@ -57,4 +57,45 @@ public class InstallPlannerTests
         Assert.Contains(w, x => x.Kind == "CopyFile");
         Assert.DoesNotContain(w, x => x.Kind.StartsWith("Reg"));
     }
+
+    [Fact] public void Planner_Warns_And_Skips_Registry_On_Empty_Version()
+    {
+        var noVer = new ZwcadInstall("", "", @"D:\CAD\ZWCAD", @"Software\ZWSoft\ZWCAD");
+        var reg = new FakeRegistry();
+        reg.Add(@"HKCU\Software\ZWSoft\ZWCAD\2024\zh_CN", "x", "y");
+        var s = InstallPlanner.Plan(new[] { noVer }, @"D:\src", true, false, reg);
+        Assert.Contains(s, x => x.Kind == "Warn" && x.Value!.Contains(@"D:\CAD\ZWCAD"));
+        Assert.Contains(s, x => x.Kind == "CopyFile");
+        Assert.DoesNotContain(s, x => x.Kind.StartsWith("Reg"));
+    }
+
+    [Fact] public void Planner_Registers_Each_Language_For_Same_Dir_But_Copies_Once()
+    {
+        var a = I; var b = I with { Language = "en_US", ProfileKeyPath = @"Software\ZWSoft\ZWCAD\2026\en_US" };
+        var s = InstallPlanner.Plan(new[] { a, b }, @"D:\src", false, false);
+        Assert.Equal(2, s.Count(x => x.Kind == "RegString" && x.Target.EndsWith(@"\LOADER")));
+        Assert.Equal(1, s.Count(x => x.Kind == "CopyFile" && x.Target.EndsWith("ASH.Plugin.dll")));
+    }
+
+    [Fact] public void Uninstall_EmptyLanguage_Deletes_All_Language_Keys()
+    {
+        var noLang = new ZwcadInstall("2024", "", @"C:\ZWCAD2024", @"Software\ZWSoft\ZWCAD\2024");
+        var reg = new FakeRegistry();
+        reg.Add(@"HKCU\Software\ZWSoft\ZWCAD\2024\zh_CN", "x", "y");
+        reg.Add(@"HKCU\Software\ZWSoft\ZWCAD\2024\en_US", "x", "y");
+        var s = InstallPlanner.Plan(new[] { noLang }, @"D:\src", false, true, reg);
+        Assert.Equal(2, s.Count(x => x.Kind == "DeleteKey"));
+        Assert.Contains(s, x => x.Kind == "DeleteKey" && x.Target == @"HKCU\Software\ZWSoft\ZWCAD\2024\en_US\Applications\ASH");
+    }
+
+    [Fact] public void EmptyLanguage_Elevated_Uses_Hklm_And_Wow_But_Warns_When_Hkcu_Empty()
+    {
+        var noLang = new ZwcadInstall("2024", "", @"C:\ZWCAD2024", @"Software\ZWSoft\ZWCAD\2024");
+        var reg = new FakeRegistry();
+        reg.Add(@"HKLM\SOFTWARE\WOW6432Node\ZWSoft\ZWCAD\2024\zh_CN", "x", "y");
+        var s = InstallPlanner.Plan(new[] { noLang }, @"D:\src", true, false, reg);
+        Assert.Contains(s, x => x.Kind == "RegString" && x.Target == @"HKLM\Software\ZWSoft\ZWCAD\2024\zh_CN\Applications\ASH\LOADER");
+        Assert.DoesNotContain(s, x => x.Kind == "RegString" && x.Target.StartsWith("HKCU"));
+        Assert.Contains(s, x => x.Kind == "Warn");
+    }
 }
