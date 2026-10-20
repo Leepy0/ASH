@@ -23,7 +23,7 @@ DLL은 `<ZWCAD 폴더>\ASH\`에 들어가고(쓰기 실패 시 `%ProgramData%\AS
 
 서버 설치·릴리스 절차·서명 키 관리: [docs/server-install.md](docs/server-install.md)
 
-업데이트: 플러그인은 시작할 때(3초 제한, 백그라운드) 사내 서버(`ASH.Server`)에 새 버전이 있는지 확인해 명령줄에 한 줄만 알린다. 서버 주소는 PC별 `%APPDATA%\ASH\ash.user.tsv`의 `ServerUrl`(없으면 확인하지 않음)이며 `AGVSERVER`로 바꾸고, 설치할 때 `/server:http://server:5080`으로 미리 넣을 수 있다. `AGVUPDATE`는 설치 파일을 `%TEMP%\ASH-update\`에 받아(SHA-256·서명 확인) 폴더를 열어 준다. ZWCAD를 완전히 종료한 뒤 그 파일을 실행한다.
+업데이트: 플러그인은 시작할 때(3초 제한, 백그라운드) 사내 서버(`ASH.Server`)에 새 버전이 있는지 확인해 명령줄에 한 줄만 알린다. 서버 주소는 PC별 `%APPDATA%\ASH\ash.user.tsv`의 `ServerUrl`(비어 있으면 PC 공용 `%ProgramData%\ASH\ash.machine.tsv`, 둘 다 없으면 확인하지 않음)이며 `AGVSERVER`로 바꾸고, 설치할 때 `/server:http://server:5080`으로 미리 넣을 수 있다. `AGVUPDATE`는 설치 파일을 `%TEMP%\ASH-update\`에 받아(SHA-256·서명 확인) 폴더를 열어 준다. ZWCAD를 완전히 종료한 뒤 그 파일을 실행한다.
 
 ## ash-run (수량 탐색 실행기)
 

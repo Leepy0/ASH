@@ -178,7 +178,7 @@ AutoMod 12.6이 있는 PC 필요(T16-2, T16-4). 검증·내보내기 탭 "Excel 
 
 ## 업데이트 확인 (서버 업데이트 Task 5)
 
-서버 주소는 PC별 설정 `%APPDATA%\ASH\ash.user.tsv`(`ServerUrl<탭><주소>`). 서명 공개키는 저장소 루트 `update-key.pub`이 빌드 때 플러그인에 내장된다(없으면 서명 없이 SHA-256만 확인하고 `AGVUPDATE`가 "서명 키 미설정" 경고). 서버는 `src/ASH.Server`(기본 포트 5080), 릴리스는 `tools/AshRelease`로 만든다. 현재 버전 = 플러그인 `<Version>`.
+서버 주소는 PC별 설정 `%APPDATA%\ASH\ash.user.tsv`(`ServerUrl<탭><주소>`), 사용자 값이 비어 있으면 PC 공용 `%ProgramData%\ASH\ash.machine.tsv`(같은 형식, 설치 프로그램 `/server:`가 항상 기록). 서명 공개키는 저장소 루트 `update-key.pub`이 빌드 때 플러그인에 내장된다(없으면 서명 없이 SHA-256만 확인하고 `AGVUPDATE`가 "서명 키 미설정" 경고). 서버는 `src/ASH.Server`(기본 포트 5080), 릴리스는 `tools/AshRelease`로 만든다. 현재 버전 = 플러그인 `<Version>`.
 
 | 항목 | 결과 | 날짜 | ZWCAD 버전 | 메모 |
 |---|---|---|---|---|
@@ -188,7 +188,7 @@ AutoMod 12.6이 있는 PC 필요(T16-2, T16-4). 검증·내보내기 탭 "Excel 
 | U4 서명 불일치: 서버의 `ASH.json.sig`를 다른 키로 만든 것(또는 `.sig` 없음)으로 바꾸고(공개키 내장 빌드) 시작 → "업데이트 확인 실패(서명 확인 실패)", `AGVUPDATE` → 같은 메시지, `%TEMP%\ASH-update\`에 파일·`.part`가 남지 않음. 내장된 `update-key.pub`이 깨진 PEM이면 "서명 키 오류…"로 중단(서명 없이 진행하지 않음). 공개키가 없는 빌드: `AGVUPDATE`가 "서명 키 미설정 — SHA-256만 확인" 경고 후 진행 | | | | |
 | U5 최소 지원 버전보다 낮은 PC(서버 `minSupported` > 플러그인 버전): 시작 시 "현재 버전이 최소 지원(<min>)보다 낮습니다 — AGVUPDATE", `AGVUPDATE`로 최신 설치 파일 받기. 서버 버전이 현재보다 낮으면 "서버의 배포 버전 … 낮습니다" 한 줄 | | | | |
 | U6 `AGVSERVER`: 현재 주소와 파일 경로 표시 → 새 주소 입력 시 저장("서버 주소를 저장했습니다"), Enter(빈 입력)는 변경 없음, 잘못된 형식은 거부. 팔레트·리본 `서버 설정` 버튼도 동작. 명령 실행 중 버튼 클릭 → "실행 중인 명령을 먼저 끝내세요." | | | | |
-| I10 설치 프로그램 `/server:`: `ASH-Setup-x.y.z.exe /silent /server:http://server:5080` → 로그 "서버 주소 저장: … → <로그인 사용자>\AppData\Roaming\ASH\ash.user.tsv"(다른 관리자 계정으로 권한 상승해도 로그인 사용자의 `%APPDATA%`), `ServerUrl` 한 줄. 주소 형식이 틀리면 경고 "/server: … 무시"와 종료 코드 2, 기존 파일 그대로. 창 모드: "서버 주소 (선택)" 입력란(기존 파일 값이 미리 채워짐, 비우면 설정 유지), 설치 후 같은 파일에 기록. `/uninstall`은 설정 파일을 건드리지 않음. SYSTEM 계정 `/silent`는 경고 "사용자 폴더를 알 수 없어…" | | | | |
+| I10 설치 프로그램 `/server:`: `ASH-Setup-x.y.z.exe /silent /server:http://server:5080` → 로그 "서버 주소 저장: … → <로그인 사용자>\AppData\Roaming\ASH\ash.user.tsv"(다른 관리자 계정으로 권한 상승해도 로그인 사용자의 `%APPDATA%`), `ServerUrl` 한 줄. 주소 형식이 틀리면 경고 "/server: … 무시"와 종료 코드 2, 기존 파일 그대로. 창 모드: "서버 주소 (선택)" 입력란(기존 파일 값이 미리 채워짐, 비우면 설정 유지), 설치 후 같은 파일에 기록. `/uninstall`은 설정 파일을 건드리지 않음. `%ProgramData%\ASH\ash.machine.tsv`에도 같은 `ServerUrl`이 기록되고(로그 "서버 주소 저장(PC 공용)"), 폴더 권한은 Administrators/SYSTEM 전체·Users 읽기(`icacls %ProgramData%\ASH`). 사용자 파일을 지우거나 비워도 플러그인이 PC 공용 주소로 확인함. SYSTEM 계정 `/silent`(예: `psexec -s`)는 사용자 파일 없이 PC 공용 파일만 쓰고 종료 코드 0 | | | | |
 
 ## 서버 설치 (서버 업데이트 Task 6, 실제 서버 PC)
 
@@ -199,5 +199,5 @@ AutoMod 12.6이 있는 PC 필요(T16-2, T16-4). 검증·내보내기 탭 "Excel 
 | S1 서버 PC에서 zip을 풀고 `appsettings.json`에 `Admin:Token`(16자 이상)을 넣은 뒤 관리자 PowerShell에서 `ASH.Server.exe --install` → 출력에 "[SC] CreateService 성공", `sc.exe qc ASH.Server`의 `BINARY_PATH_NAME`이 `"…\ASH.Server.exe"`처럼 따옴표로 감싸짐(경로에 공백이 있어도). `sc.exe start ASH.Server` → `RUNNING`, 서버 PC 재부팅 뒤에도 자동 시작 | | | | |
 | S2 방화벽 TCP 5080 허용 후 **다른 PC**의 브라우저로 `http://<서버>:5080/` → 상태 페이지("게시된 버전이 없습니다."), `curl http://<서버>:5080/healthz` → `ok`. 허용 전에는 접속 실패, 허용 뒤 성공 | | | | |
 | S3 릴리스 PC에서 `$env:ASH_ADMIN_TOKEN` 설정 → `scripts\publish-release.ps1 -Server http://<서버>:5080` → "200 OK / 게시됨: ASH x.y.z". 상태 페이지에 버전·게시 시각·서명 키 ID 표시(키 내장 빌드면 "서명 키 없음" 문구가 없음). 토큰을 틀리게 주면 401, `appsettings.json` 토큰이 16자 미만이면 403 | | | | |
-| S4 사용자 PC에서 `ASH-Setup-<현재보다 낮은 버전>.exe /server:http://<서버>:5080` 설치 → ZWCAD 시작 후 3초 안에 "ASH <새 버전> 사용 가능 — AGVUPDATE로 받기" → `AGVUPDATE` → 다운로드 완료·탐색기 열림. 서명 키 내장 빌드에서는 "서명 키 미설정" 경고가 없음. 서버 서비스를 중지(`sc.exe stop ASH.Server`)한 뒤 ZWCAD 시작 → "업데이트 확인 실패(서버 응답 없음)" 한 줄(멈춤 없음) | | | | |
+| S4 사용자 PC에서 `ASH-Setup-<현재보다 낮은 버전>.exe /server:http://<서버>:5080` 설치 → ZWCAD 시작 후 3초 안에 "ASH <새 버전> 사용 가능 — AGVUPDATE로 받기"(릴리스를 `-MinSupported`/`ASH_MIN_SUPPORTED` 없이 빌드했다면 기본값이 `0.0.0`이라 "최소 지원 미만" 안내는 **뜨지 않는 것이 정상**. 그 안내를 보려면 PC 버전보다 높은 `-MinSupported <버전>`으로 빌드·게시해 U5와 맞춰 확인) → `AGVUPDATE` → 다운로드 완료·탐색기 열림. 서명 키 내장 빌드에서는 "서명 키 미설정" 경고가 없음. 서버 서비스를 중지(`sc.exe stop ASH.Server`)한 뒤 ZWCAD 시작 → "업데이트 확인 실패(서버 응답 없음)" 한 줄(멈춤 없음) | | | | |
 | S5 서버 업데이트(수동): 서비스 중지 → `ASH.Server.exe` 교체(`appsettings.json`·`Releases:Dir` 유지) → 시작 후 상태 페이지의 현재 버전·이전 버전 목록이 그대로이고 S4 업데이트 확인이 계속 동작. 서버 PC 재부팅 뒤에도 게시된 버전 유지 | | | | |
