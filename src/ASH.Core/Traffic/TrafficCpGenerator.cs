@@ -65,14 +65,15 @@ public static class TrafficCpGenerator
                 foreach (var d in entries)
                 {
                     double at = d - p.EffectiveClaimDist;
-                    if (at < 0) { at = l.Tolerance; warns.Add($"{path.Name}: ClaimDist 부족, {at:F3} m에 배치"); }
+                    if (at < 0) { at = l.Tolerance; warns.Add($"{path.Name}: ClaimDist 부족, {(d - at).ToString("F3", System.Globalization.CultureInfo.InvariantCulture)} m에 배치"); }
                     Add(path.PointAt(at));
                 }
             }
 
+        if (p.SpacingCps && p.CpSpacing <= 0) warns.Add("CpSpacing는 0보다 커야 합니다");
         foreach (var path in l.Paths)
         {
-            if (p.SpacingCps)
+            if (p.SpacingCps && p.CpSpacing > 0)
                 for (double d = p.CpSpacing; d < path.Length - 1e-9; d += p.CpSpacing) Add(path.PointAt(d));
             if (p.CurveCps)
                 foreach (var a in path.Segments.OfType<ArcSeg>()) { Add(a.Start); Add(a.End); }

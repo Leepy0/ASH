@@ -57,6 +57,9 @@ public static class LayoutExporter
             }
         }
 
+        foreach (var g in groups)
+            if (!s.NameLists.ContainsKey("nl_" + g.Group)) s.NameLists["nl_" + g.Group] = new List<string>();
+
         if (groups.Count == 0)
         {
             s.VehicleSegmentLines.AddRange(Template("agvs_vehseg.txt").Select(x => x.Replace("Feet", o.Units)));

@@ -26,7 +26,13 @@ public class TrafficCpGeneratorTests
     {
         var l = L.Of(L.Line("a",-3.7,0,0,0), L.Line("b",0,0,10,0), L.Line("c",0,-10,0,0)); l.Blocks.Add(L.Block("B001",-3.5,-3.5,3.5,3.5));
         var r = TrafficCpGenerator.Generate(l, P);
-        Assert.Contains(r.Warnings, w => w.StartsWith("a:")); Assert.Equal(-3.7 + 0.001, r.Cps.Single(c => Math.Abs(c.Position.Y) < 1e-9).Position.X, 6);
+        Assert.Contains(r.Warnings, w => w.StartsWith("a:") && w.Contains("0.199 m에 배치")); Assert.Equal(-3.7 + 0.001, r.Cps.Single(c => Math.Abs(c.Position.Y) < 1e-9).Position.X, 6);
+    }
+    [Fact] public void Spacing_NonPositive_Warns_And_Skips()
+    {
+        var l = L.Of(L.Line("a",0,0,35,0)); l.Blocks.Add(L.Block("B001",100,100,101,101));
+        var r = TrafficCpGenerator.Generate(l, P with { SpacingCps = true, CpSpacing = 0 });
+        Assert.Empty(r.Cps); Assert.Contains("CpSpacing는 0보다 커야 합니다", r.Warnings);
     }
     [Fact] public void Generate_PathFullyInsideBlock_WarnsNoCp()
     {

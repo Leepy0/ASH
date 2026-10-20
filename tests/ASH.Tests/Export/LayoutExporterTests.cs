@@ -48,6 +48,11 @@ public class LayoutExporterTests
         Assert.StartsWith("AGVSVEH type Tug numveh 5", s.VehicleLines[0]); Assert.Contains(s.VehicleLines, x => x.Trim() == "start nl_G1");
         Assert.StartsWith("AGVVEHSEG name Seg_Tug", s.VehicleSegmentLines[0]);
     }
+    [Fact] public void Group_Without_Standby_Cps_Still_Gets_Empty_NameList()
+    {
+        var s = LayoutExporter.ToAgvs(L.Of(L.Line("a",0,0,10,0)), new ExportOptions(Groups: new[]{ new VehicleGroupSpec("G1","Tug",5,1.2,2.0,1.0) }));
+        Assert.True(s.NameLists.ContainsKey("nl_G1")); Assert.Empty(s.NameLists["nl_G1"]);
+    }
     [Fact] public void Diff_Counts_Added_Removed_Moved()
     {
         var prev = LayoutExporter.ToAgvs(L.Of(L.Line("a",0,0,10,0), L.Line("b",0,0,0,10)), new());
