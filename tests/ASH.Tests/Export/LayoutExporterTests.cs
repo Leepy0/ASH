@@ -171,4 +171,15 @@ public class LayoutExporterTests
         Assert.Equal(new[]{ "agv.asy" }, Directory.GetFiles(dir).Select(Path.GetFileName));
         Assert.Equal("old", File.ReadAllText(Path.Combine(dir, "agv.asy")));
     }
+    static string[] Lines(ExportOptions o)
+    {
+        var l = L.Of(L.Line("a",0,0,10,0)); l.Cps.Add(L.Cp("S001", 2, 0, "standby", group: "G1"));
+        var w = new StringWriter(); AsyWriter.Write(LayoutExporter.ToAgvs(l, o), w); return w.ToString().Split('\n');
+    }
+    [Fact] public void Export_Writes_OldBlockClaim_By_Default() =>
+        Assert.Contains(Lines(G), x => x.Trim() == "ALTERNATE NONE ignore OldBlockClaim ResumeSpeedWhenClaimed");
+    [Fact] public void Export_Without_ClaimBlockOnNextCp_Omits_OldBlockClaim() =>
+        Assert.Contains(Lines(G with { ClaimBlockOnNextCp = false }), x => x.Trim() == "ALTERNATE NONE ignore ResumeSpeedWhenClaimed");
+    [Fact] public void Vehicle_Rotate_Rate_Comes_From_Spec() =>
+        Assert.Contains(Lines(new ExportOptions(Groups: new[]{ new VehicleGroupSpec("G1","Tug",1,1.0,2,1, 45) })), x => x.Trim() == "rotate\t0 45 Seconds");
 }
