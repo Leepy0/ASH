@@ -23,7 +23,7 @@ DLL은 `<ZWCAD 폴더>\ASH\`에 들어가고(쓰기 실패 시 `%ProgramData%\AS
 
 ## ash-run (수량 탐색 실행기)
 
-플러그인으로 모델을 만든 뒤(`<Project>\<Model>.exe`, `<Model>.arc\`), 콘솔에서 그룹별 최소 AGV 대수를 탐색한다. `input.xlsx`는 프로젝트 폴더에 둔다. .NET 10 런타임 필요(`dist/ASH-Runner-x.y.z.zip`).
+플러그인으로 모델을 만든 뒤(`<Project>\<Model>.exe`, `<Model>.arc\`), 콘솔에서 그룹별 최소 AGV 대수를 탐색한다. `input.xlsx`는 프로젝트 폴더에 둔다. 설치: `dist/ASH-Runner-x.y.z-win-x64.zip`을 풀고 `ash-run.exe`를 실행한다(.NET 런타임 설치 불필요, win-x64 자가 포함 단일 파일).
 
 ```
 ash-run C:\Projects\Plant1 --model plant1 --parallel 2 --dialog-button "Student Version" --timeout-min 30 --initial-reps 1

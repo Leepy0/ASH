@@ -83,7 +83,7 @@ ASH.Plugin      (ZWCAD .NET 플러그인, 신규 작성)
   - 모듈 C 호출: Excel 양식 생성, 모델 생성·빌드 버튼
   - 모듈 D 결과 시각화: 병목 히트맵 레이어를 DWG에 그린다
 
-ASH.Runner      (.NET 8 콘솔/트레이 앱, ZWCAD 밖에서 독립 실행)
+ASH.Runner      (.NET 10 콘솔/트레이 앱, ZWCAD 밖에서 독립 실행)
   - 모듈 D: 반복 실행, 대화상자 처리, 결과 수집, 탐색, 보고서·영상 생성
   - ZWCAD가 꺼져 있어도 밤새 돌아가야 하므로 분리한다
 ```
@@ -332,7 +332,7 @@ Process `.asy`의 `code.m`에 들어간다. 사용자는 이 파일을 편집하
 
 사용자가 "참고만 하고 개선해도 좋다"고 했으므로 다음은 설계자의 결정이다.
 
-- 언어와 런타임: 전부 C#. `ASH.Core`는 .NET Standard 2.0으로 만들어 ZWCAD 플러그인(.NET Framework)과 Runner(.NET 8)가 공유한다.
+- 언어와 런타임: 전부 C#. `ASH.Core`는 .NET Standard 2.0으로 만들어 ZWCAD 플러그인(.NET Framework)과 Runner(.NET 10)가 공유한다.
 - Excel 읽기/쓰기: ClosedXML(Excel 설치 불필요). 런타임 파라미터는 Excel 함수 대신 탭 구분 텍스트(`params.txt`)를 쓴다. AM의 `XLClose`가 Excel 프로세스를 죽이는 문제를 피하기 위해서다.
 - PPTX 생성: DocumentFormat.OpenXml. 그래프 이미지는 ScottPlot으로 PNG를 만들어 삽입한다.
 - 영상: ffmpeg 실행 파일을 Runner와 함께 배포한다.
@@ -382,7 +382,7 @@ Process `.asy`의 `code.m`에 들어간다. 사용자는 이 파일을 편집하
 
 ### 14.1 서버 통합과 버전·자동 업데이트 (2026-10-21, 사용자 결정)
 
-- 분석 서버 코드(ASH.Server: ASP.NET Core net8 Windows 서비스, ASH.Worker: net8)는 **이 저장소 하나**에 둔다. 별도 저장소 `ASH_Server`는 더 쓰지 않는다. 설계서는 `docs/superpowers/specs/2026-10-21-ash-server-design.md`(13장 저장소, 16장 Core API, 17장 버전·업데이트), 시안은 `docs/images/result-summary-mock.png`, `result-detail-mock.png`. 두 프로젝트는 `ASH.sln`에 추가되고 `ASH.Core`를 참조한다. `dotnet build ASH.sln`·`dotnet test`·`scripts/build-release.ps1`는 솔루션 전체를 다루므로 추가 즉시 포함된다(서버·워커 publish 단계는 서버 계획에서 추가).
+- 분석 서버 코드(ASH.Server: ASP.NET Core net10 Windows 서비스, ASH.Worker: net10)는 **이 저장소 하나**에 둔다. 별도 저장소 `ASH_Server`는 더 쓰지 않는다. 설계서는 `docs/superpowers/specs/2026-10-21-ash-server-design.md`(13장 저장소, 16장 Core API, 17장 버전·업데이트), 시안은 `docs/images/result-summary-mock.png`, `result-detail-mock.png`. 두 프로젝트는 `ASH.sln`에 추가되고 `ASH.Core`를 참조한다. `dotnet build ASH.sln`·`dotnet test`·`scripts/build-release.ps1`는 솔루션 전체를 다루므로 추가 즉시 포함된다(서버·워커 publish 단계는 서버 계획에서 추가).
 - **버전 하나**: `Directory.Build.props`의 `<Version>`(SemVer)을 플러그인·Core·Runner·서버·워커가 공유하고 릴리스마다 태그를 단다.
 - **업로드 형식 버전**: "서버로 보내기" 묶음에 `manifest.json`(ASH 버전, 형식 버전 `FormatVersion`, 파일별 SHA-256). `blocks.tsv`·`traffic.tsv`·`params.txt`·`result.tsv` 형식을 바꾸면 `FormatVersion`을 올린다. 현재 형식 = 1.
 - **플러그인 자동 업데이트**: 사내 서버가 최신 `ASH-Setup-x.y.z.exe`와 `/api/ash/version`(최신·최소 지원)을 제공. ASH는 ZWCAD 시작 시와 "서버로 보내기" 때 확인해 알리고, "ZWCAD 종료 후 설치"로 실행한다(설치 파일은 실행 중 ZWCAD를 거부함). 최소 지원 미만이면 서버 기능만 막는다. GitHub 접속 불필요(사내망 `api.github.com` 차단).

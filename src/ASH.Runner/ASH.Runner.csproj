@@ -6,6 +6,12 @@
     <AssemblyName>ash-run</AssemblyName>
     <RootNamespace>ASH.Runner</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- publish -r win-x64: self-contained single exe, no .NET install needed (same as AGV_FOTA_GATEWAY) -->
+    <SelfContained Condition="'$(RuntimeIdentifier)' != ''">true</SelfContained>
+    <PublishSingleFile Condition="'$(RuntimeIdentifier)' != ''">true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract Condition="'$(RuntimeIdentifier)' != ''">true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile Condition="'$(RuntimeIdentifier)' != ''">true</EnableCompressionInSingleFile>
+    <DebugType Condition="'$(RuntimeIdentifier)' != ''">none</DebugType>
   </PropertyGroup>
 
   <ItemGroup>

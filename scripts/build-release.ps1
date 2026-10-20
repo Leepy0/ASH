@@ -1,5 +1,5 @@
 # Release build -> dist/ASH-Setup-<Version>.exe (single exe, plugin DLLs embedded), dist/ASH-Plugin-<Version>.zip (manual NETLOAD)
-# and dist/ASH-Runner-<Version>.zip (ash-run, framework-dependent net10.0: needs the .NET 10 runtime).
+# and dist/ASH-Runner-<Version>-win-x64.zip (ash-run.exe, self-contained single file: no .NET install needed).
 # Version comes from <Version> in Directory.Build.props.
 $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath("$PSScriptRoot\..")
@@ -18,8 +18,8 @@ $zip = "$dist\ASH-Plugin-$version.zip"
 Compress-Archive -Path "$plugin\ASH.Plugin.dll", "$plugin\ASH.Core.dll" -DestinationPath $zip -Force
 $pub = "$root\src\ASH.Runner\bin\Release\publish"
 if (Test-Path $pub) { Remove-Item $pub -Recurse -Force }
-dotnet publish "$root\src\ASH.Runner" -c Release -o $pub --self-contained false -nologo -v q
+dotnet publish "$root\src\ASH.Runner" -c Release -r win-x64 -o $pub -nologo -v q
 if ($LASTEXITCODE) { throw "dotnet publish ash-run failed (exit $LASTEXITCODE)" }
-$runnerZip = "$dist\ASH-Runner-$version.zip"
-Compress-Archive -Path "$pub\*" -DestinationPath $runnerZip -Force
+$runnerZip = "$dist\ASH-Runner-$version-win-x64.zip"
+Compress-Archive -Path "$pub\ash-run.exe" -DestinationPath $runnerZip -Force
 Get-Item $exe, $zip, $runnerZip | ForEach-Object { Write-Host ("{0}  {1:N0} bytes" -f $_.FullName, $_.Length) }
