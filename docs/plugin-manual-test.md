@@ -5,6 +5,8 @@ ZWCAD가 설치된 PC에서 실행한다. 각 항목에 결과(OK/NG), 날짜, Z
 
 ## 설치
 
+설치 프로그램(`dist/ASH-Setup-<버전>.exe`, 아래 I1~I6)을 쓴다. 아래 1~5는 수동 `NETLOAD` 방법이다.
+
 1. 빌드 PC에서 `dotnet build ASH.sln -c Release`.
 2. `src/ASH.Plugin/bin/Release/net48/ASH.Plugin.dll`과 같은 폴더의 `ASH.Core.dll`을 ZWCAD PC의 한 폴더에 복사한다.
 3. 복사한 두 DLL을 각각 오른쪽 클릭 → 속성 → "차단 해제" 체크 → 확인(인터넷/메일로 받은 파일은 차단돼서 `NETLOAD`가 실패한다).
@@ -143,3 +145,16 @@ ZWCAD가 설치된 PC에서 실행한다. 각 항목에 결과(OK/NG), 날짜, Z
 | R25 작업공간 전환(리본 ↔ 클래식 ↔ 리본, `WSCURRENT` 변경 시 재생성) 뒤에도 `ASH` 탭이 다시 있고 하나뿐(중복 없음) | | | | |
 | R26 `ASH` 탭이 사라진 상태(예: 리본 재설정)에서 `AGVRIBBON` → 탭이 다시 생기고 앞으로 옴. 리본이 없는 화면에서는 "리본이 아직 없습니다…" 메시지 | | | | |
 | R27 명령 실행 중(예: `AGVCP` 클릭 대기) 리본 버튼 클릭 → "실행 중인 명령을 먼저 끝내세요.", 명령 이름이 입력값으로 들어가지 않음. 대기 중이 아니면 각 버튼이 해당 명령 실행 | | | | |
+
+## 설치 프로그램 (1.5 Task 4)
+
+미리보기: `ASH-Setup-0.1.0.exe /capture:<png>` → `docs/images/installer-preview.png` (ZWCAD 없는 빌드 PC, 탐색 없이 렌더링). 이 PC에는 `C:\Program Files\ZWSOFT`와 `HKLM\SOFTWARE\ZWSoft`가 없어 실제 실행 시에도 "ZWCAD 설치를 찾지 못했습니다"가 나온다(`/silent`는 종료 코드 1).
+
+| 항목 | 결과 | 날짜 | ZWCAD 버전 | 메모 |
+|---|---|---|---|---|
+| I1 설치: `ASH-Setup-x.y.z.exe` 실행 → UAC 요청 → 목록에 "ZWCAD 2026 (ko_KR) — C:\Program Files\ZWSOFT\ZWCAD 2026"이 선택된 채 표시 → "설치" → 로그에 복사 2건·등록 4건×(HKCU, HKLM), "완료. ZWCAD를 다시 시작하면…" 메시지. `<ZWCAD>\ASH\ASH.Plugin.dll`·`ASH.Core.dll` 존재, 속성에 "차단 해제" 체크박스 없음 | | | | |
+| I2 재시작 후 자동 로드: ZWCAD 재시작 → `NETLOAD` 없이 리본 `ASH` 탭과 `AGVINIT` 등 명령 동작. `regedit`에서 `HKCU\Software\ZWSoft\ZWCAD\<ver>\<lang>\Applications\ASH`의 `LOADER`/`LOADCTRLS=2`/`MANAGED=1`/`DESCRIPTION` 확인 | | | | |
+| I3 두 버전(예: 2024, 2026) 설치 PC: 둘 다 목록에 나오고 기본 모두 선택(Review Focus 1). 설치 후 두 버전 모두 자동 로드 | | | | |
+| I4 제거: `ASH-Setup-x.y.z.exe /uninstall` → "제거" → 확인 → `Applications\ASH` 키(HKCU·HKLM)와 `<ZWCAD>\ASH` 폴더 삭제, ZWCAD 재시작 시 ASH 탭 없음. ZWCAD 실행 중이면 DLL 잠김으로 "제거 중 오류" 로그 | | | | |
+| I5 비관리자: UAC에서 "아니요" → 실행 안 됨(관리자 필수 매니페스트). 관리자 계정이 다른 사용자인 경우(표준 사용자 + 관리자 자격 증명) HKCU 등록이 관리자 프로필에 들어가는지 확인 — HKLM 등록으로 자동 로드되는지 메모. `<ZWCAD>` 폴더 쓰기 거부 시 로그 "쓰기 실패 → %ProgramData%\ASH\<ver> 사용"과 LOADER가 그 경로 | | | | |
+| I6 재설치: 설치를 두 번 → 오류 없이 덮어씀, `Applications\ASH` 키 하나뿐, 값 중복 없음(Review Focus 5). ZWCAD 실행 중 재설치는 복사 실패로 중단되고 "ZWCAD가 실행 중이면 닫고 다시 시도" 로그 | | | | |

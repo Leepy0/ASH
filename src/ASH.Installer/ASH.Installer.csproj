@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Prefer32Bit>false</Prefer32Bit>
+    <AssemblyTitle>ASH 설치</AssemblyTitle>
+    <Product>ASH - AGV Simul Helper</Product>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <Reference Include="Microsoft.VisualBasic" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Private=false: ASH.Core is loaded from the embedded copy (Program.Resolve), so the exe ships alone. -->
+    <ProjectReference Include="..\ASH.Core\ASH.Core.csproj" Private="false" />
+    <!-- build ordering only: the plugin output is embedded below -->
+    <ProjectReference Include="..\ASH.Plugin\ASH.Plugin.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- both from the Plugin output so the installed Core matches the Plugin it was built with -->
+    <EmbeddedResource Include="..\ASH.Plugin\bin\$(Configuration)\net48\ASH.Plugin.dll" LogicalName="ASH.Plugin.dll" />
+    <EmbeddedResource Include="..\ASH.Plugin\bin\$(Configuration)\net48\ASH.Core.dll" LogicalName="ASH.Core.dll" />
+  </ItemGroup>
+
+</Project>

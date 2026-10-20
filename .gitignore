@@ -486,3 +486,6 @@ runs/
 report/
 *.bak.*
 .superpowers/
+
+# release output (scripts/build-release.ps1)
+dist/
