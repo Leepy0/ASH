@@ -94,7 +94,12 @@ public sealed class InitCommands
         var b = new BlockTableRecord { Name = name, Origin = Point3d.Origin };
         bt.Add(b);
         tr.AddNewlyCreatedDBObject(b, true);
-        fill(e => { b.AppendEntity(e); tr.AddNewlyCreatedDBObject(e, true); });
+        fill(e =>
+        {
+            e.Layer = "0"; // ByLayer geometry on 0 takes the colour of the layer the reference is inserted on
+            try { b.AppendEntity(e); } catch { e.Dispose(); throw; }
+            tr.AddNewlyCreatedDBObject(e, true);
+        });
         return 1;
     }
 

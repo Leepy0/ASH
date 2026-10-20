@@ -25,7 +25,7 @@ public sealed class PathCommands
     {
         var doc = Application.DocumentManager.MdiActiveDocument;
         var ed = doc.Editor;
-        var kw = new PromptKeywordOptions("\n지선이면 S, 일반 경로는 Enter [지선(S)]") { AllowNone = true };
+        var kw = new PromptKeywordOptions("\n지선이면 S, 일반 경로는 Enter [지선(S)]") { AllowNone = true, AppendKeywordsToMessage = false };
         kw.Keywords.Add("S");
         var r = ed.GetKeywords(kw);
         if (r.Status != PromptStatus.OK && r.Status != PromptStatus.None) return;
@@ -75,7 +75,7 @@ public sealed class PathCommands
         {
             var e = (Entity)tr.GetObject(id, OpenMode.ForWrite);
             var x = XData.ReadPath(e);
-            XData.WritePath(e, x?.Name ?? "P" + e.Handle, !(x?.Reversed ?? false), x?.IsSpur ?? DrawingReader.Eq(e.Layer, Conventions.LayerPathSpur), tr);
+            XData.WritePath(e, x?.Name ?? "?" + e.Handle, !(x?.Reversed ?? false), x?.IsSpur ?? DrawingReader.Eq(e.Layer, Conventions.LayerPathSpur), tr);
         }
         Ed.WriteMessage($"\n경로 {ids.Count}개 방향 반전.");
         return ids.Count > 0;
@@ -171,8 +171,16 @@ public sealed class PathCommands
             if (pr.Status != PromptStatus.OK) return false;
             var hit = LayoutChecker.Project(layout, new Point2(pr.Value.X, pr.Value.Y));
             if (hit == null) { Ed.WriteMessage("\n경로가 없습니다."); return false; }
+            if (hit.Value.Offset > 10 * layout.Tolerance) { Ed.WriteMessage($"\n찍은 점이 가장 가까운 경로 {hit.Value.Path.Name}에서 {hit.Value.Offset:0.###} 떨어져 있습니다. 경로 위의 점을 찍으세요."); return false; }
             var pieces = PathSplitter.SplitAt(hit.Value.Path, new[] { hit.Value.Dist }, layout.Tolerance);
             if (pieces.Count < 2) { Ed.WriteMessage("\n경로 끝점이라 분할하지 않았습니다."); return false; }
+            var taken = new HashSet<string>(layout.Paths.Select(p => p.Name));
+            int k = 1;
+            foreach (var piece in pieces)
+            {
+                while (!taken.Add(hit.Value.Path.Name + "_" + k)) k++; // same suffix skipping as PathSplitter.SplitAll
+                piece.Name = hit.Value.Path.Name + "_" + k++;
+            }
             DrawingWriter.ReplacePaths(db, tr, new[] { hit.Value.Path.Id }, pieces);
             Ed.WriteMessage($"\n경로 {hit.Value.Path.Name} → {string.Join(", ", pieces.Select(p => p.Name))}");
             return true;
@@ -234,6 +242,7 @@ public sealed class PathCommands
             using (doc.LockDocument())
             using (var tr = doc.Database.TransactionManager.StartTransaction())
             {
+                InitCommands.Init(doc.Database, tr); // layers/blocks must exist before any Layer set or block insert
                 if (!body(doc.Database, tr)) return;
                 DrawingWriter.RefreshDirectionArrows(doc.Database, tr);
                 tr.Commit();
@@ -264,7 +273,7 @@ public sealed class PathCommands
     /// <summary>Keyword prompt; Enter returns def. Null on cancel.</summary>
     private static string? Keyword(Editor ed, string msg, string def, params string[] keys)
     {
-        var o = new PromptKeywordOptions(msg) { AllowNone = true };
+        var o = new PromptKeywordOptions(msg) { AllowNone = true, AppendKeywordsToMessage = false };
         foreach (var k in keys) o.Keywords.Add(k);
         var r = ed.GetKeywords(o);
         if (r.Status == PromptStatus.None) return def;

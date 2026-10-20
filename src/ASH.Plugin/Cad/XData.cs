@@ -10,18 +10,19 @@ public static class XData
         using var rb = e.GetXDataForApplication(Conventions.AppName);
         if (rb == null) return null;
         var v = rb.AsArray();
-        if (v.Length < 4 || !(v[1].Value is string name) || !(v[3].Value is string ptype)) return null; // foreign/old layout: treat as untagged
+        if (v.Length < 4 || !(v[1].Value is string name) || v[2].TypeCode != (short)DxfCode.ExtendedDataInteger16 || !(v[3].Value is string ptype)) return null; // foreign/old layout: treat as untagged
         return (name, System.Convert.ToInt32(v[2].Value) == 1, ptype == "spur");
     }
 
     public static void WritePath(Entity e, string name, bool reversed, bool isSpur, Transaction tr)
     {
         EnsureRegApp(e.Database, tr);
-        e.XData = new ResultBuffer(
+        using var rb = new ResultBuffer(
             new TypedValue((int)DxfCode.ExtendedDataRegAppName, Conventions.AppName),
             new TypedValue((int)DxfCode.ExtendedDataAsciiString, name),
             new TypedValue((int)DxfCode.ExtendedDataInteger16, (short)(reversed ? 1 : 0)),
             new TypedValue((int)DxfCode.ExtendedDataAsciiString, isSpur ? "spur" : "path"));
+        e.XData = rb;
     }
 
     public static void EnsureRegApp(Database db, Transaction tr)

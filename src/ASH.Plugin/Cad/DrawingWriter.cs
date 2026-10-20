@@ -60,7 +60,7 @@ public static class DrawingWriter
         int i = 0;
         foreach (var s in p.Segments.SelectMany(SplitWideArc))
         {
-            double bulge = s is ArcSeg a ? Math.Tan(a.SweepDeg * Math.PI / 180 / 4) : 0;
+            double bulge = s is ArcSeg a ? Bulge.FromSweepDeg(a.SweepDeg) : 0;
             pl.AddVertexAt(i++, new Point2d(s.Start.X, s.Start.Y), bulge, 0, 0);
         }
         pl.AddVertexAt(i, new Point2d(p.End.X, p.End.Y), 0, 0, 0);
@@ -113,8 +113,9 @@ public static class DrawingWriter
             if (!(tr.GetObject(eid, OpenMode.ForRead) is AttributeDefinition ad) || ad.Constant) continue;
             var ar = new AttributeReference();
             ar.SetAttributeFromBlock(ad, br.BlockTransform);
+            ar.Layer = br.Layer;
             ar.TextString = attrs.TryGetValue(ad.Tag, out var v) ? v ?? "" : ad.TextString;
-            br.AttributeCollection.AppendAttribute(ar);
+            try { br.AttributeCollection.AppendAttribute(ar); } catch { ar.Dispose(); throw; }
             tr.AddNewlyCreatedDBObject(ar, true);
         }
         return id;
@@ -130,7 +131,8 @@ public static class DrawingWriter
     {
         var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
         var ms = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForWrite);
-        var id = ms.AppendEntity(e);
+        ObjectId id;
+        try { id = ms.AppendEntity(e); } catch { e.Dispose(); throw; } // not database-resident yet: nobody else will dispose it
         tr.AddNewlyCreatedDBObject(e, true);
         return id;
     }

@@ -86,7 +86,7 @@ public static class DrawingReader
                 double flip = pl.Normal.Z < 0 ? -1 : 1;
                 for (int i = 0; i < count; i++)
                 {
-                    var s = BulgeSeg(Xy(pl.GetPoint3dAt(i)), Xy(pl.GetPoint3dAt((i + 1) % n)), pl.GetBulgeAt(i) * flip);
+                    var s = Bulge.ToSegment(Xy(pl.GetPoint3dAt(i)), Xy(pl.GetPoint3dAt((i + 1) % n)), pl.GetBulgeAt(i) * flip);
                     if (s != null) segs.Add(s);
                 }
                 break;
@@ -102,18 +102,7 @@ public static class DrawingReader
             segs.Reverse();
             segs = segs.Select(s => s.Reversed()).ToList();
         }
-        return new LayoutPath(x?.Name ?? "P" + e.Handle) { Id = e.Handle.ToString(), IsSpur = x?.IsSpur ?? spurLayer, Segments = segs };
-    }
-
-    /// <summary>Polyline segment p0→p1; bulge = tan(sweep/4), positive CCW, centre left of the chord.</summary>
-    public static Segment? BulgeSeg(Point2 p0, Point2 p1, double bulge)
-    {
-        double dx = p1.X - p0.X, dy = p1.Y - p0.Y, c = Math.Sqrt(dx * dx + dy * dy);
-        if (c <= MinLen) return null;
-        if (Math.Abs(bulge) < 1e-12) return new LineSeg(p0, p1);
-        double h = (1 - bulge * bulge) / (4 * bulge); // signed centre offset per unit chord, left of p0→p1
-        var center = new Point2((p0.X + p1.X) / 2 - dy * h, (p0.Y + p1.Y) / 2 + dx * h);
-        return new ArcSeg(center, p0, 4 * Math.Atan(bulge) * 180 / Math.PI);
+        return new LayoutPath(x?.Name ?? "?" + e.Handle) { Id = e.Handle.ToString(), IsSpur = x?.IsSpur ?? spurLayer, Segments = segs };
     }
 
     internal static IEnumerable<ObjectId> ModelSpace(Database db, Transaction tr, OpenMode mode)
