@@ -3,6 +3,7 @@ using System.Globalization;
 using System.IO;
 using System.Runtime.Serialization;
 using System.Runtime.Serialization.Json;
+using System.Text.RegularExpressions;
 
 namespace ASH.Core.Update;
 
@@ -28,6 +29,11 @@ public sealed class ReleaseManifest
     [DataMember(Name = "notes", Order = 9)] public string Notes { get; set; } = "";
 
     private static readonly DataContractJsonSerializer Serializer = new(typeof(ReleaseManifest));
+    private static readonly Regex FileNamePattern = new(@"^ASH-Setup-[0-9A-Za-z.+-]+\.exe\z", RegexOptions.CultureInvariant);
+    private static readonly Regex Sha256Pattern = new(@"^[0-9a-f]{64}\z", RegexOptions.CultureInvariant);
+
+    /// <summary>Plain installer name only (no path separators, drive, or other extension).</summary>
+    public static bool IsValidFileName(string? name) => name != null && FileNamePattern.IsMatch(name);
 
     public static string FormatPublished(DateTime utc) => utc.ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'", CultureInfo.InvariantCulture);
 
@@ -46,6 +52,9 @@ public sealed class ReleaseManifest
         }
         if (m == null || string.IsNullOrEmpty(m.Version) || string.IsNullOrEmpty(m.File) || string.IsNullOrEmpty(m.Sha256))
             throw new InvalidDataException("배포 정보(ASH.json)에 version/file/sha256이 없습니다.");
+        if (!IsValidFileName(m.File)) throw new InvalidDataException("배포 정보의 file 이름이 올바르지 않습니다: " + m.File);
+        if (!Sha256Pattern.IsMatch(m.Sha256)) throw new InvalidDataException("배포 정보의 sha256은 소문자 hex 64자여야 합니다.");
+        if (m.Size < 0) throw new InvalidDataException("배포 정보의 size가 음수입니다.");
         m.MinSupported ??= "";
         m.Product ??= "";
         m.Rid ??= "";

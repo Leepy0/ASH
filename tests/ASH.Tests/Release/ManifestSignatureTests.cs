@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
 using ASH.Core.Update;
@@ -8,12 +9,10 @@ namespace ASH.Tests.Release;
 
 public class ManifestSignatureTests
 {
-    // Fixed vector made once with `AshRelease keygen/manifest/sign` (net10) and cross-checked with `openssl dgst -sha256 -verify`.
-    // Keys are throwaway; the signature was made with the SECOND key. Runs on net48 too, which cannot export keys/DER signatures itself.
-    private const string PubKey1 = "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAElBStBl7Eb11sP5TirX0V2wDgaCbV\nQX5yQeLhnFjiJYbcKkDsVhP/Frkwyz2XiifkgkfijQX0IAXxnddIC5eDWQ==\n-----END PUBLIC KEY-----\n";
-    private const string PubKey2 = "-----BEGIN PUBLIC KEY-----\nMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEPzjXuLLBxoa8Yfgly0cN0FI0VKS3\n2oRpgEmjVkRrAraLAJ8D1yrsMTAIpcWyfFyny4z7W19DVVv2bswAO8nSJA==\n-----END PUBLIC KEY-----\n";
-    private const string ManifestB64 = "eyJwcm9kdWN0IjoiQVNIIiwidmVyc2lvbiI6IjAuMS4wIiwibWluU3VwcG9ydGVkIjoiMC4xLjAiLCJmb3JtYXRWZXJzaW9uIjoxLCJyaWQiOiJ3aW4teDY0IiwiZmlsZSI6IkFTSC1TZXR1cC0wLjEuMC5leGUiLCJzaGEyNTYiOiI3Y2ZkMDQ2MjIzMTJmNzAyYTdmZDNkOGIwZDUwMzBkZjQ2ZDQzNzk0MWY0ZTMzMDg4MWI2ZGI0ODBiN2M3ZGIxIiwic2l6ZSI6MTAsInB1Ymxpc2hlZCI6IjIwMjYtMTAtMjBUMjI6MjA6MTNaIiwibm90ZXMiOiJub3RlcyBcL3gifQ==";
-    private const string SigB64 = "MEYCIQDusp6Nq7hB4UktxnNtZTpdwCa0faVIGHGuk4hKH/CxtgIhAJYIGAUlJX8gk5CmlZOPP+6l5DOOOjq6gR2GmiCZt6LC";
+    private const string PubKey1 = SigVector.PubKey1;
+    private const string PubKey2 = SigVector.PubKey2;
+    private const string ManifestB64 = SigVector.ManifestB64;
+    private const string SigB64 = SigVector.SigB64;
 
     private static byte[] Data => Convert.FromBase64String(ManifestB64);
     private static byte[] Sig => Convert.FromBase64String(SigB64);
@@ -70,6 +69,50 @@ public class ManifestSignatureTests
         der[22] ^= 0xFF;
         string pem = "-----BEGIN PUBLIC KEY-----\n" + Convert.ToBase64String(der) + "\n-----END PUBLIC KEY-----";
         Assert.Throws<ArgumentException>(() => new ManifestSignature(pem));
+    }
+
+    [Fact] public void Off_Curve_Point_Is_Rejected()
+    {
+        var der = Convert.FromBase64String(string.Concat(PubKey2.Split('\n')[1], PubKey2.Split('\n')[2]));
+        der[der.Length - 1] ^= 1; // Y no longer matches X
+        Assert.Throws<ArgumentException>(() => new ManifestSignature("-----BEGIN PUBLIC KEY-----\n" + Convert.ToBase64String(der) + "\n-----END PUBLIC KEY-----"));
+    }
+
+    private static byte[] Der(byte[] r, byte[] s, byte[]? tail = null)
+    {
+        var body = new byte[] { 2, (byte)r.Length }.Concat(r).Concat(new byte[] { 2, (byte)s.Length }).Concat(s).ToArray();
+        return new byte[] { 0x30, (byte)body.Length }.Concat(body).Concat(tail ?? new byte[0]).ToArray();
+    }
+    private static byte[] Rep(byte v, int n) => Enumerable.Repeat(v, n).ToArray();
+
+    [Fact] public void Der_Short_Values_Are_Left_Padded()
+    {
+        var p = ManifestSignature.DerToP1363(Der(new byte[] { 1 }, new byte[] { 2 }));
+        Assert.Equal(64, p.Length);
+        Assert.Equal(1, p[31]); Assert.Equal(2, p[63]);
+        Assert.All(p.Take(31), b => Assert.Equal(0, b));
+        var q = ManifestSignature.DerToP1363(Der(new byte[] { 0, 0x80 }, new byte[] { 0x7F }));
+        Assert.Equal(0x80, q[31]); Assert.Equal(0x7F, q[63]);
+    }
+    [Fact] public void Der_Max_Size_33_Byte_Integer_With_Sign_Zero_Is_Accepted()
+    {
+        var p = ManifestSignature.DerToP1363(Der(new byte[] { 0 }.Concat(Rep(0xFF, 32)).ToArray(), new byte[] { 0 }.Concat(Rep(0x80, 32)).ToArray()));
+        Assert.Equal(Rep(0xFF, 32), p.Take(32).ToArray());
+        Assert.Equal(Rep(0x80, 32), p.Skip(32).ToArray());
+    }
+    [Fact] public void Der_Strictness_Rejects_Malformed()
+    {
+        Assert.Throws<ArgumentException>(() => ManifestSignature.DerToP1363(Der(new byte[] { 1 }, new byte[] { 2 }, new byte[] { 0 })));      // trailing byte
+        Assert.Throws<ArgumentException>(() => ManifestSignature.DerToP1363(new byte[] { 0x30, 0x81, 0x06, 2, 1, 1, 2, 1, 2 }));               // long-form (non-minimal) length
+        Assert.Throws<ArgumentException>(() => ManifestSignature.DerToP1363(Der(new byte[] { 0 }, new byte[] { 2 })));                         // r = 0
+        Assert.Throws<ArgumentException>(() => ManifestSignature.DerToP1363(Der(new byte[] { 1 }, new byte[] { 0 })));                         // s = 0
+        Assert.Throws<ArgumentException>(() => ManifestSignature.DerToP1363(Der(new byte[] { 0x01 }.Concat(Rep(0x11, 32)).ToArray(), new byte[] { 2 }))); // 33 bytes, no sign zero
+        Assert.Throws<ArgumentException>(() => ManifestSignature.DerToP1363(Der(new byte[] { 0x80 }, new byte[] { 2 })));                      // negative
+        Assert.Throws<ArgumentException>(() => ManifestSignature.DerToP1363(Der(new byte[] { 0, 1 }, new byte[] { 2 })));                      // superfluous leading zero
+        Assert.Throws<ArgumentException>(() => ManifestSignature.DerToP1363(new byte[] { 0x30, 0x08, 2, 0, 2, 1, 1, 2, 1, 1 }));             // empty INTEGER
+        Assert.Throws<ArgumentException>(() => ManifestSignature.DerToP1363(new byte[] { 0x30, 0x09, 2, 1, 1, 2, 1, 2 }));                    // sequence length lies
+        Assert.Throws<ArgumentException>(() => ManifestSignature.DerToP1363(new byte[] { 0x31, 0x06, 2, 1, 1, 2, 1, 2 }));                    // not a SEQUENCE
+        Assert.Throws<ArgumentException>(() => ManifestSignature.DerToP1363(new byte[] { 0x30, 0x06, 3, 1, 1, 2, 1, 2 }));                    // not an INTEGER
     }
 
 #if NET10_0_OR_GREATER

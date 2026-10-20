@@ -69,6 +69,16 @@ public sealed class AshReleaseToolTests : IDisposable
         Assert.Equal(0, Run("verify", "--pub", P("both.pub"), "--in", json).rc);
     }
 
+    [Fact] public void Sign_Rejects_Non_P256_Key()
+    {
+        using var k = System.Security.Cryptography.ECDsa.Create(System.Security.Cryptography.ECCurve.NamedCurves.nistP384);
+        File.WriteAllText(P("p384.pem"), k.ExportPkcs8PrivateKeyPem());
+        string json = MakeManifest();
+        var r = Run("sign", "--key", P("p384.pem"), "--in", json);
+        Assert.Equal(1, r.rc);
+        Assert.False(File.Exists(json + ".sig"));
+    }
+
     [Fact] public void Keygen_Refuses_To_Overwrite()
     {
         Assert.Equal(0, Run("keygen", "--out", P("k")).rc);
@@ -86,6 +96,10 @@ public sealed class AshReleaseToolTests : IDisposable
         Assert.Equal(1, Run("manifest", "--file", P("missing.exe"), "--version", "1.0.0", "--min", "1.0.0", "--out", P("x.json")).rc);
         File.WriteAllText(P("s.exe"), "x");
         Assert.Equal(1, Run("manifest", "--file", P("s.exe"), "--version", "one", "--min", "1.0.0", "--out", P("x.json")).rc);
+        File.WriteAllText(P("ASH-Setup-1.0.0.exe"), "x");
+        Assert.Equal(1, Run("manifest", "--file", P("ASH-Setup-1.0.0.exe"), "--version", "1.0.0", "--min", "1.0.1", "--out", P("x.json")).rc); // min > version
+        Assert.Equal(1, Run("manifest", "--file", P("s.exe"), "--version", "1.0.0", "--min", "1.0.0", "--out", P("x.json")).rc);             // file name not ASH-Setup-*.exe
+        Assert.Equal(0, Run("manifest", "--file", P("ASH-Setup-1.0.0.exe"), "--version", "1.0.0", "--min", "1.0.0", "--out", P("x.json")).rc);
         Assert.Equal(1, Run("sign", "--key", P("nokey.pem"), "--in", P("s.exe")).rc);
         Assert.Equal(1, Run("verify", "--pub", P("nokey.pub"), "--in", P("s.exe")).rc);
     }

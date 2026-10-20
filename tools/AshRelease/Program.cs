@@ -81,8 +81,10 @@ public static class Program
     private static int Manifest(Dictionary<string, string> opt, TextWriter o)
     {
         string file = Req(opt, "file"), version = Req(opt, "version"), min = Req(opt, "min"), outPath = Req(opt, "out");
-        if (!SemVersion.TryParse(version, out _)) throw new ArgumentException("--version 이 SemVer(MAJOR.MINOR.PATCH[-pre])가 아닙니다: " + version);
-        if (!SemVersion.TryParse(min, out _)) throw new ArgumentException("--min 이 SemVer가 아닙니다: " + min);
+        if (!SemVersion.TryParse(version, out var ver)) throw new ArgumentException("--version 이 SemVer(MAJOR.MINOR.PATCH[-pre])가 아닙니다: " + version);
+        if (!SemVersion.TryParse(min, out var minV)) throw new ArgumentException("--min 이 SemVer가 아닙니다: " + min);
+        if (minV!.CompareTo(ver) > 0) throw new ArgumentException($"--min {min} 이 --version {version} 보다 높습니다.");
+        if (!ReleaseManifest.IsValidFileName(Path.GetFileName(file))) throw new ArgumentException("설치 파일 이름은 ASH-Setup-<버전>.exe 형식이어야 합니다: " + Path.GetFileName(file));
         if (!File.Exists(file)) throw new FileNotFoundException("설치 파일이 없습니다: " + file);
         string notes = opt.TryGetValue("notes", out var np) ? File.ReadAllText(np).Trim() : "";
         using var fs = File.OpenRead(file);
@@ -108,8 +110,10 @@ public static class Program
         string keyPath = Req(opt, "key"), inPath = Req(opt, "in");
         using var k = ECDsa.Create();
         k.ImportFromPem(File.ReadAllText(keyPath));
-        if (k.KeySize != 256) throw new ArgumentException("P-256 개인키가 아닙니다.");
-        byte[] sig = k.SignData(File.ReadAllBytes(inPath), HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
+        if (k.ExportParameters(false).Curve.Oid?.Value != "1.2.840.10045.3.1.7") throw new ArgumentException("P-256(prime256v1) 개인키가 아닙니다.");
+        byte[] data = File.ReadAllBytes(inPath);
+        byte[] sig = k.SignData(data, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
+        if (!new ManifestSignature(k.ExportSubjectPublicKeyInfoPem()).Verify(data, sig)) throw new CryptographicException("만든 서명이 자체 검증에 실패했습니다.");
         File.WriteAllBytes(inPath + ".sig", sig);
         o.WriteLine($"서명 작성: {inPath}.sig ({sig.Length}바이트)");
         return 0;

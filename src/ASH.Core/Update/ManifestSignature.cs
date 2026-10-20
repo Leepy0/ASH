@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Numerics;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -82,10 +84,37 @@ public sealed class ManifestSignature
         var x = new byte[32]; var y = new byte[32];
         Buffer.BlockCopy(der, SpkiPrefix.Length, x, 0, 32);
         Buffer.BlockCopy(der, SpkiPrefix.Length + 32, y, 0, 32);
-        return new ECParameters { Curve = ECCurve.NamedCurves.nistP256, Q = new ECPoint { X = x, Y = y } };
+        if (!OnCurve(x, y)) throw new ArgumentException("공개키 점이 P-256 곡선 위에 있지 않습니다.");
+        var ep = new ECParameters { Curve = ECCurve.NamedCurves.nistP256, Q = new ECPoint { X = x, Y = y } };
+        try { using (ECDsa.Create(ep)) { } } // rejects a point that is not on the curve
+        catch (CryptographicException ex) { throw new ArgumentException("공개키 점이 P-256 곡선 위에 있지 않습니다.", ex); }
+        return ep;
     }
 
-    /// <summary>SEQUENCE{INTEGER r, INTEGER s} to r||s, 32 bytes each.</summary>
+    // NIST P-256: y^2 = x^3 - 3x + b (mod p); ECDsa.Create does not check the point on every runtime
+    private static readonly BigInteger P = BigInteger.Parse("0FFFFFFFF00000001000000000000000000000000FFFFFFFFFFFFFFFFFFFFFFFF", NumberStyles.HexNumber);
+    private static readonly BigInteger B = BigInteger.Parse("05AC635D8AA3A93E7B3EBBD55769886BC651D06B0CC53B0F63BCE3C3E27D2604B", NumberStyles.HexNumber);
+
+    private static BigInteger BigEndian(byte[] b)
+    {
+        var le = new byte[b.Length + 1];
+        for (int i = 0; i < b.Length; i++) le[i] = b[b.Length - 1 - i];
+        return new BigInteger(le);
+    }
+
+    private static bool OnCurve(byte[] xb, byte[] yb)
+    {
+        BigInteger x = BigEndian(xb), y = BigEndian(yb);
+        if (x >= P || y >= P) return false;
+        BigInteger lhs = y * y % P, rhs = ((x * x % P) * x - 3 * x + B) % P;
+        if (rhs.Sign < 0) rhs += P;
+        return lhs == rhs;
+    }
+
+    /// <summary>
+    /// Strict DER SEQUENCE{INTEGER r, INTEGER s} to r||s, 32 bytes each. Only minimal short-form lengths, positive INTEGERs
+    /// without superfluous leading zeros, 0 &lt; r,s, and no trailing bytes are accepted.
+    /// </summary>
     /// <exception cref="ArgumentException">Not a well-formed P-256 DER signature.</exception>
     internal static byte[] DerToP1363(byte[] der)
     {
@@ -101,13 +130,13 @@ public sealed class ManifestSignature
         return o;
     }
 
+    // P-256 signatures never need long-form lengths (max 72 bytes), so 0x81.. is non-minimal or garbage
     private static int Len(byte[] d, ref int p)
     {
         if (p >= d.Length) throw new ArgumentException("DER 서명이 잘렸습니다.");
         int n = d[p++];
-        if (n < 0x80) return n;
-        if (n != 0x81 || p >= d.Length) throw new ArgumentException("DER 길이 형식 오류.");
-        return d[p++];
+        if (n >= 0x80) throw new ArgumentException("DER 길이 형식 오류.");
+        return n;
     }
 
     private static byte[] Int(byte[] d, ref int p)
@@ -117,7 +146,9 @@ public sealed class ManifestSignature
         if (n == 0 || p + n > d.Length) throw new ArgumentException("DER INTEGER 길이 오류.");
         int start = p, end = p + n;
         p = end;
-        while (start < end - 1 && d[start] == 0) start++;
+        if ((d[start] & 0x80) != 0) throw new ArgumentException("DER INTEGER가 음수입니다.");
+        if (n > 1 && d[start] == 0 && (d[start + 1] & 0x80) == 0) throw new ArgumentException("DER INTEGER에 불필요한 앞자리 0이 있습니다.");
+        if (d[start] == 0) { if (n == 1) throw new ArgumentException("서명 값이 0입니다."); start++; }
         if (end - start > 32) throw new ArgumentException("P-256 서명 정수가 너무 큽니다.");
         var v = new byte[end - start];
         Buffer.BlockCopy(d, start, v, 0, v.Length);
