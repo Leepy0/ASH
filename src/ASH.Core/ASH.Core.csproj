@@ -11,6 +11,7 @@
 
   <ItemGroup>
     <EmbeddedResource Include="Export/Templates/*.txt" />
+    <EmbeddedResource Include="Model/Templates/*.txt" />
   </ItemGroup>
 
 </Project>

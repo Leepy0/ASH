@@ -1,0 +1,8 @@
+picpos endx 1
+ template Feet
+700 17
+2 2 0 1 1 none
+1
+310 0
+1 1 1 1 1 0 0
+end
