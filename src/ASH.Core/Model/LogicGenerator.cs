@@ -31,10 +31,11 @@ public static class LogicGenerator
 
     static string N(double d) => AsyWriter.Num(d);
 
-    /// <summary>Text placed inside an AM string literal or used as an entity name: entity-name rules plus no quote/backslash.</summary>
+    /// <summary>Text placed inside an AM string literal or used as an entity name. Last guard only: InputValidator reports bad names
+    /// with their Excel row first.</summary>
     static string Lit(string s)
     {
-        if (!Layout.LayoutChecker.IsValidName(s) || s.IndexOf('"') >= 0 || s.IndexOf('\\') >= 0) throw new ArgumentException($"로직에 쓸 수 없는 이름입니다: '{s}'");
+        if (!InputValidator.IsAmText(s)) throw new ArgumentException($"로직에 쓸 수 없는 이름입니다: '{s}'");
         return s;
     }
 

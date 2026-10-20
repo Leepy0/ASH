@@ -23,6 +23,15 @@ public class GroupClustersTests
         return (l, p);
     }
 
+    [Fact] public void Supply_Length_Follows_Route_Paths()
+    {
+        var (l, p) = Setup("D2", "D1");                    // M2: p4 -> p3 unreachable, so no length
+        var c = GroupClusters.Build(l, p, TrafficTable.Build(l));
+        Assert.Equal(13, c.SupplyLength["M1"], 6);         // C1 at 2 on p1 -> C2 at 5 on p2: 8 + 5
+        Assert.False(c.SupplyLength.ContainsKey("M2"));
+        p.Routes[0] = p.Routes[0] with { SupplyToCP = "C1", SupplyFromCP = "C2" };   // against the one-way direction: p2 -> p1 unreachable
+        Assert.False(GroupClusters.Build(l, p, TrafficTable.Build(l)).SupplyLength.ContainsKey("M1"));
+    }
     [Fact] public void Shared_Path_Makes_One_Cluster()
     {
         var (l, p) = Setup("C1", "C2");

@@ -33,7 +33,9 @@ public static class ModelBuilder
             input.AgvTypes.AddRange(r.Input.AgvTypes); input.Groups.AddRange(r.Input.Groups); input.Materials.AddRange(r.MaterialOverrides);
             input.Routes.AddRange(r.Input.Routes); input.Stations.AddRange(r.Input.Stations); input.Ext.AddRange(r.Input.Ext);
         }
-        var findings = InputValidator.Validate(input, l.Cps.Select(c => c.Name).ToList());
+        // route lengths in model units (the vehicle speed is in model units per second)
+        var supplyLength = Runner.GroupClusters.Build(l, input, ASH.Core.Traffic.TrafficTable.Build(l)).SupplyLength.ToDictionary(kv => kv.Key, kv => kv.Value * o.Scale);
+        var findings = InputValidator.Validate(input, l.Cps.Select(c => c.Name).ToList(), supplyLength);
         if (findings.Any(f => f.Code == FindingCode.InputError)) return new ModelBuildResult(arc, null, findings, Warn(findings));
 
         var warnings = Warn(findings); warnings.AddRange(ExportRunner.Run(l, o, arc).Warnings);

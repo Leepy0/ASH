@@ -14,6 +14,9 @@ public sealed class GroupClusters
     public IReadOnlyDictionary<string, HashSet<string>> UsedPaths { get; private set; } = new Dictionary<string, HashSet<string>>();
     public IReadOnlyDictionary<string, HashSet<string>> UsedBlocks { get; private set; } = new Dictionary<string, HashSet<string>>();
     public List<string> Warnings { get; } = new();
+    /// <summary>Shortest loaded route length per material, SupplyFrom -> [Buffer] -> SupplyTo, in layout units; a material with an
+    /// unroutable leg is absent. Feeds InputValidator.SupplyCapacity.</summary>
+    public IReadOnlyDictionary<string, double> SupplyLength { get; private set; } = new Dictionary<string, double>();
 
     /// <summary>A cluster per group, no sharing assumed (for callers without a layout).</summary>
     public static GroupClusters Singletons(ProjectInput input) => new GroupClusters
@@ -59,7 +62,7 @@ public sealed class GroupClusters
                 { warnings.Add($"{g.Group}: CP {(cpPos.ContainsKey(a) ? b : a)} not on layout"); continue; }
                 if (pa.Path == pb.Path && pb.Dist < pa.Dist)
                 { warnings.Add($"{g.Group}: {a} -> {b} is behind on the same path (needs a loop)"); continue; }
-                var leg = Route(graph, nodeOf, sssp, pa.Path, pb.Path);
+                var leg = Route(graph, nodeOf, sssp, pa.Path, pb.Path, out _);
                 if (leg == null) { warnings.Add($"{g.Group}: no route {a} -> {b}"); continue; }
                 foreach (var p in leg) used.Add(p.Id);
             }
@@ -75,15 +78,31 @@ public sealed class GroupClusters
             for (int j = i + 1; j < gs.Count; j++)
                 if (paths[gs[i]].Overlaps(paths[gs[j]]) || blocks[gs[i]].Overlaps(blocks[gs[j]]))
                     parent[Find(gs[i])] = Find(gs[j]);
+        var supply = new Dictionary<string, double>();
+        foreach (var rt in input.Routes)
+        {
+            var cps = new[] { rt.SupplyFromCP, rt.BufferCP, rt.SupplyToCP }.Where(s => !string.IsNullOrEmpty(s)).Select(s => s!).ToList();
+            double total = 0;
+            for (int i = 0; i + 1 < cps.Count && !double.IsNaN(total); i++)
+            {
+                if (!cpPos.TryGetValue(cps[i], out var pa) || !cpPos.TryGetValue(cps[i + 1], out var pb)) { total = double.NaN; break; }
+                total += pa.Path == pb.Path ? (pb.Dist >= pa.Dist ? pb.Dist - pa.Dist : double.NaN) // behind: loop length unknown, skip
+                    : Route(graph, nodeOf, sssp, pa.Path, pb.Path, out var between) == null ? double.NaN : pa.Path.Length - pa.Dist + between + pb.Dist;
+            }
+            if (!double.IsNaN(total) && !supply.ContainsKey(rt.Material)) supply[rt.Material] = total;
+        }
+
         var r = new GroupClusters { Clusters = gs.GroupBy(Find).Select(x => (IReadOnlyList<string>)x.ToList()).ToList() };
-        r.UsedPaths = paths; r.UsedBlocks = blocks; r.Warnings.AddRange(warnings);
+        r.UsedPaths = paths; r.UsedBlocks = blocks; r.SupplyLength = supply; r.Warnings.AddRange(warnings);
         return r;
     }
 
     // shortcut: O(V^2) Dijkstra, one run per start node (cached for the Build), fine for hundreds of path ends.
     static List<LayoutPath>? Route(PathGraph graph, Dictionary<(LayoutPath, bool), int> nodeOf,
-        Dictionary<int, (double[] Dist, (int Node, LayoutPath? Path)[] Prev)> cache, LayoutPath pa, LayoutPath pb)
+        Dictionary<int, (double[] Dist, (int Node, LayoutPath? Path)[] Prev)> cache, LayoutPath pa, LayoutPath pb, out double between)
     {
+        // between = length of the paths strictly between pa's end and pb's start (0 for the same path)
+        between = 0;
         var res = new List<LayoutPath> { pa };
         if (pa == pb) return res;
         res.Add(pb);
@@ -109,6 +128,7 @@ public sealed class GroupClusters
             cache[src] = sp = (dist, prev);
         }
         if (double.IsInfinity(sp.Dist[dst])) return null;
+        between = sp.Dist[dst];
         for (int v = dst; v != src; v = sp.Prev[v].Node) res.Add(sp.Prev[v].Path!);
         return res;
     }

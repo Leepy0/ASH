@@ -12,7 +12,8 @@ public static class ExcelTemplate
         ("AGV_Types",
             new[] { "Type", "Group", "SpeedLoaded", "SpeedEmpty", "Accel", "Decel", "Capacity", "LoadTime", "UnloadTime", "MTBF", "MTTR", "Length", "Width", "Color" },
             new[] { "타입명", "그룹명", "적재 속도(m/s)", "공차 속도(m/s)", "가속(m/s²)", "감속(m/s²)", "용기 수", "로딩(초)", "언로딩(초)", "MTBF(초, 0=없음)", "MTTR(초)", "길이(m)", "폭(m)", "색상" },
-            new[] { "T_EX", "G_EX", "1.0", "1.2", "0.5", "0.5", "2", "20", "20", "0", "0", "1.2", "0.8", "Blue" }),
+            // SpeedEmpty/Accel/Decel/Capacity/MTBF/MTTR are not modelled yet (v2): the example keeps their neutral values
+            new[] { "T_EX", "G_EX", "1.0", "1.0", "0", "0", "1", "20", "20", "0", "0", "1.2", "0.8", "Blue" }),
         ("AGV_Groups",
             new[] { "Group", "Type", "MinCount", "MaxCount", "StandbyCPs", "Dispatch" },
             new[] { "그룹명", "AGV 타입(하나)", "최소 대수", "최대 대수", "대기 CP(쉼표 구분)", "Nearest / FIFO" },
@@ -20,7 +21,7 @@ public static class ExcelTemplate
         ("Materials",
             new[] { "Material", "Station", "Group", "TaktTime", "UnitsPerCycle", "UnitsPerContainer", "CallThreshold", "UnloadThreshold", "InitStock", "SafetyStock", "EmptyReturn" },
             new[] { "자재명", "공정명", "그룹명", "T/T(초)", "T/T당 소비 원수", "용기당 원수", "호출 임계(용기)", "언로딩 임계(용기)", "초기재고(용기, 비우면 Settings)", "안전재고(용기, 비우면 Settings)", "빈 용기 회수 Y/N" },
-            new[] { "M001", "S_EX", "G_EX", "60", "1", "10", "2", "1", "", "", "Y" }),
+            new[] { "M001", "S_EX", "G_EX", "60", "1", "10", "4", "1", "", "", "Y" }), // Call 4 > Settings SafetyStock 2
         ("Routes",
             new[] { "Material", "SupplyFromCP", "SupplyToCP", "BufferCP", "ReturnFromCP", "ReturnToCP", "ExtraTime" },
             new[] { "자재명", "load CP", "unload CP", "buffer CP(선택)", "rtnload CP(선택)", "rtnunload CP(선택)", "추가 시간(초)" },
@@ -28,7 +29,7 @@ public static class ExcelTemplate
         ("Stations",
             new[] { "Station", "CPName", "BufferCapacity" },
             new[] { "공정명", "CP 이름", "적치 용기 수" },
-            new[] { "S_EX", "CP_UNLOAD", "4" }),
+            new[] { "S_EX", "CP_UNLOAD", "0" }),
         ("Ext",
             new[] { "Name", "Enabled", "Description" },
             new[] { "훅 이름", "사용 Y/N", "설명" },
