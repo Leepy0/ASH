@@ -64,12 +64,12 @@ public sealed class ReleaseStore
 
     /// <summary>
     /// Update:PublicKeyPem is a test/dev override of the embedded key: when set it wins (a warning if it replaces an embedded key).
-    /// An EMPTY override ("no key at all") only counts in Development, so a stray empty setting cannot switch signature checking off in production.
+    /// An empty or whitespace-only override ("no key at all") only counts in Development, so a stray empty setting cannot switch signature checking off in production.
     /// </summary>
     internal static string? ResolveKeyPem(string? over, string? embedded, bool isDevelopment, ILogger log)
     {
         if (over == null) return embedded;
-        if (over.Length == 0 && !isDevelopment)
+        if (string.IsNullOrWhiteSpace(over) && !isDevelopment)
         {
             log.LogWarning("Update:PublicKeyPem이 비어 있지만 개발 환경이 아니라 무시합니다.");
             return embedded;

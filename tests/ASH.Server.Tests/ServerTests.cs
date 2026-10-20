@@ -285,6 +285,7 @@ public class ServerTests
         File.SetLastWriteTimeUtc(path, new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
         await e.Published(a);
         Assert.Equal(new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc), File.GetLastWriteTimeUtc(path)); // not replaced
+        Assert.Empty(Directory.GetDirectories(Path.Combine(e.Dir, "incoming")));
     }
 
     [Fact]
@@ -346,6 +347,7 @@ public class UnitTests
     [Theory]
     [InlineData(null, "EMB", false, "EMB")]
     [InlineData("", "EMB", false, "EMB")]  // empty override ignored outside Development
+    [InlineData("   ", "EMB", false, "EMB")]
     [InlineData("", "EMB", true, "")]      // ... honoured in Development
     [InlineData("OVR", "EMB", false, "OVR")]
     [InlineData("OVR", null, false, "OVR")]

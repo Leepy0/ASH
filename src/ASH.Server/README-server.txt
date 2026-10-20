@@ -6,7 +6,10 @@ ASH.Server - ASH 배포 서버 (최소판)
    - Urls         기본 http://0.0.0.0:5080
    - Releases:Dir 배포 파일 보관 폴더(기본 %ProgramData%/ASH.Server/releases)
    를 확인한다. appsettings.json 에는 토큰이 들어 있으므로 폴더 접근 권한을 관리자(와 서비스 계정)로 제한한다
-   (예: icacls "<폴더>" /inheritance:r /grant Administrators:(OI)(CI)F SYSTEM:(OI)(CI)F).
+   (예, ASH.Server.exe 가 있는 폴더 = appsettings.json 폴더:
+     icacls "<ASH.Server.exe 폴더>" /inheritance:r /grant Administrators:(OI)(CI)F SYSTEM:(OI)(CI)F
+    배포 파일 폴더(Releases:Dir, 기본 %ProgramData%\ASH.Server)는 별도로:
+     icacls "%ProgramData%\ASH.Server" /inheritance:r /grant Administrators:(OI)(CI)F SYSTEM:(OI)(CI)F )
    환경 변수 Admin__Token 으로 줄 수도 있다.
 3. 관리자 권한 명령 프롬프트에서  ASH.Server.exe --install  (Windows 서비스 등록, 자동 시작)
    등록 후 출력되는 BINARY_PATH_NAME 이 따옴표로 감싸져 있는지 확인한다.
@@ -14,7 +17,8 @@ ASH.Server - ASH 배포 서버 (최소판)
    확인만 하려면 서비스 등록 없이 ASH.Server.exe 를 직접 실행해도 된다(설정은 exe 와 같은 폴더의 appsettings.json).
    서비스는 기본적으로 LocalSystem 으로 돈다. 권한을 줄이려면 LocalService 로 바꾼다:
      sc config ASH.Server obj= "NT AUTHORITY\LocalService"
-     icacls "%ProgramData%\ASH.Server" /grant "NT AUTHORITY\LocalService:(OI)(CI)M"
+     icacls "%ProgramData%\ASH.Server" /grant "NT AUTHORITY\LocalService:(OI)(CI)M"      (배포 파일 폴더)
+     icacls "<ASH.Server.exe 폴더>" /grant "NT AUTHORITY\LocalService:(OI)(CI)RX"          (exe 와 appsettings.json 폴더)
    (appsettings.json 도 LocalService 가 읽을 수 있어야 한다. Releases:Dir 를 바꿨다면 그 폴더에 같은 권한을 준다.)
 4. 방화벽에서 TCP 5080 을 허용한다. 사내망에서만 열 것.
    토큰은 평문 HTTP 로 전달된다. 신뢰할 수 있는 사내망에서만 업로드하거나, 앞단에 HTTPS 프록시를 둔다.
