@@ -43,4 +43,11 @@ public class ParamsFileTests
         var inits = lines.Skip(4).Take(4).Select(l => l.Split(' ')[3]).ToArray();
         Assert.Equal(new[] { "10", "10", "12", "8" }, inits); // bases 10,8,8,8 + offsets 0,2,4,0
     }
+
+    [Fact]
+    public void Render_Rejects_Unknown_Group_Key()
+    {
+        Assert.Throws<ArgumentException>(() => ParamsFile.Render(Make("Fixed", 0), new RunScenario(1, new Dictionary<string, int> { ["nope"] = 1 })));
+        Assert.Throws<ArgumentException>(() => ParamsFile.Render(Make("Fixed", 0), new RunScenario(1, new Dictionary<string, int> { ["work"] = -1 })));
+    }
 }

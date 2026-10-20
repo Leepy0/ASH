@@ -24,5 +24,6 @@ public sealed class ProcessModel
     public List<VarEntity> Vars { get; } = new List<VarEntity>();
     public List<RnStreamEntity> RnStreams { get; } = new List<RnStreamEntity>();
     public List<string> Funcs { get; } = new List<string>();
+    public string Units { get; set; } = "Feet";
     public string LogicSource { get; set; } = "";
 }

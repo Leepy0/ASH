@@ -1,5 +1,5 @@
 picpos endx 1
- template Feet
+ template {UNITS}
 700 17
 2 2 0 1 1 none
 1

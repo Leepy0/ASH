@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Text;
 using ASH.Core.Asy;
 using ASH.Core.Input;
@@ -14,6 +15,10 @@ public static class ParamsFile
         void L(string line) => sb.Append(line).Append('\n');
         string N(double d) => AsyWriter.Num(d);
         var st = input.Settings;
+
+        foreach (var kv in s.ActiveByGroup)
+            if (!input.Groups.Any(g => g.Group == kv.Key) || kv.Value < 0)
+                throw new ArgumentException("bad scenario entry: " + kv.Key + "=" + kv.Value);
 
         L("SEED " + s.Seed);
         L("GROUPS " + input.Groups.Count);

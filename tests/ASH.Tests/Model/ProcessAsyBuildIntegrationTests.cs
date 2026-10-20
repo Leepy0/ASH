@@ -44,6 +44,7 @@ public class ProcessAsyBuildIntegrationTests
         ProcessAsyWriter.WriteFile(DemoLike(asy), asy);
         var r = AmBuilder.Build(AmHome!, work, "agvdemo", TimeSpan.FromMinutes(5));
         Assert.True(r.Success, work + " " + r.MakeErrText + r.Am2ErrText);
+        Directory.Delete(work, true); // kept on failure for inspection
     }
 
     [SkippableFact]
@@ -56,6 +57,7 @@ public class ProcessAsyBuildIntegrationTests
         ProcessAsyWriter.WriteFile(m, asy);
         var r = AmBuilder.Build(AmHome!, work, "agvdemo", TimeSpan.FromMinutes(5));
         Assert.True(r.Success, work + " " + r.MakeErrText + r.Am2ErrText);
+        Directory.Delete(work, true); // kept on failure for inspection
     }
 
     static void CopyDir(string src, string dst)

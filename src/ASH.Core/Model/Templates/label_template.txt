@@ -1,4 +1,4 @@
-	UserDef color 4	template Feet
+	UserDef color 4	template {UNITS}
 140 49
 4 4 0 1 1 Label
 {TEXT}

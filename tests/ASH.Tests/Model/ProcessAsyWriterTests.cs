@@ -41,4 +41,44 @@ public class ProcessAsyWriterTests
         var m = new ProcessModel { LogicSource = "begin a function\nend\n" };
         Assert.EndsWith("SFileBegin\tname code.m\nbegin a function\nend\n\n#@!\n", Render(m));
     }
+
+    [Fact]
+    public void Writer_Uses_Model_Units()
+    {
+        var m = new ProcessModel { Units = "Meters" };
+        m.LoadTypes.Add("L1"); m.Labels.Add("Lx"); m.Blocks.Add(new("B1", 1, new Rect2(new Point2(0, 0), new Point2(1, 1))));
+        var t = Render(m);
+        Assert.Contains("UNITS Meters Seconds", t);
+        Assert.DoesNotContain("Feet", t);
+        Assert.Equal(3, System.Text.RegularExpressions.Regex.Matches(t, "template Meters").Count);
+    }
+
+    [Fact]
+    public void Block_Rect_Normalized_And_Degenerate_Rejected()
+    {
+        var m = new ProcessModel();
+        m.Blocks.Add(new("B1", 1, new Rect2(new Point2(4, 2), new Point2(0, 0))));
+        Assert.Contains("begx 2 begy 1 endx 3 endy 1 scx 4 scy 2", Render(m));
+        var z = new ProcessModel(); z.Blocks.Add(new("B2", 1, new Rect2(new Point2(0, 0), new Point2(0, 2))));
+        Assert.Throws<ArgumentException>(() => Render(z));
+    }
+
+    [Fact]
+    public void Invalid_Or_Duplicate_Names_Throw()
+    {
+        var a = new ProcessModel(); a.Procs.Add(new("bad name"));
+        Assert.Throws<ArgumentException>(() => Render(a));
+        var b = new ProcessModel(); b.Procs.Add(new("X")); b.Funcs.Add("X");
+        Assert.Throws<ArgumentException>(() => Render(b));
+    }
+
+    [Fact]
+    public void Sections_Are_Ordered()
+    {
+        var m = new ProcessModel { LogicSource = "x" };
+        m.Procs.Add(new("P")); m.Funcs.Add("F");
+        var t = Render(m);
+        Assert.True(t.IndexOf("SYSTYPE") < t.IndexOf("PROCDEF") && t.IndexOf("PROCDEF") < t.IndexOf("PROC name P")
+            && t.IndexOf("PROC name P") < t.IndexOf("FUNC name F") && t.IndexOf("FUNC name F") < t.IndexOf("SFileBegin"));
+    }
 }

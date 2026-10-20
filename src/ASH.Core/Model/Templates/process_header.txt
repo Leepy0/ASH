@@ -1,6 +1,6 @@
 VERSION 12.6.1.19
 SYSTYPE Process
-UNITS Feet Seconds
+UNITS {UNITS} Seconds
 SYSDEF UtilByAvail off RefCheck on debugger on warningMessages on report standard
 FLAGS
 	System Inherit
