@@ -96,6 +96,24 @@ public sealed class ExportCommands
         return s;
     }
 
+    /// <summary>Opens &lt;drawing folder&gt;\ash.settings.tsv in Notepad, writing the default template first when missing. Palette button, not a command.</summary>
+    internal static void OpenSettings()
+    {
+        var doc = Application.DocumentManager.MdiActiveDocument;
+        if (doc == null) return;
+        if (Convert.ToInt32(Application.GetSystemVariable("DWGTITLED")) == 0) { doc.Editor.WriteMessage("\n도면을 먼저 저장하세요. 설정 파일(" + SettingsFileName + ")은 도면 폴더에 둡니다."); return; }
+        var path = Path.Combine((string)Application.GetSystemVariable("DWGPREFIX"), SettingsFileName);
+        try
+        {
+            if (!File.Exists(path)) SettingsFile.Save(new ProjectSettings(), path);
+            Process.Start("notepad.exe", "\"" + path + "\"");
+        }
+        catch (System.Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is System.ComponentModel.Win32Exception)
+        {
+            doc.Editor.WriteMessage($"\n설정 파일을 열 수 없습니다 ({path}): {ex.Message}");
+        }
+    }
+
     /// <summary>Loads &lt;drawing folder&gt;\ash.settings.tsv, writing a default template there when missing. False, with a message, for an unsaved drawing or a bad file.
     /// Warns (does not abort) when INSUNITS is mm but Scale is 1.</summary>
     internal static bool TryLoadSettings(Editor ed, out ProjectSettings settings, out string dir)

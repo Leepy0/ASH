@@ -54,6 +54,7 @@ public sealed class CheckCommands
                 findings = Report(ed, DrawingReader.Read(db, tr));
             }
             ed.WriteMessage($"\n검사 결과 {findings.Count}건");
+            Ui.PaletteStatus.SetCheck(findings.Count);
             return changed;
         }, refreshArrows: false);
     }

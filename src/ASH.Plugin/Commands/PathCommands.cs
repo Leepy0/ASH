@@ -254,18 +254,21 @@ public sealed class PathCommands
             using (var tr = doc.Database.TransactionManager.StartTransaction())
             {
                 InitCommands.Init(doc.Database, tr); // layers/blocks must exist before any Layer set or block insert
-                if (!body(doc.Database, tr)) return;
+                if (!body(doc.Database, tr)) { Ui.PaletteStatus.Set($"{cmd}: 변경 없음"); return; }
                 if (refreshArrows) DrawingWriter.RefreshDirectionArrows(doc.Database, tr);
                 tr.Commit();
+                Ui.PaletteStatus.Set($"{cmd} 완료");
             }
         }
         catch (OperationCanceledException)
         {
             // Esc in a nested prompt: abort without committing
+            Ui.PaletteStatus.Set($"{cmd} 취소");
         }
         catch (System.Exception ex)
         {
             doc.Editor.WriteMessage($"\n{cmd} 오류: {ex.Message}");
+            Ui.PaletteStatus.Set($"{cmd} 오류: {ex.Message}");
         }
         finally
         {

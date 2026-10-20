@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Standalone (not in ASH.sln): renders AgvPaletteControl outside ZWCAD for docs/images/palette-preview.png. Build ASH.Plugin first. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net48</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <Reference Include="ASH.Plugin"><HintPath>..\..\src\ASH.Plugin\bin\$(Configuration)\net48\ASH.Plugin.dll</HintPath></Reference>
+    <Reference Include="ASH.Core"><HintPath>..\..\src\ASH.Plugin\bin\$(Configuration)\net48\ASH.Core.dll</HintPath></Reference>
+  </ItemGroup>
+</Project>
