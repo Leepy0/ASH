@@ -16,7 +16,9 @@ public sealed class CpSettings
         set { _type = value ?? ""; Prefix = AutoNamer.PrefixFor(_type); }
     }
 
-    public string Group { get; set; } = "";
+    public static readonly string[] CpTypes = { "traffic", "load", "unload", "rtnload", "rtnunload", "standby", "buffer" };
+
+    public string Group { get; set; } = "G1"; // matches the default ProjectSettings.Groups
     public string Station { get; set; } = "";
     public string Prefix { get; set; } = "T";
     public int Cap { get; set; } = 1;

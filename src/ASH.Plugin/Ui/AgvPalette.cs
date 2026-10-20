@@ -29,8 +29,6 @@ public sealed class AgvPalette
 /// <summary>Side palette: one button per command plus the CP placement settings.</summary>
 public sealed class AgvPaletteControl : UserControl
 {
-    private static readonly string[] CpTypes = { "traffic", "load", "unload", "rtnload", "rtnunload", "standby", "buffer" };
-
     public AgvPaletteControl()
     {
         var s = CpSettings.Current;
@@ -44,7 +42,7 @@ public sealed class AgvPaletteControl : UserControl
         var detailed = new CheckBox { Text = "상세 모드", Checked = s.DetailedMode, AutoSize = true };
         detailed.CheckedChanged += (o, e) => s.DetailedMode = detailed.Checked;
         var type = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 150 };
-        type.Items.AddRange(CpTypes);
+        type.Items.AddRange(CpSettings.CpTypes);
         type.SelectedItem = s.Type;
         var prefix = new TextBox { Text = s.Prefix, Width = 150 };
         type.TextChanged += (o, e) => { s.Type = type.Text.Trim(); prefix.Text = s.Prefix; };

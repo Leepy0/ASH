@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using ASH.Plugin.Cad;
 using ZwSoft.ZwCAD.ApplicationServices;
 using ZwSoft.ZwCAD.Colors;
@@ -24,8 +26,11 @@ public sealed class InitCommands
             using (var tr = doc.Database.TransactionManager.StartTransaction())
             {
                 int made = Init(doc.Database, tr);
+                var missing = MissingCpTags(doc.Database, tr);
                 tr.Commit();
                 ed.WriteMessage($"\nASH 양식 초기화: 새로 만든 항목 {made}개.");
+                if (missing.Count > 0)
+                    ed.WriteMessage($"\n경고: 기존 {Conventions.CpBlockName} 블록 정의에 어트리뷰트 {string.Join(", ", missing)}이(가) 없습니다. 블록 정의를 고치거나 지운 뒤 AGVINIT을 다시 실행하세요.");
             }
         }
         catch (System.Exception ex)
@@ -85,6 +90,16 @@ public sealed class InitCommands
         var rat = (RegAppTable)tr.GetObject(db.RegAppTableId, OpenMode.ForRead);
         if (!rat.Has(Conventions.AppName)) { XData.EnsureRegApp(db, tr); made++; }
         return made;
+    }
+
+    // An AGV_CP definition made outside ASH may lack tags; Init never rewrites an existing definition.
+    private static List<string> MissingCpTags(Database db, Transaction tr)
+    {
+        var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
+        var have = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (ObjectId id in (BlockTableRecord)tr.GetObject(bt[Conventions.CpBlockName], OpenMode.ForRead))
+            if (tr.GetObject(id, OpenMode.ForRead) is AttributeDefinition ad) have.Add(ad.Tag);
+        return Conventions.CpAttributes.Where(t => !have.Contains(t)).ToList();
     }
 
     private static int Def(Database db, Transaction tr, BlockTable bt, string name, Action<Action<Entity>> fill)

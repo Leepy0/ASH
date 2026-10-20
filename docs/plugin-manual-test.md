@@ -3,6 +3,14 @@
 ZWCAD가 설치된 PC에서 실행한다. 각 항목에 결과(OK/NG), 날짜, ZWCAD 버전, 메모를 적는다.
 빌드 PC에는 ZWCAD가 없어서 아래 항목은 모두 실행 시 미검증 상태다.
 
+## 설치
+
+1. 빌드 PC에서 `dotnet build ASH.sln -c Release`.
+2. `src/ASH.Plugin/bin/Release/net48/ASH.Plugin.dll`과 같은 폴더의 `ASH.Core.dll`을 ZWCAD PC의 한 폴더에 복사한다.
+3. 복사한 두 DLL을 각각 오른쪽 클릭 → 속성 → "차단 해제" 체크 → 확인(인터넷/메일로 받은 파일은 차단돼서 `NETLOAD`가 실패한다).
+4. ZWCAD에서 `NETLOAD` → `ASH.Plugin.dll` 선택.
+5. 기록표에 ZWCAD 버전을 적는다. API 패키지는 `ZWCAD.NetApi` 20.26.0(ZWCAD 2026)이다. ZWCAD 2024에서는 `src/ASH.Plugin/ASH.Plugin.csproj`의 PackageReference를 `ZWCAD.NET` 24.0.0으로 바꿔 다시 빌드한다.
+
 ## 기본 흐름 (Task 11/12 브리프)
 
 | 항목 | 결과 | 날짜 | ZWCAD 버전 | 메모 |
@@ -55,7 +63,7 @@ ZWCAD가 설치된 PC에서 실행한다. 각 항목에 결과(OK/NG), 날짜, Z
 
 ## 교통제어·검증·내보내기 (Task 14)
 
-설정 파일: 도면 폴더의 `ash.settings.tsv`. 한 줄에 `키<탭>값`, 소수점은 `.`. 없으면 기본값, 모르는 키는 무시. 저장 안 된 도면에서는 명령이 "도면을 먼저 저장하세요"로 멈춘다.
+설정 파일: 도면 폴더의 `ash.settings.tsv`. 한 줄에 `키<탭>값`, 소수점은 `.`. 없으면 교통제어·내보내기 명령이 기본값으로 새로 만들고 경로를 한 번 출력한다. 모르는 키는 무시. SafetyGap, VehicleLength, VehicleWidth, Scale은 0보다 커야 한다. 저장 안 된 도면에서는 명령이 "도면을 먼저 저장하세요"로 멈춘다.
 
 | 키 | 기본값 | 뜻 |
 |---|---|---|
@@ -65,7 +73,7 @@ ZWCAD가 설치된 PC에서 실행한다. 각 항목에 결과(OK/NG), 날짜, Z
 | BlockReach | (빈칸=VehicleLength+SafetyGap) | block 길이 |
 | VehicleLength / VehicleWidth | 2.0 / 1.0 | 차량 크기(m) |
 | Units | Meters | asy 단위 |
-| Scale | 1.0 | 도면→모델 배율 |
+| Scale | 1.0 | 도면 단위→m 배율. mm 도면은 `0.001`. 설정의 길이 값(m)은 모두 도면 단위로 바꿔(÷Scale) 쓰고, 기호 크기·허용 오차도 같이 바뀐다 |
 | OriginX / OriginY | 0 / 0 | 원점 |
 | ModelName | model | `<도면 폴더>\<ModelName>.arc`에 내보냄 |
 | Groups | `G1:DefVehicle:5:1.0:2.0:1.0` | `Group:TypeName:MaxCount:Speed:Length:Width`를 `;`로 이어 씀. 그룹마다 standby/buffer CP가 1개 이상 있어야 내보내기가 됨 |
@@ -93,3 +101,23 @@ ZWCAD가 설치된 PC에서 실행한다. 각 항목에 결과(OK/NG), 날짜, Z
 | R21 팔레트를 도킹한 뒤 ZWCAD 재시작 → 같은 위치에 뜸(고정 GUID) | | | | |
 | R22 팔레트 CAP 칸에 `abc` 입력 후 다른 칸으로 이동 → `1`로 바뀜 | | | | |
 | R23 상세 모드에서 이미 있는 이름 입력 → "이미 있는 이름입니다." 후 다시 질문 | | | | |
+
+## 단위 배율 (final fix)
+
+길이 설정(SafetyGap, VehicleLength, VehicleWidth, BlockReach, ClaimDist, CpSpacing)은 m 단위다. 플러그인은 `u = 1/Scale`(1 m당 도면 단위)를 곱해 쓴다. 허용 오차 0.001 m, CP 허용 거리 0.05 m, `AGVCHECK` 확대 폭 10 m, 필렛 기본 반경 1 m도 같이 바뀐다. 블록 정의는 m 기준 크기 그대로 두고, 삽입하는 참조(CP, block 태그, 화살표)의 축척을 `u`로 한다.
+
+| 항목 | 결과 | 날짜 | ZWCAD 버전 | 메모 |
+|---|---|---|---|---|
+| U1 `INSUNITS`=4(mm) 도면, `Scale` 1 → 교통제어/내보내기 명령이 "도면 단위가 mm인데 Scale=1 입니다. ash.settings.tsv의 Scale을 0.001로 설정하세요." 경고를 내고 계속 진행 | | | | |
+| U2 mm 도면, `Scale` 0.001 → `AGVSPLIT`/`AGVCP` 뒤 화살표(0.6 m), CP 원(0.3 m), 글자(0.15 m)가 m 도면과 같은 실제 크기(도면상 600, 300, 150) | | | | |
+| U3 mm 도면, `Scale` 0.001 → `AGVTRAFFIC` block 크기·traffic CP 위치가 같은 배치의 m 도면과 1000배 비율로 일치 | | | | |
+| U4 mm 도면, `Scale` 0.001 → `AGVCP`가 경로에서 50 (=0.05 m) 이내 클릭만 받음, 메시지 "허용 0.05 m" | | | | |
+| U5 mm 도면, `Scale` 0.001 → `AGVEXPORT`의 `traffic.tsv` boundary_dist가 m 값(예: 6500 → 6.5) | | | | |
+| U6 `ash.settings.tsv` 없는 저장된 도면에서 `AGVTRAFFIC` → 기본 설정 파일이 만들어지고 경로가 한 번 출력됨, 다시 실행하면 출력 없음 | | | | |
+| U7 `Scale`을 0이나 음수로 → "설정 파일 오류 … 0보다 커야 합니다" | | | | |
+| U8 기존 AGV_CP 블록 정의에서 어트리뷰트 하나(예: STATION)를 지운 도면 → `AGVINIT`이 빠진 태그 이름을 경고 | | | | |
+| U9 block 사각형 두 개가 겹치거나 맞붙은 도면 → 각 사각형이 자기 중심의 태그 이름을 읽음(`AGVCHECK`에 DuplicateBlockName 없음) | | | | |
+| U10 이름 없는(`?`로 시작) 경로, 중복 이름 경로가 있는 도면 → `AGVCHECK`가 "경로 이름을 정리할까요?" Y → 첫 경로는 그대로, 나머지는 `P###`, 화살표 방향·지선 여부 유지, 재검사 결과에 이름 오류 없음 | | | | |
+| U11 `AGVFILLET`을 같은 경로 쌍 근처에서 두 번 → 두 번째 원호 이름이 `<a>_f_1` | | | | |
+| U12 상세 모드 `AGVCP`에서 TYPE에 `foo`, GROUP에 `a b` 입력 → 다시 질문 | | | | |
+| U13 standby CP 없는 그룹으로 `AGVEXPORT` → "내보내기 중단: 그룹 G1에 standby/buffer CP가 없습니다." | | | | |

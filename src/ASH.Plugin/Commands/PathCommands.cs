@@ -222,7 +222,7 @@ public sealed class PathCommands
     [CommandMethod("AGVFILLET")]
     public void AgvFillet() => Run(Doc, "AGVFILLET", (db, tr) =>
     {
-        var rr = Ed.GetDistance(new PromptDistanceOptions("\n반경") { AllowNegative = false, AllowZero = false, DefaultValue = 1, UseDefaultValue = true });
+        var rr = Ed.GetDistance(new PromptDistanceOptions("\n반경") { AllowNegative = false, AllowZero = false, DefaultValue = DrawingUnits.PerMeter, UseDefaultValue = true }); // 1 m
         if (rr.Status != PromptStatus.OK) return false;
         var layout = DrawingReader.Read(db, tr);
         var a = PickPath(Ed, layout, "\n들어오는 직선 경로 선택");
@@ -230,6 +230,9 @@ public sealed class PathCommands
         if (a == null || b == null || a == b) return false;
         var f = PathOps.Fillet(a, b, rr.Value, layout.Tolerance);
         if (f == null) { Ed.WriteMessage("\n필렛 불가: 두 경로 모두 직선 하나짜리, 앞 끝점 = 뒤 시작점, 평행 아님, 반경에 비해 충분한 길이여야 합니다."); return false; }
+        var taken = new HashSet<string>(layout.Paths.Select(p => p.Name));
+        string baseName = f.Value.Fillet.Name;
+        for (int k = 1; taken.Contains(f.Value.Fillet.Name); k++) f.Value.Fillet.Name = baseName + "_" + k;
         DrawingWriter.ReplacePaths(db, tr, new[] { a.Id, b.Id }, new[] { f.Value.A, f.Value.Fillet, f.Value.B });
         Ed.WriteMessage($"\n원호 경로 {f.Value.Fillet.Name} 삽입.");
         return true;
@@ -240,9 +243,11 @@ public sealed class PathCommands
     private static Document Doc => Application.DocumentManager.MdiActiveDocument;
     private static Editor Ed => Doc.Editor;
 
-    /// <summary>Runs body in one locked transaction; when it returns true, refreshes arrows and commits. Errors go to the command line.</summary>
-    internal static void Run(Document doc, string cmd, Func<Database, Transaction, bool> body)
+    /// <summary>Runs body in one locked transaction; when it returns true, refreshes arrows (unless refreshArrows is false) and commits. Errors go to the command line.
+    /// unitsPerMeter comes from settings the caller already loaded; null reads ash.settings.tsv quietly (1 when unsaved/missing/bad).</summary>
+    internal static void Run(Document doc, string cmd, Func<Database, Transaction, bool> body, bool refreshArrows = true, double? unitsPerMeter = null)
     {
+        DrawingUnits.PerMeter = unitsPerMeter ?? ExportCommands.QuietUnitsPerMeter();
         try
         {
             using (doc.LockDocument())
@@ -250,7 +255,7 @@ public sealed class PathCommands
             {
                 InitCommands.Init(doc.Database, tr); // layers/blocks must exist before any Layer set or block insert
                 if (!body(doc.Database, tr)) return;
-                DrawingWriter.RefreshDirectionArrows(doc.Database, tr);
+                if (refreshArrows) DrawingWriter.RefreshDirectionArrows(doc.Database, tr);
                 tr.Commit();
             }
         }
@@ -261,6 +266,10 @@ public sealed class PathCommands
         catch (System.Exception ex)
         {
             doc.Editor.WriteMessage($"\n{cmd} 오류: {ex.Message}");
+        }
+        finally
+        {
+            DrawingUnits.PerMeter = 1.0;
         }
     }
 

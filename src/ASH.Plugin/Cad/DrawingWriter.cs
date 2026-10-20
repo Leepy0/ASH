@@ -99,12 +99,13 @@ public static class DrawingWriter
             }
     }
 
+    /// <summary>Block definitions are drawn for meters; the reference is scaled by DrawingUnits.PerMeter so symbols keep their real size in mm drawings.</summary>
     public static ObjectId InsertBlock(Database db, Transaction tr, string blockName, string layer, Point2 pos, double rotation, IDictionary<string, string>? attrs)
     {
         var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
         if (!bt.Has(blockName)) throw new InvalidOperationException($"블록 정의 '{blockName}'이 없습니다. AGVINIT을 먼저 실행하세요.");
         var defId = bt[blockName];
-        var br = new BlockReference(new Point3d(pos.X, pos.Y, 0), defId) { Layer = layer, Rotation = rotation };
+        var br = new BlockReference(new Point3d(pos.X, pos.Y, 0), defId) { Layer = layer, Rotation = rotation, ScaleFactors = new Scale3d(DrawingUnits.PerMeter) };
         var id = Append(db, tr, br);
         if (attrs == null) return id;
         var def = (BlockTableRecord)tr.GetObject(defId, OpenMode.ForRead);

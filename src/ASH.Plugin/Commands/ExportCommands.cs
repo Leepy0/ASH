@@ -19,7 +19,10 @@ public sealed class ExportCommands
     public const string SettingsFileName = "ash.settings.tsv";
 
     private static readonly FindingCode[] Blocking =
-        { FindingCode.DanglingEnd, FindingCode.UnsplitIntersection, FindingCode.DuplicateCpName, FindingCode.DuplicatePathName, FindingCode.InvalidName };
+    {
+        FindingCode.DanglingEnd, FindingCode.UnsplitIntersection, FindingCode.DuplicateCpName, FindingCode.DuplicatePathName, FindingCode.InvalidName,
+        FindingCode.CpOffPath, FindingCode.UnnamedCp, FindingCode.DuplicateBlockName,
+    };
 
     [CommandMethod("AGVEXPORT")]
     public void AgvExport()
@@ -38,6 +41,11 @@ public sealed class ExportCommands
                 var options = new ExportOptions(Units: s.Units, Origin: s.Origin, Scale: s.Scale, Groups: SettingsFile.ParseGroups(s.Groups));
                 r = ExportRunner.Run(layout, options, Path.Combine(dir, s.ModelName + ".arc"));
             }
+            catch (ExportException ex)
+            {
+                ed.WriteMessage($"\n내보내기 중단: 그룹 {ex.Group}에 standby/buffer CP가 없습니다.");
+                return false;
+            }
             catch (System.Exception ex) when (ex is InvalidOperationException || ex is ArgumentException || ex is FormatException)
             {
                 ed.WriteMessage($"\n내보내기 중단: {ex.Message}");
@@ -50,10 +58,26 @@ public sealed class ExportCommands
             try { Process.Start(new ProcessStartInfo(r.AsyPath) { UseShellExecute = true }); }
             catch (System.ComponentModel.Win32Exception ex) { ed.WriteMessage($"\nasy 파일을 열지 못했습니다(연결 프로그램 없음?): {ex.Message}"); }
             return false; // nothing in the drawing changed
-        });
+        }, refreshArrows: false, unitsPerMeter: UnitScale.FromSettings(s));
     }
 
-    /// <summary>Loads &lt;drawing folder&gt;\ash.settings.tsv (defaults when missing). False, with a message, for an unsaved drawing or a bad file.</summary>
+    /// <summary>Drawing units per meter from ash.settings.tsv, without messages or writing a template; 1 for an unsaved drawing or a missing/bad file
+    /// (the commands that need settings report those through TryLoadSettings).</summary>
+    internal static double QuietUnitsPerMeter()
+    {
+        try
+        {
+            if (Convert.ToInt32(Application.GetSystemVariable("DWGTITLED")) == 0) return 1.0;
+            return UnitScale.FromSettings(SettingsFile.Load(Path.Combine((string)Application.GetSystemVariable("DWGPREFIX"), SettingsFileName)));
+        }
+        catch (System.Exception ex) when (ex is FormatException || ex is IOException || ex is UnauthorizedAccessException)
+        {
+            return 1.0;
+        }
+    }
+
+    /// <summary>Loads &lt;drawing folder&gt;\ash.settings.tsv, writing a default template there when missing. False, with a message, for an unsaved drawing or a bad file.
+    /// Warns (does not abort) when INSUNITS is mm but Scale is 1.</summary>
     internal static bool TryLoadSettings(Editor ed, out ProjectSettings settings, out string dir)
     {
         settings = new ProjectSettings();
@@ -64,9 +88,17 @@ public sealed class ExportCommands
             return false;
         }
         dir = (string)Application.GetSystemVariable("DWGPREFIX");
+        var path = Path.Combine(dir, SettingsFileName);
         try
         {
-            settings = SettingsFile.Load(Path.Combine(dir, SettingsFileName));
+            if (!File.Exists(path))
+            {
+                SettingsFile.Save(new ProjectSettings(), path);
+                ed.WriteMessage($"\n설정 파일이 없어 기본값으로 만들었습니다: {path}");
+            }
+            settings = SettingsFile.Load(path);
+            if (Convert.ToInt32(Application.GetSystemVariable("INSUNITS")) == 4 && settings.Scale == 1.0)
+                ed.WriteMessage("\n도면 단위가 mm인데 Scale=1 입니다. ash.settings.tsv의 Scale을 0.001로 설정하세요.");
             return true;
         }
         catch (System.Exception ex) when (ex is FormatException || ex is IOException || ex is UnauthorizedAccessException)

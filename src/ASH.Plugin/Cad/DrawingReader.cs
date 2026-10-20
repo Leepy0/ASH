@@ -14,7 +14,7 @@ public static class DrawingReader
 
     public static CoreLayout Read(Database db, Transaction tr)
     {
-        var layout = new CoreLayout();
+        var layout = new CoreLayout { Tolerance = 0.001 * DrawingUnits.PerMeter };
         var blockTags = new List<(Point2 Pos, Dictionary<string, string> Attrs)>();
         var rects = new List<(Polyline Pl, string Id)>();
         foreach (ObjectId id in ModelSpace(db, tr, OpenMode.ForRead))
@@ -52,7 +52,9 @@ public static class DrawingReader
             var pts = Enumerable.Range(0, pl.NumberOfVertices).Select(i => Xy(pl.GetPoint3dAt(i))).ToList();
             // shortcut: non-rectangular closed polylines become their bounding box; fine until polygon blocks are needed.
             var rect = new Rect2(new Point2(pts.Min(q => q.X), pts.Min(q => q.Y)), new Point2(pts.Max(q => q.X), pts.Max(q => q.Y)));
-            var tag = blockTags.FirstOrDefault(t => rect.Contains(t.Pos));
+            // AddBlock puts the tag at the centre; take the nearest tag inside the rect so nested/adjacent rects don't steal each other's
+            var centre = new Point2((rect.Min.X + rect.Max.X) / 2, (rect.Min.Y + rect.Max.Y) / 2);
+            var tag = blockTags.Where(t => rect.Contains(t.Pos)).OrderBy(t => t.Pos.DistanceTo(centre)).FirstOrDefault();
             layout.Blocks.Add(new LayoutBlock
             {
                 Id = id, Rect = rect,

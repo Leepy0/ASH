@@ -26,8 +26,9 @@ public sealed class TrafficCommands
     {
         var doc = Application.DocumentManager.MdiActiveDocument;
         if (!ExportCommands.TryLoadSettings(doc.Editor, out var s, out _)) return;
-        var p = new TrafficParams(s.VehicleLength, s.VehicleWidth, s.SafetyGap, s.BlockReach, s.ClaimDist, s.CpSpacing);
-        PathCommands.Run(doc, cmd, (db, tr) => body(db, tr, doc.Editor, p));
+        double u = UnitScale.FromSettings(s); // settings are meters, the drawing is in drawing units
+        var p = new TrafficParams(s.VehicleLength * u, s.VehicleWidth * u, s.SafetyGap * u, s.BlockReach * u, s.ClaimDist * u, s.CpSpacing * u);
+        PathCommands.Run(doc, cmd, (db, tr) => body(db, tr, doc.Editor, p), refreshArrows: false, unitsPerMeter: u);
     }
 
     private static bool Blocks(Database db, Transaction tr, Editor ed, TrafficParams p)
