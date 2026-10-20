@@ -28,7 +28,16 @@ namespace ASH.Core.AutoMod
         public static IDisposable Start(int ownerPid, string[] titleContains, Action<string> onClosed)
         {
             var seen = new System.Collections.Generic.HashSet<IntPtr>();
-            return new Timer(_ => Poll(ownerPid, titleContains, onClosed, seen), null, 0, 250);
+            Timer? timer = null;
+            // one-shot, re-armed after each poll: polls never overlap
+            timer = new Timer(_ =>
+            {
+                try { Poll(ownerPid, titleContains, onClosed, seen); }
+                catch (Exception) { } // an exception escaping a Timer callback kills the host process (inside ZWCAD: CAD itself)
+                try { timer!.Change(250, Timeout.Infinite); } catch (ObjectDisposedException) { }
+            }, null, Timeout.Infinite, Timeout.Infinite);
+            timer.Change(0, Timeout.Infinite);
+            return timer;
         }
 
         static void Poll(int pid, string[] needles, Action<string> onClosed, System.Collections.Generic.HashSet<IntPtr> seen)
@@ -49,7 +58,9 @@ namespace ASH.Core.AutoMod
                         EnumChildWindows(h, (c, _) => { if (Text(c) == "OK") ok = c; return true; }, IntPtr.Zero);
                         if (ok != IntPtr.Zero) SendMessageW(ok, BM_CLICK, IntPtr.Zero, IntPtr.Zero);
                         else SendMessageW(h, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
-                        if (seen.Add(h)) onClosed(t);
+                        bool first;
+                        lock (seen) first = seen.Add(h);
+                        if (first) onClosed(t);
                         break;
                     }
                 return true;
