@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
@@ -21,14 +22,26 @@ sealed class StepRunner : IDisposable
     readonly List<RunResult> _results = new();
     string? _src;
 
-    public StepRunner(Action<string> ui)
+    /// <param name="silent">/silent: an unresolvable interactive user means no HKCU registration (no guessing whose hive).</param>
+    public StepRunner(Action<string> ui, bool silent = false)
     {
         _ui = ui;
-        _reg = new Win32Registry(ResolveUserSid());
+        var (sid, noHkcu) = ResolveUserSid(silent);
+        _reg = new Win32Registry(sid, noHkcu);
         _exec = new StepExecutor(new RealFileSystem(FallbackRoot), _reg, Log);
     }
 
     public static bool Elevated => new WindowsPrincipal(WindowsIdentity.GetCurrent()).IsInRole(WindowsBuiltInRole.Administrator);
+
+    /// <summary>A running ZWCAD locks the DLLs and may rewrite its profile keys on exit.</summary>
+    public static bool ZwcadRunning()
+    {
+        var p = Process.GetProcessesByName("ZWCAD"); // name match is case-insensitive
+        foreach (var x in p) x.Dispose();
+        return p.Length > 0;
+    }
+
+    public const string CloseZwcad = "ZWCAD를 닫고 다시 실행하세요.";
 
     /// <summary>Plan Warn messages (autoload not registered), across every install run so far.</summary>
     public List<string> AutoloadWarnings => _results.SelectMany(r => r.Warnings).ToList();
@@ -40,21 +53,33 @@ sealed class StepRunner : IDisposable
     static string FallbackDir(ZwcadInstall t) => Path.Combine(FallbackRoot, t.Version.Length > 0 ? t.Version : "unknown");
 
     // HKCU of the elevated token is the admin's hive when another account was used at the UAC prompt
-    string? ResolveUserSid()
+    // SYSTEM's own HKCU (S-1-5-18) is never the CAD user's, so it is skipped rather than written
+    (string? Sid, bool NoHkcu) ResolveUserSid(bool silent)
     {
         var me = WindowsIdentity.GetCurrent();
+        bool system = me.User?.IsWellKnown(WellKnownSidType.LocalSystemSid) == true;
         var u = InteractiveUser.Find();
-        if (u == null || u.Value.Sid == me.User) { Log("등록 대상 사용자: " + me.Name); return null; }
+        if (u == null ? silent || system : system && u.Value.Sid == me.User) return NoUserHive();
+        if (u == null || u.Value.Sid == me.User) { Log("등록 대상 사용자: " + me.Name); return (null, false); }
         var sid = u.Value.Sid.Value;
         if (!Win32Registry.UserHiveLoaded(sid))
         {
+            if (system) return NoUserHive();
             var w = $"{u.Value.Account} 사용자 하이브가 로드되지 않아 현재 계정({me.Name})의 HKCU에 등록합니다.";
             _session.Warnings.Add(w);
             Log("경고: " + w);
-            return null;
+            return (null, false);
         }
         Log($"등록 대상 사용자: {u.Value.Account} (HKEY_USERS\\{sid}, 실행 계정 {me.Name})");
-        return sid;
+        return (sid, false);
+    }
+
+    (string?, bool) NoUserHive()
+    {
+        const string w = "사용자 하이브를 알 수 없어 HKCU 등록을 건너뜀";
+        _session.Warnings.Add(w);
+        Log("경고: " + w);
+        return (null, true);
     }
 
     public void Log(string line)
@@ -72,7 +97,7 @@ sealed class StepRunner : IDisposable
         foreach (var t in targets)
         {
             Log($"-- ZWCAD {t.Version} {t.Language} {t.InstallDir}");
-            var r = _exec.Install(t, src, Elevated, _reg, FallbackDir(t));
+            var r = _exec.Install(t, src, Elevated, _reg, FallbackDir(t), Program.SupportedVersion);
             _results.Add(r);
             if (!r.Ok) Log("이 ZWCAD는 설치 실패. ZWCAD가 실행 중이면 닫고 다시 시도하세요. 로그: " + LogPath);
         }

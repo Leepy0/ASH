@@ -44,7 +44,8 @@ static class Program
 
         if (silent)
         {
-            using var r = new StepRunner(_ => { });
+            using var r = new StepRunner(_ => { }, silent: true);
+            if (StepRunner.ZwcadRunning()) { r.Log(StepRunner.CloseZwcad); return 1; }
             bad.ForEach(r.Log);
             var targets = Detect().Concat(manual).Distinct().ToList();
             if (targets.Count == 0) { r.Log("ZWCAD 설치를 찾지 못했습니다."); return 1; }
@@ -61,6 +62,10 @@ static class Program
         Application.Run(form);
         return form.ExitCode;
     }
+
+    /// <summary>ZWCAD year the embedded plugin targets (AshZwcadVersion in Directory.Build.props).</summary>
+    public static readonly string SupportedVersion = typeof(Program).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
+        .First(a => a.Key == "ZwcadVersion").Value!;
 
     public static List<ZwcadInstall> Detect() => ZwcadLocator.Find(new Win32Registry(), new RealFileSystem(),
         Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86));

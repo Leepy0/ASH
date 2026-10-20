@@ -30,7 +30,7 @@ public static class InstallPlanner
         foreach (var t in targets.Distinct())
         {
             if (supportedVersion != null && t.Version.Length > 0 && t.Version != supportedVersion)
-                warns.Add(new InstallStep("Warn", t.InstallDir, $"ZWCAD {t.Version}은 미지원(ASH는 ZWCAD {supportedVersion}용), 건너뜀: {t.InstallDir}"));
+                warns.Add(new InstallStep("Warn", t.InstallDir, $"미지원 버전 건너뜀: ZWCAD {t.Version} (ASH는 ZWCAD {supportedVersion}용) {t.InstallDir}"));
             else list.Add(t);
         }
         string AshDir(ZwcadInstall t) => installDirOverride?.TrimEnd('\\') ?? t.InstallDir.TrimEnd('\\') + @"\ASH";

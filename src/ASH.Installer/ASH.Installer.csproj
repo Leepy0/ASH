@@ -11,6 +11,8 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- read by Program.SupportedVersion; same value as the plugin's ZwcadVersion metadata -->
+    <AssemblyMetadata Include="ZwcadVersion" Value="$(AshZwcadVersion)" />
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
     <Reference Include="Microsoft.VisualBasic" />
     <Reference Include="System.Management" />

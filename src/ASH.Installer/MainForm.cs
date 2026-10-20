@@ -15,6 +15,13 @@ sealed class MainForm : Form
     static readonly Color Hover = ColorTranslator.FromHtml("#E8EEFB");
     static readonly Color Line = ColorTranslator.FromHtml("#D9DDE3");
     static readonly Color Muted = ColorTranslator.FromHtml("#6B7280");
+    // same text as README 설치 section
+    static readonly string[] NextSteps =
+    {
+        "ZWCAD를 완전히 종료한 뒤 다시 시작하세요.",
+        "탭이 안 보이면 명령줄에 AGVRIBBON 또는 AGVPALETTE.",
+        "첫 사용: 도면 저장 → AGVINIT. mm 도면이면 ash.settings.tsv의 Scale을 0.001로.",
+    };
     const string NotFound = "ZWCAD 설치를 찾지 못했습니다. 직접 지정을 누르세요.";
 
     readonly CheckedListBox _list = new() { Dock = DockStyle.Fill, BorderStyle = BorderStyle.None, CheckOnClick = true, IntegralHeight = false };
@@ -29,9 +36,12 @@ sealed class MainForm : Form
     {
         public readonly ZwcadInstall Install;
         public Item(ZwcadInstall i) => Install = i;
+        // unknown version stays selectable: the planner copies DLLs and warns that autoload was not registered
+        public bool Supported => Install.Version.Length == 0 || Install.Version == Program.SupportedVersion;
         public override string ToString() =>
             "ZWCAD " + (Install.Version.Length > 0 ? Install.Version : "(버전 모름)")
-            + (Install.Language.Length > 0 ? " (" + Install.Language + ")" : "") + " — " + Install.InstallDir;
+            + (Install.Language.Length > 0 ? " (" + Install.Language + ")" : "") + " — " + Install.InstallDir
+            + (Supported ? "" : " (미지원: ASH는 ZWCAD " + Program.SupportedVersion + "용)");
     }
 
     public MainForm(List<ZwcadInstall> found, bool uninstallMode)
@@ -78,7 +88,7 @@ sealed class MainForm : Form
         root.Controls.Add(Framed(_log));
         Controls.Add(root);
 
-        foreach (var i in found) _list.Items.Add(new Item(i), true);
+        foreach (var i in found) { var it = new Item(i); _list.Items.Add(it, it.Supported); }
         UpdateState();
         var main = uninstallMode ? _uninstall : _install;
         AcceptButton = main;
@@ -135,7 +145,8 @@ sealed class MainForm : Form
             if (System.Text.RegularExpressions.Regex.IsMatch(v, @"^20\d{2}$")) m = m with { Version = v, ProfileKeyPath = @"Software\ZWSoft\ZWCAD\" + v };
             else prompt = "버전은 20xx 형식이어야 합니다(예: 2026). 다시 입력하세요.";
         }
-        _list.Items.Add(new Item(m), true);
+        var item = new Item(m);
+        _list.Items.Add(item, item.Supported);
         UpdateState();
     }
 
@@ -143,6 +154,7 @@ sealed class MainForm : Form
     {
         var targets = _list.CheckedItems.Cast<Item>().Select(i => i.Install).Distinct().ToList();
         if (targets.Count == 0) { MessageBox.Show(this, "ZWCAD를 하나 이상 선택하세요.", Text); return; }
+        if (StepRunner.ZwcadRunning()) { MessageBox.Show(this, StepRunner.CloseZwcad, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
         if (uninstall && MessageBox.Show(this, "선택한 ZWCAD에서 ASH를 제거할까요?", Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
         UseWaitCursor = true;
         _install.Enabled = _uninstall.Enabled = false;
@@ -167,11 +179,12 @@ sealed class MainForm : Form
         }
         var notes = new List<string>();
         if (r!.AutoloadWarnings.Count > 0)
-            notes.Add("DLL은 복사했지만 자동 로드 등록을 못 했습니다: " + string.Join(" / ", r.AutoloadWarnings) + ". ZWCAD를 한 번 실행한 뒤 다시 설치하세요.");
+            notes.Add("경고:" + Environment.NewLine + string.Join(Environment.NewLine, r.AutoloadWarnings));
         notes.AddRange(r.SessionWarnings);
         notes.AddRange(r.FallbackDirs.Select(d => "ZWCAD 폴더에 쓸 수 없어 DLL을 " + d + "에 설치했습니다."));
         var done = uninstall ? "제거 완료. ZWCAD를 다시 시작하세요." : "완료. ZWCAD를 다시 시작하면 ASH 탭과 AGV* 명령을 쓸 수 있습니다.";
-        if (notes.Count == 0) MessageBox.Show(this, done, Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
-        else MessageBox.Show(this, string.Join(Environment.NewLine + Environment.NewLine, notes), Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        var text = notes.Count == 0 ? done : string.Join(Environment.NewLine + Environment.NewLine, notes);
+        if (!uninstall) text += Environment.NewLine + Environment.NewLine + string.Join(Environment.NewLine, NextSteps);
+        MessageBox.Show(this, text, Text, MessageBoxButtons.OK, notes.Count == 0 ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
     }
 }

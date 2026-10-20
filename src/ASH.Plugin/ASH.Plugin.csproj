@@ -20,9 +20,11 @@
     <Reference Include="ZwDatabaseMgd"><HintPath>$(ZwCadDir)\ZwDatabaseMgd.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="ZwManaged"><HintPath>$(ZwCadDir)\ZwManaged.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="ZcWindows"><HintPath>$(ZwCadDir)\ZcWindows.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="ZdWindows"><HintPath>$(ZwCadDir)\ZdWindows.dll</HintPath><Private>false</Private></Reference>
   </ItemGroup>
 
   <ItemGroup>
+    <AssemblyMetadata Include="ZwcadVersion" Value="$(AshZwcadVersion)" />
     <ProjectReference Include="..\ASH.Core\ASH.Core.csproj" />
   </ItemGroup>
 
