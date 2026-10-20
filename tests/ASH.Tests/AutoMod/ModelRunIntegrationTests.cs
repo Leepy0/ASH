@@ -5,6 +5,7 @@ using ASH.Core.Export;
 using ASH.Core.Geometry;
 using ASH.Core.Input;
 using ASH.Core.Model;
+using ASH.Core.Runner;
 using ASH.Tests.Layout;
 using ASH.Tests.Model;
 
@@ -15,9 +16,9 @@ public class ModelRunIntegrationTests
     static string? AmHome => Environment.GetEnvironmentVariable("ASH_AM_HOME");
     const string Model = "ashrun";
 
-    sealed class Run(string work, AmRunResult result, List<string[]> rows, string tsv)
+    sealed class Run(string work, RunOutcome result, List<string[]> rows, string tsv)
     {
-        public string Work => work; public AmRunResult Result => result; public List<string[]> Rows => rows; public string Tsv => tsv;
+        public string Work => work; public RunOutcome Result => result; public string ResultTsvPath => Path.Combine(result.RunDir, "result.tsv"); public string ReportPath => Path.Combine(result.RunDir, Model + ".report"); public List<string[]> Rows => rows; public string Tsv => tsv;
     }
 
     /// <summary>One-way square loop (4 paths, 10 m sides) with S001 standby, L001 load, B001 buffer, U001 unload, one block;
@@ -39,17 +40,15 @@ public class ModelRunIntegrationTests
         l.Blocks.Add(new ASH.Core.Layout.LayoutBlock { Name = "B_x1", Cap = 1, Rect = new Rect2(new Point2(8, -1), new Point2(11, 2)) }); // corner p1/p2
         var res = ModelBuilder.Build(new ModelBuildRequest(work, Model, input, l, new ExportOptions(Groups: specs)), AmHome!, TimeSpan.FromMinutes(5));
         Assert.DoesNotContain(res.Findings, f => f.Code == ASH.Core.Layout.FindingCode.InputError);
-        var arc = res.ArcDir;
-        ParamsFile.Write(input, new RunScenario(seed, active), Path.Combine(arc, "params.txt"));
         var b = res.Build!;
         Assert.True(b.Success, work + "\n" + b.MakeErrText + b.Am2ErrText);
-        var r = AmRunner.RunHeadless(Path.Combine(work, Model + ".exe"), work, TimeSpan.FromMinutes(2), "Student Version");
-        var msg = File.Exists(r.MessagePath) ? File.ReadAllText(r.MessagePath) : "(no .message)";
-        Assert.False(r.TimedOut, work + "\n" + msg);
-        Assert.True(File.Exists(r.ResultTsvPath), work + "\n" + msg);
-        var tsv = File.ReadAllText(r.ResultTsvPath);
-        Console.WriteLine($"{work} run {r.Duration.TotalSeconds:0.0} s, build dialogs [{string.Join("|", b.ClosedDialogTitles)}], run dialogs [{string.Join("|", r.ClickedDialogTitles)}]\n{tsv}");
-        return new Run(work, r, tsv.Split('\n').Where(x => x.Length > 0).Select(x => x.TrimEnd('\r').Split('\t')).ToList(), tsv);
+        var o = ModelRunner.Run(new RunRequest(work, Model, input, new RunScenario(seed, active), TimeSpan.FromMinutes(2), "Student Version"));
+        var msgPath = Path.Combine(o.RunDir, Model + ".message");
+        var msg = File.Exists(msgPath) ? File.ReadAllText(msgPath) : "(no .message)";
+        Assert.True(o.Success, work + "\n" + o.Error + "\n" + msg);
+        var tsv = File.ReadAllText(Path.Combine(o.RunDir, "result.tsv"));
+        Console.WriteLine($"{work} run {o.Duration.TotalSeconds:0.0} s, build dialogs [{string.Join("|", b.ClosedDialogTitles)}]\n{tsv}");
+        return new Run(work, o, tsv.Split('\n').Where(x => x.Length > 0).Select(x => x.TrimEnd('\r').Split('\t')).ToList(), tsv);
     }
 
     static Run BuildAndRun(ProjectInput input, int activeG1) => BuildAndRun(input, new Dictionary<string, int> { ["G1"] = activeG1 });
@@ -72,7 +71,26 @@ public class ModelRunIntegrationTests
         Assert.True(V(blk, 1) > 0, "block passes"); // first real check of the 1x1 block template geometry
         Assert.Equal(3600, V(run.Rows.Single(x => x[0] == "clock"), 2), 3);
         Assert.Equal(0, V(run.Rows.Single(x => x[0] == "deadlock"), 1));
+        var bg = run.Rows.Where(x => x[0] == "blockgroup" && x[2] == "G1").ToList();
+        Assert.NotEmpty(bg);
+        Assert.All(bg, x => { Assert.Equal(11, x.Length); Assert.True(V(x, 1) >= 0 && V(x, 2) >= 0, "waitSec/waitCount"); });
+        Assert.DoesNotContain("ASH:", File.ReadAllText(Path.Combine(run.Result.RunDir, Model + ".message"))); // Debug=0: no logic prints
         Cleanup(run.Work); // kept on failure for inspection
+    }
+
+    [SkippableFact]
+    public void Run_Debug_Flag_Turns_On_Logic_Prints()
+    {
+        Skip.If(AmHome is null, "ASH_AM_HOME not set");
+        var input = LogicGeneratorTests.Sample();
+        var run = BuildAndRun(input, 1);
+        var o = ModelRunner.Run(new RunRequest(run.Work, Model, input, new RunScenario(1, new Dictionary<string, int> { ["G1"] = 1 }, Debug: true), TimeSpan.FromMinutes(2), "Student Version"));
+        Assert.True(o.Success, o.Error);
+        var msg = File.ReadAllText(Path.Combine(o.RunDir, Model + ".message"));
+        Assert.Contains("ASH: params ok", msg);
+        Assert.Contains("ASH: leg m=1 to", msg);
+        Assert.Contains("ASH: snap written", msg);
+        Cleanup(run.Work);
     }
 
     [SkippableFact]
@@ -123,7 +141,7 @@ public class ModelRunIntegrationTests
         Assert.Equal(1, V(run.Rows.Single(x => x[0] == "group" && x[1] == "G2"), 1)); // numveh 2, 1 parked
         Assert.True(V(Mat(run, "M1"), 3) > 0);
         Assert.True(V(Mat(run, "M2"), 3) > 0);
-        var report = File.ReadAllText(run.Result.ReportPath);
+        var report = File.ReadAllText(run.ReportPath);
         foreach (var type in new[] { "Tug", "Tug2" }) // first data row of each type in "Vehicle Statistics": delivering %, trips, ...
         {
             var m = System.Text.RegularExpressions.Regex.Match(report, @"\n" + type + @":\r?\n\s+[\d.]+\s+(\d+)");
@@ -148,7 +166,24 @@ public class ModelRunIntegrationTests
         Assert.NotEqual(Body(ParamsFile.Render(Uniform(), new RunScenario(1, active))), Body(ParamsFile.Render(Uniform(), new RunScenario(2, active))));
         var a = BuildAndRun(Uniform(), active);
         var b = BuildAndRun(Uniform(), active);
-        Assert.Equal(File.ReadAllBytes(a.Result.ResultTsvPath), File.ReadAllBytes(b.Result.ResultTsvPath));
+        Assert.Equal(File.ReadAllBytes(a.ResultTsvPath), File.ReadAllBytes(b.ResultTsvPath));
         Cleanup(a.Work); Cleanup(b.Work);
+    }
+
+    [SkippableFact]
+    public void Run_Result_Flows_Through_Parser_Kpi_And_Judge()
+    {
+        Skip.If(AmHome is null, "ASH_AM_HOME not set");
+        var input = LogicGeneratorTests.Sample();
+        var run = BuildAndRun(input, 1);
+        Assert.Equal("n1_s1", run.Result.RunId);
+        Assert.True(File.Exists(run.ReportPath) && File.Exists(Path.Combine(run.Result.RunDir, Model + ".message")));
+        var kpi = Kpi.FromRun(ResultParser.Parse(run.ResultTsvPath), ResultParser.ParseReport(run.ReportPath), input).Single();
+        Assert.InRange(kpi.Utilization, 0.0001, 1);
+        Assert.True(kpi.Supplies > 0 && kpi.Expected > 0 && kpi.Active == 1);
+        var v = Judge.Evaluate(new[] { kpi }, input.Settings);
+        Assert.False(string.IsNullOrEmpty(v.Reason) && !v.Ok);
+        Console.WriteLine($"verdict {v.Ok} '{v.Reason}' util {kpi.Utilization}");
+        Cleanup(run.Work);
     }
 }
