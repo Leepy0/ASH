@@ -20,12 +20,14 @@ public static class ModelBuilder
 {
     public static ModelBuildResult Build(ModelBuildRequest r, string? amHome, TimeSpan timeout)
     {
+        if (string.IsNullOrEmpty(r.ModelName) || r.ModelName.Contains("..") || r.ModelName.IndexOfAny(new[] { '/', (char)92, ':' }) >= 0
+            || !LayoutChecker.IsValidName(r.ModelName)) throw new ArgumentException("invalid model name: " + r.ModelName);
         var arc = Path.Combine(r.ProjectDir, r.ModelName + ".arc");
         var l = r.Layout; var o = r.AgvsOptions; var input = r.Input;
         var findings = InputValidator.Validate(input, l.Cps.Select(c => c.Name).ToList());
-        if (findings.Any(f => f.Code == FindingCode.InputError)) return new ModelBuildResult(arc, null, findings, new List<string>());
+        if (findings.Any(f => f.Code == FindingCode.InputError)) return new ModelBuildResult(arc, null, findings, Warn(findings));
 
-        var warnings = new List<string>(ExportRunner.Run(l, o, arc).Warnings);
+        var warnings = Warn(findings); warnings.AddRange(ExportRunner.Run(l, o, arc).Warnings);
         var standby = new Dictionary<string, string>();
         foreach (var c in l.Cps.Where(c => c.Type == "standby" && c.Group.Length > 0)) { if (!standby.ContainsKey(c.Group)) standby[c.Group] = c.Name; }
         var info = new LayoutInfo(l.Cps.Select(c => c.Name).ToList(), l.Blocks.Select(b => b.Name).ToList(), standby);
@@ -49,16 +51,24 @@ public static class ModelBuilder
             : new Rect2(new Point2(pts.Min(p => p.X), pts.Min(p => p.Y)), new Point2(pts.Max(p => p.X), pts.Max(p => p.Y)));
         var pad = Math.Max(draw.Max.X - draw.Min.X, draw.Max.Y - draw.Min.Y) * 0.1;
         File.WriteAllText(Path.Combine(arc, "model.amo"),
-            ModelAmoWriter.Render(r.ModelName, o.Units, input.Settings.SimLengthSec / 3600, new[] { "agv" }, draw.Expand(Math.Max(pad, 1))));
+            ModelAmoWriter.Render(r.ModelName, o.Units, input.Settings.SimLengthSec / 3600, new[] { "agv" }, draw.Expand(Math.Max(pad, 1)), o.Version));
         ParamsFile.Write(input, new RunScenario(input.Settings.SeedBase, new Dictionary<string, int>()), Path.Combine(arc, "params.txt"));
 
         AmBuildResult? build = null;
         if (amHome != null)
         {
-            var dir = Path.Combine(r.ProjectDir, r.ModelName + ".dir"); // a rebuild in the same folder does not relink otherwise
-            if (Directory.Exists(dir)) Directory.Delete(dir, true);
+            PrepareBuildDir(r.ProjectDir, r.ModelName);
             build = AmBuilder.Build(amHome, r.ProjectDir, r.ModelName, timeout);
         }
         return new ModelBuildResult(arc, build, findings, warnings);
+    }
+
+    static List<string> Warn(List<Finding> f) => f.Where(x => x.Code == FindingCode.InputWarning).Select(x => x.Message).ToList();
+
+    /// <summary>A rebuild in the same folder does not relink unless the old &lt;Model&gt;.dir is gone.</summary>
+    public static void PrepareBuildDir(string projectDir, string modelName)
+    {
+        var dir = Path.Combine(projectDir, modelName + ".dir");
+        if (Directory.Exists(dir)) Directory.Delete(dir, true);
     }
 }

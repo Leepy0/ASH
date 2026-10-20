@@ -182,4 +182,8 @@ public class LayoutExporterTests
         Assert.Contains(Lines(G with { ClaimBlockOnNextCp = false }), x => x.Trim() == "ALTERNATE NONE ignore ResumeSpeedWhenClaimed");
     [Fact] public void Vehicle_Rotate_Rate_Comes_From_Spec() =>
         Assert.Contains(Lines(new ExportOptions(Groups: new[]{ new VehicleGroupSpec("G1","Tug",1,1.0,2,1, 45) })), x => x.Trim() == "rotate\t0 45 Seconds");
+    [Fact] public void Empty_Load_Rotate_Line_Stays_Inherit_Form() =>
+        Assert.Contains(Lines(new ExportOptions(Groups: new[]{ new VehicleGroupSpec("G1","Tug",1,1.0,2,1, 45) })), x => x.Trim() == "rotate	1 0 Seconds");
+    [Fact] public void Zero_Rotate_Rate_Throws() =>
+        Assert.Throws<ArgumentException>(() => Lines(new ExportOptions(Groups: new[]{ new VehicleGroupSpec("G1","Tug",1,1.0,2,1, 0) })));
 }

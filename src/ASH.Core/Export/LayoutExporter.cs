@@ -39,7 +39,7 @@ public static class LayoutExporter
         foreach (var p in l.Paths) CheckName("path", p.Name);
         foreach (var c in l.Cps) CheckName("CP", c.Name);
         foreach (var b in l.Blocks) CheckName("block", b.Name);
-        foreach (var g in groups) { CheckName("group", g.Group); CheckName("vehicle type", g.TypeName); }
+        foreach (var g in groups) { CheckName("group", g.Group); CheckName("vehicle type", g.TypeName); if (!(g.RotateDegPerSec > 0)) throw new ArgumentException($"group {g.Group}: RotateDegPerSec must be > 0"); }
 
         var s = new AgvsSystem { Version = o.Version, UnitsTokens = new[] { o.Units, "Seconds" } };
         s.HeaderLines.AddRange(Template("agvs_header.txt").Select(x => o.ClaimBlockOnNextCp ? x.Replace("ignore ResumeSpeedWhenClaimed", "ignore OldBlockClaim ResumeSpeedWhenClaimed") : x));

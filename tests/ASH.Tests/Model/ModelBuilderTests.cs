@@ -61,4 +61,45 @@ public class ModelBuilderTests
         Assert.Contains("CONTROL snaplen 0.5 Hours counts 1 autorep", s);
         Assert.Contains("DRAWPOS minx -1 maxx 3 miny -2 maxy 4", s);
     }
+
+    [Theory]
+    [InlineData("")] [InlineData("a/b")] [InlineData("..")] [InlineData("a b")] [InlineData("a\\b")]
+    public void Bad_Model_Name_Throws(string name) =>
+        Assert.Throws<ArgumentException>(() => ModelBuilder.Build(Req(Tmp(), LogicGeneratorTests.Sample()) with { ModelName = name }, null, TimeSpan.Zero));
+
+    [Fact]
+    public void PrepareBuildDir_Deletes_Old_Dir()
+    {
+        var dir = Tmp(); Directory.CreateDirectory(Path.Combine(dir, "m.dir", "sub"));
+        File.WriteAllText(Path.Combine(dir, "m.dir", "sub", "x"), "x");
+        ModelBuilder.PrepareBuildDir(dir, "m");
+        Assert.False(Directory.Exists(Path.Combine(dir, "m.dir")));
+        ModelBuilder.PrepareBuildDir(dir, "m"); // missing dir is fine
+        Directory.Delete(dir, true);
+    }
+
+    [Fact]
+    public void Block_Rect_Uses_Origin_And_Scale_And_Default_User_Ext_Is_Created()
+    {
+        var dir = Tmp();
+        var req = Req(dir, LogicGeneratorTests.Sample());
+        req = req with { AgvsOptions = req.AgvsOptions with { Origin = new Point2(1, 1), Scale = 2 } };
+        var r = ModelBuilder.Build(req, null, TimeSpan.Zero);
+        var proc = File.ReadAllText(Path.Combine(r.ArcDir, "m~.asy"));
+        // rect (8,-1)-(11,2) -> (14,-4)-(20,2): centre 17,-1; size 6x6
+        Assert.Contains("begx 17 begy -1 ", proc);
+        Assert.Contains("scx 6 scy 6", proc);
+        Assert.True(File.Exists(Path.Combine(r.ArcDir, "user_ext.m")));
+        Assert.Contains("1 1\n", File.ReadAllText(Path.Combine(r.ArcDir, "params.txt"))); // G1 MinCount 1
+        Directory.Delete(dir, true);
+    }
+
+    [Fact]
+    public void Input_Warnings_Are_Mirrored()
+    {
+        var input = LogicGeneratorTests.Sample();
+        input.Materials[0] = input.Materials[0] with { CallThreshold = 50, UnloadThreshold = 1 };
+        var r = ModelBuilder.Build(Req(Tmp(), input), null, TimeSpan.Zero);
+        Assert.Equal(r.Findings.Count(f => f.Code == ASH.Core.Layout.FindingCode.InputWarning), r.Warnings.Count(w => r.Findings.Any(f => f.Message == w)));
+    }
 }
