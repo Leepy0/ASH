@@ -103,3 +103,67 @@ public class ModelBuilderTests
         Assert.Equal(r.Findings.Count(f => f.Code == ASH.Core.Layout.FindingCode.InputWarning), r.Warnings.Count(w => r.Findings.Any(f => f.Message == w)));
     }
 }
+
+public class ServerAssemblyTests
+{
+    const string Seg = "AGVVEHSEG name Custom cap 2 pickup 0 Seconds setdown 0 Seconds\n\tfigcurspeed 100\n\tPAPATTACH\n\tPAP ind 0 \n";
+    const string Veh = "AGVSVEH type Whatever numveh 99\n\tvehsegs item Other \n\tstart nlmine\n\tload Default \n\t\tvel\t0 7 Feet Seconds\n";
+
+    static ASH.Core.Layout.Layout Loop()
+    {
+        var l = ASH.Tests.Layout.L.Of(ASH.Tests.Layout.L.Line("p1", 0, 0, 10, 0), ASH.Tests.Layout.L.Line("p2", 10, 0, 10, 10), ASH.Tests.Layout.L.Line("p3", 10, 10, 0, 10), ASH.Tests.Layout.L.Line("p4", 0, 10, 0, 0));
+        l.Cps.Add(ASH.Tests.Layout.L.Cp("S001", 5, 0, "standby", "G1")); l.Cps.Add(ASH.Tests.Layout.L.Cp("L001", 10, 5, "load"));
+        l.Cps.Add(ASH.Tests.Layout.L.Cp("B001", 6, 10, "buffer")); l.Cps.Add(ASH.Tests.Layout.L.Cp("U001", 2, 10, "unload"));
+        return l;
+    }
+
+    static ExportOptions Opt(VehicleTemplateOverride? ov) =>
+        new(Groups: new[] { new VehicleGroupSpec("G1", "Tug", 3, 1.0, 1, 1) }, VehicleOverrides: ov == null ? null : new Dictionary<string, VehicleTemplateOverride> { ["Tug"] = ov });
+
+    [Fact]
+    public void Export_Uses_VehSeg_Override_Verbatim_With_Renamed_Header()
+    {
+        var s = ASH.Core.Export.LayoutExporter.ToAgvs(Loop(), Opt(new VehicleTemplateOverride(VehSegText: Seg)));
+        Assert.Equal(new[] { "AGVVEHSEG name Seg_Tug cap 2 pickup 0 Seconds setdown 0 Seconds", "\tfigcurspeed 100", "\tPAPATTACH", "\tPAP ind 0 " }, s.VehicleSegmentLines);
+        Assert.Contains("vehsegs item Seg_Tug", string.Join("\n", s.VehicleLines)); // vehicle block stays default
+    }
+
+    [Fact]
+    public void Export_Forces_Type_NumVeh_Segs_Start_In_Vehicle_Override()
+    {
+        var s = ASH.Core.Export.LayoutExporter.ToAgvs(Loop(), Opt(new VehicleTemplateOverride(VehicleBlockText: Veh)));
+        Assert.Equal(new[] { "AGVSVEH type Tug numveh 3", "\tvehsegs item Seg_Tug ", "\tstart nl_G1", "\tload Default ", "\t\tvel\t0 7 Feet Seconds" }, s.VehicleLines);
+    }
+
+    [Theory]
+    [InlineData("seg")] [InlineData("veh")]
+    public void Override_Without_Keyword_Throws(string which)
+    {
+        var ov = which == "seg" ? new VehicleTemplateOverride(VehSegText: "junk\n") : new VehicleTemplateOverride(VehicleBlockText: Seg);
+        Assert.Throws<ArgumentException>(() => ASH.Core.Export.LayoutExporter.ToAgvs(Loop(), Opt(ov)));
+    }
+
+    [Fact]
+    public void Builder_Uses_Material_Overrides()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "ash_sa_" + Guid.NewGuid().ToString("N"));
+        var input = LogicGeneratorTests.Sample();
+        var mats = input.Materials.Select(m => m with { CallThreshold = 7, UnloadThreshold = 9, InitStock = 8 }).ToList();
+        var r = ModelBuilder.Build(new ModelBuildRequest(dir, "m", input, Loop(), Opt(null), MaterialOverrides: mats), null, TimeSpan.Zero);
+        Assert.Contains("1 7 9 8 ", File.ReadAllText(Path.Combine(r.ArcDir, "params.txt")));
+        Assert.Equal(2, input.Materials[0].CallThreshold); // original untouched
+        Directory.Delete(dir, true);
+
+        var r2 = ModelBuilder.Build(new ModelBuildRequest(dir, "m", input, Loop(), Opt(null), MaterialOverrides: mats.Take(1).ToList()), null, TimeSpan.Zero);
+        Assert.Contains(r2.Findings, f => f.Code == ASH.Core.Layout.FindingCode.InputError);
+        Assert.False(Directory.Exists(r2.ArcDir));
+    }
+
+    [Fact]
+    public void Amo_AutoView_Token_Toggle()
+    {
+        var d = new Rect2(new Point2(0, 0), new Point2(1, 1));
+        Assert.EndsWith("autorep\n", ModelAmoWriter.Render("x", "Meters", 1, new[] { "agv" }, d));
+        Assert.Contains("autorep autoview", ModelAmoWriter.Render("x", "Meters", 1, new[] { "agv" }, d, autoView: true));
+    }
+}

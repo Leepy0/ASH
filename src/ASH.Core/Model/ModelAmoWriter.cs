@@ -8,8 +8,8 @@ namespace ASH.Core.Model;
 
 public static class ModelAmoWriter
 {
-    /// <summary>autorep: without it AM writes no .report. No autoview (the run is headless). drawPos is in model units.</summary>
-    public static string Render(string modelName, string units, double simLenHours, IEnumerable<string> moveSystems, Rect2 drawPos, string version = "12.6.1.19")
+    /// <summary>autorep: without it AM writes no .report. autoView appends the autoview token (default off: the run is headless). drawPos is in model units.</summary>
+    public static string Render(string modelName, string units, double simLenHours, IEnumerable<string> moveSystems, Rect2 drawPos, string version = "12.6.1.19", bool autoView = false)
     {
         string N(double d) => AsyWriter.Num(d);
         var lines = new List<string>
@@ -19,7 +19,7 @@ public static class ModelAmoWriter
         };
         foreach (var s in moveSystems) { lines.Add("MOVESYS name " + s); lines.Add("\tSYSPOS endx 1"); }
         lines.Add($"PROCSYS name {modelName}~"); lines.Add("\tSYSPOS endx 1");
-        lines.Add("CONTROL snaplen " + simLenHours.ToString("0.###############", CultureInfo.InvariantCulture) + " Hours counts 1 autorep");
+        lines.Add("CONTROL snaplen " + simLenHours.ToString("0.###############", CultureInfo.InvariantCulture) + " Hours counts 1 autorep" + (autoView ? " autoview" : ""));
         lines.Add("");
         return string.Join("\n", lines);
     }

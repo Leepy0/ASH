@@ -21,6 +21,13 @@ public static class LayoutExporter
         return text.Split('\n');
     }
 
+    static string[] OverrideLines(string text, string keyword)
+    {
+        var lines = text.Replace("\r\n", "\n").TrimEnd('\n').Split('\n');
+        if (!lines[0].TrimStart().StartsWith(keyword + " ")) throw new ArgumentException($"override text must start with {keyword}");
+        return lines;
+    }
+
     static string N(double d) => AsyWriter.Num(d);
 
     static Point2 Tx(Point2 p, ExportOptions o) => new Point2((p.X - o.Origin.X) * o.Scale, (p.Y - o.Origin.Y) * o.Scale);
@@ -115,7 +122,21 @@ public static class LayoutExporter
         {
             // shortcut: vehicle graphics use demo template size, Length/Width only feed traffic params; upgrade when Module C defines AGVVEHSEG geometry
             var seg = "Seg_" + g.TypeName;
-            s.VehicleSegmentLines.AddRange(Template("agvs_vehseg.txt").Select(x => x.Replace("DefSegment", seg)));
+            VehicleTemplateOverride? ov = null; o.VehicleOverrides?.TryGetValue(g.TypeName, out ov);
+            if (ov?.VehSegText != null)
+                s.VehicleSegmentLines.AddRange(OverrideLines(ov.VehSegText, "AGVVEHSEG").Select((x, i) => i == 0 ? Regex.Replace(x, @"^(\s*AGVVEHSEG\s+name\s+)\S+", "${1}" + seg) : x));
+            else s.VehicleSegmentLines.AddRange(Template("agvs_vehseg.txt").Select(x => x.Replace("DefSegment", seg)));
+            if (ov?.VehicleBlockText != null)
+            {
+                foreach (var line in OverrideLines(ov.VehicleBlockText, "AGVSVEH"))
+                {
+                    var t = Regex.Replace(line, @"^(\s*AGVSVEH.*?type\s+)\S+", "${1}" + g.TypeName);
+                    t = Regex.Replace(t, @"^(\s*AGVSVEH.*?numveh\s+)\S+", "${1}" + g.MaxCount);
+                    t = Regex.Replace(t, @"^(\s*vehsegs\s+item\s+)\S+", "${1}" + seg);
+                    s.VehicleLines.Add(Regex.Replace(t, @"^(\s*start\s+)\S+", "${1}nl_" + g.Group));
+                }
+                continue;
+            }
             var speed = N(g.Speed);
             foreach (var line in Template("agvs_veh.txt"))
             {

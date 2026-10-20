@@ -12,7 +12,8 @@ using ASH.Core.Layout;
 
 namespace ASH.Core.Model;
 
-public sealed record ModelBuildRequest(string ProjectDir, string ModelName, ProjectInput Input, Layout.Layout Layout, ExportOptions AgvsOptions);
+public sealed record ModelBuildRequest(string ProjectDir, string ModelName, ProjectInput Input, Layout.Layout Layout, ExportOptions AgvsOptions,
+    IReadOnlyList<MaterialInfo>? MaterialOverrides = null, IReadOnlyDictionary<string, VehicleTemplateOverride>? VehicleOverrides = null, bool AutoView = false);
 /// <summary>Build is null when no AutoMod was given (generate only) or validation failed (ArcDir then has no files).</summary>
 public sealed record ModelBuildResult(string ArcDir, AmBuildResult? Build, List<Finding> Findings, List<string> Warnings);
 
@@ -24,6 +25,13 @@ public static class ModelBuilder
             || !LayoutChecker.IsValidName(r.ModelName)) throw new ArgumentException("invalid model name: " + r.ModelName);
         var arc = Path.Combine(r.ProjectDir, r.ModelName + ".arc");
         var l = r.Layout; var o = r.AgvsOptions; var input = r.Input;
+        if (r.VehicleOverrides != null) o = o with { VehicleOverrides = r.VehicleOverrides };
+        if (r.MaterialOverrides != null)
+        {
+            input = new ProjectInput { Settings = r.Input.Settings };
+            input.AgvTypes.AddRange(r.Input.AgvTypes); input.Groups.AddRange(r.Input.Groups); input.Materials.AddRange(r.MaterialOverrides);
+            input.Routes.AddRange(r.Input.Routes); input.Stations.AddRange(r.Input.Stations); input.Ext.AddRange(r.Input.Ext);
+        }
         var findings = InputValidator.Validate(input, l.Cps.Select(c => c.Name).ToList());
         if (findings.Any(f => f.Code == FindingCode.InputError)) return new ModelBuildResult(arc, null, findings, Warn(findings));
 
@@ -53,7 +61,7 @@ public static class ModelBuilder
             : new Rect2(new Point2(pts.Min(p => p.X), pts.Min(p => p.Y)), new Point2(pts.Max(p => p.X), pts.Max(p => p.Y)));
         var pad = Math.Max(draw.Max.X - draw.Min.X, draw.Max.Y - draw.Min.Y) * 0.1;
         File.WriteAllText(Path.Combine(arc, "model.amo"),
-            ModelAmoWriter.Render(r.ModelName, o.Units, input.Settings.SimLengthSec / 3600, new[] { "agv" }, draw.Expand(Math.Max(pad, 1)), o.Version));
+            ModelAmoWriter.Render(r.ModelName, o.Units, input.Settings.SimLengthSec / 3600, new[] { "agv" }, draw.Expand(Math.Max(pad, 1)), o.Version, r.AutoView));
         ParamsFile.Write(input, new RunScenario(input.Settings.SeedBase, new Dictionary<string, int>()), Path.Combine(arc, "params.txt"));
 
         AmBuildResult? build = null;

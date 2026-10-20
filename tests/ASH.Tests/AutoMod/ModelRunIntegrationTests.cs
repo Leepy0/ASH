@@ -23,7 +23,7 @@ public class ModelRunIntegrationTests
 
     /// <summary>One-way square loop (4 paths, 10 m sides) with S001 standby, L001 load, B001 buffer, U001 unload, one block;
     /// a second group adds S002 standby (G2) and L002 load.</summary>
-    static Run BuildAndRun(ProjectInput input, IReadOnlyDictionary<string, int> active, int seed = 1)
+    static Run BuildAndRun(ProjectInput input, IReadOnlyDictionary<string, int> active, int seed = 1, IReadOnlyDictionary<string, VehicleTemplateOverride>? vehOverrides = null)
     {
         var l = L.Of(L.Line("p1", 0, 0, 10, 0), L.Line("p2", 10, 0, 10, 10), L.Line("p3", 10, 10, 0, 10), L.Line("p4", 0, 10, 0, 0));
         l.Cps.Add(L.Cp("S001", 5, 0, "standby", "G1"));
@@ -38,7 +38,7 @@ public class ModelRunIntegrationTests
             return new VehicleGroupSpec(g.Group, g.Type, g.MaxCount, t.SpeedLoaded, t.Length, t.Width);
         }).ToArray();
         l.Blocks.Add(new ASH.Core.Layout.LayoutBlock { Name = "B_x1", Cap = 1, Rect = new Rect2(new Point2(8, -1), new Point2(11, 2)) }); // corner p1/p2
-        var res = ModelBuilder.Build(new ModelBuildRequest(work, Model, input, l, new ExportOptions(Groups: specs)), AmHome!, TimeSpan.FromMinutes(5));
+        var res = ModelBuilder.Build(new ModelBuildRequest(work, Model, input, l, new ExportOptions(Groups: specs), VehicleOverrides: vehOverrides), AmHome!, TimeSpan.FromMinutes(5));
         Assert.DoesNotContain(res.Findings, f => f.Code == ASH.Core.Layout.FindingCode.InputError);
         var b = res.Build!;
         Assert.True(b.Success, work + "\n" + b.MakeErrText + b.Am2ErrText);
@@ -57,6 +57,21 @@ public class ModelRunIntegrationTests
 
     static double V(string[] row, int i) => double.Parse(row[2 + i], CultureInfo.InvariantCulture);
     static string[] Mat(Run r, string name) => r.Rows.Single(x => x[0] == "material" && x[1] == name);
+
+    [SkippableFact]
+    public void Run_With_VehSeg_Override_From_Demo_Block()
+    {
+        Skip.If(AmHome is null, "ASH_AM_HOME not set");
+        var demo = File.ReadAllLines(Path.Combine(AmHome!, "demos", "amoddemos", "demos", "agv", "agvdemo.arc", "agv.asy"));
+        var start = Array.FindIndex(demo, x => x.StartsWith("AGVVEHSEG name DefSegment"));
+        Assert.True(start >= 0, "demo DefSegment block");
+        var block = demo.Skip(start).TakeWhile((x, i) => i == 0 || !(x.Length > 0 && char.IsUpper(x[0]))).ToList(); // geometry lines start with digits, the next top-level keyword is upper-case
+        var text = string.Join("\n", block).Replace("DefSegment", "FromServer") + "\n";
+        var run = BuildAndRun(LogicGeneratorTests.Sample(), new Dictionary<string, int> { ["G1"] = 1 }, 1,
+            new Dictionary<string, VehicleTemplateOverride> { ["Tug"] = new(VehSegText: text) });
+        Assert.Contains("AGVVEHSEG name Seg_Tug ", File.ReadAllText(Path.Combine(run.Work, Model + ".arc", "agv.asy")));
+        Cleanup(run.Work);
+    }
 
     [SkippableFact]
     public void Run_Writes_Result_Tsv_With_Material_Rows()
