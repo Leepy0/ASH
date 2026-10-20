@@ -7,7 +7,7 @@ namespace ASH.Tests.Runner;
 public class ResultJudgeTests
 {
     static string Fx(string n) => Path.Combine(AppContext.BaseDirectory, "Fixtures", "runner", n);
-    static RunKpi K(double util = 0.5, double stock = 1.5, int sup = 10, int exp = 10, int dead = 0) => new("G1", 1, util, stock, sup, exp, 0, dead);
+    static RunKpi K(double util = 0.5, double stock = 1.5, int sup = 10, int exp = 10, int dead = 0, double stop = 0) => new("G1", 1, util, stock, sup, exp, stop, dead);
     static readonly ASH.Core.Input.Settings S = new() { UtilMax = 0.75 };
 
     [Fact]
@@ -61,19 +61,74 @@ public class ResultJudgeTests
         Assert.Contains("공급", Judge.Evaluate(new[] { K(sup: 9, exp: 10) }, S).Reason);
         Assert.Contains("교착", Judge.Evaluate(new[] { K(), K(dead: 1) }, S).Reason);
     }
+    [Fact]
+    public void Judge_Fails_On_Stop_Time_Even_If_Ratio_Ok()
+    {
+        var v = Judge.Evaluate(new[] { K(stock: 5, stop: 120) }, S);
+        Assert.False(v.Ok); Assert.Equal(RuleCode.StopTime, v.Rule); Assert.Contains("공정 정지 120", v.Reason);
+    }
+
+    static string W(string body, string ext = ".tsv") { var p = Path.Combine(Path.GetTempPath(), "ash_rt_" + Guid.NewGuid().ToString("N") + ext); File.WriteAllText(p, body); return p; }
+
+    [Fact]
+    public void Parse_Rejects_Empty_Short_Rows_And_Missing_Clock()
+    {
+        const string H = "kind\tname\tgroup\tvalue1\n";
+        Assert.Contains("empty", Assert.Throws<InvalidDataException>(() => ResultParser.Parse(W(""))).Message);
+        Assert.Contains("line 3", Assert.Throws<InvalidDataException>(() => ResultParser.Parse(W(H + "clock\tclock\t\t0\ngroup\tG1\n"))).Message);
+        Assert.Contains("clock", Assert.Throws<InvalidDataException>(() => ResultParser.Parse(W(H + "group\tG1\tG1\t1\n"))).Message);
+        Assert.False(ResultParser.Validate(W(H + "group\tG1\tG1\t1\n"), out var err)); Assert.NotNull(err);
+        Assert.True(ResultParser.Validate(Fx("result.tsv"), out _));
+        var r = ResultParser.Parse(W(H + "clock\tclock\t\t0\t5\nfuture\tx\tG1\t7\nblockgroup\tB\tG1\t3\t2\n"));
+        Assert.Equal(new[] { "clock", "future", "blockgroup" }, r.Rows.Select(x => x.Kind)); // unknown kinds kept
+        Assert.Equal(7, r.Rows[1].Values[0]);
+        Assert.Equal(("B", "G1", 3.0, 2.0), (r.BlockGroups[0].Block, r.BlockGroups[0].Group, r.BlockGroups[0].WaitSec, r.BlockGroups[0].WaitCount));
+    }
+
+    [Fact]
+    public void ParseReport_Dash_Is_NaN_And_Block_Without_AvWait_Kept()
+    {
+        var p = W("Block Statistics\n=====\nB1 3 0 1.5 2 1 0 0.25 4.5\nB2 3 0 1.5 2 1 0 -- 4.5 --\n\n", ".report");
+        var rs = ResultParser.ParseReport(p);
+        Assert.Equal(2, rs.Blocks.Count);
+        Assert.True(double.IsNaN(rs.Blocks[0].AvWait)); Assert.Equal(0.25, rs.Blocks[0].Util);
+        Assert.True(double.IsNaN(rs.Blocks[1].Util) && double.IsNaN(rs.Blocks[1].AvWait));
+    }
+
+    [Fact]
+    public void Kpi_Tolerates_Null_Report_Missing_Material_And_Materialless_Group()
+    {
+        var input = LogicGeneratorTests.TwoGroups();
+        var rs = ResultParser.Parse(Fx("result.tsv"));
+        var noM2 = rs with { Materials = rs.Materials.Where(m => m.Name != "M2").ToList() };
+        var k = Kpi.FromRun(noM2, null, input);
+        var g1 = k.Single(x => x.Group == "G1"); var g2 = k.Single(x => x.Group == "G2");
+        Assert.True(double.IsNaN(g1.Utilization)); Assert.Contains("보고서 없음", g1.Note);
+        Assert.Equal(0, g2.MinStockRatio); Assert.Contains("M2", g2.Note);
+        var empty = LogicGeneratorTests.TwoGroups(); empty.Materials.RemoveAll(m => m.Group == "G2");
+        var ke = Kpi.FromRun(rs, null, empty).Where(x => x.Group == "G2").ToList();
+        Assert.True(ke[0].MinStockRatio >= 1);
+        Assert.True(Judge.Evaluate(ke, S).Ok);
+    }
+
     [Fact] public void Judge_Passes_Good_Run() => Assert.True(Judge.Evaluate(new[] { K(), K(util: 0.6, stock: 1.0, sup: 10) }, S).Ok);
 
     [Fact]
     public void Summary_Appends_And_Reads_Back()
     {
         var p = Path.Combine(Path.GetTempPath(), "ash_sum_" + Guid.NewGuid().ToString("N"), "summary.tsv");
-        var a = new SummaryRow("n1_s1", "G1", 1, 1, true, "", 0.55, 1.8, 3, 5, 0, 0, 1.25);
+        var a = new SummaryRow("n1_s1", "G1", 1, 1, true, "", 0.55, 1.8, 3, 5.5, 0, 0, 1.25, "G1=1");
         var b = a with { RunId = "n2_s1", Ok = false, Reason = "재고\t부족", Utilization = 0.123456 };
         SummaryTsv.Append(p, a); SummaryTsv.Append(p, b);
         Assert.Equal(3, File.ReadAllLines(p).Length); // header once
         var rows = SummaryTsv.ReadAll(p);
         Assert.Equal(a, rows[0]);
         Assert.Equal(b with { Reason = "재고 부족" }, rows[1]);
+        File.AppendAllText(p, "torn\tline\n");
+        Assert.Equal(2, SummaryTsv.ReadAll(p, out var skipped).Count); Assert.Equal(1, skipped);
+        File.WriteAllText(p, "wrong\theader\n");
+        Assert.Throws<InvalidDataException>(() => SummaryTsv.ReadAll(p));
+        Assert.Throws<InvalidDataException>(() => SummaryTsv.Append(p, a));
         Directory.Delete(Path.GetDirectoryName(p)!, true);
     }
 }

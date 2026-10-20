@@ -94,6 +94,25 @@ public class ModelRunIntegrationTests
     }
 
     [SkippableFact]
+    public void Run_Two_Scenarios_Concurrently_In_Separate_Work_Slots()
+    {
+        Skip.If(AmHome is null, "ASH_AM_HOME not set");
+        var input = LogicGeneratorTests.Sample();
+        var run = BuildAndRun(input, 1);
+        var tasks = new[] { 1, 2 }.Select(slot => System.Threading.Tasks.Task.Run(() =>
+        {
+            var w = ModelRunner.PrepareWorkSlot(run.Work, Model, slot);
+            return ModelRunner.Run(new RunRequest(run.Work, Model, input, new RunScenario(10 + slot, new Dictionary<string, int> { ["G1"] = 1 }),
+                TimeSpan.FromMinutes(3), "Student Version", WorkDir: w));
+        })).ToArray();
+        System.Threading.Tasks.Task.WaitAll(tasks);
+        foreach (var t in tasks) Assert.True(t.Result.Success, t.Result.Error);
+        Assert.NotEqual(tasks[0].Result.RunDir, tasks[1].Result.RunDir);
+        Assert.All(tasks, t => Assert.True(File.Exists(t.Result.ResultTsvPath) && File.Exists(t.Result.ReportPath)));
+        Cleanup(run.Work);
+    }
+
+    [SkippableFact]
     public void Run_Parks_Excess_Vehicles()
     {
         Skip.If(AmHome is null, "ASH_AM_HOME not set");
