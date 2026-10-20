@@ -364,4 +364,4 @@ Process `.asy`의 `code.m`에 들어간다. 사용자는 이 파일을 편집하
 
 ## 13. 저장소
 
-이름은 `ash`(소문자, 하이픈 없음)을 권한다. 솔루션 이름은 `ASH`, 프로젝트는 `ASH.Core`, `ASH.Plugin`, `ASH.Runner`, `ASH.Tests`. 이 설계서는 저장소의 `docs/superpowers/specs/`에 그대로 옮긴다.
+저장소는 `Leepy0/ASH`(ASH = AGV Simul Helper). 솔루션 이름은 `ASH`, 프로젝트는 `ASH.Core`, `ASH.Plugin`, `ASH.Runner`, `ASH.Tests`. 이 설계서는 저장소의 `docs/superpowers/specs/`에 그대로 옮긴다.
