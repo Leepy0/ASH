@@ -3,6 +3,7 @@
   <PropertyGroup>
     <TargetFramework>net48</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
+    <UseWPF>true</UseWPF> <!-- ribbon (ZdWindows) uses WPF ImageSource/ICommand -->
     <!-- Optional: point ZwCadDir at a folder holding ZwDatabaseMgd.dll/ZwManaged.dll to build against local dlls instead of the NuGet package. -->
     <ZwCadDir Condition="'$(ZwCadDir)'==''"></ZwCadDir>
   </PropertyGroup>
