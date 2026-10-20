@@ -244,10 +244,10 @@ public sealed class PathCommands
     private static Editor Ed => Doc.Editor;
 
     /// <summary>Runs body in one locked transaction; when it returns true, refreshes arrows (unless refreshArrows is false) and commits. Errors go to the command line.
-    /// unitsPerMeter comes from settings the caller already loaded; null reads ash.settings.tsv quietly (1 when unsaved/missing/bad).</summary>
+    /// unitsPerMeter comes from settings the caller already loaded; null loads (or creates) ash.settings.tsv via ExportCommands.UnitsPerMeter.</summary>
     internal static void Run(Document doc, string cmd, Func<Database, Transaction, bool> body, bool refreshArrows = true, double? unitsPerMeter = null)
     {
-        DrawingUnits.PerMeter = unitsPerMeter ?? ExportCommands.QuietUnitsPerMeter();
+        DrawingUnits.PerMeter = unitsPerMeter ?? ExportCommands.UnitsPerMeter(doc.Editor);
         try
         {
             using (doc.LockDocument())

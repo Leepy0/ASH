@@ -61,19 +61,39 @@ public sealed class ExportCommands
         }, refreshArrows: false, unitsPerMeter: UnitScale.FromSettings(s));
     }
 
-    /// <summary>Drawing units per meter from ash.settings.tsv, without messages or writing a template; 1 for an unsaved drawing or a missing/bad file
-    /// (the commands that need settings report those through TryLoadSettings).</summary>
-    internal static double QuietUnitsPerMeter()
+    /// <summary>Drawing units per meter for commands that don't otherwise need settings. Same load path as TryLoadSettings (template on first use, mm warning);
+    /// 1, with a message, for an unsaved drawing or a bad file.</summary>
+    internal static double UnitsPerMeter(Editor ed)
     {
+        if (Convert.ToInt32(Application.GetSystemVariable("DWGTITLED")) == 0)
+        {
+            ed.WriteMessage("\n도면을 먼저 저장하세요 (단위 설정)");
+            return 1.0;
+        }
+        var path = Path.Combine((string)Application.GetSystemVariable("DWGPREFIX"), SettingsFileName);
         try
         {
-            if (Convert.ToInt32(Application.GetSystemVariable("DWGTITLED")) == 0) return 1.0;
-            return UnitScale.FromSettings(SettingsFile.Load(Path.Combine((string)Application.GetSystemVariable("DWGPREFIX"), SettingsFileName)));
+            return UnitScale.FromSettings(LoadOrCreate(ed, path));
         }
         catch (System.Exception ex) when (ex is FormatException || ex is IOException || ex is UnauthorizedAccessException)
         {
+            ed.WriteMessage($"\n설정 파일 오류 ({path}): {ex.Message} — 단위 배율 1로 진행합니다.");
             return 1.0;
         }
+    }
+
+    // Writes the default template when missing (prints the path once: next time the file exists) and warns on a mm drawing with Scale 1.
+    private static ProjectSettings LoadOrCreate(Editor ed, string path)
+    {
+        if (!File.Exists(path))
+        {
+            SettingsFile.Save(new ProjectSettings(), path);
+            ed.WriteMessage($"\n설정 파일이 없어 기본값으로 만들었습니다: {path}");
+        }
+        var s = SettingsFile.Load(path);
+        if (Convert.ToInt32(Application.GetSystemVariable("INSUNITS")) == 4 && s.Scale == 1.0)
+            ed.WriteMessage("\n도면 단위가 mm인데 Scale=1 입니다. ash.settings.tsv의 Scale을 0.001로 설정하세요.");
+        return s;
     }
 
     /// <summary>Loads &lt;drawing folder&gt;\ash.settings.tsv, writing a default template there when missing. False, with a message, for an unsaved drawing or a bad file.
@@ -91,14 +111,7 @@ public sealed class ExportCommands
         var path = Path.Combine(dir, SettingsFileName);
         try
         {
-            if (!File.Exists(path))
-            {
-                SettingsFile.Save(new ProjectSettings(), path);
-                ed.WriteMessage($"\n설정 파일이 없어 기본값으로 만들었습니다: {path}");
-            }
-            settings = SettingsFile.Load(path);
-            if (Convert.ToInt32(Application.GetSystemVariable("INSUNITS")) == 4 && settings.Scale == 1.0)
-                ed.WriteMessage("\n도면 단위가 mm인데 Scale=1 입니다. ash.settings.tsv의 Scale을 0.001로 설정하세요.");
+            settings = LoadOrCreate(ed, path);
             return true;
         }
         catch (System.Exception ex) when (ex is FormatException || ex is IOException || ex is UnauthorizedAccessException)

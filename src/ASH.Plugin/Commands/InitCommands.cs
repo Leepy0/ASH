@@ -20,6 +20,7 @@ public sealed class InitCommands
     {
         var doc = Application.DocumentManager.MdiActiveDocument;
         var ed = doc.Editor;
+        ExportCommands.UnitsPerMeter(ed); // create ash.settings.tsv at init and show the unit warning early
         try
         {
             using (doc.LockDocument())
