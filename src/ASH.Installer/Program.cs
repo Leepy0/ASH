@@ -9,10 +9,11 @@ using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
 using ASH.Core.Install;
+using ASH.Core.Settings;
 
 namespace ASH.Installer;
 
-// ASH.Installer.exe [/silent] [/uninstall] [/dir:<ZWCAD folder>]...   (hidden: /capture:<png> renders the form without detection and exits)
+// ASH.Installer.exe [/silent] [/uninstall] [/dir:<ZWCAD folder>]... [/server:<http://host:port>]   (hidden: /capture:<png> renders the form without detection and exits)
 static class Program
 {
     [STAThread]
@@ -41,6 +42,13 @@ static class Program
         var dirs = Arg(args, "/dir:").ToList();
         var manual = dirs.Select(Manual).Where(m => m != null).Select(m => m!).ToList();
         var bad = dirs.Where(d => Manual(d) == null).Select(d => "/dir: ZWCAD.exe 없음, 무시: " + d).ToList();
+        string? server = null, badServer = null;
+        var serverArg = Arg(args, "/server:").FirstOrDefault();
+        if (serverArg != null)
+        {
+            if (UserSettings.TryNormalizeUrl(serverArg.Trim('"'), out var s)) server = s;
+            else badServer = "/server: http:// 또는 https:// 주소가 아님, 무시: " + serverArg;
+        }
 
         if (silent)
         {
@@ -49,7 +57,12 @@ static class Program
             bad.ForEach(r.Log);
             var targets = Detect().Concat(manual).Distinct().ToList();
             if (targets.Count == 0) { r.Log("ZWCAD 설치를 찾지 못했습니다."); return 1; }
-            try { if (uninstall) r.Uninstall(targets); else r.Install(targets); }
+            if (badServer != null) r.Warn(badServer);
+            try
+            {
+                if (uninstall) r.Uninstall(targets);
+                else { r.Install(targets); if (server != null) r.SaveServerUrl(server); }
+            }
             catch (Exception ex) { r.Log("오류: " + ex.Message); return 1; }
             return r.ExitCode; // 0 ok, 1 failure, 2 warnings (autoload not registered)
         }
@@ -57,8 +70,9 @@ static class Program
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         if (capture != null) return Capture(capture);
+        if (badServer != null) bad.Add(badServer);
         if (bad.Count > 0) MessageBox.Show(string.Join(Environment.NewLine, bad), "ASH 설치");
-        var form = new MainForm(Detect().Concat(manual).Distinct().ToList(), uninstall);
+        var form = new MainForm(Detect().Concat(manual).Distinct().ToList(), uninstall, server ?? ExistingServerUrl());
         Application.Run(form);
         return form.ExitCode;
     }
@@ -69,6 +83,13 @@ static class Program
 
     public static List<ZwcadInstall> Detect() => ZwcadLocator.Find(new Win32Registry(), new RealFileSystem(),
         Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86));
+
+    // best effort: the process user's file (differs from the install target user's when elevated with another account)
+    static string ExistingServerUrl()
+    {
+        try { return UserSettings.Load().ServerUrl; }
+        catch (Exception) { return ""; }
+    }
 
     /// <summary>A folder holding ZWCAD.exe; version from the folder name ("ZWCAD 2026" → 2026), "" when absent.</summary>
     public static ZwcadInstall? Manual(string dir)
@@ -83,7 +104,7 @@ static class Program
     // no detection: the capture path must not read or write the registry
     static int Capture(string png)
     {
-        var f = new MainForm(new List<ZwcadInstall>(), false) { StartPosition = FormStartPosition.Manual, Location = new Point(-3000, 0), ShowInTaskbar = false };
+        var f = new MainForm(new List<ZwcadInstall>(), false, "") { StartPosition = FormStartPosition.Manual, Location = new Point(-3000, 0), ShowInTaskbar = false };
         int code = 0;
         f.Shown += (_, _) =>
         {

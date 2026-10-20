@@ -7,6 +7,7 @@ using System.Reflection;
 using System.Security.Principal;
 using System.Text;
 using ASH.Core.Install;
+using ASH.Core.Settings;
 
 namespace ASH.Installer;
 
@@ -20,6 +21,7 @@ sealed class StepRunner : IDisposable
     readonly StepExecutor _exec;
     readonly RunResult _session = new(); // warnings not tied to one plan (user hive)
     readonly List<RunResult> _results = new();
+    readonly string? _userAppData; // the install target user's %APPDATA%; null = unknown, nothing is written there
     string? _src;
 
     /// <param name="silent">/silent: an unresolvable interactive user means no HKCU registration (no guessing whose hive).</param>
@@ -28,6 +30,7 @@ sealed class StepRunner : IDisposable
         _ui = ui;
         var (sid, noHkcu) = ResolveUserSid(silent);
         _reg = new Win32Registry(sid, noHkcu);
+        _userAppData = UserDataPaths.AppData(sid, noHkcu, _reg, Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData));
         _exec = new StepExecutor(new RealFileSystem(FallbackRoot), _reg, Log);
     }
 
@@ -65,9 +68,7 @@ sealed class StepRunner : IDisposable
         if (!Win32Registry.UserHiveLoaded(sid))
         {
             if (system) return NoUserHive();
-            var w = $"{u.Value.Account} 사용자 하이브가 로드되지 않아 현재 계정({me.Name})의 HKCU에 등록합니다.";
-            _session.Warnings.Add(w);
-            Log("경고: " + w);
+            Warn($"{u.Value.Account} 사용자 하이브가 로드되지 않아 현재 계정({me.Name})의 HKCU에 등록합니다.");
             return (null, false);
         }
         Log($"등록 대상 사용자: {u.Value.Account} (HKEY_USERS\\{sid}, 실행 계정 {me.Name})");
@@ -80,6 +81,26 @@ sealed class StepRunner : IDisposable
         _session.Warnings.Add(w);
         Log("경고: " + w);
         return (null, true);
+    }
+
+    /// <summary>A warning that makes the exit code 2 and shows in the window's warning list.</summary>
+    public void Warn(string w)
+    {
+        _session.Warnings.Add(w);
+        Log("경고: " + w);
+    }
+
+    /// <summary>Writes ServerUrl to the target user's %APPDATA%\ASH\ash.user.tsv (the user the HKCU registration is for, not necessarily the elevated account).</summary>
+    public void SaveServerUrl(string url)
+    {
+        if (_userAppData == null) { Warn("사용자 폴더를 알 수 없어 서버 주소를 저장하지 못했습니다"); return; }
+        var path = UserSettings.PathIn(_userAppData);
+        try
+        {
+            (UserSettings.Load(path) with { ServerUrl = url }).Save(path);
+            Log($"서버 주소 저장: {url} → {path}");
+        }
+        catch (Exception ex) { Warn($"서버 주소를 저장하지 못했습니다 ({path}): {ex.Message}"); }
     }
 
     public void Log(string line)

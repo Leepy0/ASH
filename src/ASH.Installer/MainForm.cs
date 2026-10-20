@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Windows.Forms;
 using ASH.Core.Install;
+using ASH.Core.Settings;
 
 namespace ASH.Installer;
 
@@ -28,6 +29,7 @@ sealed class MainForm : Form
     readonly Label _notice = new() { AutoSize = true, ForeColor = Muted, Margin = new Padding(0, 6, 0, 0) };
     readonly TextBox _log = new() { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BorderStyle = BorderStyle.None, Font = new Font("Consolas", 9f) };
     readonly Button _install, _uninstall;
+    readonly TextBox _server = new() { Dock = DockStyle.Fill, Margin = new Padding(0) };
 
     /// <summary>Exit code of the last 설치/제거 (0 ok, 1 failure, 2 warnings), same as /silent.</summary>
     public int ExitCode { get; private set; }
@@ -44,7 +46,7 @@ sealed class MainForm : Form
             + (Supported ? "" : " (미지원: ASH는 ZWCAD " + Program.SupportedVersion + "용)");
     }
 
-    public MainForm(List<ZwcadInstall> found, bool uninstallMode)
+    public MainForm(List<ZwcadInstall> found, bool uninstallMode, string serverUrl)
     {
         Text = "ASH 설치 — AGV Simul Helper";
         Font = new Font("Segoe UI", 9.5f);
@@ -76,13 +78,16 @@ sealed class MainForm : Form
         bar.Controls.Add(buttons, 1, 0);
 
         var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(20, 16, 20, 16), ColumnCount = 1 };
-        foreach (var h in new float[] { -1, -1, -1, 55, -1, -1, -1, 45 })
+        _server.Text = serverUrl;
+        foreach (var h in new float[] { -1, -1, -1, 55, -1, -1, -1, -1, -1, 45 })
             root.RowStyles.Add(h < 0 ? new RowStyle(SizeType.AutoSize) : new RowStyle(SizeType.Percent, h));
         root.Controls.Add(title);
         root.Controls.Add(sub);
         root.Controls.Add(Section("찾은 ZWCAD"));
         root.Controls.Add(Framed(_list));
         root.Controls.Add(_notice);
+        root.Controls.Add(Section("서버 주소 (선택) — 업데이트 확인용, 예: http://server:5080. 비워 두면 기존 설정 유지"));
+        root.Controls.Add(_server);
         root.Controls.Add(bar);
         root.Controls.Add(Section("로그"));
         root.Controls.Add(Framed(_log));
@@ -155,6 +160,11 @@ sealed class MainForm : Form
         var targets = _list.CheckedItems.Cast<Item>().Select(i => i.Install).Distinct().ToList();
         if (targets.Count == 0) { MessageBox.Show(this, "ZWCAD를 하나 이상 선택하세요.", Text); return; }
         if (StepRunner.ZwcadRunning()) { MessageBox.Show(this, StepRunner.CloseZwcad, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+        string? server = null;
+        if (!uninstall && _server.Text.Trim().Length > 0)
+        {
+            if (!UserSettings.TryNormalizeUrl(_server.Text, out server)) { MessageBox.Show(this, "서버 주소는 http:// 또는 https://로 시작해야 합니다. 예: http://server:5080", Text, MessageBoxButtons.OK, MessageBoxIcon.Warning); _server.Focus(); return; }
+        }
         if (uninstall && MessageBox.Show(this, "선택한 ZWCAD에서 ASH를 제거할까요?", Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
         UseWaitCursor = true;
         _install.Enabled = _uninstall.Enabled = false;
@@ -162,7 +172,8 @@ sealed class MainForm : Form
         try
         {
             r = new StepRunner(line => { _log.AppendText(line + Environment.NewLine); _log.Update(); });
-            if (uninstall) r.Uninstall(targets); else r.Install(targets);
+            if (uninstall) r.Uninstall(targets);
+            else { r.Install(targets); if (server != null) r.SaveServerUrl(server); }
             ExitCode = r.ExitCode;
         }
         catch (Exception ex)
