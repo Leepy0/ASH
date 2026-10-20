@@ -17,7 +17,8 @@ public static class InputSignature
     public static string Compute(ProjectInput p)
     {
         var sb = new StringBuilder();
-        string N(double d) => d.ToString("R", CultureInfo.InvariantCulture);
+        // G15, not R: net48 (plugin builds) and net10 (ash-run compares) can round-trip doubles to different digits
+        string N(double d) => d.ToString("G15", CultureInfo.InvariantCulture);
         void L(params object?[] xs) => sb.Append(string.Join("\t", xs.Select(x => x is double d ? N(d) : x?.ToString() ?? ""))).Append('\n');
         L("settings", p.Settings.Units, p.Settings.SimLengthSec);
         foreach (var t in p.AgvTypes) L("type", t.Type, t.SpeedLoaded, t.LoadTime, t.UnloadTime, t.Length, t.Width);

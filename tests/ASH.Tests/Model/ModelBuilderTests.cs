@@ -165,6 +165,35 @@ public class ServerAssemblyTests
         finally { if (Directory.Exists(dir)) Directory.Delete(dir, true); }
     }
 
+    [Theory]
+    [InlineData("dupGroup")]
+    [InlineData("blankRoute")]
+    public void Builder_Reports_Bad_Input_As_Findings_Without_Throwing(string which)
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "ash_bad_" + Guid.NewGuid().ToString("N"));
+        var input = LogicGeneratorTests.Sample();
+        if (which == "dupGroup") input.Groups.Add(input.Groups[0]);
+        else input.Routes[0] = input.Routes[0] with { SupplyFromCP = "", SupplyToCP = "", BufferCP = null };
+        try
+        {
+            var r = ModelBuilder.Build(new ModelBuildRequest(dir, "m", input, Loop(), Opt(null)), null, TimeSpan.Zero);
+            Assert.Contains(r.Findings, f => f.Code == ASH.Core.Layout.FindingCode.InputError);
+            Assert.Null(r.Build);
+        }
+        finally { if (Directory.Exists(dir)) Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public void Signature_Formats_Doubles_Stably()
+    {
+        var a = LogicGeneratorTests.Sample(); var b = LogicGeneratorTests.Sample();
+        a.AgvTypes[0] = a.AgvTypes[0] with { SpeedLoaded = 0.1 * 3 };   // 0.30000000000000004
+        b.AgvTypes[0] = b.AgvTypes[0] with { SpeedLoaded = 0.3 };
+        Assert.Equal(InputSignature.Compute(b), InputSignature.Compute(a)); // G15 drops last-bit noise the runtimes may print differently
+        b.AgvTypes[0] = b.AgvTypes[0] with { SpeedLoaded = 0.31 };
+        Assert.NotEqual(InputSignature.Compute(b), InputSignature.Compute(a));
+    }
+
     [Fact]
     public void Vehicle_Override_Without_Start_Line_Gets_Start_Inserted()
     {

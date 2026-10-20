@@ -33,12 +33,20 @@ public static class ModelBuilder
             input.AgvTypes.AddRange(r.Input.AgvTypes); input.Groups.AddRange(r.Input.Groups); input.Materials.AddRange(r.MaterialOverrides);
             input.Routes.AddRange(r.Input.Routes); input.Stations.AddRange(r.Input.Stations); input.Ext.AddRange(r.Input.Ext);
         }
-        // route lengths in model units (the vehicle speed is in model units per second)
-        var supplyLength = Runner.GroupClusters.Build(l, input, ASH.Core.Traffic.TrafficTable.Build(l)).SupplyLength.ToDictionary(kv => kv.Key, kv => kv.Value * o.Scale);
-        var findings = InputValidator.Validate(input, l.Cps.Select(c => c.Name).ToList(), supplyLength);
+        var findings = InputValidator.Validate(input, l.Cps.Select(c => c.Name).ToList());
         if (findings.Any(f => f.Code == FindingCode.InputError)) return new ModelBuildResult(arc, null, findings, Warn(findings));
 
-        var warnings = Warn(findings); warnings.AddRange(ExportRunner.Run(l, o, arc).Warnings);
+        // supply-cycle check only on valid input; route lengths in model units (the vehicle speed is in model units per second)
+        string? lengthError = null;
+        try
+        {
+            var len = Runner.GroupClusters.Build(l, input, ASH.Core.Traffic.TrafficTable.Build(l)).SupplyLength.ToDictionary(kv => kv.Key, kv => kv.Value * o.Scale);
+            findings.AddRange(InputValidator.SupplyCapacity(input, len));
+        }
+        catch (Exception e) { lengthError = "경로 길이 계산 실패: " + e.Message; } // an optional warning must not stop the build
+
+        var warnings = Warn(findings); if (lengthError != null) warnings.Add(lengthError);
+        warnings.AddRange(ExportRunner.Run(l, o, arc).Warnings);
         var standby = new Dictionary<string, string>();
         foreach (var c in l.Cps.Where(c => c.Type == "standby" && c.Group.Length > 0)) { if (!standby.ContainsKey(c.Group)) standby[c.Group] = c.Name; }
         var entryBlock = new Dictionary<string, string>();
