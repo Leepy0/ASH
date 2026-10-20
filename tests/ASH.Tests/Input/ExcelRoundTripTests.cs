@@ -63,6 +63,32 @@ public class ExcelRoundTripTests
     }
 
     [Fact]
+    public void Read_Ignores_Unknown_Columns()
+    {
+        var path = Tmp();
+        try
+        {
+            ExcelTemplate.Write(path);
+            using (var wb = new XLWorkbook(path))
+            {
+                var m = wb.Worksheet("Materials");
+                m.Column(1).InsertColumnsBefore(1); // shifts every known column right
+                m.Cell(1, 1).Value = "Corp"; m.Cell(3, 1).Value = "ACME";
+                int last = m.LastColumnUsed()!.ColumnNumber();
+                m.Cell(1, last + 1).Value = "ProductLine"; m.Cell(3, last + 1).Value = "P1";
+                var g = wb.Worksheet("AGV_Groups");
+                g.Cell(1, 7).Value = "Line"; g.Cell(3, 7).Value = "L1";
+                wb.Save();
+            }
+            var p = ExcelReader.Read(path);
+            Assert.Equal("M001", p.Materials[0].Material);
+            Assert.Equal(new InSettings(), p.Settings);
+            Assert.Equal("G_EX", p.Groups[0].Group);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
     public void Read_Bad_Number_Reports_Sheet_Row_Column()
     {
         var path = Tmp();

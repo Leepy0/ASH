@@ -73,6 +73,18 @@ public class LogicGeneratorTests
     }
 
     [Fact]
+    public void Render_Emits_BlockGroup_Rows_And_Debug_Gated_Prints()
+    {
+        var info = Layout with { EntryBlockByCp = new Dictionary<string, string> { ["B001"] = "BLK" } };
+        var t = LogicGenerator.Render(Sample(), info);
+        Assert.Contains("print \"blockgroup\\tBLK\\tG1\\t\"", t); // buffer leg -> entry CP B001 -> block BLK
+        Assert.Contains("print \"blockgroup\\t-\\tG1\\t\"", t);   // supply leg to U001 -> no block
+        Assert.Contains("read V_tok, V_debug from V_fp", t);
+        foreach (var line in t.Split('\n').Where(l => l.Contains("to message") && !l.Contains("does not match")))
+            Assert.Contains("V_debug = 1", line);
+    }
+
+    [Fact]
     public void Render_Includes_One_Consume_Proc_Per_Material()
     {
         var t = LogicGenerator.Render(Sample(), Layout);

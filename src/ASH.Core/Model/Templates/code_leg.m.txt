@@ -1,5 +1,15 @@
 	set V_legStart({{M}}) to ac
 	set V_inLeg({{M}}) to 1
+	set A_veh to this load vehicle
+	set A_mv0 to (A_veh percent time in motion) / 100 * ac
 	travel to {{SYS}}:{{TO}}
 	set V_inLeg({{M}}) to 0
 	if ac - V_legStart({{M}}) > V_deadlockSec then inc V_deadlock by 1
+	/* wait = leg time minus time the vehicle was moving (AM has no per-vehicle blocked-time attribute); includes decel/accel at the stop */
+	set A_w to ac - V_legStart({{M}}) - ((A_veh percent time in motion) / 100 * ac - A_mv0)
+	if A_w < 0 then set A_w to 0
+	if V_legStart({{M}}) >= V_warmup then begin
+		inc V_bgWait({{BG}}) by A_w
+		if A_w > 0.5 then inc V_bgCnt({{BG}}) by 1
+	end
+	if V_debug = 1 then print "ASH: leg m={{M}} to {{TO}} dur " (ac - V_legStart({{M}})) " wait " A_w to message

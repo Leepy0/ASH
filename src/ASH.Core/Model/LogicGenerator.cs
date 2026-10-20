@@ -8,9 +8,11 @@ using ASH.Core.Input;
 
 namespace ASH.Core.Model;
 
-/// <summary>StandbyCpByGroup is the fallback standby CP for a group whose AgvGroup.StandbyCPs is empty.</summary>
+/// <summary>StandbyCpByGroup is the fallback standby CP for a group whose AgvGroup.StandbyCPs is empty.
+/// EntryBlockByCp maps a traffic-entry CP (traffic.tsv entry_cp) to its block, for the blockgroup wait rows.</summary>
 public sealed record LayoutInfo(IReadOnlyList<string> CpNames, IReadOnlyList<string> BlockNames,
-    IReadOnlyDictionary<string, string> StandbyCpByGroup, string AgvSystemName = "agv");
+    IReadOnlyDictionary<string, string> StandbyCpByGroup, string AgvSystemName = "agv",
+    IReadOnlyDictionary<string, string>? EntryBlockByCp = null);
 
 /// <summary>Seeding: the logic draws no random numbers, so a run is fully determined by params.txt (seeded init stocks).
 /// AM-side RNSTREAM seeding is not needed until randomness (MTBF/MTTR, phase 3) exists.</summary>
@@ -91,6 +93,17 @@ public static class LogicGenerator
             snap.Append($"\tprint \"group\\t{Lit(g.Group)}\\t{g.Group}\\t\" V_tmp \"\\t0\\t0\\t0\\t0\\t0\\t0\\t0\" to V_out\n");
         }
 
+        // blockgroup wait keys (block, group) -> 1-based slot; a leg to a traffic-entry CP counts for that CP's block, any other leg for "-".
+        // shortcut: v1 approximation, the blocks a leg merely passes through are not attributed; upgrade with per-leg route -> blocks.
+        var bgKeys = new List<(string Block, string Group)>();
+        int Bg(string cp, string group)
+        {
+            var block = layout.EntryBlockByCp != null && layout.EntryBlockByCp.TryGetValue(cp, out var b) ? b : "-";
+            var key = (block, group);
+            var ix = bgKeys.IndexOf(key);
+            if (ix < 0) { bgKeys.Add(key); ix = bgKeys.Count - 1; }
+            return ix + 1;
+        }
         var matLogic = new StringBuilder();
         var create = new StringBuilder();
         for (int i = 0; i < input.Materials.Count; i++)
@@ -100,7 +113,7 @@ public static class LogicGenerator
             var r = RouteOf(input, m);
             var g = input.Groups.First(x => x.Group == m.Group);
             var t = input.AgvTypes.FirstOrDefault(x => x.Type == g.Type) ?? throw new ArgumentException($"그룹 '{g.Group}'의 Type '{g.Type}'이(가) AGV_Types에 없습니다.");
-            string Leg(string to) => Fill(Res("code_leg.m.txt"), ("M", mi.ToString()), ("SYS", sys), ("TO", Cp(layout, to)));
+            string Leg(string to) => Fill(Res("code_leg.m.txt"), ("M", mi.ToString()), ("SYS", sys), ("TO", Cp(layout, to)), ("BG", Bg(to, m.Group).ToString()));
             var legs = new StringBuilder();
             if (!string.IsNullOrEmpty(r.BufferCP))
             {
@@ -130,6 +143,8 @@ public static class LogicGenerator
             // a supply leg still running at the end counts as stuck once it is over the limit
             snap.Append($"\tif V_inLeg({mi}) = 1 and ac - V_legStart({mi}) > V_deadlockSec then inc V_deadlock by 1\n");
         }
+        for (int k = 0; k < bgKeys.Count; k++)
+            snap.Append($"\tprint \"blockgroup\\t{Lit(bgKeys[k].Block)}\\t{Lit(bgKeys[k].Group)}\\t\" V_bgWait({k + 1}) \"\\t\" V_bgCnt({k + 1}) \"\\t0\\t0\\t0\\t0\\t0\\t0\" to V_out\n");
         foreach (var b in layout.BlockNames)
             snap.Append($"\tprint \"block\\t{Lit(b)}\\t\\t\" {b} total \"\\t\" {b} average waiting time \"\\t0\\t\" {b} utilization \"\\t0\\t0\\t0\\t0\" to V_out\n");
 
@@ -191,8 +206,9 @@ public static class LogicGenerator
         m.Queues.Add(new("Q_park"));
         m.Orders.Add("OL_forever");
         m.Atts.Add(new("A_index", "Integer")); m.Atts.Add(new("A_grp", "Integer"));
+        m.Atts.Add(new("A_veh", "VehiclePtr")); m.Atts.Add(new("A_mv0", "Real")); m.Atts.Add(new("A_w", "Real"));
         m.Vars.Add(new("V_fp", "FilePtr")); m.Vars.Add(new("V_out", "FilePtr")); m.Vars.Add(new("V_tok", "String"));
-        foreach (var v in new[] { "V_seed", "V_n", "V_i", "V_tmp", "V_deadlock", "V_extMat" }) m.Vars.Add(new(v, "Integer"));
+        foreach (var v in new[] { "V_seed", "V_n", "V_i", "V_tmp", "V_deadlock", "V_extMat", "V_debug" }) m.Vars.Add(new(v, "Integer"));
         foreach (var v in new[] { "V_simLen", "V_warmup", "V_x", "V_y" }) m.Vars.Add(new(v, "Real"));
         m.Vars.Add(new("V_deadlockSec", "Real", 0, "600"));
         foreach (var v in new[] { "V_active", "V_vehCount", "V_parked" }) m.Vars.Add(new(v, "Integer", gs));
@@ -200,6 +216,8 @@ public static class LogicGenerator
         foreach (var v in new[] { "V_call", "V_unload", "V_stock", "V_safety", "V_takt", "V_perCycle", "V_perContainer", "V_need",
                      "V_minStock", "V_stockSum", "V_stop", "V_stopSince", "V_legStart" })
             m.Vars.Add(new(v, "Real", ms));
+        int bgs = Math.Max(2, nm * 4); // at most 4 legs per material (buffer, supply, 2 return); slots are keyed by (block, group) in Render
+        m.Vars.Add(new("V_bgWait", "Real", bgs)); m.Vars.Add(new("V_bgCnt", "Integer", bgs));
         m.Funcs.AddRange(new[] { "F_ext_on_call", "F_ext_select_vehicle", "F_ext_before_unload", "F_ext_on_snap" });
         return m;
     }

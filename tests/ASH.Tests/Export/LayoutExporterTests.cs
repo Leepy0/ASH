@@ -141,6 +141,15 @@ public class LayoutExporterTests
         Assert.NotNull(r.BackupPath); Assert.Matches(@"agv\.asy\.bak\.\d{8}_\d{6}_\d{3}(_\d+)?$", r.BackupPath!); Assert.True(File.Exists(r.TrafficTsvPath));
         Assert.Contains("GPATH name a ", File.ReadAllText(r.AsyPath));
     }
+    [Fact] public void Runner_Writes_Blocks_Tsv()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "ash_exp_" + Guid.NewGuid().ToString("N"), "m.arc");
+        var l = Of(L.Line("a", 1000, 2000, 5000, 2000));
+        l.Blocks.Add(new LayoutBlock { Name = "B1", Cap = 2, Rect = new Rect2(new Point2(1500, 1500), new Point2(3000, 2500)) });
+        var r = ExportRunner.Run(l, G with { Origin = new(1000, 2000), Scale = 0.001 }, dir);
+        Assert.Equal(Path.Combine(dir, "blocks.tsv"), r.BlocksTsvPath);
+        Assert.Equal("name\tcap\tminx\tminy\tmaxx\tmaxy\nB1\t2\t0.5\t-0.5\t2\t0.5\n", File.ReadAllText(r.BlocksTsvPath));
+    }
     const string Hdr = "VERSION 12.6.1.19\nSYSTYPE AGVS\nUNITS Meters Seconds\n";
     [Fact] public void Two_Runs_Make_Two_Distinct_Backups()
     {

@@ -14,4 +14,4 @@ public sealed record ExportOptions(string Units = "Meters", Point2 Origin = defa
 
 public sealed record ExportSummary(int PathsAdded, int PathsRemoved, int PathsMoved, int CpsAdded, int CpsRemoved, int CpsMoved);
 
-public sealed record ExportResult(string AsyPath, string? BackupPath, string TrafficTsvPath, ExportSummary Summary, IReadOnlyList<string> Warnings);
+public sealed record ExportResult(string AsyPath, string? BackupPath, string TrafficTsvPath, ExportSummary Summary, IReadOnlyList<string> Warnings, string BlocksTsvPath = "");

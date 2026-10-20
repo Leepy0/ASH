@@ -47,6 +47,7 @@ public static class ParamsFile
               + " " + N(m.TaktTime) + " " + N(m.UnitsPerCycle) + " " + N(m.UnitsPerContainer));
         }
         L("SIM " + N(st.SimLengthSec) + " " + N(st.WarmupSec));
+        L("DEBUG " + (s.Debug ? 1 : 0));
         L("END");
         return sb.ToString();
     }

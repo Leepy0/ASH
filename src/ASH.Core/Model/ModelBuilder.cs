@@ -30,7 +30,9 @@ public static class ModelBuilder
         var warnings = Warn(findings); warnings.AddRange(ExportRunner.Run(l, o, arc).Warnings);
         var standby = new Dictionary<string, string>();
         foreach (var c in l.Cps.Where(c => c.Type == "standby" && c.Group.Length > 0)) { if (!standby.ContainsKey(c.Group)) standby[c.Group] = c.Name; }
-        var info = new LayoutInfo(l.Cps.Select(c => c.Name).ToList(), l.Blocks.Select(b => b.Name).ToList(), standby);
+        var entryBlock = new Dictionary<string, string>();
+        foreach (var e in ASH.Core.Traffic.TrafficTable.Build(l).Entries) if (e.CpName != null && !entryBlock.ContainsKey(e.CpName)) entryBlock[e.CpName] = e.BlockName;
+        var info = new LayoutInfo(l.Cps.Select(c => c.Name).ToList(), l.Blocks.Select(b => b.Name).ToList(), standby, EntryBlockByCp: entryBlock);
 
         var agv = Path.Combine(arc, "agv.asy");
         var sys = AsyReader.ReadFile(agv);

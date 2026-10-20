@@ -25,8 +25,10 @@ begin model initialization function
 		inc V_i by 1
 	end
 	read V_tok, V_simLen, V_warmup from V_fp
+	read V_tok, V_debug from V_fp
 	close V_fp
 	set V_fp to null
+	if V_debug = 1 then print "ASH: params ok, groups " {{GROUP_COUNT}} " materials " {{MATERIAL_COUNT}} " sim " V_simLen " warmup " V_warmup to message
 {{CREATE_CONSUMERS}}
 	return true
 end
@@ -41,6 +43,7 @@ begin model snap function
 	set V_x to ac
 	print "clock\tclock\t\t0\t" V_x "\t0\t0\t0\t0\t0\t0" to V_out
 	set V_tmp to F_ext_on_snap()
+	if V_debug = 1 then print "ASH: snap written at " V_x to message
 	close V_out
 	set V_out to null
 	return true

@@ -36,6 +36,16 @@ public static class ExportRunner
         var tsv = Path.Combine(arcDir, "traffic.tsv");
         using (var w = new StreamWriter(tsv, false, new UTF8Encoding(false)))
             table.WriteTsv(w, o.Scale);
-        return new ExportResult(asy, backup, tsv, summary, warnings);
+        // export units, same transform as the BLOCK entities in the process model
+        var blocks = Path.Combine(arcDir, "blocks.tsv");
+        using (var w = new StreamWriter(blocks, false, new UTF8Encoding(false)))
+        {
+            string F(double v) => v.ToString("R", CultureInfo.InvariantCulture);
+            w.Write("name\tcap\tminx\tminy\tmaxx\tmaxy\n");
+            foreach (var b in l.Blocks)
+                w.Write(b.Name + "\t" + b.Cap.ToString(CultureInfo.InvariantCulture) + "\t" + F((b.Rect.Min.X - o.Origin.X) * o.Scale) + "\t" + F((b.Rect.Min.Y - o.Origin.Y) * o.Scale)
+                    + "\t" + F((b.Rect.Max.X - o.Origin.X) * o.Scale) + "\t" + F((b.Rect.Max.Y - o.Origin.Y) * o.Scale) + "\n");
+        }
+        return new ExportResult(asy, backup, tsv, summary, warnings, blocks);
     }
 }
