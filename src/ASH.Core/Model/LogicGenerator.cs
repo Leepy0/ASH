@@ -8,10 +8,12 @@ using ASH.Core.Input;
 
 namespace ASH.Core.Model;
 
-/// <summary>StandbyCpByGroup is not referenced by the logic (vehicles start on the AGVS namelist); kept for the builder's checks.</summary>
+/// <summary>StandbyCpByGroup is the fallback standby CP for a group whose AgvGroup.StandbyCPs is empty.</summary>
 public sealed record LayoutInfo(IReadOnlyList<string> CpNames, IReadOnlyList<string> BlockNames,
     IReadOnlyDictionary<string, string> StandbyCpByGroup, string AgvSystemName = "agv");
 
+/// <summary>Seeding: the logic draws no random numbers, so a run is fully determined by params.txt (seeded init stocks).
+/// AM-side RNSTREAM seeding is not needed until randomness (MTBF/MTTR, phase 3) exists.</summary>
 public static class LogicGenerator
 {
     static string Res(string name)
@@ -30,13 +32,13 @@ public static class LogicGenerator
     /// <summary>Text placed inside an AM string literal or used as an entity name: entity-name rules plus no quote/backslash.</summary>
     static string Lit(string s)
     {
-        if (!Layout.LayoutChecker.IsValidName(s) || s.IndexOf('"') >= 0 || s.IndexOf('\\') >= 0) throw new ArgumentException("invalid name for logic: " + s);
+        if (!Layout.LayoutChecker.IsValidName(s) || s.IndexOf('"') >= 0 || s.IndexOf('\\') >= 0) throw new ArgumentException($"로직에 쓸 수 없는 이름입니다: '{s}'");
         return s;
     }
 
     static string Cp(LayoutInfo l, string cp)
     {
-        if (!l.CpNames.Contains(cp)) throw new ArgumentException("route CP not in layout: " + cp);
+        if (!l.CpNames.Contains(cp)) throw new ArgumentException($"CP '{cp}'이(가) 레이아웃에 없습니다.");
         return cp;
     }
 
@@ -46,20 +48,45 @@ public static class LogicGenerator
         return t;
     }
 
+    static void Check(ProjectInput input)
+    {
+        if (input.Groups.Count == 0 || input.Materials.Count == 0) throw new ArgumentException("그룹과 자재가 1개 이상 있어야 합니다.");
+        var types = new Dictionary<string, string>();
+        foreach (var g in input.Groups)
+        {
+            // vehicle procedures and dispatch filters are defined per AGVS vehicle type
+            if (types.TryGetValue(g.Type, out var other)) throw new ArgumentException($"그룹 '{g.Group}'과(와) '{other}'이(가) 같은 Type '{g.Type}'을(를) 씁니다.");
+            types[g.Type] = g.Group;
+        }
+        foreach (var m in input.Materials)
+            if (!input.Groups.Any(g => g.Group == m.Group)) throw new ArgumentException($"자재 '{m.Material}'의 Group '{m.Group}'이(가) 없습니다.");
+    }
+
+    static int GroupIndex(ProjectInput input, string group) => input.Groups.FindIndex(g => g.Group == group) + 1;
+
+    static Route RouteOf(ProjectInput input, MaterialInfo m) =>
+        input.Routes.FirstOrDefault(x => x.Material == m.Material) ?? throw new ArgumentException($"자재 '{m.Material}'의 Routes 행이 없습니다.");
+
+    static List<string> StandbyOf(AgvGroup g, LayoutInfo l)
+    {
+        var s = g.StandbyCPs.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => Cp(l, x)).ToList();
+        if (s.Count == 0 && l.StandbyCpByGroup.TryGetValue(g.Group, out var cp)) s.Add(Cp(l, cp));
+        if (s.Count == 0) throw new ArgumentException($"그룹 '{g.Group}'에 대기(standby) CP가 없습니다.");
+        return s;
+    }
+
     public static string Render(ProjectInput input, LayoutInfo layout)
     {
-        if (input.Groups.Count == 0 || input.Materials.Count == 0) throw new ArgumentException("logic needs at least one group and one material");
+        Check(input);
         var sys = Lit(layout.AgvSystemName);
-        var types = new HashSet<string>();
         var groupLogic = new StringBuilder();
         var snap = new StringBuilder();
         for (int i = 0; i < input.Groups.Count; i++)
         {
             var g = input.Groups[i];
-            // one AGVS vehicle type per group: vehicle procedures are defined per type
-            if (!types.Add(g.Type)) throw new ArgumentException("vehicle type used by two groups: " + g.Type);
             int gi = i + 1;
-            groupLogic.Append(Fill(Res("code_group.m.txt"), ("G", gi.ToString()), ("TYPE", Lit(g.Type)), ("SYS", sys)));
+            var parkOk = string.Join("\n", StandbyOf(g, layout).Select(cp => $"\tif parkLoc = {sys}:{cp} then return true"));
+            groupLogic.Append(Fill(Res("code_group.m.txt"), ("G", gi.ToString()), ("TYPE", Lit(g.Type)), ("SYS", sys), ("PARK_OK", parkOk)));
             snap.Append($"\tset V_tmp to {g.MaxCount} - V_parked({gi})\n");
             snap.Append($"\tprint \"group\\t{Lit(g.Group)}\\t{g.Group}\\t\" V_tmp \"\\t0\\t0\\t0\\t0\\t0\\t0\\t0\" to V_out\n");
         }
@@ -70,9 +97,9 @@ public static class LogicGenerator
         {
             var m = input.Materials[i];
             int mi = i + 1;
-            var r = input.Routes.FirstOrDefault(x => x.Material == m.Material) ?? throw new ArgumentException("no route for material " + m.Material);
-            var g = input.Groups.FirstOrDefault(x => x.Group == m.Group) ?? throw new ArgumentException("unknown group " + m.Group);
-            var t = input.AgvTypes.FirstOrDefault(x => x.Type == g.Type) ?? throw new ArgumentException("unknown AGV type " + g.Type);
+            var r = RouteOf(input, m);
+            var g = input.Groups.First(x => x.Group == m.Group);
+            var t = input.AgvTypes.FirstOrDefault(x => x.Type == g.Type) ?? throw new ArgumentException($"그룹 '{g.Group}'의 Type '{g.Type}'이(가) AGV_Types에 없습니다.");
             string Leg(string to) => Fill(Res("code_leg.m.txt"), ("M", mi.ToString()), ("SYS", sys), ("TO", Cp(layout, to)));
             var legs = new StringBuilder();
             if (!string.IsNullOrEmpty(r.BufferCP))
@@ -85,11 +112,17 @@ public static class LogicGenerator
             if (m.EmptyReturn)
                 foreach (var cp in new[] { r.ReturnFromCP, r.ReturnToCP })
                     if (!string.IsNullOrEmpty(cp)) ret.Append(Leg(cp!));
+            // Route.ExtraTime: once per supply cycle, after the unload, with the vehicle still held
+            var extra = r.ExtraTime > 0 ? $"\twait for {N(r.ExtraTime)} sec" : "";
             matLogic.Append(Fill(Res("code_material.m.txt"), ("M", mi.ToString()), ("NAME", Lit(m.Material)), ("SYS", sys),
+                ("G", GroupIndex(input, m.Group).ToString()),
                 ("FROM", Cp(layout, r.SupplyFromCP)), ("LOAD_TIME", N(t.LoadTime)), ("UNLOAD_TIME", N(t.UnloadTime)),
-                ("SUPPLY_LEGS", legs.ToString().TrimEnd('\n')), ("RETURN_LEGS", ret.ToString().TrimEnd('\n'))));
+                ("SUPPLY_LEGS", legs.ToString().TrimEnd('\n')), ("EXTRA_TIME", extra), ("RETURN_LEGS", ret.ToString().TrimEnd('\n'))));
             create.Append($"\tcreate 1 load of type L_ctl to P_consume_{mi}\n");
 
+            // a stop still running at the end of the run counts up to the snap
+            snap.Append($"\tif V_stopped({mi}) = 1 then begin\n\t\tif V_stopSince({mi}) < V_warmup then set V_stopSince({mi}) to V_warmup\n" +
+                        $"\t\tif ac > V_stopSince({mi}) then inc V_stop({mi}) by ac - V_stopSince({mi})\n\t\tset V_stopSince({mi}) to ac\n\tend\n");
             snap.Append($"\tif V_samples({mi}) > 0 then set V_x to V_stockSum({mi}) / V_samples({mi})\n\telse set V_x to V_stock({mi})\n");
             snap.Append($"\tif V_samples({mi}) = 0 then set V_minStock({mi}) to V_stock({mi})\n");
             snap.Append($"\tset V_y to (V_simLen - V_warmup) / V_takt({mi}) * V_need({mi})\n");
@@ -105,29 +138,44 @@ public static class LogicGenerator
             ("SNAP_ROWS", snap.ToString().TrimEnd('\n')));
     }
 
-    /// <summary>The load-centric logic needs AM's own dispatch: every CP gets a work list searching all CPs where a load waits for
-    /// pickup (namelist nl_pickup), every non-standby CP a park list to the standby namelist, and every pickup CP a load search list.</summary>
-    // shortcut: park lists go to the first group's standby namelist and any vehicle type serves any material; per-group dispatch needs per-type lists (multi-group projects).
+    /// <summary>AM dispatch for the load-centric logic. Scheduling lists are per location, not per vehicle type, so the lists hold every
+    /// group and the per-type work/load search/park ok functions in code.m filter by group: nl_pick_&lt;G&gt; = the group's pickup CPs
+    /// (SupplyFromCP, ReturnFromCP when EmptyReturn); nl_&lt;G&gt; = the group's standby CPs (vehicle start); every CP gets a WORKLST over
+    /// all nl_pick lists, every non-standby CP a PARKLST to each group's first standby CP, every pickup CP a SRCHLST.</summary>
     public static void AddDispatchLists(AgvsSystem s, ProjectInput input, LayoutInfo layout)
     {
-        var pickup = new List<string>();
-        void Add(string? cp) { if (!string.IsNullOrEmpty(cp) && !pickup.Contains(cp!)) pickup.Add(Cp(layout, cp!)); }
-        foreach (var m in input.Materials)
+        Check(input);
+        var picks = new List<string>();
+        var parks = new List<string>();
+        var standbyAll = new HashSet<string>();
+        var pickupAll = new List<string>();
+        foreach (var g in input.Groups)
         {
-            var r = input.Routes.FirstOrDefault(x => x.Material == m.Material) ?? throw new ArgumentException("no route for material " + m.Material);
-            Add(r.SupplyFromCP); Add(r.BufferCP);
-            if (m.EmptyReturn && !string.IsNullOrEmpty(r.ReturnFromCP)) { Add(r.SupplyToCP); Add(r.ReturnFromCP); }
+            var standby = StandbyOf(g, layout);
+            s.NameLists["nl_" + g.Group] = standby;
+            standbyAll.UnionWith(standby);
+            parks.Add(standby[0]);
+            var pick = new List<string>();
+            void Add(string? cp) { if (!string.IsNullOrEmpty(cp) && !pick.Contains(cp!)) pick.Add(Cp(layout, cp!)); }
+            foreach (var m in input.Materials.Where(x => x.Group == g.Group))
+            {
+                var r = RouteOf(input, m);
+                Add(r.SupplyFromCP);
+                if (m.EmptyReturn) Add(r.ReturnFromCP);
+            }
+            if (pick.Count == 0) continue;
+            s.NameLists["nl_pick_" + g.Group] = pick;
+            picks.Add("nl_pick_" + g.Group);
+            foreach (var cp in pick) if (!pickupAll.Contains(cp)) pickupAll.Add(cp);
         }
-        s.NameLists["nl_pickup"] = pickup;
-        var park = "nl_" + input.Groups[0].Group;
-        var standby = new HashSet<string>(s.NameLists.Where(kv => kv.Key.StartsWith("nl_") && kv.Key != "nl_pickup").SelectMany(kv => kv.Value));
+        string Items(IEnumerable<string> xs) => string.Concat(xs.Select(x => "item " + x + " "));
         foreach (var c in s.ControlPoints)
         {
-            s.WorkListLines.Add($"WORKLST name {c.Name} Oldest item nl_pickup ");
-            if (!standby.Contains(c.Name)) s.ParkListLines.Add($"PARKLST name {c.Name} Sequential item {park} ");
+            if (picks.Count > 0) s.WorkListLines.Add($"WORKLST name {c.Name} Oldest {Items(picks)}");
+            if (!standbyAll.Contains(c.Name)) s.ParkListLines.Add($"PARKLST name {c.Name} Sequential {Items(parks)}");
         }
         // without a search list a waiting load never wakes an idle (parked) vehicle; it waits until one happens to finish a job
-        foreach (var cp in pickup) s.SearchListLines.Add($"SRCHLST name {cp} Closest item All ");
+        foreach (var cp in pickupAll) s.SearchListLines.Add($"SRCHLST name {cp} Closest item All ");
     }
 
     /// <summary>Entities the logic references. Blocks are not added (LayoutInfo has names only): the caller adds a BlockEntity per layout.BlockNames.
@@ -142,16 +190,15 @@ public static class LogicGenerator
         for (int i = 1; i <= nm; i++) { m.Procs.Add(new($"P_consume_{i}")); m.Procs.Add(new($"P_supply_{i}")); }
         m.Queues.Add(new("Q_park"));
         m.Orders.Add("OL_forever");
-        for (int i = 1; i <= nm; i++) m.Orders.Add($"OL_refill_{i}");
-        m.Atts.Add(new("A_index", "Integer")); m.Atts.Add(new("A_t0", "Real"));
+        m.Atts.Add(new("A_index", "Integer")); m.Atts.Add(new("A_grp", "Integer"));
         m.Vars.Add(new("V_fp", "FilePtr")); m.Vars.Add(new("V_out", "FilePtr")); m.Vars.Add(new("V_tok", "String"));
         foreach (var v in new[] { "V_seed", "V_n", "V_i", "V_tmp", "V_deadlock", "V_extMat" }) m.Vars.Add(new(v, "Integer"));
         foreach (var v in new[] { "V_simLen", "V_warmup", "V_x", "V_y" }) m.Vars.Add(new(v, "Real"));
         m.Vars.Add(new("V_deadlockSec", "Real", 0, "600"));
         foreach (var v in new[] { "V_active", "V_vehCount", "V_parked" }) m.Vars.Add(new(v, "Integer", gs));
-        foreach (var v in new[] { "V_pending", "V_samples", "V_supplies", "V_inLeg" }) m.Vars.Add(new(v, "Integer", ms));
+        foreach (var v in new[] { "V_pending", "V_samples", "V_supplies", "V_inLeg", "V_stopped" }) m.Vars.Add(new(v, "Integer", ms));
         foreach (var v in new[] { "V_call", "V_unload", "V_stock", "V_safety", "V_takt", "V_perCycle", "V_perContainer", "V_need",
-                     "V_minStock", "V_stockSum", "V_stop", "V_legStart" })
+                     "V_minStock", "V_stockSum", "V_stop", "V_stopSince", "V_legStart" })
             m.Vars.Add(new(v, "Real", ms));
         m.Funcs.AddRange(new[] { "F_ext_on_call", "F_ext_select_vehicle", "F_ext_before_unload", "F_ext_on_snap" });
         return m;

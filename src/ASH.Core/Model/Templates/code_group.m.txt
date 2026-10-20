@@ -13,3 +13,19 @@ begin {{SYS}}.{{TYPE}} task search procedure
 	end
 end
 
+/* AM scheduling lists are per location, so these type filters keep each group on its own materials and standby CPs */
+begin {{SYS}}.{{TYPE}} work ok function
+	if theLoad A_grp = {{G}} then return true
+	return false
+end
+
+begin {{SYS}}.{{TYPE}} load search ok function
+	if theLoad A_grp = {{G}} then return true
+	return false
+end
+
+begin {{SYS}}.{{TYPE}} park ok function
+{{PARK_OK}}
+	return false
+end
+

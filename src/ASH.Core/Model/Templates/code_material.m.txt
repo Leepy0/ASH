@@ -1,31 +1,38 @@
-/* material {{M}} = {{NAME}} */
+/* material {{M}} = {{NAME}} (group {{G}}) */
+/* one consumer cycle per takt: call check, then consume or stay stopped; a stopped cycle re-checks every takt */
 begin P_consume_{{M}} arriving procedure
 	while 1 = 1 do begin
-		if V_stock({{M}}) < V_need({{M}}) - 0.000001 then begin
-			set A_t0 to ac
-			while V_stock({{M}}) < V_need({{M}}) - 0.000001 do begin
-				wait to be ordered on OL_refill_{{M}}
-			end
-			if A_t0 < V_warmup then set A_t0 to V_warmup
-			if ac > A_t0 then inc V_stop({{M}}) by ac - A_t0
-		end
-		wait for V_takt({{M}}) sec
-		dec V_stock({{M}}) by V_need({{M}})
-		if ac >= V_warmup then begin
-			inc V_samples({{M}}) by 1
-			inc V_stockSum({{M}}) by V_stock({{M}})
-			if V_stock({{M}}) < V_minStock({{M}}) then set V_minStock({{M}}) to V_stock({{M}})
-		end
-		if V_stock({{M}}) <= V_call({{M}}) and V_pending({{M}}) = 0 then begin
+		if V_stock({{M}}) <= V_call({{M}}) + 0.000001 and V_pending({{M}}) = 0 then begin
 			set V_pending({{M}}) to 1
 			set V_extMat to {{M}}
 			set V_tmp to F_ext_on_call()
 			clone 1 load to P_supply_{{M}}
 		end
+		if V_stock({{M}}) < V_need({{M}}) - 0.000001 then begin
+			if V_stopped({{M}}) = 0 then begin
+				set V_stopped({{M}}) to 1
+				set V_stopSince({{M}}) to ac
+			end
+		end
+		else begin
+			if V_stopped({{M}}) = 1 then begin
+				set V_stopped({{M}}) to 0
+				if V_stopSince({{M}}) < V_warmup then set V_stopSince({{M}}) to V_warmup
+				if ac > V_stopSince({{M}}) then inc V_stop({{M}}) by ac - V_stopSince({{M}})
+			end
+			dec V_stock({{M}}) by V_need({{M}})
+		end
+		if ac >= V_warmup then begin
+			inc V_samples({{M}}) by 1
+			inc V_stockSum({{M}}) by V_stock({{M}})
+			if V_stock({{M}}) < V_minStock({{M}}) then set V_minStock({{M}}) to V_stock({{M}})
+		end
+		wait for V_takt({{M}}) sec
 	end
 end
 
 begin P_supply_{{M}} arriving procedure
+	set A_grp to {{G}}
 	set V_extMat to {{M}}
 	set V_tmp to F_ext_select_vehicle()
 	move into {{SYS}}:{{FROM}}
@@ -36,8 +43,8 @@ begin P_supply_{{M}} arriving procedure
 	wait for {{UNLOAD_TIME}} sec
 	inc V_stock({{M}}) by 1
 	if ac >= V_warmup then inc V_supplies({{M}}) by 1
-	order 1 load from OL_refill_{{M}} to continue
 	set V_pending({{M}}) to 0
+{{EXTRA_TIME}}
 {{RETURN_LEGS}}
 	send to die
 end

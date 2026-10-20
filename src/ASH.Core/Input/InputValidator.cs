@@ -67,6 +67,15 @@ public static class InputValidator
             if (cps != null)
                 foreach (var cp in g.StandbyCPs.Where(c => !cps.Contains(c))) Err("AGV_Groups", g.Row, i, $"StandbyCP '{cp}'이(가) 레이아웃에 없습니다.");
         }
+        // the AM logic defines vehicle procedures and dispatch filters per vehicle type: one type = one group
+        var typeOwner = new Dictionary<string, string>();
+        for (int i = 0; i < input.Groups.Count; i++)
+        {
+            var g = input.Groups[i];
+            if (g.Type.Length == 0) continue;
+            if (typeOwner.TryGetValue(g.Type, out var first)) Err("AGV_Groups", g.Row, i, $"그룹 '{g.Group}'과(와) '{first}'이(가) 같은 Type '{g.Type}'을(를) 씁니다. 그룹마다 다른 Type이 필요합니다.");
+            else typeOwner[g.Type] = g.Group;
+        }
         for (int i = 0; i < input.Materials.Count; i++)
         {
             var m = input.Materials[i];

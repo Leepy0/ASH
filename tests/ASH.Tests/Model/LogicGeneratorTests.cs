@@ -24,6 +24,54 @@ public class LogicGeneratorTests
     public static readonly LayoutInfo Layout = new(new[] { "S001", "L001", "B001", "U001" }, new string[0],
         new Dictionary<string, string> { ["G1"] = "S001" });
 
+    /// <summary>Sample() with M2 moved to group G2 (type Tug2, standby S002, pickup L002).</summary>
+    public static ProjectInput TwoGroups(double takt = 60)
+    {
+        var p = Sample(takt);
+        p.AgvTypes.Add(new AgvType("Tug2", "G2", 1.0, 1.0, 1, 1, 1, 10, 10, 0, 0, 2, 1, "blue"));
+        p.Groups.Add(new AgvGroup("G2", "Tug2", 1, 2, new List<string> { "S002" }, "Nearest"));
+        p.Materials[1] = p.Materials[1] with { Group = "G2" };
+        p.Routes[1] = p.Routes[1] with { SupplyFromCP = "L002" };
+        return p;
+    }
+
+    public static readonly LayoutInfo Layout2 = new(new[] { "S001", "S002", "L001", "L002", "B001", "U001" }, new string[0],
+        new Dictionary<string, string>());
+
+    [Fact]
+    public void Two_Groups_Get_Own_Pick_Lists_And_Type_Filters()
+    {
+        var input = TwoGroups();
+        var s = new ASH.Core.Asy.AgvsSystem();
+        foreach (var cp in Layout2.CpNames) s.ControlPoints.Add(new ASH.Core.Asy.ControlPoint(cp, "DefaultControlPoint", "p1", 1, null));
+        LogicGenerator.AddDispatchLists(s, input, Layout2);
+        Assert.Equal(new[] { "L001" }, s.NameLists["nl_pick_G1"]);
+        Assert.Equal(new[] { "L002" }, s.NameLists["nl_pick_G2"]);
+        Assert.Equal(new[] { "S002" }, s.NameLists["nl_G2"]);
+        Assert.Contains("WORKLST name U001 Oldest item nl_pick_G1 item nl_pick_G2 ", s.WorkListLines);
+        Assert.Contains("PARKLST name U001 Sequential item S001 item S002 ", s.ParkListLines);
+        Assert.DoesNotContain(s.ParkListLines, l => l.StartsWith("PARKLST name S00"));
+        Assert.Equal(new[] { "SRCHLST name L001 Closest item All ", "SRCHLST name L002 Closest item All " }, s.SearchListLines);
+
+        var t = LogicGenerator.Render(input, Layout2);
+        Assert.Contains("begin agv.Tug2 work ok function\n\tif theLoad A_grp = 2 then return true", t);
+        Assert.Contains("begin agv.Tug2 park ok function\n\tif parkLoc = agv:S002 then return true", t);
+        Assert.Contains("begin P_supply_2 arriving procedure\n\tset A_grp to 2", t);
+
+        var shared = TwoGroups(); shared.Groups[1] = shared.Groups[1] with { Type = "Tug" };
+        Assert.Throws<ArgumentException>(() => LogicGenerator.Render(shared, Layout2));
+        var orphan = TwoGroups(); orphan.Materials[1] = orphan.Materials[1] with { Group = "GX" };
+        Assert.Throws<ArgumentException>(() => LogicGenerator.AddDispatchLists(s, orphan, Layout2));
+    }
+
+    [Fact]
+    public void Render_Applies_Route_Extra_Time()
+    {
+        var p = Sample(); p.Routes[0] = p.Routes[0] with { ExtraTime = 7.5 };
+        var t = LogicGenerator.Render(p, Layout);
+        Assert.Single(Regex.Matches(t, @"\twait for 7\.5 sec\n"));
+    }
+
     [Fact]
     public void Render_Includes_One_Consume_Proc_Per_Material()
     {

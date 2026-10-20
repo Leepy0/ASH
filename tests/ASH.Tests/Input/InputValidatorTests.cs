@@ -32,6 +32,16 @@ public class InputValidatorTests
     }
 
     [Fact]
+    public void Validate_Flags_Type_Shared_By_Two_Groups()
+    {
+        var p = Good();
+        p.Groups.Add(new AgvGroup("G2", "T1", 1, 3, new List<string> { "S" }, "Nearest"));
+        var f = InputValidator.Validate(p, Cps).Where(x => x.Code == FindingCode.InputError).ToList();
+        Assert.Single(f);
+        Assert.Equal("AGV_Groups!4", f[0].EntityId);
+    }
+
+    [Fact]
     public void Validate_Flags_Unknown_Group_And_Type()
     {
         var p = Good();

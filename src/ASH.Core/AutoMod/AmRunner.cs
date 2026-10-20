@@ -16,6 +16,8 @@ namespace ASH.Core.AutoMod
         {
             var model = Path.GetFileNameWithoutExtension(exePath);
             var clicked = new List<string>();
+            var resultTsv = Path.Combine(workDir, "result.tsv");
+            if (File.Exists(resultTsv)) File.Delete(resultTsv); // a stale result must not pass for this run's
             var psi = new ProcessStartInfo(exePath, "-w") { WorkingDirectory = workDir, UseShellExecute = false };
             var sw = Stopwatch.StartNew();
             int? exit = null;
@@ -30,15 +32,17 @@ namespace ASH.Core.AutoMod
                     else
                     {
                         timedOut = true;
-                        try { proc.Kill(); } catch (InvalidOperationException) { }
-                        proc.WaitForExit();
+                        try { proc.Kill(); }
+                        catch (InvalidOperationException) { } // already exited
+                        catch (System.ComponentModel.Win32Exception) { } // exiting or access denied
+                        proc.WaitForExit(5000);
                     }
                 }
                 finally { closer?.Dispose(); }
             }
             sw.Stop();
             lock (clicked)
-                return new AmRunResult(exit, timedOut, sw.Elapsed, Path.Combine(workDir, "result.tsv"),
+                return new AmRunResult(exit, timedOut, sw.Elapsed, resultTsv,
                     Path.Combine(workDir, model + ".report"), Path.Combine(workDir, model + ".message"), clicked.ToArray());
         }
     }
