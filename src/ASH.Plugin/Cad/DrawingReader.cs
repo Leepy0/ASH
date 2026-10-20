@@ -120,7 +120,7 @@ public static class DrawingReader
     {
         var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
         var ms = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], mode);
-        return ms.Cast<ObjectId>().ToList();
+        return ms.Cast<ObjectId>().Where(i => !i.IsErased).ToList();
     }
 
     internal static string BlockName(BlockReference br, Transaction tr) =>

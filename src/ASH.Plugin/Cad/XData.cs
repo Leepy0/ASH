@@ -10,8 +10,8 @@ public static class XData
         using var rb = e.GetXDataForApplication(Conventions.AppName);
         if (rb == null) return null;
         var v = rb.AsArray();
-        if (v.Length < 4) return null;
-        return ((string)v[1].Value, System.Convert.ToInt32(v[2].Value) == 1, (string)v[3].Value == "spur");
+        if (v.Length < 4 || !(v[1].Value is string name) || !(v[3].Value is string ptype)) return null; // foreign/old layout: treat as untagged
+        return (name, System.Convert.ToInt32(v[2].Value) == 1, ptype == "spur");
     }
 
     public static void WritePath(Entity e, string name, bool reversed, bool isSpur, Transaction tr)

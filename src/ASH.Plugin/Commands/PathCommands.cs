@@ -1,0 +1,280 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using ASH.Core.Geometry;
+using ASH.Core.Layout;
+using ASH.Core.Traffic;
+using ASH.Plugin.Cad;
+using ZwSoft.ZwCAD.ApplicationServices;
+using ZwSoft.ZwCAD.DatabaseServices;
+using ZwSoft.ZwCAD.EditorInput;
+using ZwSoft.ZwCAD.Runtime;
+using Application = ZwSoft.ZwCAD.ApplicationServices.Application;
+using CoreLayout = ASH.Core.Layout.Layout;
+
+[assembly: CommandClass(typeof(ASH.Plugin.Commands.PathCommands))]
+
+namespace ASH.Plugin.Commands;
+
+public sealed class PathCommands
+{
+    // ---------- AGVPATH: native PLINE, then tag the new polyline(s) ----------
+
+    [CommandMethod("AGVPATH")]
+    public void AgvPath()
+    {
+        var doc = Application.DocumentManager.MdiActiveDocument;
+        var ed = doc.Editor;
+        var kw = new PromptKeywordOptions("\n지선이면 S, 일반 경로는 Enter [지선(S)]") { AllowNone = true };
+        kw.Keywords.Add("S");
+        var r = ed.GetKeywords(kw);
+        if (r.Status != PromptStatus.OK && r.Status != PromptStatus.None) return;
+        bool spur = r.Status == PromptStatus.OK && r.StringResult == "S";
+
+        var db = doc.Database;
+        var added = new List<ObjectId>();
+        ObjectEventHandler onAppend = (s, e) => { if (e.DBObject is Polyline) added.Add(e.DBObject.ObjectId); };
+        CommandEventHandler? onEnd = null;
+        onEnd = (s, e) =>
+        {
+            if (!e.GlobalCommandName.Equals("PLINE", StringComparison.OrdinalIgnoreCase)) return;
+            db.ObjectAppended -= onAppend;
+            doc.CommandEnded -= onEnd;
+            doc.CommandCancelled -= onEnd;
+            doc.CommandFailed -= onEnd;
+            Run(doc, "AGVPATH", (d, tr) =>
+            {
+                var names = DrawingReader.Read(d, tr).Paths.Select(p => p.Name).ToList();
+                var live = added.Where(i => !i.IsErased).ToList();
+                foreach (var id in live)
+                {
+                    var pl = (Polyline)tr.GetObject(id, OpenMode.ForWrite);
+                    pl.Layer = spur ? Conventions.LayerPathSpur : Conventions.LayerPath;
+                    var name = AutoNamer.Next("P", names);
+                    names.Add(name);
+                    XData.WritePath(pl, name, false, spur, tr);
+                    ed.WriteMessage($"\n경로 {name} 추가.");
+                }
+                return live.Count > 0;
+            });
+        };
+        db.ObjectAppended += onAppend;
+        doc.CommandEnded += onEnd;
+        doc.CommandCancelled += onEnd;
+        doc.CommandFailed += onEnd;
+        doc.SendStringToExecute("_.PLINE ", true, false, false);
+    }
+
+    // ---------- edits ----------
+
+    [CommandMethod("AGVREVERSE")]
+    public void AgvReverse() => Run(Doc, "AGVREVERSE", (db, tr) =>
+    {
+        var ids = SelectPaths(Ed, "\n방향을 뒤집을 경로 선택");
+        foreach (var id in ids)
+        {
+            var e = (Entity)tr.GetObject(id, OpenMode.ForWrite);
+            var x = XData.ReadPath(e);
+            XData.WritePath(e, x?.Name ?? "P" + e.Handle, !(x?.Reversed ?? false), x?.IsSpur ?? DrawingReader.Eq(e.Layer, Conventions.LayerPathSpur), tr);
+        }
+        Ed.WriteMessage($"\n경로 {ids.Count}개 방향 반전.");
+        return ids.Count > 0;
+    });
+
+    [CommandMethod("AGVOFFSET")]
+    public void AgvOffset() => Run(Doc, "AGVOFFSET", (db, tr) =>
+    {
+        var layout = DrawingReader.Read(db, tr);
+        var p = PickPath(Ed, layout, "\n복제할 경로 선택");
+        if (p == null) return false;
+        var dr = Ed.GetDistance(new PromptDistanceOptions("\n간격") { AllowNegative = false, AllowZero = false });
+        if (dr.Status != PromptStatus.OK) return false;
+        var side = Keyword(Ed, "\n진행 방향 기준 [좌(L)/우(R)]", "L", "L", "R");
+        var rev = side == null ? null : Keyword(Ed, "\n반대 방향 설정 [예(Y)/아니오(N)]", "Y", "Y", "N");
+        if (side == null || rev == null) return false;
+        var o = PathOps.Offset(p, side == "L" ? dr.Value : -dr.Value, rev == "Y");
+        o.Name = AutoNamer.Next("P", layout.Paths.Select(q => q.Name));
+        DrawingWriter.ReplacePaths(db, tr, new string[0], new[] { o });
+        Ed.WriteMessage($"\n경로 {o.Name} 추가.");
+        return true;
+    });
+
+    [CommandMethod("AGVARRAY")]
+    public void AgvArray() => Run(Doc, "AGVARRAY", (db, tr) =>
+    {
+        var sel = Ed.GetSelection(new PromptSelectionOptions { MessageForAdding = "\n배열 복제할 경로·CP·block 선택" });
+        if (sel.Status != PromptStatus.OK) return false;
+        var picked = new HashSet<string>(sel.Value.GetObjectIds().Select(i => i.Handle.ToString()));
+        var b = Ed.GetPoint("\n간격 기준점");
+        if (b.Status != PromptStatus.OK) return false;
+        var t = Ed.GetPoint(new PromptPointOptions("\n간격 끝점") { UseBasePoint = true, BasePoint = b.Value });
+        if (t.Status != PromptStatus.OK) return false;
+        var n = Ed.GetInteger(new PromptIntegerOptions("\n복제 개수") { LowerLimit = 1, DefaultValue = 1, UseDefaultValue = true });
+        if (n.Status != PromptStatus.OK) return false;
+        double dx = t.Value.X - b.Value.X, dy = t.Value.Y - b.Value.Y;
+
+        var layout = DrawingReader.Read(db, tr);
+        var pathNames = layout.Paths.Select(p => p.Name).ToList();
+        var newPaths = new List<LayoutPath>();
+        foreach (var p in layout.Paths.Where(p => picked.Contains(p.Id)))
+            foreach (var c in PathOps.Array(p, dx, dy, n.Value))
+            {
+                if (pathNames.Contains(c.Name)) c.Name = AutoNamer.Next("P", pathNames);
+                pathNames.Add(c.Name);
+                newPaths.Add(c);
+            }
+        DrawingWriter.ReplacePaths(db, tr, new string[0], newPaths);
+
+        var cpNames = layout.Cps.Select(c => c.Name).ToList();
+        int cps = 0;
+        foreach (var cp in layout.Cps.Where(c => picked.Contains(c.Id)))
+            for (int k = 1; k <= n.Value; k++)
+            {
+                var name = AutoNamer.Next(Prefix(cp.Name, AutoNamer.PrefixFor(cp.Type)), cpNames);
+                cpNames.Add(name);
+                DrawingWriter.AddCp(db, tr, new LayoutCp
+                {
+                    Name = name, Type = cp.Type, Group = cp.Group, Station = cp.Station, Cap = cp.Cap,
+                    Position = new Point2(cp.Position.X + dx * k, cp.Position.Y + dy * k),
+                });
+                cps++;
+            }
+
+        var blockNames = layout.Blocks.Select(x => x.Name).ToList();
+        int blocks = 0;
+        foreach (var bl in layout.Blocks.Where(x => picked.Contains(x.Id)))
+            for (int k = 1; k <= n.Value; k++)
+            {
+                var name = AutoNamer.Next(Prefix(bl.Name, "B"), blockNames);
+                blockNames.Add(name);
+                double vx = dx * k, vy = dy * k;
+                DrawingWriter.AddBlock(db, tr, new LayoutBlock
+                {
+                    Name = name, Cap = bl.Cap,
+                    Rect = new Rect2(new Point2(bl.Rect.Min.X + vx, bl.Rect.Min.Y + vy), new Point2(bl.Rect.Max.X + vx, bl.Rect.Max.Y + vy)),
+                });
+                blocks++;
+            }
+        Ed.WriteMessage($"\n배열 복제: 경로 {newPaths.Count}개, CP {cps}개, block {blocks}개.");
+        return newPaths.Count + cps + blocks > 0;
+    });
+
+    [CommandMethod("AGVSPLIT")]
+    public void AgvSplit() => Run(Doc, "AGVSPLIT", (db, tr) =>
+    {
+        var mode = Keyword(Ed, "\n분할 대상 [선택(S)/점(P)] <전체>", "", "S", "P");
+        if (mode == null) return false;
+        var layout = DrawingReader.Read(db, tr);
+        if (mode == "P")
+        {
+            var pr = Ed.GetPoint("\n분할할 점");
+            if (pr.Status != PromptStatus.OK) return false;
+            var hit = LayoutChecker.Project(layout, new Point2(pr.Value.X, pr.Value.Y));
+            if (hit == null) { Ed.WriteMessage("\n경로가 없습니다."); return false; }
+            var pieces = PathSplitter.SplitAt(hit.Value.Path, new[] { hit.Value.Dist }, layout.Tolerance);
+            if (pieces.Count < 2) { Ed.WriteMessage("\n경로 끝점이라 분할하지 않았습니다."); return false; }
+            DrawingWriter.ReplacePaths(db, tr, new[] { hit.Value.Path.Id }, pieces);
+            Ed.WriteMessage($"\n경로 {hit.Value.Path.Name} → {string.Join(", ", pieces.Select(p => p.Name))}");
+            return true;
+        }
+        var paths = layout.Paths;
+        if (mode == "S")
+        {
+            var ids = new HashSet<string>(SelectPaths(Ed, "\n분할할 경로 선택").Select(i => i.Handle.ToString()));
+            paths = paths.Where(p => ids.Contains(p.Id)).ToList();
+        }
+        var r = PathSplitter.SplitAll(paths, layout.Tolerance);
+        var split = r.Paths.Where(p => p.Id.Contains("#")).ToList(); // pieces carry "<original id>#k"
+        var removed = split.Select(p => p.Id.Substring(0, p.Id.IndexOf('#'))).Distinct().ToList();
+        DrawingWriter.ReplacePaths(db, tr, removed, split);
+        Ed.WriteMessage($"\n교차 {r.IntersectionCount}개, 경로 {paths.Count}개 → {r.Paths.Count}개");
+        return removed.Count > 0;
+    });
+
+    [CommandMethod("AGVJOIN")]
+    public void AgvJoin() => Run(Doc, "AGVJOIN", (db, tr) =>
+    {
+        var layout = DrawingReader.Read(db, tr);
+        var a = PickPath(Ed, layout, "\n앞 경로 선택");
+        var b = a == null ? null : PickPath(Ed, layout, "\n뒤 경로 선택");
+        if (a == null || b == null || a == b) return false;
+        var j = PathOps.Join(a, b, layout.Tolerance);
+        if (j == null) { Ed.WriteMessage("\n앞 경로의 끝점과 뒤 경로의 시작점이 맞닿지 않습니다."); return false; }
+        DrawingWriter.ReplacePaths(db, tr, new[] { a.Id, b.Id }, new[] { j });
+        Ed.WriteMessage($"\n경로 {a.Name} + {b.Name} → {j.Name}");
+        return true;
+    });
+
+    [CommandMethod("AGVFILLET")]
+    public void AgvFillet() => Run(Doc, "AGVFILLET", (db, tr) =>
+    {
+        var rr = Ed.GetDistance(new PromptDistanceOptions("\n반경") { AllowNegative = false, AllowZero = false, DefaultValue = 1, UseDefaultValue = true });
+        if (rr.Status != PromptStatus.OK) return false;
+        var layout = DrawingReader.Read(db, tr);
+        var a = PickPath(Ed, layout, "\n들어오는 직선 경로 선택");
+        var b = a == null ? null : PickPath(Ed, layout, "\n나가는 직선 경로 선택");
+        if (a == null || b == null || a == b) return false;
+        var f = PathOps.Fillet(a, b, rr.Value, layout.Tolerance);
+        if (f == null) { Ed.WriteMessage("\n필렛 불가: 두 경로 모두 직선 하나짜리, 앞 끝점 = 뒤 시작점, 평행 아님, 반경에 비해 충분한 길이여야 합니다."); return false; }
+        DrawingWriter.ReplacePaths(db, tr, new[] { a.Id, b.Id }, new[] { f.Value.A, f.Value.Fillet, f.Value.B });
+        Ed.WriteMessage($"\n원호 경로 {f.Value.Fillet.Name} 삽입.");
+        return true;
+    });
+
+    // ---------- helpers ----------
+
+    private static Document Doc => Application.DocumentManager.MdiActiveDocument;
+    private static Editor Ed => Doc.Editor;
+
+    /// <summary>Runs body in one locked transaction; when it returns true, refreshes arrows and commits. Errors go to the command line.</summary>
+    internal static void Run(Document doc, string cmd, Func<Database, Transaction, bool> body)
+    {
+        try
+        {
+            using (doc.LockDocument())
+            using (var tr = doc.Database.TransactionManager.StartTransaction())
+            {
+                if (!body(doc.Database, tr)) return;
+                DrawingWriter.RefreshDirectionArrows(doc.Database, tr);
+                tr.Commit();
+            }
+        }
+        catch (System.Exception ex)
+        {
+            doc.Editor.WriteMessage($"\n{cmd} 오류: {ex.Message}");
+        }
+    }
+
+    private static List<ObjectId> SelectPaths(Editor ed, string msg)
+    {
+        var filter = new SelectionFilter(new[] { new TypedValue((int)DxfCode.LayerName, Conventions.LayerPath + "," + Conventions.LayerPathSpur) });
+        var r = ed.GetSelection(new PromptSelectionOptions { MessageForAdding = msg }, filter);
+        return r.Status == PromptStatus.OK ? r.Value.GetObjectIds().ToList() : new List<ObjectId>();
+    }
+
+    private static LayoutPath? PickPath(Editor ed, CoreLayout layout, string msg)
+    {
+        var r = ed.GetEntity(new PromptEntityOptions(msg));
+        if (r.Status != PromptStatus.OK) return null;
+        var p = layout.Paths.FirstOrDefault(q => q.Id == r.ObjectId.Handle.ToString());
+        if (p == null) ed.WriteMessage("\nAGV_PATH/AGV_PATH_SPUR 레이어의 경로가 아닙니다.");
+        return p;
+    }
+
+    /// <summary>Keyword prompt; Enter returns def. Null on cancel.</summary>
+    private static string? Keyword(Editor ed, string msg, string def, params string[] keys)
+    {
+        var o = new PromptKeywordOptions(msg) { AllowNone = true };
+        foreach (var k in keys) o.Keywords.Add(k);
+        var r = ed.GetKeywords(o);
+        if (r.Status == PromptStatus.None) return def;
+        return r.Status == PromptStatus.OK ? (string.IsNullOrEmpty(r.StringResult) ? def : r.StringResult) : null;
+    }
+
+    // "T012" -> "T"; empty name -> fallback.
+    private static string Prefix(string name, string fallback)
+    {
+        var p = name.TrimEnd('0', '1', '2', '3', '4', '5', '6', '7', '8', '9');
+        return p.Length > 0 ? p : fallback;
+    }
+}
