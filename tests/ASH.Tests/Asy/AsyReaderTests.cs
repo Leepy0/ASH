@@ -11,6 +11,19 @@ public class AsyReaderTests
     [Fact] public void Reads_32_ControlPoints() { var s = Demo(); Assert.Equal(32, s.ControlPoints.Count); var z1 = s.ControlPoints.Single(c => c.Name == "z1"); Assert.Equal("path11_1", z1.PathName); Assert.Equal(50, z1.Dist); }
     [Fact] public void Reads_Workcheck_Align() { var c = Demo().ControlPoints.Single(x => x.Name == "workcheck"); Assert.Equal("leadingpap", c.Align); Assert.Equal(1.10268372703412, c.Dist, 9); }
     [Fact] public void Merges_NameList_Lines() { var s = Demo(); Assert.Equal(new[]{"p_1","p_2","p_3","p_4","p_5"}, s.NameLists["nlwork"]); }
+    [Fact] public void Reads_Header_Lines_Verbatim()
+    {
+        var h = Demo().HeaderLines;
+        Assert.Contains("AGVSTOL minang 450 maxang 1350", h);
+        Assert.Contains(h, l => l.StartsWith("SYSDEF timeout 60 Seconds"));
+        Assert.Contains("\tControl Points Invisible Inherit", h);
+        Assert.Contains(h, l => l.Contains("NEXTPATH name path31"));
+    }
+    [Fact] public void NameList_Items_Accumulate_Across_Lines()
+    {
+        var s = AsyReader.Read(new StringReader("NAMELST name x item a\nNAMELST name x item b\n"));
+        Assert.Equal(new[] { "a", "b" }, s.NameLists["x"]);
+    }
     [Fact] public void Arc_End_Is_Computed_CW_For_Negative_Angle()
     {
         var p16 = Demo().Paths.Single(p => p.Name == "path16").Piece as ArcPiece;

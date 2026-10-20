@@ -85,7 +85,7 @@ public static class AsyReader
     }
 
     static double Num(string[] t, string key) =>
-        double.Parse(Val(t, key) ?? throw new FormatException($"missing '{key}'"), CultureInfo.InvariantCulture);
+        double.Parse(Val(t, key) ?? throw new FormatException($"missing '{key}'"), NumberStyles.Float, CultureInfo.InvariantCulture);
 
     static GuidePath ParsePath(string[] t)
     {
@@ -108,6 +108,6 @@ public static class AsyReader
         int at = Array.IndexOf(t, "at");
         if (at < 0 || at + 2 >= t.Length) throw new FormatException("CPOINT without 'at <path> <dist>'");
         return new ControlPoint(Val(t, "name") ?? "", Val(t, "type") ?? "", t[at + 1],
-            double.Parse(t[at + 2], CultureInfo.InvariantCulture), Val(t, "align"));
+            double.Parse(t[at + 2], NumberStyles.Float, CultureInfo.InvariantCulture), Val(t, "align"));
     }
 }
