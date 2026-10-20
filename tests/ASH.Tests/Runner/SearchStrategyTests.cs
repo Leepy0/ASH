@@ -43,7 +43,7 @@ public class SearchStrategyTests
     {
         var (p, c, f) = Case();
         var r = SearchStrategy.Search(p, f, c, new SearchOptions());
-        Assert.Equal(5, r.Decided["G1"] + r.Decided["G2"]); Assert.Equal(2, r.Decided["G3"]);
+        Assert.Equal((1, 4, 2), (r.Decided["G1"], r.Decided["G2"], r.Decided["G3"]));
         Assert.Empty(r.Warnings);
         System.Console.WriteLine($"RUNS min-passing (impact on) = {f.Calls}");
     }
@@ -52,8 +52,7 @@ public class SearchStrategyTests
         // judged alone, G1 would sink to 1 with G2 left at 4, and G2 alone would sink to 1 with G1 at 4: (1,1) breaks the pair.
         var (p, c, f) = Case();
         var r = SearchStrategy.Search(p, f, c, new SearchOptions());
-        Assert.True(r.Decided["G1"] + r.Decided["G2"] >= 5);
-        Assert.NotEqual(1, r.Decided["G2"]);
+        Assert.Equal((1, 4), (r.Decided["G1"], r.Decided["G2"]));   // independent search would give (1,1)
     }
     [Fact] public void Search_Confirms_And_Bumps_Failing_Group()
     {
@@ -61,7 +60,7 @@ public class SearchStrategyTests
         var f = new Fake { Fail = (s, g) => s.ActiveByGroup["G3"] < (s.Seed == 1 ? 2 : 3) };   // second replication needs 3
         var r = SearchStrategy.Search(p, f, GroupClusters.Singletons(p), new SearchOptions(ImpactTable: false));
         Assert.Equal(3, r.Decided["G3"]); Assert.Empty(r.Warnings);
-        Assert.Contains(r.Trace, t => t.Phase == "confirm" && !t.ClusterOk);
+        Assert.Contains(r.Trace, t => t.Phase == "confirm" && t.ClusterOk == false);
         System.Console.WriteLine($"RUNS bump = {f.Calls}");
     }
     [Fact] public void Search_Reports_Max_When_None_Pass()
@@ -86,6 +85,30 @@ public class SearchStrategyTests
     {
         var (p, c, f) = Case();
         SearchStrategy.Search(p, f, c, new SearchOptions());
-        Assert.InRange(f.Calls, 1, 60);   // Fake also fails any (scenario, seed) executed twice
+        Assert.Equal(13, f.Calls);   // Fake also fails any (scenario, seed) executed twice
+    }
+    [Fact] public void Search_Infeasible_Group_Does_Not_Pin_Cluster()
+    {
+        var p = Input(("G1", 1, 3), ("G2", 1, 3));
+        var c = new GroupClusters { Clusters = new IReadOnlyList<string>[] { new[] { "G1", "G2" } } };
+        var f = new Fake { Fail = (s, g) => g == "G1" || s.ActiveByGroup["G2"] < 2 };   // G1 never passes
+        var r = SearchStrategy.Search(p, f, c, new SearchOptions(ImpactTable: false));
+        Assert.Equal((3, 2), (r.Decided["G1"], r.Decided["G2"]));
+        Assert.Contains(r.Warnings, w => w.Contains("묶음 G1,G2: 그룹 G1는 최대 대수에서도 판정 실패"));
+        System.Console.WriteLine($"RUNS infeasible = {f.Calls}");
+    }
+    [Fact] public void Impact_Steps_Are_Unjudged_And_Record_Seeds()
+    {
+        var (p, c, f) = Case();
+        var r = SearchStrategy.Search(p, f, c, new SearchOptions());
+        var s = Assert.Single(r.Trace, t => t.Phase == "impact" && t.Scenario.ActiveByGroup["G1"] == 2);
+        Assert.Null(s.ClusterOk); Assert.Equal(new[] { 1, 2 }, s.Seeds); Assert.Equal(2, s.Replications);
+    }
+    [Fact] public void ImpactTsv_Writes_Header_And_Invariant_Rows()
+    {
+        var path = System.IO.Path.GetTempFileName();
+        ImpactTsv.Write(path, new[] { new ImpactRow("G1", 2, "G2", -0.01, 0.5) });
+        Assert.Equal("group\tplusOne\totherGroup\tutilDelta\tminStockDelta\nG1\t2\tG2\t-0.01\t0.5\n", System.IO.File.ReadAllText(path));
+        System.IO.File.Delete(path);
     }
 }

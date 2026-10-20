@@ -34,7 +34,7 @@ public class GroupClustersTests
     {
         var (l, p) = Setup("D1", "D2");
         var c = GroupClusters.Build(l, p, TrafficTable.Build(l));
-        Assert.Equal(2, c.Clusters.Count); Assert.Empty(c.Warnings);
+        Assert.Equal(2, c.Clusters.Count);
     }
     [Fact] public void Shared_Block_Makes_One_Cluster()
     {
@@ -49,5 +49,52 @@ public class GroupClustersTests
         var (l, p) = Setup("D2", "D1");   // p4 -> p3 has no way back
         var c = GroupClusters.Build(l, p, TrafficTable.Build(l));
         Assert.NotEmpty(c.Warnings); Assert.Equal(2, c.Clusters.Count);
+    }
+
+    static (ASH.Core.Layout.Layout, ProjectInput) Loop()
+    {
+        var l = L.Of(L.Line("p1", 0, 0, 10, 0), L.Line("p2", 10, 0, 10, 10), L.Line("p3", 10, 10, 0, 10), L.Line("p4", 0, 10, 0, 0));
+        l.Cps.Add(L.Cp("C1", 2, 0)); l.Cps.Add(L.Cp("C2", 10, 5)); l.Cps.Add(L.Cp("C3", 5, 10)); l.Cps.Add(L.Cp("C4", 0, 5));
+        var p = new ProjectInput();
+        p.Groups.Add(new AgvGroup("G1", "T", 1, 3, new(), "x")); p.Groups.Add(new AgvGroup("G2", "T", 1, 3, new(), "x"));
+        p.Materials.Add(new MaterialInfo("M1", "S", "G1", 1, 1, 1, 1, 1, null, null, false));
+        p.Materials.Add(new MaterialInfo("M2", "S", "G2", 1, 1, 1, 1, 1, null, null, false));
+        p.Routes.Add(new Route("M1", "C1", "C2", null, null, null, 0));
+        p.Routes.Add(new Route("M2", "C3", "C4", null, null, null, 0));
+        return (l, p);
+    }
+    [Fact] public void Return_Path_Only_Sharing_Makes_One_Cluster()
+    {
+        var (l, p) = Loop();
+        var c = GroupClusters.Build(l, p, TrafficTable.Build(l));
+        Assert.Single(c.Clusters);
+        Assert.Equal(4, c.UsedPaths["G1"].Count);   // forward p1,p2 + return p3,p4
+    }
+    [Fact] public void Standby_Cp_Adds_Return_Leg_To_Standby()
+    {
+        var (l, p) = Loop();
+        l.Cps.Add(L.Cp("S1", 5, 0));
+        p.Groups[0] = p.Groups[0] with { StandbyCPs = new() { "S1" } };
+        var c = GroupClusters.Build(l, p, TrafficTable.Build(l));
+        Assert.Equal(4, c.UsedPaths["G1"].Count);
+    }
+    [Fact] public void Same_Path_Target_Behind_Warns()
+    {
+        var l = L.Of(L.Line("p1", 0, 0, 10, 0));
+        l.Cps.Add(L.Cp("C1", 8, 0)); l.Cps.Add(L.Cp("C2", 2, 0));
+        var p = new ProjectInput();
+        p.Groups.Add(new AgvGroup("G1", "T", 1, 3, new(), "x"));
+        p.Materials.Add(new MaterialInfo("M1", "S", "G1", 1, 1, 1, 1, 1, null, null, false));
+        p.Routes.Add(new Route("M1", "C1", "C2", null, null, null, 0));
+        var c = GroupClusters.Build(l, p, TrafficTable.Build(l));
+        Assert.Contains(c.Warnings, w => w.Contains("loop"));
+    }
+    [Fact] public void Cp_Far_From_Path_Warns()
+    {
+        var l = L.Of(L.Line("p1", 0, 0, 10, 0));
+        l.Cps.Add(L.Cp("C1", 5, 3));
+        var p = new ProjectInput();
+        var c = GroupClusters.Build(l, p, TrafficTable.Build(l));
+        Assert.Contains(c.Warnings, w => w.Contains("C1") && w.Contains("멀리"));
     }
 }

@@ -27,11 +27,16 @@ public sealed class GroupClusters
         var nodeOf = new Dictionary<(LayoutPath, bool), int>();
         for (int i = 0; i < graph.Nodes.Count; i++)
             foreach (var e in graph.Nodes[i].Ends) nodeOf[(e.Path, e.AtStart)] = i;
-        var cpPath = new Dictionary<string, LayoutPath>();
-        foreach (var c in layout.Cps)
-            if (LayoutChecker.Project(layout, c.Position) is { } pr) cpPath[c.Name] = pr.Path;
-
         var warnings = new List<string>();
+        var cpPos = new Dictionary<string, (LayoutPath Path, double Dist)>();
+        foreach (var c in layout.Cps)
+            if (LayoutChecker.Project(layout, c.Position) is { } pr)
+            {
+                cpPos[c.Name] = (pr.Path, pr.Dist);
+                if (pr.Offset > 10 * layout.Tolerance) warnings.Add($"CP {c.Name}이 경로에서 멀리 떨어짐");
+            }
+        var sssp = new Dictionary<int, (double[] Dist, (int Node, LayoutPath? Path)[] Prev)>();
+
         var paths = new Dictionary<string, HashSet<string>>();
         var blocks = new Dictionary<string, HashSet<string>>();
         foreach (var g in input.Groups)
@@ -44,13 +49,17 @@ public sealed class GroupClusters
                     var cps = new[] { rt.SupplyFromCP, rt.BufferCP, rt.SupplyToCP, rt.ReturnFromCP, rt.ReturnToCP }
                         .Where(s => !string.IsNullOrEmpty(s)).Select(s => s!).ToList();
                     for (int i = 0; i + 1 < cps.Count; i++) legs.Add((cps[i], cps[i + 1]));
-                    foreach (var sb in g.StandbyCPs) legs.Add((sb, rt.SupplyFromCP));
+                    var last = cps[cps.Count - 1];   // ReturnTo ?? ... ?? SupplyTo
+                    foreach (var sb in g.StandbyCPs) { legs.Add((sb, rt.SupplyFromCP)); legs.Add((last, sb)); }
+                    if (g.StandbyCPs.Count == 0) legs.Add((last, rt.SupplyFromCP));
                 }
             foreach (var (a, b) in legs.Distinct())
             {
-                if (!cpPath.TryGetValue(a, out var pa) || !cpPath.TryGetValue(b, out var pb))
-                { warnings.Add($"{g.Group}: CP {(cpPath.ContainsKey(a) ? b : a)} not on layout"); continue; }
-                var leg = Route(graph, nodeOf, pa, pb);
+                if (!cpPos.TryGetValue(a, out var pa) || !cpPos.TryGetValue(b, out var pb))
+                { warnings.Add($"{g.Group}: CP {(cpPos.ContainsKey(a) ? b : a)} not on layout"); continue; }
+                if (pa.Path == pb.Path && pb.Dist < pa.Dist)
+                { warnings.Add($"{g.Group}: {a} -> {b} is behind on the same path (needs a loop)"); continue; }
+                var leg = Route(graph, nodeOf, sssp, pa.Path, pb.Path);
                 if (leg == null) { warnings.Add($"{g.Group}: no route {a} -> {b}"); continue; }
                 foreach (var p in leg) used.Add(p.Id);
             }
@@ -71,31 +80,36 @@ public sealed class GroupClusters
         return r;
     }
 
-    // shortcut: O(V^2) Dijkstra, fine for hundreds of path ends. Same-path legs assume the target is ahead (no loop needed).
-    static List<LayoutPath>? Route(PathGraph graph, Dictionary<(LayoutPath, bool), int> nodeOf, LayoutPath pa, LayoutPath pb)
+    // shortcut: O(V^2) Dijkstra, one run per start node (cached for the Build), fine for hundreds of path ends.
+    static List<LayoutPath>? Route(PathGraph graph, Dictionary<(LayoutPath, bool), int> nodeOf,
+        Dictionary<int, (double[] Dist, (int Node, LayoutPath? Path)[] Prev)> cache, LayoutPath pa, LayoutPath pb)
     {
         var res = new List<LayoutPath> { pa };
         if (pa == pb) return res;
         res.Add(pb);
         int src = nodeOf[(pa, false)], dst = nodeOf[(pb, true)], n = graph.Nodes.Count;
-        var dist = Enumerable.Repeat(double.PositiveInfinity, n).ToArray();
-        var prev = new (int Node, LayoutPath? Path)[n];
-        var done = new bool[n];
-        dist[src] = 0;
-        while (true)
+        if (!cache.TryGetValue(src, out var sp))
         {
-            int u = -1;
-            for (int i = 0; i < n; i++) if (!done[i] && !double.IsInfinity(dist[i]) && (u < 0 || dist[i] < dist[u])) u = i;
-            if (u < 0 || u == dst) break;
-            done[u] = true;
-            foreach (var (p, _) in graph.Nodes[u].Ends.Where(e => e.AtStart))
+            var dist = Enumerable.Repeat(double.PositiveInfinity, n).ToArray();
+            var prev = new (int Node, LayoutPath? Path)[n];
+            var done = new bool[n];
+            dist[src] = 0;
+            while (true)
             {
-                int v = nodeOf[(p, false)];
-                if (dist[u] + p.Length < dist[v]) { dist[v] = dist[u] + p.Length; prev[v] = (u, p); }
+                int u = -1;
+                for (int i = 0; i < n; i++) if (!done[i] && !double.IsInfinity(dist[i]) && (u < 0 || dist[i] < dist[u])) u = i;
+                if (u < 0) break;
+                done[u] = true;
+                foreach (var (p, _) in graph.Nodes[u].Ends.Where(e => e.AtStart))
+                {
+                    int v = nodeOf[(p, false)];
+                    if (dist[u] + p.Length < dist[v]) { dist[v] = dist[u] + p.Length; prev[v] = (u, p); }
+                }
             }
+            cache[src] = sp = (dist, prev);
         }
-        if (double.IsInfinity(dist[dst])) return null;
-        for (int v = dst; v != src; v = prev[v].Node) res.Add(prev[v].Path!);
+        if (double.IsInfinity(sp.Dist[dst])) return null;
+        for (int v = dst; v != src; v = sp.Prev[v].Node) res.Add(sp.Prev[v].Path!);
         return res;
     }
 }

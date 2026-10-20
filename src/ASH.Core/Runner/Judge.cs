@@ -20,6 +20,7 @@ public static class Judge
     {
         var r = replications.ToList();
         if (r.Count == 0) return new Verdict(false, "결과 없음", RuleCode.NoResult);
+        if (r.Any(x => double.IsNaN(x.Utilization) || double.IsNaN(x.MinStockRatio))) return new Verdict(false, "KPI 결측(NaN)", RuleCode.NoResult);
         var stop = r.Average(x => x.StopTimeSec);
         if (stop > 0) return new Verdict(false, $"재고 부족(공정 정지 {F(stop, "0.#")}초)", RuleCode.StopTime);
         var stock = r.Average(x => x.MinStockRatio);

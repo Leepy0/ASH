@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
 using System.Linq;
 using ASH.Core.Input;
 using ASH.Core.Model;
@@ -9,10 +11,24 @@ namespace ASH.Core.Runner;
 public interface IRunExecutor { IReadOnlyList<RunKpi> Execute(RunScenario s); }
 
 public sealed record SearchOptions(int InitialReplications = 1, bool ImpactTable = true, int MaxConfirmRounds = 3);
-public sealed record SearchStep(RunScenario Scenario, IReadOnlyDictionary<string, Verdict> VerdictsByGroup, bool ClusterOk, string Phase);
+/// <summary>Scenario carries the first seed; Seeds lists all seeds run (SeedBase + i). ClusterOk is null for impact runs (not judged).</summary>
+public sealed record SearchStep(RunScenario Scenario, IReadOnlyDictionary<string, Verdict> VerdictsByGroup, bool? ClusterOk, string Phase,
+    int Replications, IReadOnlyList<int> Seeds);
 /// <summary>PlusOne = the group's new count; deltas are the other group's mean KPI in the +1 run minus the confirmed baseline.</summary>
 public sealed record ImpactRow(string Group, int PlusOne, string OtherGroup, double UtilDelta, double MinStockDelta);
 public sealed record SearchResult(IReadOnlyDictionary<string, int> Decided, List<SearchStep> Trace, List<ImpactRow> Impact, List<string> Warnings);
+
+public static class ImpactTsv
+{
+    public static void Write(string path, IEnumerable<ImpactRow> rows)
+    {
+        var inv = CultureInfo.InvariantCulture;
+        using var w = new StreamWriter(path, false, new System.Text.UTF8Encoding(false)) { NewLine = "\n" };
+        w.WriteLine("group\tplusOne\totherGroup\tutilDelta\tminStockDelta");
+        foreach (var r in rows)
+            w.WriteLine(string.Join("\t", r.Group, r.PlusOne.ToString(inv), r.OtherGroup, r.UtilDelta.ToString("R", inv), r.MinStockDelta.ToString("R", inv)));
+    }
+}
 
 public static class SearchStrategy
 {
@@ -24,13 +40,13 @@ public static class SearchStrategy
         var cur = input.Groups.ToDictionary(g => g.Group, g => g.MaxCount);
         var byName = input.Groups.ToDictionary(g => g.Group);
         int initReps = Math.Max(1, opts.InitialReplications), reps = Math.Max(1, input.Settings.Replications);
+        IReadOnlyList<int> Seeds(int n) => Enumerable.Range(0, n).Select(i => input.Settings.SeedBase + i).ToList();
 
         List<RunKpi> Runs(Dictionary<string, int> counts, int n)
         {
             var all = new List<RunKpi>();
-            for (int i = 0; i < n; i++)
+            foreach (var seed in Seeds(n))
             {
-                int seed = input.Settings.SeedBase + i;
                 var key = seed + "|" + string.Join(",", input.Groups.Select(g => counts[g.Group]));
                 if (!cache.TryGetValue(key, out var k))
                     cache[key] = k = exec.Execute(new RunScenario(seed, new Dictionary<string, int>(counts)));
@@ -42,14 +58,26 @@ public static class SearchStrategy
         {
             var kpis = Runs(cur, n);
             var v = judged.ToDictionary(g => g, g => Judge.Evaluate(kpis.Where(k => k.Group == g), input.Settings));
-            trace.Add(new SearchStep(new RunScenario(input.Settings.SeedBase, new Dictionary<string, int>(cur)), v, v.Values.All(x => x.Ok), phase));
+            trace.Add(new SearchStep(new RunScenario(input.Settings.SeedBase, new Dictionary<string, int>(cur)), v, v.Values.All(x => x.Ok), phase, n, Seeds(n)));
             return v;
         }
-        bool Passes(IReadOnlyList<string> cluster, int n, string phase) => Eval(cluster, n, phase).Values.All(x => x.Ok);
+        // g itself must pass and every other group that passed at the cluster baseline must still pass
+        bool Accept(IReadOnlyList<string> cluster, string g, HashSet<string> baselineOk, int n, string phase)
+        {
+            var v = Eval(cluster, n, phase);
+            return v[g].Ok && cluster.All(o => o == g || !baselineOk.Contains(o) || v[o].Ok);
+        }
 
         foreach (var cluster in clusters.Clusters)
         {
-            // coordinate descent: each group's binary search judges the whole cluster; repeat until a full pass changes nothing
+            var baselineOk = new HashSet<string>();
+            string cname = string.Join(",", cluster);
+            foreach (var kv in Eval(cluster, initReps, "baseline"))
+            {
+                if (kv.Value.Ok) baselineOk.Add(kv.Key);
+                else warnings.Add($"묶음 {cname}: 그룹 {kv.Key}는 최대 대수에서도 판정 실패 — 다른 그룹 탐색은 {kv.Key} 제외 기준으로 진행");
+            }
+            // coordinate descent: repeat until a full pass changes nothing
             for (bool changed = true; changed;)
             {
                 changed = false;
@@ -60,13 +88,13 @@ public static class SearchStrategy
                     {
                         int mid = (lo + hi) / 2;
                         cur[g] = mid;
-                        if (Passes(cluster, initReps, "search")) hi = mid; else lo = mid + 1;
+                        if (Accept(cluster, g, baselineOk, initReps, "search")) hi = mid; else lo = mid + 1;
                     }
                     cur[g] = hi;
                     if (hi < orig) changed = true;
                 }
             }
-            Passes(cluster, reps, "decided");
+            Eval(cluster, reps, "decided");
             for (bool improved = true; improved;)
             {
                 improved = false;
@@ -74,7 +102,7 @@ public static class SearchStrategy
                 {
                     if (cur[g] <= byName[g].MinCount) continue;
                     cur[g]--;
-                    if (Passes(cluster, reps, "minus1")) improved = true; else cur[g]++;
+                    if (Accept(cluster, g, baselineOk, reps, "minus1")) improved = true; else cur[g]++;
                 }
             }
         }
@@ -102,7 +130,7 @@ public static class SearchStrategy
             {
                 var plus = new Dictionary<string, int>(cur) { [g.Group] = cur[g.Group] + 1 };
                 var kp = Runs(plus, reps);
-                trace.Add(new SearchStep(new RunScenario(input.Settings.SeedBase, plus), new Dictionary<string, Verdict>(), true, "impact"));
+                trace.Add(new SearchStep(new RunScenario(input.Settings.SeedBase, plus), new Dictionary<string, Verdict>(), null, "impact", reps, Seeds(reps)));
                 foreach (var o in input.Groups.Where(x => x.Group != g.Group))
                     impact.Add(new ImpactRow(g.Group, plus[g.Group], o.Group,
                         Mean(kp, o.Group, k => k.Utilization) - Mean(baseline, o.Group, k => k.Utilization),

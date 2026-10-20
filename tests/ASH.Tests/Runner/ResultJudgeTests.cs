@@ -108,7 +108,7 @@ public class ResultJudgeTests
         var empty = LogicGeneratorTests.TwoGroups(); empty.Materials.RemoveAll(m => m.Group == "G2");
         var ke = Kpi.FromRun(rs, null, empty).Where(x => x.Group == "G2").ToList();
         Assert.True(ke[0].MinStockRatio >= 1);
-        Assert.True(Judge.Evaluate(ke, S).Ok);
+        Assert.Equal(RuleCode.NoResult, Judge.Evaluate(ke, S).Rule);   // NaN utilization (no report) never passes
     }
 
     [Fact] public void Judge_Passes_Good_Run() => Assert.True(Judge.Evaluate(new[] { K(), K(util: 0.6, stock: 1.0, sup: 10) }, S).Ok);
@@ -130,5 +130,12 @@ public class ResultJudgeTests
         Assert.Throws<InvalidDataException>(() => SummaryTsv.ReadAll(p));
         Assert.Throws<InvalidDataException>(() => SummaryTsv.Append(p, a));
         Directory.Delete(Path.GetDirectoryName(p)!, true);
+    }
+
+    [Fact]
+    public void Judge_Fails_On_NaN_Kpi()
+    {
+        Assert.Equal(RuleCode.NoResult, Judge.Evaluate(new[] { K(util: double.NaN) }, S).Rule);
+        Assert.Equal(RuleCode.NoResult, Judge.Evaluate(new[] { K(stock: double.NaN) }, S).Rule);
     }
 }
