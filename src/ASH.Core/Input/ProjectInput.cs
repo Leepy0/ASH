@@ -1,0 +1,44 @@
+using System.Collections.Generic;
+
+namespace ASH.Core.Input;
+
+public sealed record Settings
+{
+    public string Units { get; init; } = "Meters";
+    public double SimLengthSec { get; init; } = 28800;
+    public double WarmupSec { get; init; } = 3600;
+    public int Replications { get; init; } = 3;
+    public int SeedBase { get; init; } = 1;
+    public double UtilMax { get; init; } = 0.75;
+    public double SafetyStock { get; init; } = 2;
+    public string InitStockMode { get; init; } = "Uniform";
+    public double InitStockSpread { get; init; } = 10;
+    public string TrafficMode { get; init; } = "Block";
+    public string WorkDefinition { get; init; } = "LoadToUnload";
+}
+
+public sealed record AgvType(string Type, string Group, double SpeedLoaded, double SpeedEmpty, double Accel, double Decel,
+    int Capacity, double LoadTime, double UnloadTime, double MTBF, double MTTR, double Length, double Width, string Color);
+
+public sealed record AgvGroup(string Group, string Type, int MinCount, int MaxCount, List<string> StandbyCPs, string Dispatch);
+
+public sealed record MaterialInfo(string Material, string Station, string Group, double TaktTime, double UnitsPerCycle,
+    double UnitsPerContainer, double CallThreshold, double UnloadThreshold, double? InitStock, double? SafetyStock, bool EmptyReturn);
+
+public sealed record Route(string Material, string SupplyFromCP, string SupplyToCP, string? BufferCP,
+    string? ReturnFromCP, string? ReturnToCP, double ExtraTime);
+
+public sealed record StationInfo(string Station, string CPName, double BufferCapacity);
+
+public sealed record ExtHook(string Name, bool Enabled, string Description);
+
+public sealed class ProjectInput
+{
+    public Settings Settings { get; set; } = new Settings();
+    public List<AgvType> AgvTypes { get; } = new List<AgvType>();
+    public List<AgvGroup> Groups { get; } = new List<AgvGroup>();
+    public List<MaterialInfo> Materials { get; } = new List<MaterialInfo>();
+    public List<Route> Routes { get; } = new List<Route>();
+    public List<StationInfo> Stations { get; } = new List<StationInfo>();
+    public List<ExtHook> Ext { get; } = new List<ExtHook>();
+}
