@@ -20,6 +20,7 @@ public sealed class UpdateCommands
     private static readonly TimeSpan CheckTimeout = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan DownloadIdleTimeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan DownloadTotal = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan HardCapGrace = TimeSpan.FromSeconds(2);
 
     [CommandMethod("AGVUPDATE")]
     public void AgvUpdate() => Guarded("AGVUPDATE", RunUpdate);
@@ -61,11 +62,14 @@ public sealed class UpdateCommands
         UpdateResult r;
         try
         {
-            r = Task.Run(async () =>
+            var check = Task.Run(async () =>
             {
                 using var c = new UpdateClient(new Uri(url), CheckTimeout);
                 return await UpdateFlow.CheckAsync(c, key, UpdateNotifier.CurrentVersion).ConfigureAwait(false);
-            }).GetAwaiter().GetResult();
+            });
+            // hard cap: net48 DNS/WPAD can ignore the cancellation token
+            if (!check.Wait(CheckTimeout + HardCapGrace)) { Say(ed, UpdateMessages.CheckFailed(new TimeoutException())); return; }
+            r = check.GetAwaiter().GetResult();
         }
         catch (System.Exception e) { Say(ed, UpdateMessages.CheckFailed(e)); return; }
 
@@ -74,19 +78,21 @@ public sealed class UpdateCommands
         Say(ed, $"ASH {r.Fetched.Manifest.Version} 다운로드 중… (최대 {DownloadTotal.TotalMinutes:0}분)");
         var dir = Path.Combine(Path.GetTempPath(), "ASH-update");
         string path;
+        using var cts = new CancellationTokenSource(DownloadTotal);
         try
         {
-            using var cts = new CancellationTokenSource(DownloadTotal);
-            path = Task.Run(async () =>
+            var download = Task.Run(async () =>
             {
                 using var c = new UpdateClient(new Uri(url), DownloadIdleTimeout);
                 return await c.DownloadVerifiedAsync(r.Fetched, key, dir, cts.Token).ConfigureAwait(false);
-            }).GetAwaiter().GetResult();
+            });
+            if (!download.Wait(DownloadTotal + HardCapGrace)) { Say(ed, UpdateMessages.DownloadFailed(new TimeoutException(), totalTimeout: true)); return; }
+            path = download.GetAwaiter().GetResult();
         }
-        catch (System.Exception e) { Say(ed, UpdateMessages.DownloadFailed(e)); return; }
+        catch (System.Exception e) { Say(ed, UpdateMessages.DownloadFailed(e, totalTimeout: cts.IsCancellationRequested)); return; }
 
         Say(ed, $"다운로드 완료: {path} — ZWCAD를 완전히 종료한 뒤 이 파일을 실행하세요");
-        try { Process.Start("explorer.exe", $"/select,\"{path}\""); }
+        try { Process.Start(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), "explorer.exe"), $"/select,\"{path}\""); }
         catch (System.Exception e) { ed.WriteMessage("\n폴더를 열지 못했습니다: " + e.Message); }
     }
 

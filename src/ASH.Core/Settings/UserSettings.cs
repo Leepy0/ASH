@@ -36,12 +36,13 @@ public sealed record UserSettings(string ServerUrl = "")
         File.WriteAllText(path, $"{nameof(ServerUrl)}\t{ServerUrl}\r\n", new UTF8Encoding(false));
     }
 
-    /// <summary>Absolute http/https URL without whitespace or control characters; <paramref name="url"/> is the trimmed text.</summary>
+    /// <summary>Absolute http/https URL without whitespace, control characters, userinfo, query or fragment; <paramref name="url"/> is the trimmed text.</summary>
     public static bool TryNormalizeUrl(string? input, out string url)
     {
         url = (input ?? "").Trim();
         if (url.Length == 0) return false;
         foreach (var c in url) if (char.IsWhiteSpace(c) || char.IsControl(c)) return false;
-        return Uri.TryCreate(url, UriKind.Absolute, out var u) && (u.Scheme == Uri.UriSchemeHttp || u.Scheme == Uri.UriSchemeHttps) && u.Host.Length > 0;
+        return Uri.TryCreate(url, UriKind.Absolute, out var u) && (u.Scheme == Uri.UriSchemeHttp || u.Scheme == Uri.UriSchemeHttps) && u.Host.Length > 0
+            && u.UserInfo.Length == 0 && url.IndexOfAny(new[] { '?', '#', '@' }) < 0; // "?"/"#" even when empty, "@" = userinfo
     }
 }

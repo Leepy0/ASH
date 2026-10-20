@@ -105,4 +105,18 @@ public class UpdateFlowTests
         Assert.Contains("실행 중이면 닫고", UpdateMessages.DownloadFailed(new UnauthorizedAccessException("x")));
         Assert.Equal("다운로드 실패(SHA-256이 다릅니다)", UpdateMessages.DownloadFailed(new InvalidDataException("SHA-256이 다릅니다")));
     }
+
+    [Fact] public void DownloadFailed_Total_Timeout_Differs_From_Idle_Cancel()
+    {
+        Assert.Equal("다운로드 시간 초과(5분)", UpdateMessages.DownloadFailed(new OperationCanceledException(), totalTimeout: true));
+        Assert.Equal("다운로드 실패(서버 응답 없음)", UpdateMessages.DownloadFailed(new OperationCanceledException()));
+        Assert.Equal("업데이트 확인 실패(서버 응답 없음)", UpdateMessages.CheckFailed(new TimeoutException()));
+    }
+
+    [Fact] public void Default_Handler_Skips_Proxy_And_Redirects()
+    {
+        var h = UpdateClient.DefaultHandler();
+        Assert.False(h.UseProxy);
+        Assert.False(h.AllowAutoRedirect);
+    }
 }

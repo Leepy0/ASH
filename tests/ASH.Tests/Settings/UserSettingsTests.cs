@@ -29,7 +29,7 @@ public class UserSettingsTests
     [Theory]
     [InlineData("http://server:5080", true)] [InlineData(" https://srv/ ", true)] [InlineData("http://10.0.0.5:5080/base", true)]
     [InlineData("", false)] [InlineData("server:5080", false)] [InlineData("ftp://srv", false)] [InlineData("srv", false)]
-    [InlineData("http://a b", false)] [InlineData("http://a\tb", false)] [InlineData("file:///c:/x", false)] [InlineData(null, false)]
+    [InlineData("http://a b", false)] [InlineData("http://a\tb", false)] [InlineData("http://user:pw@srv:5080", false)] [InlineData("http://srv:5080/?x=1", false)] [InlineData("http://srv:5080/#f", false)] [InlineData("http://srv?", false)] [InlineData("http://srv#", false)] [InlineData("file:///c:/x", false)] [InlineData(null, false)]
     public void TryNormalizeUrl(string? input, bool ok)
     {
         Assert.Equal(ok, UserSettings.TryNormalizeUrl(input, out var u));

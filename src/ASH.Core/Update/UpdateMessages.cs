@@ -23,15 +23,17 @@ public static class UpdateMessages
 
     public static string CheckFailed(Exception e) => $"업데이트 확인 실패({Reason(e)})";
 
-    public static string DownloadFailed(Exception e) => Unwrap(e) is IOException || Unwrap(e) is UnauthorizedAccessException
-        ? "다운로드 실패(받을 위치의 파일을 쓸 수 없음 — 이전 설치 프로그램이 실행 중이면 닫고 다시 시도하세요)"
-        : $"다운로드 실패({Reason(e)})";
+    /// <param name="totalTimeout">The caller's overall download limit fired (as opposed to an idle/connect failure).</param>
+    public static string DownloadFailed(Exception e, bool totalTimeout = false) => totalTimeout ? "다운로드 시간 초과(5분)"
+        : Unwrap(e) is IOException || Unwrap(e) is UnauthorizedAccessException
+            ? "다운로드 실패(받을 위치의 파일을 쓸 수 없음 — 이전 설치 프로그램이 실행 중이면 닫고 다시 시도하세요)"
+            : $"다운로드 실패({Reason(e)})";
 
     /// <summary>Short cause: connection, timeout and HTTP errors all read as "no answer from the server".</summary>
     public static string Reason(Exception e)
     {
         e = Unwrap(e);
-        if (e is OperationCanceledException || e is HttpRequestException || e is WebException || e is SocketException) return "서버 응답 없음";
+        if (e is OperationCanceledException || e is TimeoutException || e is HttpRequestException || e is WebException || e is SocketException) return "서버 응답 없음";
         var msg = e.Message.Split('\r', '\n')[0].Trim();
         if (msg.Length == 0) msg = e.GetType().Name;
         return msg.Length > 60 ? msg.Substring(0, 60) + "…" : msg;

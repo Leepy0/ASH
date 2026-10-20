@@ -61,7 +61,7 @@ static class Program
             try
             {
                 if (uninstall) r.Uninstall(targets);
-                else { r.Install(targets); if (server != null) r.SaveServerUrl(server); }
+                else { r.Install(targets); if (server != null && r.ExitCode != 1) r.SaveServerUrl(server); }
             }
             catch (Exception ex) { r.Log("오류: " + ex.Message); return 1; }
             return r.ExitCode; // 0 ok, 1 failure, 2 warnings (autoload not registered)
@@ -84,10 +84,10 @@ static class Program
     public static List<ZwcadInstall> Detect() => ZwcadLocator.Find(new Win32Registry(), new RealFileSystem(),
         Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86));
 
-    // best effort: the process user's file (differs from the install target user's when elevated with another account)
+    // best effort; reads the same install-target user's file that SaveServerUrl writes
     static string ExistingServerUrl()
     {
-        try { return UserSettings.Load().ServerUrl; }
+        try { using var r = new StepRunner(_ => { }); return r.ExistingServerUrl(); }
         catch (Exception) { return ""; }
     }
 

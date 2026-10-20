@@ -90,6 +90,9 @@ sealed class StepRunner : IDisposable
         Log("경고: " + w);
     }
 
+    /// <summary>ServerUrl saved for the install target user ("" when none or unknown).</summary>
+    public string ExistingServerUrl() => _userAppData == null ? "" : UserSettings.Load(UserSettings.PathIn(_userAppData)).ServerUrl;
+
     /// <summary>Writes ServerUrl to the target user's %APPDATA%\ASH\ash.user.tsv (the user the HKCU registration is for, not necessarily the elevated account).</summary>
     public void SaveServerUrl(string url)
     {

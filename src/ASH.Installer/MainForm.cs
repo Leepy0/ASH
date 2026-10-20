@@ -173,7 +173,7 @@ sealed class MainForm : Form
         {
             r = new StepRunner(line => { _log.AppendText(line + Environment.NewLine); _log.Update(); });
             if (uninstall) r.Uninstall(targets);
-            else { r.Install(targets); if (server != null) r.SaveServerUrl(server); }
+            else { r.Install(targets); if (server != null && r.ExitCode != 1) r.SaveServerUrl(server); }
             ExitCode = r.ExitCode;
         }
         catch (Exception ex)

@@ -39,12 +39,15 @@ public sealed class UpdateClient : IDisposable
     {
         _base = server.AbsoluteUri.TrimEnd('/');
         _timeout = timeout;
-        _http = new HttpClient(handler ?? new HttpClientHandler { AllowAutoRedirect = false })
+        _http = new HttpClient(handler ?? DefaultHandler())
         {
             Timeout = System.Threading.Timeout.InfiniteTimeSpan,
             MaxResponseContentBufferSize = MaxManifestBytes,
         };
     }
+
+    // UseProxy=false: the server is on the LAN, and net48 would otherwise stall in WPAD/proxy auto-detection (ruling from the controller).
+    internal static HttpClientHandler DefaultHandler() => new HttpClientHandler { AllowAutoRedirect = false, UseProxy = false };
 
     public void Dispose() => _http.Dispose();
 
