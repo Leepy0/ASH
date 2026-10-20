@@ -102,7 +102,7 @@
 ### Task 8: `ModelRunner` (반복 실행 엔진)
 
 **Files:** Create `src/ASH.Core/Runner/ModelRunner.cs`(`sealed record RunRequest(string ProjectDir, string ModelName, RunScenario Scenario, TimeSpan Timeout, string? DialogButton /*"Student Version" or null*/)`, `sealed record RunOutcome(string RunId, bool Success, string RunDir, TimeSpan Duration, string? Error)`, `RunOutcome Run(RunRequest r)`), Modify `AutoMod/DialogCloser.cs`(`Start(pid, titleContains, buttonText?, onClosed)` — 버튼 이름이 주어지면 그 자식 버튼에 `BM_CLICK`, 없으면 기존 OK/WM_CLOSE), Test `tests/ASH.Tests/Runner/ModelRunnerTests.cs`(AM 없이: 가짜 exe 경로 → 실패 기록; SkippableFact: Task 4 모델로 실제 1회 실행 → `runs\<id>\result.tsv`, `<Model>.report`, `.message` 이동 확인; `Runner_Kills_On_Timeout_And_Records_Failure`는 timeout 1 ms로).
-- RunId = `g1_n<active>_s<seed>` 형식(그룹 여러 개면 `n1-2-3`). 실행 전 `params.txt` 교체, 실행 폴더의 이전 `result.tsv` 삭제. 동시 실행은 호출자가 제어(Runner exe의 `--parallel`).
+- RunId = `n<Excel 그룹 행 순서의 전 그룹 대수를 '-'로 연결>_s<seed>[_dbg]`(2026-10-21 변경). `summary.tsv`에 `scenario` 열(`G1=1;G2=2`). 실행 전 `params.txt` 교체, 작업 폴더의 이전 `result.tsv`·`.report`·`.message`·`.print` 삭제, `runs\<id>` 재생성. 성공 = exit 0 AND `result.tsv`(검증 통과) AND `.report`. 병렬: `ModelRunner.PrepareWorkSlot(project, model, k)`가 `<Project>\work\w<k>\`에 exe·`.arc`·`.dir`를 복사하고 작업 폴더별 named Mutex로 직렬화. `Run`은 예외를 던지지 않는다.
 - [ ] 커밋 `feat(core): headless model runner with dialog button click`
 
 ### Task 9: 탐색 전략
