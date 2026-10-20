@@ -23,6 +23,42 @@ public class InstallPlannerTests
         Assert.True(s.FindLastIndex(x => x.Kind == "Unblock") < s.FindIndex(x => x.Kind.StartsWith("Reg")));
     }
 
+    [Fact] public void Plan_Skips_Unsupported_Version()
+    {
+        var old = new ZwcadInstall("2024", "ko_KR", @"C:\ZWCAD2024", @"Software\ZWSoft\ZWCAD\2024\ko_KR");
+        var s = InstallPlanner.Plan(new[] { I, old }, @"D:\src", true, false, supportedVersion: "2026");
+        var w = Assert.Single(s, x => x.Kind == "Warn");
+        Assert.Contains("2024", w.Value);
+        Assert.DoesNotContain(s, x => x.Kind != "Warn" && x.Target.Contains("2024"));
+        Assert.Contains(s, x => x.Kind == "RegString" && x.Target == Loader);
+        Assert.Contains(s, x => x.Kind == "CopyFile" && x.Target.StartsWith(@"C:\ZWCAD2026\"));
+    }
+
+    [Fact] public void Planner_Uses_Original_ProfileKeyPath()
+    {
+        var reg = new FakeRegistry();
+        reg.Add(@"HKLM\SOFTWARE\ZWSoft\ZWCAD\2026.0\ko_KR", "InstallPath", @"C:\ZWCAD2026");
+        reg.Add(@"HKCU\Software\ZWSoft\ZWCAD\2026.0\ko_KR", "x", "y");
+        var fs = new FakeFs(new[] { @"C:\ZWCAD2026" }, new[] { @"C:\ZWCAD2026\ZWCAD.exe" });
+        var t = Assert.Single(ZwcadLocator.Find(reg, fs, @"C:\pf", @"C:\pf86"));
+        Assert.Equal("2026", t.Version);
+        Assert.Equal(@"Software\ZWSoft\ZWCAD\2026.0\ko_KR", t.ProfileKeyPath);
+        var s = InstallPlanner.Plan(new[] { t }, @"D:\src", true, false, reg, supportedVersion: "2026");
+        Assert.Contains(s, x => x.Kind == "RegString" && x.Target == @"HKCU\Software\ZWSoft\ZWCAD\2026.0\ko_KR\Applications\ASH\LOADER");
+        Assert.Contains(s, x => x.Kind == "RegString" && x.Target == @"HKLM\Software\ZWSoft\ZWCAD\2026.0\ko_KR\Applications\ASH\LOADER");
+        Assert.DoesNotContain(s, x => x.Target.Contains(@"ZWCAD\2026\"));
+        Assert.DoesNotContain(s, x => x.Kind == "Warn");
+    }
+
+    [Fact] public void Planner_Skips_Hkcu_When_Profile_Missing()
+    {
+        var s = InstallPlanner.Plan(new[] { I }, @"D:\src", true, false, new FakeRegistry());
+        Assert.DoesNotContain(s, x => x.Target.StartsWith("HKCU"));
+        Assert.Contains(s, x => x.Kind == "RegString" && x.Target == @"HKLM\Software\ZWSoft\ZWCAD\2026\ko_KR\Applications\ASH\LOADER");
+        Assert.Contains(s, x => x.Kind == "Warn" && x.Value!.Contains("ZWCAD를 한 번 실행한 뒤 다시 설치하세요"));
+        Assert.Contains(s, x => x.Kind == "CopyFile");
+    }
+
     [Fact] public void Planner_Skips_Hklm_When_Not_Elevated()
     {
         var s = InstallPlanner.Plan(new[] { I }, @"D:\src", false, false);

@@ -28,6 +28,8 @@ public sealed class FakeRegistry : IRegistryReader
                          .Select(k => k.Substring(prefix.Length)).ToArray();
     }
 
+    public bool KeyExists(string hive, string path) => _keys.ContainsKey(hive + "\\" + path);
+
     public string? GetString(string hive, string path, string name) =>
         _keys.TryGetValue(hive + "\\" + path, out var v) && v.TryGetValue(name, out var o) ? o as string : null;
 

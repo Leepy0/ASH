@@ -8,6 +8,7 @@ public interface IRegistryReader
     string[] SubKeys(string hive, string path);
     string? GetString(string hive, string path, string name);
     IEnumerable<(string Name, object Value)> Values(string hive, string path);
+    bool KeyExists(string hive, string path);
 }
 
 public interface IRegistryWriter

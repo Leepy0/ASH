@@ -14,8 +14,10 @@ namespace ASH.Installer;
 sealed class Win32Registry : IRegistryReader, IRegistryWriter
 {
     readonly string? _userSid;
+    readonly bool _noHkcu;
 
-    public Win32Registry(string? userSid = null) => _userSid = userSid;
+    /// <param name="noHkcu">no usable user hive (e.g. SYSTEM): HKCU reads as empty, so plans skip it; deletes are no-ops.</param>
+    public Win32Registry(string? userSid = null, bool noHkcu = false) { _userSid = userSid; _noHkcu = noHkcu; }
 
     /// <summary>True when HKEY_USERS\&lt;sid&gt; is loaded (the user is logged on).</summary>
     public static bool UserHiveLoaded(string sid)
@@ -39,10 +41,13 @@ sealed class Win32Registry : IRegistryReader, IRegistryWriter
 
     T Read<T>(string hive, string path, Func<RegistryKey, T> f, T empty)
     {
+        if (_noHkcu && hive == "HKCU") return empty;
         using var b = Base(hive, false);
         using var k = b.OpenSubKey(path);
         return k == null ? empty : f(k);
     }
+
+    public bool KeyExists(string hive, string path) => Read(hive, path, _ => true, false);
 
     public string[] SubKeys(string hive, string path) => Read(hive, path, k => k.GetSubKeyNames(), new string[0]);
 
@@ -58,12 +63,14 @@ sealed class Win32Registry : IRegistryReader, IRegistryWriter
 
     public void DeleteKey(string hive, string path)
     {
+        if (_noHkcu && hive == "HKCU") return;
         using var b = Base(hive, true);
         b.DeleteSubKeyTree(path, false);
     }
 
     void Write(string hive, string path, Action<RegistryKey> f)
     {
+        if (_noHkcu && hive == "HKCU") throw new InvalidOperationException("사용자 하이브 없음: HKCU 쓰기 불가");
         using var b = Base(hive, true);
         using var k = b.CreateSubKey(path, true);
         f(k);

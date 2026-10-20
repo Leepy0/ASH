@@ -15,7 +15,7 @@ public static class ZwcadLocator
         var result = new List<ZwcadInstall>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        void Add(string version, string lang, string dir)
+        void Add(string version, string lang, string dir, string? profileKey = null)
         {
             dir = dir.Trim().Trim('"');
             if (dir.EndsWith("\\" + Exe, StringComparison.OrdinalIgnoreCase)) dir = dir.Substring(0, dir.Length - Exe.Length - 1);
@@ -24,9 +24,10 @@ public static class ZwcadLocator
             // a language-less hit (folder/uninstall) is redundant once the dir is known with any language
             if (lang.Length == 0 ? result.Any(r => string.Equals(r.InstallDir, dir, StringComparison.OrdinalIgnoreCase))
                                  : !seen.Add(dir + "|" + lang)) return;
-            var key = version.Length == 0 ? @"Software\ZWSoft\ZWCAD"
+            // profileKey keeps the real key name (e.g. "2026.0"); Version is only the year for display/matching
+            var key = profileKey ?? (version.Length == 0 ? @"Software\ZWSoft\ZWCAD"
                     : lang.Length == 0 ? @"Software\ZWSoft\ZWCAD\" + version
-                    : @"Software\ZWSoft\ZWCAD\" + version + "\\" + lang;
+                    : @"Software\ZWSoft\ZWCAD\" + version + "\\" + lang);
             result.Add(new ZwcadInstall(version, lang, dir, key));
         }
 
@@ -35,7 +36,7 @@ public static class ZwcadLocator
             foreach (var ver in reg.SubKeys("HKLM", root))
                 foreach (var lang in reg.SubKeys("HKLM", root + "\\" + ver))
                     foreach (var (_, value) in reg.Values("HKLM", root + "\\" + ver + "\\" + lang))
-                        if (value is string s) Add(Year(ver), lang, s);
+                        if (value is string s) Add(Year(ver), lang, s, @"Software\ZWSoft\ZWCAD\" + ver + "\\" + lang);
 
         // 2) Uninstall entries
         foreach (var root in new[] { UninstallRoot, @"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall" })

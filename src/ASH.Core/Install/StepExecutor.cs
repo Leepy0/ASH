@@ -76,12 +76,12 @@ public sealed class StepExecutor
     /// Installs one ZWCAD. When copying into "&lt;ZWCAD&gt;\ASH" is denied, re-plans with <paramref name="fallbackDir"/>
     /// (e.g. %ProgramData%\ASH\&lt;ver&gt;) so the DLLs and LOADER point there instead.
     /// </summary>
-    public RunResult Install(ZwcadInstall t, string dllSourceDir, bool elevated, IRegistryReader reg, string fallbackDir)
+    public RunResult Install(ZwcadInstall t, string dllSourceDir, bool elevated, IRegistryReader reg, string fallbackDir, string? supportedVersion = null)
     {
-        var first = Run(InstallPlanner.Plan(new[] { t }, dllSourceDir, elevated, false, reg));
+        var first = Run(InstallPlanner.Plan(new[] { t }, dllSourceDir, elevated, false, reg, null, supportedVersion));
         if (first.Failed is not { Step.Kind: "CopyFile", Error: UnauthorizedAccessException }) return first;
         _log("쓰기 실패 → " + fallbackDir + " 사용");
-        var r = Run(InstallPlanner.Plan(new[] { t }, dllSourceDir, elevated, false, reg, fallbackDir));
+        var r = Run(InstallPlanner.Plan(new[] { t }, dllSourceDir, elevated, false, reg, fallbackDir, supportedVersion));
         r.FallbackDir = fallbackDir;
         return r;
     }
