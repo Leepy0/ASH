@@ -71,7 +71,9 @@ app.MapGet("/", (ReleaseStore s) =>
     if (cur == null) sb.Append("<p>게시된 버전이 없습니다.</p>");
     else sb.Append($"<table border=\"1\" cellpadding=\"4\"><tr><th>현재 버전</th><td>{H(cur.Version)}</td></tr><tr><th>최소 지원</th><td>{H(cur.MinSupported)}</td></tr>" +
         $"<tr><th>게시 시각</th><td>{H(cur.Published)}</td></tr><tr><th>설치 파일</th><td>{H(cur.File)} ({cur.Size:N0} bytes)</td></tr></table>");
-    sb.Append("<p>서명 키: ").Append(s.Key == null ? "<b>서명 키 없음(서명 확인 안 함)</b>" : H(s.Key.KeyId)).Append("</p>");
+    sb.Append("<p>서명 키: ").Append(s.Key == null
+        ? (s.AllowUnsigned ? "<b>서명 키 없음(서명 확인 안 함) — Update:AllowUnsigned=true, 개발용</b>" : "<b>서명 키 없음 — 업로드 거절(Update:AllowUnsigned=true로만 허용)</b>")
+        : H(s.Key.KeyId)).Append("</p>");
     sb.Append("<p>업로드: ").Append(s.UploadsEnabled ? "가능" : "꺼짐(Admin:Token 미설정 또는 짧음)").Append("</p><h2>이전 버전</h2><ul>");
     foreach (var h in s.History()) sb.Append($"<li>{H(h.Version)} ({H(h.Published)})</li>");
     sb.Append("</ul></body></html>");

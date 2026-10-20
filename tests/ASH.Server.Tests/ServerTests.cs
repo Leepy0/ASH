@@ -19,7 +19,7 @@ public sealed class Env : IDisposable
     public readonly HttpClient Http;
     public ReleaseStore Store => Factory.Services.GetRequiredService<ReleaseStore>();
 
-    public Env(bool key = true, string token = Token)
+    public Env(bool key = true, string token = Token, bool allowUnsigned = false)
     {
         var pem = key ? Key.ExportSubjectPublicKeyInfoPem() : "";
         Factory = new WebApplicationFactory<Program>().WithWebHostBuilder(b =>
@@ -27,18 +27,19 @@ public sealed class Env : IDisposable
             b.UseSetting("Releases:Dir", Dir);
             b.UseSetting("Admin:Token", token);
             b.UseSetting("Update:PublicKeyPem", pem);
+            b.UseSetting("Update:AllowUnsigned", allowUnsigned ? "true" : "false");
         });
         Http = Factory.CreateClient();
     }
 
     public sealed record Release(byte[] Json, byte[] Sig, byte[] Setup, string File, string Version);
 
-    public Release MakeRelease(string version, string? setupText = null, bool sign = true, string? published = null)
+    public Release MakeRelease(string version, string? setupText = null, bool sign = true, string? published = null, string min = "0.1.0")
     {
         var setup = Encoding.UTF8.GetBytes(setupText ?? "setup-bytes-" + version);
         var m = new ReleaseManifest
         {
-            Version = version, MinSupported = "0.1.0", File = $"ASH-Setup-{version}.exe",
+            Version = version, MinSupported = min, File = $"ASH-Setup-{version}.exe",
             Sha256 = Convert.ToHexString(SHA256.HashData(setup)).ToLowerInvariant(), Size = setup.Length,
             Published = published ?? ReleaseManifest.FormatPublished(DateTime.UtcNow),
         };
@@ -289,9 +290,9 @@ public class ServerTests
     }
 
     [Fact]
-    public async Task Without_key_unsigned_upload_is_accepted_and_status_warns()
+    public async Task Without_key_and_AllowUnsigned_unsigned_upload_is_accepted_and_status_warns()
     {
-        using var e = new Env(key: false);
+        using var e = new Env(key: false, allowUnsigned: true);
         var r = e.MakeRelease("0.2.0", sign: false);
         var resp = await e.Upload(r);
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
@@ -301,6 +302,30 @@ public class ServerTests
         var page = await e.Http.GetStringAsync("/");
         Assert.Contains("서명 키 없음(서명 확인 안 함)", page);
         Assert.Contains("0.2.0", page);
+    }
+
+    [Fact]
+    public async Task Without_key_uploads_are_rejected_by_default_and_status_says_so()
+    {
+        using var e = new Env(key: false);
+        var resp = await e.Upload(e.MakeRelease("0.2.0", sign: false));
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+        Assert.Contains("Update:AllowUnsigned=true", await resp.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.NotFound, (await e.Http.GetAsync("/api/ash/version")).StatusCode);
+        var page = await e.Http.GetStringAsync("/");
+        Assert.Contains("업로드 거절", page);
+        Assert.DoesNotContain("서명 확인 안 함", page);
+    }
+
+    [Fact]
+    public async Task Upload_with_minSupported_above_version_is_rejected()
+    {
+        using var e = new Env();
+        var resp = await e.Upload(e.MakeRelease("0.2.0", min: "0.3.0"));
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+        Assert.Contains("minSupported", await resp.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.NotFound, (await e.Http.GetAsync("/api/ash/version")).StatusCode);
+        await e.Published(e.MakeRelease("0.2.0", min: "0.2.0")); // equal is fine
     }
 
     [Fact]

@@ -113,6 +113,14 @@ public class UpdateFlowTests
         Assert.Equal("업데이트 확인 실패(서버 응답 없음)", UpdateMessages.CheckFailed(new TimeoutException()));
     }
 
+    [Fact] public void Tls_Failure_Gets_Certificate_Message()
+    {
+        var tls = new HttpRequestException("ssl", new System.Security.Authentication.AuthenticationException("The remote certificate is invalid"));
+        Assert.Equal("업데이트 확인 실패(서버 인증서 오류 — 사내 인증서 신뢰 여부 확인)", UpdateMessages.CheckFailed(tls));
+        Assert.Contains("서버 인증서 오류", UpdateMessages.DownloadFailed(new AggregateException(tls)));
+        Assert.Equal("서버 응답 없음", UpdateMessages.Reason(new HttpRequestException("refused"))); // other HTTP failures keep the old text
+    }
+
     [Fact] public void Default_Handler_Skips_Proxy_And_Redirects()
     {
         var h = UpdateClient.DefaultHandler();

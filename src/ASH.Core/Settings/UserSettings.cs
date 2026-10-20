@@ -5,7 +5,10 @@ using System.Text;
 
 namespace ASH.Core.Settings;
 
-/// <summary>Per-PC (not per-drawing) settings at %APPDATA%\ASH\ash.user.tsv, "key\tvalue" lines. Unknown keys are ignored.</summary>
+/// <summary>
+/// Per-PC (not per-drawing) settings at %APPDATA%\ASH\ash.user.tsv, "key\tvalue" lines. Unknown keys are ignored.
+/// SYSTEM deployments (no user profile to write to) keep ServerUrl in %ProgramData%\ASH\ash.machine.tsv instead; the user file wins when its ServerUrl is non-empty.
+/// </summary>
 public sealed record UserSettings(string ServerUrl = "")
 {
     public const string FileName = "ash.user.tsv";
@@ -13,12 +16,27 @@ public sealed record UserSettings(string ServerUrl = "")
     /// <summary>&lt;appData&gt;\ASH\ash.user.tsv</summary>
     public static string PathIn(string appData) => System.IO.Path.Combine(appData, "ASH", FileName);
 
+    public const string MachineFileName = "ash.machine.tsv";
+
+    /// <summary>%ProgramData%\ASH\ash.machine.tsv</summary>
+    public static string MachinePath => System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "ASH", MachineFileName);
+
     public static string DefaultPath => PathIn(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData));
 
-    /// <summary>Missing file gives defaults. IO errors are thrown for the caller to handle.</summary>
-    public static UserSettings Load(string? path = null)
+    /// <summary>
+    /// Missing file gives defaults. IO errors are thrown for the caller to handle.
+    /// With no <paramref name="path"/> (the plugin's call) an empty user ServerUrl falls back to the machine file;
+    /// an explicit <paramref name="path"/> reads that file alone unless <paramref name="machinePath"/> is given too.
+    /// </summary>
+    public static UserSettings Load(string? path = null, string? machinePath = null)
     {
-        path ??= DefaultPath;
+        machinePath ??= path == null ? MachinePath : null;
+        var u = Read(path ?? DefaultPath);
+        return u.ServerUrl.Length == 0 && machinePath != null ? Read(machinePath) : u;
+    }
+
+    static UserSettings Read(string path)
+    {
         if (!File.Exists(path)) return new UserSettings();
         var kv = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var line in File.ReadAllLines(path))

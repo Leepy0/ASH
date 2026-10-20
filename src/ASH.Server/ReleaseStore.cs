@@ -33,14 +33,17 @@ public sealed class ReleaseStore
     public string Dir { get; }
     public ManifestSignature? Key { get; }
     public bool UploadsEnabled => _token != null;
+    /// <summary>Update:AllowUnsigned=true: a server without a public key still takes uploads (dev/test only).</summary>
+    public bool AllowUnsigned { get; }
     public string CurrentDir => Path.Combine(Dir, "current");
     public string FilesDir => Path.Combine(Dir, "files");
     public string HistoryDir => Path.Combine(Dir, "history");
 
     /// <exception cref="ArgumentException">publicKeyPem is set but holds no valid P-256 key.</exception>
-    public ReleaseStore(string dir, string? publicKeyPem, string? adminToken, ILogger log)
+    public ReleaseStore(string dir, string? publicKeyPem, string? adminToken, ILogger log, bool allowUnsigned = false)
     {
         Dir = dir;
+        AllowUnsigned = allowUnsigned;
         _log = log;
         if (!string.IsNullOrEmpty(adminToken) && adminToken.Length < MinTokenLength)
             _log.LogWarning("Admin:Token이 {Min}자 미만이라 업로드를 끕니다.", MinTokenLength);
@@ -49,7 +52,8 @@ public sealed class ReleaseStore
         foreach (var d in new[] { CurrentDir, FilesDir, HistoryDir }) Directory.CreateDirectory(d);
         // leftovers of a crashed upload
         TryDelete(Path.Combine(Dir, "incoming"));
-        if (Key == null) _log.LogWarning("서명 공개키가 없습니다: 업로드한 배포의 서명을 확인하지 않습니다.");
+        if (Key == null && AllowUnsigned) _log.LogWarning("서명 공개키가 없습니다: Update:AllowUnsigned=true라 서명을 확인하지 않고 업로드를 받습니다.");
+        else if (Key == null) _log.LogWarning("서명 공개키가 없습니다: 업로드를 모두 거절합니다(Update:AllowUnsigned=true로만 허용).");
         else _log.LogInformation("서명 공개키 {KeyId}", Key.KeyId);
     }
 
@@ -59,7 +63,7 @@ public sealed class ReleaseStore
         if (string.IsNullOrWhiteSpace(dir)) dir = "%ProgramData%\\ASH.Server\\releases";
         dir = Path.GetFullPath(Environment.ExpandEnvironmentVariables(dir));
         var pem = ResolveKeyPem(cfg["Update:PublicKeyPem"], EmbeddedKey(), env.IsDevelopment(), log);
-        return new ReleaseStore(dir, pem, cfg["Admin:Token"], log);
+        return new ReleaseStore(dir, pem, cfg["Admin:Token"], log, cfg.GetValue<bool>("Update:AllowUnsigned"));
     }
 
     /// <summary>
@@ -140,12 +144,16 @@ public sealed class ReleaseStore
         var committed = false;
         try
         {
+            if (Key == null && !AllowUnsigned) throw new UploadException(400, "서명 키 없음 — Update:AllowUnsigned=true로만 허용");
             Directory.CreateDirectory(incoming);
             var json = await ReadSmall(manifestPart, MaxManifestBytes, "manifest");
             ReleaseManifest m;
             try { m = ReleaseManifest.Parse(json); }
             catch (InvalidDataException e) { throw new UploadException(400, e.Message); }
             if (!SemVersion.TryParse(m.Version, out var newVer)) throw new UploadException(400, "배포 정보의 version이 올바르지 않습니다: " + m.Version);
+
+            if (SemVersion.TryParse(m.MinSupported, out var minVer) && minVer!.CompareTo(newVer) > 0)
+                throw new UploadException(400, $"minSupported({m.MinSupported})가 version({m.Version})보다 높습니다.");
 
             var sig = signaturePart == null ? null : await ReadSmall(signaturePart, MaxSignatureBytes, "signature");
             if (Key != null)

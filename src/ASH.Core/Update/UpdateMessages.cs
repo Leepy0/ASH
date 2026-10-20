@@ -3,6 +3,7 @@ using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
+using System.Security.Authentication;
 
 namespace ASH.Core.Update;
 
@@ -33,10 +34,19 @@ public static class UpdateMessages
     public static string Reason(Exception e)
     {
         e = Unwrap(e);
+        if (IsTlsFailure(e)) return "서버 인증서 오류 — 사내 인증서 신뢰 여부 확인";
         if (e is OperationCanceledException || e is TimeoutException || e is HttpRequestException || e is WebException || e is SocketException) return "서버 응답 없음";
         var msg = e.Message.Split('\r', '\n')[0].Trim();
         if (msg.Length == 0) msg = e.GetType().Name;
         return msg.Length > 60 ? msg.Substring(0, 60) + "…" : msg;
+    }
+
+    // https server whose certificate this PC does not trust: HttpRequestException/WebException wrapping AuthenticationException
+    private static bool IsTlsFailure(Exception e)
+    {
+        for (var x = e; x != null; x = x.InnerException)
+            if (x is AuthenticationException || (x is WebException w && (w.Status == WebExceptionStatus.TrustFailure || w.Status == WebExceptionStatus.SecureChannelFailure))) return true;
+        return false;
     }
 
     private static Exception Unwrap(Exception e)

@@ -24,6 +24,28 @@ public class UserSettingsTests
         Assert.Equal("http://a:1", UserSettings.Load(p).ServerUrl);
     }
 
+    [Fact] public void Load_Falls_Back_To_Machine_File_When_User_Url_Is_Empty()
+    {
+        var u = Tmp(); var m = Tmp();
+        new UserSettings("http://machine:5080").Save(m);
+        Assert.Equal("http://machine:5080", UserSettings.Load(u, m).ServerUrl); // no user file
+        new UserSettings("").Save(u);
+        Assert.Equal("http://machine:5080", UserSettings.Load(u, m).ServerUrl); // empty user value
+    }
+
+    [Fact] public void Load_User_Url_Wins_Over_Machine_File()
+    {
+        var u = Tmp(); var m = Tmp();
+        new UserSettings("http://user:1").Save(u);
+        new UserSettings("http://machine:2").Save(m);
+        Assert.Equal("http://user:1", UserSettings.Load(u, m).ServerUrl);
+    }
+
+    [Fact] public void Load_Explicit_Path_Alone_Ignores_Machine_File() => Assert.Equal("", UserSettings.Load(Tmp()).ServerUrl);
+
+    [Fact] public void MachinePath_Is_ProgramData_ASH_File() =>
+        Assert.Equal(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "ASH", "ash.machine.tsv"), UserSettings.MachinePath);
+
     [Fact] public void PathIn_Is_AppData_ASH_File() => Assert.Equal(Path.Combine("C:\\x", "ASH", "ash.user.tsv"), UserSettings.PathIn("C:\\x"));
 
     [Theory]
