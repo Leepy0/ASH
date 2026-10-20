@@ -379,3 +379,13 @@ Process `.asy`의 `code.m`에 들어간다. 사용자는 이 파일을 편집하
 - **단위**: Core는 단위 무관. Plugin이 `ash.settings.tsv`의 `Scale`(도면 단위→m)로 모든 길이 파라미터·허용 오차(물리 1 mm)·기호 크기를 환산. 설정은 Excel이 생기기 전까지 `ash.settings.tsv`.
 - **내보내기 규칙 보강**: `ExportOptions.Groups` 필수, 그룹마다 standby/buffer CP 1개 이상 필수(없으면 오류), CP cap별 `CPOINTTYPE`(`DefaultControlPoint_cap<N>`), 숫자는 지수 표기 없이 출력.
 - **2차 범위 재조정**: 모듈 C(Excel·공용 로직·모델 생성·빌드)와 모듈 D의 Plugin 무관 핵심(Runner 반복 실행·결과 파서·탐색·summary)을 한 계획으로 묶어 체험판에서 끝까지 검증한다. PPTX·히트맵·영상은 3차.
+
+### 14.1 서버 통합과 버전·자동 업데이트 (2026-10-21, 사용자 결정)
+
+- 분석 서버 코드(ASH.Server: ASP.NET Core net8 Windows 서비스, ASH.Worker: net8)는 **이 저장소 하나**에 둔다. 별도 저장소 `ASH_Server`는 더 쓰지 않는다. 설계서는 `docs/superpowers/specs/2026-10-21-ash-server-design.md`(13장 저장소, 16장 Core API, 17장 버전·업데이트), 시안은 `docs/images/result-summary-mock.png`, `result-detail-mock.png`. 두 프로젝트는 `ASH.sln`에 추가되고 `ASH.Core`를 참조한다. `dotnet build ASH.sln`·`dotnet test`·`scripts/build-release.ps1`는 솔루션 전체를 다루므로 추가 즉시 포함된다(서버·워커 publish 단계는 서버 계획에서 추가).
+- **버전 하나**: `Directory.Build.props`의 `<Version>`(SemVer)을 플러그인·Core·Runner·서버·워커가 공유하고 릴리스마다 태그를 단다.
+- **업로드 형식 버전**: "서버로 보내기" 묶음에 `manifest.json`(ASH 버전, 형식 버전 `FormatVersion`, 파일별 SHA-256). `blocks.tsv`·`traffic.tsv`·`params.txt`·`result.tsv` 형식을 바꾸면 `FormatVersion`을 올린다. 현재 형식 = 1.
+- **플러그인 자동 업데이트**: 사내 서버가 최신 `ASH-Setup-x.y.z.exe`와 `/api/ash/version`(최신·최소 지원)을 제공. ASH는 ZWCAD 시작 시와 "서버로 보내기" 때 확인해 알리고, "ZWCAD 종료 후 설치"로 실행한다(설치 파일은 실행 중 ZWCAD를 거부함). 최소 지원 미만이면 서버 기능만 막는다. GitHub 접속 불필요(사내망 `api.github.com` 차단).
+- **재현성**: `arc\input.sig`에 ASH 버전과 공용 로직 버전을 함께 기록한다(현재 입력 지문만 기록 → 3차에서 추가). 서버는 작업마다 Core 버전을 기록한다.
+- **공용 로직 동기화**: 로컬 실행 전 서버에서 고정 버전(없으면 최신)의 공용 로직 템플릿을 받아 쓴다. 접속 불가면 Core 내장 템플릿을 쓰고 "공용 로직: 내장"을 기록한다. `LogicGenerator`가 외부 템플릿 텍스트를 받는 `LogicTemplateOverride`를 지원해야 한다(`MaterialOverrides`/`VehicleOverrides`와 같은 방식) → 3차.
+- **에셋 동기화**: 고정된 차량 에셋 버전을 서버에서 받아 `VehicleOverrides`로 넘기고 로컬 캐시(`%LOCALAPPDATA%\ASH\assets\<ver>\`)에 둔다 → 3차.
