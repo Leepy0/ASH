@@ -191,13 +191,19 @@ public sealed class PathCommands
             var ids = new HashSet<string>(SelectPaths(Ed, "\n분할할 경로 선택").Select(i => i.Handle.ToString()));
             paths = paths.Where(p => ids.Contains(p.Id)).ToList();
         }
-        var r = PathSplitter.SplitAll(paths, layout.Tolerance);
+        return SplitPaths(db, tr, Ed, paths, layout.Tolerance);
+    });
+
+    /// <summary>Splits the given paths at every intersection and rewrites the drawing. True when anything changed.</summary>
+    internal static bool SplitPaths(Database db, Transaction tr, Editor ed, IReadOnlyList<LayoutPath> paths, double tol)
+    {
+        var r = PathSplitter.SplitAll(paths, tol);
         var split = r.Paths.Where(p => p.Id.Contains("#")).ToList(); // pieces carry "<original id>#k"
         var removed = split.Select(p => p.Id.Substring(0, p.Id.IndexOf('#'))).Distinct().ToList();
         DrawingWriter.ReplacePaths(db, tr, removed, split);
-        Ed.WriteMessage($"\n교차 {r.IntersectionCount}개, 경로 {paths.Count}개 → {r.Paths.Count}개");
+        ed.WriteMessage($"\n교차 {r.IntersectionCount}개, 경로 {paths.Count}개 → {r.Paths.Count}개");
         return removed.Count > 0;
-    });
+    }
 
     [CommandMethod("AGVJOIN")]
     public void AgvJoin() => Run(Doc, "AGVJOIN", (db, tr) =>
@@ -271,7 +277,7 @@ public sealed class PathCommands
     }
 
     /// <summary>Keyword prompt; Enter returns def. Null on cancel.</summary>
-    private static string? Keyword(Editor ed, string msg, string def, params string[] keys)
+    internal static string? Keyword(Editor ed, string msg, string def, params string[] keys)
     {
         var o = new PromptKeywordOptions(msg) { AllowNone = true, AppendKeywordsToMessage = false };
         foreach (var k in keys) o.Keywords.Add(k);
