@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <!-- Optional: point ZwCadDir at a folder holding ZwDatabaseMgd.dll/ZwManaged.dll to build against local dlls instead of the NuGet package. -->
+    <ZwCadDir Condition="'$(ZwCadDir)'==''"></ZwCadDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+
+  <!-- ZWCAD supplies these assemblies at runtime; never copy them to output. -->
+  <ItemGroup Condition="'$(ZwCadDir)'==''">
+    <PackageReference Include="ZWCAD.NetApi" Version="20.26.0" ExcludeAssets="runtime" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(ZwCadDir)'!=''">
+    <Reference Include="ZwDatabaseMgd"><HintPath>$(ZwCadDir)\ZwDatabaseMgd.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="ZwManaged"><HintPath>$(ZwCadDir)\ZwManaged.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="ZcWindows"><HintPath>$(ZwCadDir)\ZcWindows.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\ASH.Core\ASH.Core.csproj" />
+  </ItemGroup>
+
+</Project>

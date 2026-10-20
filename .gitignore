@@ -480,7 +480,8 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
-lib/zwcad/
+lib/zwcad/*
+!lib/zwcad/README.md
 runs/
 report/
 *.bak.*
