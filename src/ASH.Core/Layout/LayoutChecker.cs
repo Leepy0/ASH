@@ -7,6 +7,12 @@ namespace ASH.Core.Layout;
 
 public static class LayoutChecker
 {
+    static readonly HashSet<string> Reserved = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        { "name", "type", "at", "spur", "crab", "piece", "item", "cap", "align", "begx", "begy", "endx", "endy", "cenx", "ceny", "upz", "angle" };
+
+    /// <summary>Usable as a single .asy token: non-empty, no whitespace, not a reserved keyword (case-insensitive).</summary>
+    public static bool IsValidName(string n) => n.Length > 0 && !n.Any(char.IsWhiteSpace) && !Reserved.Contains(n);
+
     public static List<Finding> Check(Layout l, CheckOptions o)
     {
         var res = new List<Finding>();
@@ -22,11 +28,24 @@ public static class LayoutChecker
                 res.Add(new Finding(FindingCode.DeadEndNode,
                     n.InCount == 0 ? "Node has only outgoing paths" : "Node has only incoming paths", n.Position, null));
 
+        var pathNames = l.Paths.GroupBy(p => p.Name).Where(x => x.Count() > 1).Select(x => x.Key);
+        var dupPaths = new HashSet<string>(pathNames);
+        foreach (var p in l.Paths)
+        {
+            var at = p.Segments.Count > 0 ? p.Start : default;
+            if (dupPaths.Contains(p.Name)) res.Add(new Finding(FindingCode.DuplicatePathName, $"Duplicate path name {p.Name}", at, p.Name));
+            if (!IsValidName(p.Name)) res.Add(new Finding(FindingCode.InvalidName, $"Invalid path name '{p.Name}'", at, p.Name));
+        }
+        foreach (var b in l.Blocks)
+            if (!IsValidName(b.Name)) res.Add(new Finding(FindingCode.InvalidName, $"Invalid block name '{b.Name}'", b.Rect.Min, b.Name));
+
         foreach (var c in l.Cps)
         {
             string id = string.IsNullOrWhiteSpace(c.Name) ? c.Id : c.Name;
             if (string.IsNullOrWhiteSpace(c.Name))
                 res.Add(new Finding(FindingCode.UnnamedCp, "CP has no name", c.Position, id));
+            else if (!IsValidName(c.Name))
+                res.Add(new Finding(FindingCode.InvalidName, $"Invalid CP name '{c.Name}'", c.Position, id));
             else if (l.Cps.Count(x => x.Name == c.Name) > 1)
                 res.Add(new Finding(FindingCode.DuplicateCpName, $"Duplicate CP name {c.Name}", c.Position, id));
 

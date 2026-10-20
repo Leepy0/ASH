@@ -9,7 +9,11 @@ namespace ASH.Core.Asy;
 /// <summary>Exact inverse of <see cref="AsyReader"/>. Lines end with '\n'.</summary>
 public static class AsyWriter
 {
-    static string N(double d) => d.ToString("R", CultureInfo.InvariantCulture);
+    static string N(double d) => Num(d);
+
+    /// <summary>Fixed-point, never exponent notation; |d| below 1e-12 (trig noise such as cos 90°) and -0 print as 0.</summary>
+    public static string Num(double d) =>
+        Math.Abs(d) < 1e-12 ? "0" : d.ToString("0.###############", CultureInfo.InvariantCulture); // >= 1e-12 never rounds to -0 at 15 decimals
 
     public static void WriteFile(AgvsSystem s, string path)
     {

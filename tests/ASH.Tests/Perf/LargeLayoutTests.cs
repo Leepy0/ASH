@@ -25,7 +25,8 @@ public class LargeLayoutTests
         var blocks = BlockGenerator.Generate(l, new(2, 1)); l.Blocks.AddRange(blocks.Blocks);
         l.Cps.AddRange(TrafficCpGenerator.Generate(l, new(2, 1)).Cps);
         var findings = LayoutChecker.Check(l, new());
-        var sys = LayoutExporter.ToAgvs(l, new());
+        l.Cps.Add(L.Cp("S1", 0, 0, "standby", "G1"));
+        var sys = LayoutExporter.ToAgvs(l, ASH.Tests.Export.LayoutExporterTests.G);
         Assert.True(sw.Elapsed < TimeSpan.FromSeconds(5), sw.Elapsed.ToString());
         Assert.True(l.Cps.Count > 1000); Assert.Equal(l.Paths.Count, sys.Paths.Count);
     }

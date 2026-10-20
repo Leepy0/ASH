@@ -40,4 +40,17 @@ public class LayoutCheckerTests
         Assert.DoesNotContain(LayoutChecker.Check(l, O), x => x.Code == FindingCode.RouteCpMissing);
         Assert.Single(LayoutChecker.Check(l, new CheckOptions(RouteCpNames: new[]{"L001","U001"})), x => x.Code == FindingCode.RouteCpMissing && x.Message.Contains("U001"));
     }
+    [Fact] public void Duplicate_Path_Name_Flagged_Per_Path() {
+        var l = L.Of(L.Line("a",0,0,10,0), L.Line("a",10,0,20,0), L.Line("b",20,0,30,0));
+        var f = LayoutChecker.Check(l, O).Where(x => x.Code == FindingCode.DuplicatePathName).ToList();
+        Assert.Equal(2, f.Count); Assert.All(f, x => Assert.Equal("a", x.EntityId));
+    }
+    [Fact] public void Invalid_Names_Flagged() {
+        var l = L.Of(L.Line("a b",0,0,10,0), L.Line("",10,0,20,0), L.Line("ANGLE",20,0,30,0), L.Line("ok",30,0,40,0));
+        l.Cps.Add(L.Cp("cap", 2, 0)); l.Cps.Add(L.Cp("T 1", 4, 0)); l.Cps.Add(L.Cp("T2", 6, 0));
+        l.Blocks.Add(L.Block("", 0,-1, 1,1)); l.Blocks.Add(L.Block("B 1", 2,-1, 3,1)); l.Blocks.Add(L.Block("B1", 4,-1, 5,1));
+        var f = LayoutChecker.Check(l, O).Where(x => x.Code == FindingCode.InvalidName).ToList();
+        Assert.Equal(7, f.Count);
+        Assert.DoesNotContain(f, x => x.EntityId == "ok" || x.EntityId == "T2" || x.EntityId == "B1");
+    }
 }

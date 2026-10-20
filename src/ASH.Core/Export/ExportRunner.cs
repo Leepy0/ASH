@@ -20,12 +20,13 @@ public static class ExportRunner
             File.Copy(asy, backup, true);
             try { prev = AsyReader.ReadFile(asy); } catch (Exception) { prev = null; } // unreadable old file: diff as all-new, backup kept
         }
-        var cur = LayoutExporter.ToAgvs(l, o);
+        var warnings = new System.Collections.Generic.List<string>();
+        var cur = LayoutExporter.ToAgvs(l, o, warnings);
         AsyWriter.WriteFile(cur, asy);
 
         var tsv = Path.Combine(arcDir, "traffic.tsv");
         using (var w = new StreamWriter(tsv, false, new UTF8Encoding(false)))
             TrafficTable.Build(l).WriteTsv(w);
-        return new ExportResult(asy, backup, tsv, ExportDiff.Compare(prev, cur));
+        return new ExportResult(asy, backup, tsv, ExportDiff.Compare(prev, cur), warnings);
     }
 }
