@@ -10,6 +10,16 @@ namespace ASH.Core.Runner;
 
 public interface IRunExecutor { IReadOnlyList<RunKpi> Execute(RunScenario s); }
 
+/// <summary>Optional: an executor that can run a batch concurrently; results are in input order.</summary>
+public interface IBatchRunExecutor : IRunExecutor { IReadOnlyList<IReadOnlyList<RunKpi>> ExecuteMany(IReadOnlyList<RunScenario> scenarios); }
+
+public static class RunExecutorExtensions
+{
+    /// <summary>Sequential fallback for executors without batch support (no default interface methods on netstandard2.0).</summary>
+    public static IReadOnlyList<IReadOnlyList<RunKpi>> ExecuteMany(this IRunExecutor exec, IReadOnlyList<RunScenario> scenarios) =>
+        exec is IBatchRunExecutor b ? b.ExecuteMany(scenarios) : scenarios.Select(exec.Execute).ToList();
+}
+
 public sealed record SearchOptions(int InitialReplications = 1, bool ImpactTable = true, int MaxConfirmRounds = 3);
 /// <summary>Scenario carries the first seed; Seeds lists all seeds run (SeedBase + i). ClusterOk is null for impact runs (not judged).</summary>
 public sealed record SearchStep(RunScenario Scenario, IReadOnlyDictionary<string, Verdict> VerdictsByGroup, bool? ClusterOk, string Phase,
@@ -42,17 +52,26 @@ public static class SearchStrategy
         int initReps = Math.Max(1, opts.InitialReplications), reps = Math.Max(1, input.Settings.Replications);
         IReadOnlyList<int> Seeds(int n) => Enumerable.Range(0, n).Select(i => input.Settings.SeedBase + i).ToList();
 
+        string Key(int seed, Dictionary<string, int> counts) => seed + "|" + string.Join(",", input.Groups.Select(g => counts[g.Group]));
+        // runs every uncached (counts, replications) request in one batch so a parallel executor can fan out
+        void Fill(IEnumerable<(Dictionary<string, int> Counts, int N)> reqs)
+        {
+            var todo = new Dictionary<string, RunScenario>();
+            foreach (var (counts, n) in reqs)
+                foreach (var seed in Seeds(n))
+                {
+                    var key = Key(seed, counts);
+                    if (!cache.ContainsKey(key) && !todo.ContainsKey(key)) todo[key] = new RunScenario(seed, new Dictionary<string, int>(counts));
+                }
+            if (todo.Count == 0) return;
+            var res = exec.ExecuteMany(todo.Values.ToList());
+            int i = 0;
+            foreach (var key in todo.Keys) cache[key] = res[i++];
+        }
         List<RunKpi> Runs(Dictionary<string, int> counts, int n)
         {
-            var all = new List<RunKpi>();
-            foreach (var seed in Seeds(n))
-            {
-                var key = seed + "|" + string.Join(",", input.Groups.Select(g => counts[g.Group]));
-                if (!cache.TryGetValue(key, out var k))
-                    cache[key] = k = exec.Execute(new RunScenario(seed, new Dictionary<string, int>(counts)));
-                all.AddRange(k);
-            }
-            return all;
+            Fill(new[] { (counts, n) });
+            return Seeds(n).SelectMany(seed => cache[Key(seed, counts)]).ToList();
         }
         Dictionary<string, Verdict> Eval(IEnumerable<string> judged, int n, string phase)
         {
@@ -124,11 +143,14 @@ public static class SearchStrategy
         var impact = new List<ImpactRow>();
         if (opts.ImpactTable)
         {
+            var plusOf = input.Groups.Where(g => cur[g.Group] < g.MaxCount)
+                .ToDictionary(g => g.Group, g => new Dictionary<string, int>(cur) { [g.Group] = cur[g.Group] + 1 });
+            Fill(plusOf.Values.Select(c => (c, reps)).Prepend((new Dictionary<string, int>(cur), reps)));
             var baseline = Runs(cur, reps);
             static double Mean(IEnumerable<RunKpi> k, string g, Func<RunKpi, double> f) { var l = k.Where(x => x.Group == g).Select(f).ToList(); return l.Count == 0 ? double.NaN : l.Average(); }
             foreach (var g in input.Groups.Where(g => cur[g.Group] < g.MaxCount))
             {
-                var plus = new Dictionary<string, int>(cur) { [g.Group] = cur[g.Group] + 1 };
+                var plus = plusOf[g.Group];
                 var kp = Runs(plus, reps);
                 trace.Add(new SearchStep(new RunScenario(input.Settings.SeedBase, plus), new Dictionary<string, Verdict>(), null, "impact", reps, Seeds(reps)));
                 foreach (var o in input.Groups.Where(x => x.Group != g.Group))

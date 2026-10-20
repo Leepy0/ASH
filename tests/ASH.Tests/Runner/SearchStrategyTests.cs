@@ -111,4 +111,22 @@ public class SearchStrategyTests
         Assert.Equal("group\tplusOne\totherGroup\tutilDelta\tminStockDelta\nG1\t2\tG2\t-0.01\t0.5\n", System.IO.File.ReadAllText(path));
         System.IO.File.Delete(path);
     }
+    sealed class Batching : IBatchRunExecutor
+    {
+        public readonly Fake Inner = new();
+        public readonly List<int> BatchSizes = new();
+        public IReadOnlyList<RunKpi> Execute(RunScenario s) => Inner.Execute(s);
+        public IReadOnlyList<IReadOnlyList<RunKpi>> ExecuteMany(IReadOnlyList<RunScenario> ss) { BatchSizes.Add(ss.Count); return ss.Select(Inner.Execute).ToList(); }
+    }
+    [Fact] public void Search_Fans_Impact_Runs_Out_As_One_Batch()
+    {
+        var p = Input(("G1", 1, 3), ("G2", 1, 3));
+        var b = new Batching();
+        var seq = new Fake();
+        var r = SearchStrategy.Search(p, b, GroupClusters.Singletons(p), new SearchOptions());
+        SearchStrategy.Search(p, seq, GroupClusters.Singletons(p), new SearchOptions());
+        Assert.Equal(seq.Calls, b.BatchSizes.Sum());   // same runs as the sequential path
+        Assert.True(b.BatchSizes.Max() >= 2, string.Join(",", b.BatchSizes));
+        Assert.Equal(2, r.Impact.Count);
+    }
 }

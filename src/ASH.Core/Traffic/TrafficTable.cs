@@ -38,4 +38,17 @@ public sealed class TrafficTable
         foreach (var e in Entries)
             w.Write(e.BlockName + "\t" + e.PathName + "\t" + (e.BoundaryDist * scale).ToString("R", CultureInfo.InvariantCulture) + "\t" + (e.CpName ?? "") + "\n");
     }
+
+    /// <summary>Reads a traffic.tsv written by <see cref="WriteTsv"/> (boundary_dist stays in export units).</summary>
+    public static TrafficTable ReadTsv(string path)
+    {
+        var t = new TrafficTable();
+        foreach (var line in File.ReadAllLines(path).Skip(1))
+        {
+            var c = line.TrimEnd().Split((char)9);
+            if (c.Length < 3) continue;
+            t.Entries.Add(new BlockEntry(c[0], c[1], double.Parse(c[2], CultureInfo.InvariantCulture), c.Length > 3 && c[3].Length > 0 ? c[3] : null));
+        }
+        return t;
+    }
 }
