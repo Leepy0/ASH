@@ -144,7 +144,9 @@ CP 블록 어트리뷰트: `NAME`(사용자 지정, 필수), `TYPE`(standby / lo
 
 `buffer` 타입은 이번에 추가한다. 공정 앞에서 AGV가 재고가 언로딩 가능 수준으로 떨어질 때까지 대기하는 지점이다.
 
-block 사각형 어트리뷰트: `NAME`, `CAP`(기본 1). AM의 block 교통제어는 다음과 같이 동작한다(사용자 확인). 차량이 block에 진입하기 전 CP에서 block을 claim하고, block의 경계(사각형) 밖으로 나가면 AM이 자동으로 release한다. 따라서 release용 CP는 필요 없고, 사각형 자체가 release 경계다. 플러그인은 사각형과 교차하는 경로를 찾아 "이 block으로 들어가는 각 경로의 진입 CP"를 정하고, 그 CP에 claim을 연결한다. 연결 방법은 샘플 모델 추출 결과(11장 4번)에 따라 정한다. 1순위는 CP 속성의 claim 목록(로직 없이 AM이 처리). 2순위는 로직에서 CP 도착 시 `claim`. 두 경우 모두 block 자체는 Process `.asy`의 엔티티로 생성하며, 사각형 좌표가 block의 그래픽 경계가 된다.
+block 사각형 어트리뷰트: `NAME`, `CAP`(기본 1). AM의 block 교통제어는 다음과 같이 동작한다(사용자 확인). 차량이 block에 진입하기 전 CP에서 block을 claim하고, block의 경계(사각형) 밖으로 나가면 AM이 자동으로 release한다. 따라서 release용 CP는 필요 없고, 사각형 자체가 release 경계다. AM 매뉴얼("Claiming blocks") 확인 결과 claim도 자동이다. 차량이 경계에 들어가면 claim, 나가면 release하며, CP 속성이나 로직의 `claim`은 필요 없고 vehicle function 안에서는 block을 claim할 수 없다(관문 4, `docs/gates.md`).
+
+**교통제어 기본 방식(2026-10-20 사용자 결정):** block은 사각형이라 직각 교차에서만 정확하고, 사각 교차·합류에서는 경계 진입 시점으로 대기 위치를 세밀하게 잡기 어렵다. 그래서 Path Mover 시스템 설정의 "block claim 트리거"를 **경계 진입이 아니라 'CP를 목적지로 이동할 때 경로상의 block을 미리 점유'** 로 바꾸는 것을 기본으로 한다. 이 설정에서는 traffic CP가 대기 위치이자 claim 시점이 되므로 진입 CP를 유지한다. 정확한 AGVS `.asy` 키워드는 모듈 C(2차 계획)에서 AM 편집기 저장본으로 추출한다. block 자체는 Process `.asy`의 `BLOCK name <NAME> <표시수> cap <CAP>` 엔티티로 생성하며, 사각형 좌표가 그래픽 경계가 된다.
 
 CP 수가 1000개 규모이므로 traffic CP의 자동 생성은 기본값을 "교차·합류점 앞뒤에만"으로 두고, 등간격 배치는 사용자가 켤 때만 한다.
 
