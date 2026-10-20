@@ -25,14 +25,15 @@ namespace ASH.Core.AutoMod
         }
 
         // shortcut: matches windows of ownerPid only (no child-process tree); extend if am264 spawns a dialog-owning child.
-        public static IDisposable Start(int ownerPid, string[] titleContains, Action<string> onClosed)
+        /// <summary>buttonText null: click "OK" (WM_CLOSE fallback), skipping Authorization/Error windows. Otherwise click the child button with that text (mnemonic & ignored) and nothing else.</summary>
+        public static IDisposable Start(int ownerPid, string[] titleContains, Action<string> onClosed, string? buttonText = null)
         {
             var seen = new System.Collections.Generic.HashSet<IntPtr>();
             Timer? timer = null;
             // one-shot, re-armed after each poll: polls never overlap
             timer = new Timer(_ =>
             {
-                try { Poll(ownerPid, titleContains, onClosed, seen); }
+                try { Poll(ownerPid, titleContains, buttonText, onClosed, seen); }
                 catch (Exception) { } // an exception escaping a Timer callback kills the host process (inside ZWCAD: CAD itself)
                 try { timer!.Change(250, Timeout.Infinite); } catch (ObjectDisposedException) { }
             }, null, Timeout.Infinite, Timeout.Infinite);
@@ -40,7 +41,7 @@ namespace ASH.Core.AutoMod
             return timer;
         }
 
-        static void Poll(int pid, string[] needles, Action<string> onClosed, System.Collections.Generic.HashSet<IntPtr> seen)
+        static void Poll(int pid, string[] needles, string? button, Action<string> onClosed, System.Collections.Generic.HashSet<IntPtr> seen)
         {
             EnumWindows((h, l) =>
             {
@@ -48,16 +49,18 @@ namespace ASH.Core.AutoMod
                 if (p != (uint)pid || !IsWindowVisible(h)) return true;
                 var t = Text(h);
                 if (t.Length == 0) return true;
-                if (t.IndexOf("Authorization", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    t.IndexOf("Error", StringComparison.OrdinalIgnoreCase) >= 0) return true;
+                if (button == null && (t.IndexOf("Authorization", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                    t.IndexOf("Error", StringComparison.OrdinalIgnoreCase) >= 0)) return true;
                 foreach (var n in needles)
                     if (t.IndexOf(n, StringComparison.OrdinalIgnoreCase) >= 0)
                     {
-                        // AM's dialog ignores WM_CLOSE; click its OK button, WM_CLOSE as fallback.
+                        // AM's dialog ignores WM_CLOSE; click its button, WM_CLOSE as fallback for the OK case only.
                         IntPtr ok = IntPtr.Zero;
-                        EnumChildWindows(h, (c, _) => { if (Text(c) == "OK") ok = c; return true; }, IntPtr.Zero);
+                        var want = button ?? "OK";
+                        EnumChildWindows(h, (c, _) => { if (Text(c).Replace("&", "") == want) ok = c; return true; }, IntPtr.Zero);
                         if (ok != IntPtr.Zero) SendMessageW(ok, BM_CLICK, IntPtr.Zero, IntPtr.Zero);
-                        else SendMessageW(h, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+                        else if (button == null) SendMessageW(h, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+                        else break; // button not created yet: retry next poll
                         bool first;
                         lock (seen) first = seen.Add(h);
                         if (first) onClosed(t);
