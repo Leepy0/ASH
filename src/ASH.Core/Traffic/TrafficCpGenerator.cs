@@ -29,17 +29,23 @@ public static class TrafficCpGenerator
         }
         cuts.Sort();
         var res = new List<double>();
-        bool? prevInside = null; insideOnly = true;
+        bool? prevInside = null, firstInside = null; insideOnly = true;
         for (int i = 0; i + 1 < cuts.Count; i++)
         {
             if (cuts[i + 1] - cuts[i] < 1e-9) continue;
             bool inside = rect.Contains(path.PointAt((cuts[i] + cuts[i + 1]) / 2));
             if (!inside) insideOnly = false;
             if (inside && prevInside == false) res.Add(cuts[i]);
+            firstInside ??= inside;
             prevInside = inside;
         }
+        // A path starting on the boundary and running inward enters at 0; one ending on the boundary from outside enters at its end.
+        if (firstInside == true && OnBoundary(rect, path.Start, tol)) res.Insert(0, 0);
+        if (prevInside == false && OnBoundary(rect, path.End, tol)) res.Add(path.Length);
         return res;
     }
+
+    static bool OnBoundary(Rect2 r, Point2 p, double tol) => r.Expand(tol).Contains(p) && !r.Expand(-tol).Contains(p);
 
     // Segment bbox disjoint from rect (inflated by tol).
     private static bool Outside(LineSeg s, Rect2 r, double tol) =>

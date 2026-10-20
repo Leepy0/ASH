@@ -54,4 +54,16 @@ public class TrafficCpGeneratorTests
         Assert.Equal(6.5, t.Entries.Single(e => e.PathName=="a").BoundaryDist, 9);
         var sw = new StringWriter(); t.WriteTsv(sw); Assert.StartsWith("block\tpath\tboundary_dist\tentry_cp", sw.ToString());
     }
+    [Fact] public void Path_Ending_On_Boundary_Is_An_Entry()
+    {
+        var l = L.Of(L.Line("a",-10,0,-3.5,0), L.Line("a2",-3.5,0,0,0)); l.Blocks.Add(L.Block("B001",-3.5,-3.5,3.5,3.5));
+        var r = TrafficCpGenerator.Generate(l, P);
+        Assert.Single(r.Cps, c => Math.Abs(c.Position.X + 4.0) < 1e-9 && Math.Abs(c.Position.Y) < 1e-9);
+        Assert.DoesNotContain(r.Warnings, w => w.StartsWith("a2:") && w.Contains("안에서만"));
+        Assert.Contains(r.Warnings, w => w.StartsWith("a2:") && w.Contains("ClaimDist 부족"));
+        Assert.DoesNotContain(r.Warnings, w => w.StartsWith("a:"));
+        l.Cps.AddRange(r.Cps);
+        var e = TrafficTable.Build(l).Entries.Single(x => x.PathName == "a");
+        Assert.Equal(6.5, e.BoundaryDist, 9); Assert.NotNull(e.CpName);
+    }
 }
