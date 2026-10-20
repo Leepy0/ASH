@@ -31,32 +31,17 @@ public class ModelRunIntegrationTests
         l.Cps.Add(L.Cp("U001", 2, 10, "unload"));
         if (input.Groups.Count > 1) { l.Cps.Add(L.Cp("S002", 0, 5, "standby", "G2")); l.Cps.Add(L.Cp("L002", 10, 8, "load")); }
         var work = Path.Combine(Path.GetTempPath(), "ash_run_" + Guid.NewGuid().ToString("N"));
-        var arc = Path.Combine(work, Model + ".arc");
         var specs = input.Groups.Select(g =>
         {
             var t = input.AgvTypes.Single(x => x.Type == g.Type);
             return new VehicleGroupSpec(g.Group, g.Type, g.MaxCount, t.SpeedLoaded, t.Length, t.Width);
         }).ToArray();
-        ExportRunner.Run(l, new ExportOptions(Groups: specs), arc);
-        var info = new LayoutInfo(l.Cps.Select(c => c.Name).ToList(), new[] { "B_x1" }, new Dictionary<string, string>());
-        var agv = Path.Combine(arc, "agv.asy");
-        var sys = AsyReader.ReadFile(agv);
-        LogicGenerator.AddDispatchLists(sys, input, info);
-        AsyWriter.WriteFile(sys, agv);
-        // Task 5 moves this token into ExportOptions.ClaimBlockOnNextCp
-        File.WriteAllText(agv, File.ReadAllText(agv).Replace("ALTERNATE NONE ignore ResumeSpeedWhenClaimed", "ALTERNATE NONE ignore OldBlockClaim ResumeSpeedWhenClaimed"));
-
-        var pm = LogicGenerator.BuildProcessModel(input, info, "Meters");
-        pm.Blocks.Add(new BlockEntity("B_x1", 1, new Rect2(new Point2(8, -1), new Point2(11, 2)))); // corner p1/p2
-        ProcessAsyWriter.WriteFile(pm, Path.Combine(arc, Model + "~.asy"));
-        File.WriteAllText(Path.Combine(arc, "model.amo"), string.Join("\n",
-            "VERSION 12.6.1.19", "UNITS Meters Seconds", "RNSET 1",
-            "DRAWPOS minx -5 maxx 15 miny -5 maxy 15 minz -10 maxz 10 trx 0 try 0",
-            "MOVESYS name agv", "\tSYSPOS endx 1", $"PROCSYS name {Model}~", "\tSYSPOS endx 1",
-            "CONTROL snaplen " + (input.Settings.SimLengthSec / 3600).ToString(CultureInfo.InvariantCulture) + " Hours counts 1 autorep", ""));
+        l.Blocks.Add(new ASH.Core.Layout.LayoutBlock { Name = "B_x1", Cap = 1, Rect = new Rect2(new Point2(8, -1), new Point2(11, 2)) }); // corner p1/p2
+        var res = ModelBuilder.Build(new ModelBuildRequest(work, Model, input, l, new ExportOptions(Groups: specs)), AmHome!, TimeSpan.FromMinutes(5));
+        Assert.DoesNotContain(res.Findings, f => f.Code == ASH.Core.Layout.FindingCode.InputError);
+        var arc = res.ArcDir;
         ParamsFile.Write(input, new RunScenario(seed, active), Path.Combine(arc, "params.txt"));
-
-        var b = AmBuilder.Build(AmHome!, work, Model, TimeSpan.FromMinutes(5));
+        var b = res.Build!;
         Assert.True(b.Success, work + "\n" + b.MakeErrText + b.Am2ErrText);
         var r = AmRunner.RunHeadless(Path.Combine(work, Model + ".exe"), work, TimeSpan.FromMinutes(2), "Student Version");
         var msg = File.Exists(r.MessagePath) ? File.ReadAllText(r.MessagePath) : "(no .message)";
@@ -81,7 +66,8 @@ public class ModelRunIntegrationTests
         var mats = run.Rows.Where(x => x[0] == "material").ToList();
         Assert.Equal(new[] { "M1", "M2" }, mats.Select(x => x[1]));
         Assert.All(mats, x => { Assert.Equal(11, x.Length); Assert.True(V(x, 3) > 0, "supplies"); Assert.True(V(x, 4) > 0, "expected"); });
-        Assert.Contains(run.Rows, x => x[0] == "block" && x[1] == "B_x1");
+        var blk = run.Rows.Single(x => x[0] == "block" && x[1] == "B_x1");
+        Assert.True(V(blk, 1) > 0, "block passes"); // first real check of the 1x1 block template geometry
         Assert.Equal(3600, V(run.Rows.Single(x => x[0] == "clock"), 2), 3);
         Assert.Equal(0, V(run.Rows.Single(x => x[0] == "deadlock"), 1));
         Directory.Delete(run.Work, true); // kept on failure for inspection
