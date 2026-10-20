@@ -10,7 +10,10 @@ public class RunnerCliTests
     {
         var a = RunnerArgs.Parse(new[] { @"C:\p", "--model", "m" }, out var err)!;
         Assert.Null(err);
-        Assert.Equal((@"C:\p", "m", 2, "Student Version", 30, 1, true, false), (a.ProjectDir, a.Model, a.Parallel, a.DialogButton, a.TimeoutMin, a.InitialReps, a.Impact, a.Debug));
+        // no dialog clicking and no impact table unless asked (a server must never fall into the student mode)
+        Assert.Equal((@"C:\p", "m", 2, (string?)null, 30, 1, false, false, false), (a.ProjectDir, a.Model, a.Parallel, a.DialogButton, a.TimeoutMin, a.InitialReps, a.Impact, a.Debug, a.Append));
+        var b = RunnerArgs.Parse(new[] { @"C:\p", "--model", "m", "--impact", "--append", "--dialog-button", "Student Version" }, out _)!;
+        Assert.Equal((true, true, "Student Version"), (b.Impact, b.Append, b.DialogButton));
     }
 
     [Fact]

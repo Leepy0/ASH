@@ -66,6 +66,7 @@ public static class ModelBuilder
         File.WriteAllText(Path.Combine(arc, "model.amo"),
             ModelAmoWriter.Render(r.ModelName, o.Units, input.Settings.SimLengthSec / 3600, new[] { "agv" }, draw.Expand(Math.Max(pad, 1)), o.Version, r.AutoView));
         ParamsFile.Write(input, new RunScenario(input.Settings.SeedBase, new Dictionary<string, int>()), Path.Combine(arc, "params.txt"));
+        InputSignature.Write(arc, input); // ash-run refuses a model whose baked-in inputs differ from the current Excel
 
         AmBuildResult? build = null;
         if (amHome != null)

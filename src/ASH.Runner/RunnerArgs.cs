@@ -2,18 +2,20 @@ using System.Globalization;
 
 namespace ASH.Runner;
 
-public sealed record RunnerArgs(string ProjectDir, string Model, string? AmHome = null, int Parallel = 2, string? DialogButton = "Student Version",
-    int TimeoutMin = 30, int InitialReps = 1, bool Impact = true, bool Debug = false)
+/// <param name="DialogButton">Null (default) never clicks AutoMod dialogs; a trial install needs "Student Version".</param>
+/// <param name="Append">Keep an existing runs\ folder instead of rotating it to runs.&lt;yyyyMMdd_HHmmss&gt;\.</param>
+public sealed record RunnerArgs(string ProjectDir, string Model, string? AmHome = null, int Parallel = 2, string? DialogButton = null,
+    int TimeoutMin = 30, int InitialReps = 1, bool Impact = false, bool Debug = false, bool Append = false)
 {
-    public const string Usage = "usage: ash-run <ProjectDir> --model <name> [--am-home <AutoMod dir>] [--parallel 2] [--dialog-button \"Student Version\"] [--timeout-min 30] [--initial-reps 1] [--no-impact] [--debug]";
+    public const string Usage = "usage: ash-run <ProjectDir> --model <name> [--am-home <AutoMod dir>] [--parallel 2] [--dialog-button \"Student Version\"] [--timeout-min 30] [--initial-reps 1] [--impact] [--append] [--debug]";
 
     /// <summary>Null result = error (message in <paramref name="error"/>).</summary>
     public static RunnerArgs? Parse(string[] args, out string? error)
     {
         error = null;
-        string? dir = null, model = null, am = null, btn = "Student Version";
+        string? dir = null, model = null, am = null, btn = null;
         int parallel = 2, timeout = 30, reps = 1;
-        bool impact = true, debug = false;
+        bool impact = false, debug = false, append = false;
         for (int i = 0; i < args.Length; i++)
         {
             var a = args[i];
@@ -38,7 +40,9 @@ public sealed record RunnerArgs(string ProjectDir, string Model, string? AmHome 
                 case "--parallel": parallel = Int(1) ?? parallel; break;
                 case "--timeout-min": timeout = Int(1) ?? timeout; break;
                 case "--initial-reps": reps = Int(1) ?? reps; break;
+                case "--impact": impact = true; break;
                 case "--no-impact": impact = false; break;
+                case "--append": append = true; break;
                 case "--debug": debug = true; break;
                 default:
                     if (a.StartsWith("--")) err = "unknown option " + a;
@@ -50,6 +54,6 @@ public sealed record RunnerArgs(string ProjectDir, string Model, string? AmHome 
         }
         if (dir == null) { error = "ProjectDir is required"; return null; }
         if (string.IsNullOrEmpty(model)) { error = "--model is required"; return null; }
-        return new RunnerArgs(dir, model, am, parallel, btn, timeout, reps, impact, debug);
+        return new RunnerArgs(dir, model, am, parallel, btn, timeout, reps, impact, debug, append);
     }
 }

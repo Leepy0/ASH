@@ -116,20 +116,27 @@ public class ModelRunnerTests
     }
 
     [Fact]
-    public void Run_Fails_Fast_When_WorkDir_Busy()
+    public void Run_Waits_For_A_Busy_WorkDir_Then_Fails_After_The_Limit()
     {
+        Assert.Equal(TimeSpan.FromSeconds(30), ModelRunner.MutexWait);
         var d = Tmp(); Directory.CreateDirectory(Path.Combine(d, "work"));
         var req = Req(d, "cmd.exe", "/c exit 0");
         var name = ModelRunner.MutexName(d);
         using var held = new ManualResetEventSlim(); using var release = new ManualResetEventSlim();
         var holder = new Thread(() => { using var m = new Mutex(false, name); m.WaitOne(); held.Set(); release.Wait(); m.ReleaseMutex(); });
         holder.Start(); held.Wait();
+        var keep = ModelRunner.MutexWait;
         try
         {
+            ModelRunner.MutexWait = TimeSpan.FromMilliseconds(300);
             var o = ModelRunner.Run(req);
-            Assert.False(o.Success); Assert.Equal("work dir busy", o.Error);
+            Assert.False(o.Success); Assert.StartsWith("work dir busy", o.Error);
+            // a holder that lets go within the wait no longer fails the run
+            ModelRunner.MutexWait = TimeSpan.FromSeconds(30);
+            System.Threading.Tasks.Task.Delay(1500).ContinueWith(_ => release.Set());
+            Assert.DoesNotContain("busy", ModelRunner.Run(req).Error ?? "");
         }
-        finally { release.Set(); holder.Join(); Rm(d); }
+        finally { ModelRunner.MutexWait = keep; release.Set(); holder.Join(); Rm(d); }
     }
 }
 

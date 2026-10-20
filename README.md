@@ -29,9 +29,14 @@ DLL은 `<ZWCAD 폴더>\ASH\`에 들어가고(쓰기 실패 시 `%ProgramData%\AS
 ash-run C:\Projects\Plant1 --model plant1 --parallel 2 --dialog-button "Student Version" --timeout-min 30 --initial-reps 1
 ```
 
-- 옵션: `--parallel`(동시 실행 수, 기본 2), `--initial-reps`(탐색 중 반복 수, 기본 1), `--no-impact`(영향표 생략), `--debug`(모델 로직 로그 켬), `--dialog-button ""`(AutoMod 대화상자 자동 클릭 끔).
-- 결과: `runs\summary.tsv`(실행마다 그룹별 KPI 누적), `runs\impact.tsv`(그룹 +1일 때 다른 그룹 KPI 변화), `runs\<RunId>\`(원본 결과·보고서). 콘솔에 그룹별 결정 대수와 실행 수·소요 시간을 표로 출력한다.
+- 옵션: `--parallel`(동시 실행 수, 기본 2), `--initial-reps`(탐색 중 반복 수, 기본 1), `--impact`(영향표 작성, 기본 끔), `--append`(기존 `runs\` 유지), `--debug`(모델 로직 로그 켬).
+- `--dialog-button`: 기본은 AutoMod 대화상자를 누르지 않는다(정식 라이선스 서버가 학생판으로 빠지지 않게). **체험판(Student Version) 사용자는 `--dialog-button "Student Version"`을 꼭 준다.** 없으면 Authorization 창에서 실행이 멈춰 시간 초과로 실패한다.
+- 결과: `runs\summary.tsv`(실행마다 그룹별 KPI), `runs\impact.tsv`(`--impact`일 때, 그룹 +1일 때 다른 그룹 KPI 변화), `runs\<RunId>\`(원본 결과·보고서). 시작할 때 기존 `runs\`는 `runs.<yyyyMMdd_HHmmss>\`로 옮긴다(`--append`면 그대로 이어 씀). 콘솔에 실행마다 한 줄, 끝에 그룹별 결정 대수와 실행 수·소요 시간을 표로 출력한다. Ctrl+C는 진행 중인 실행을 마치고 새 실행을 시작하지 않는다.
 - 겹치는 경로·block을 쓰는 그룹은 `<Model>.arc\agv.asy`·`blocks.tsv`·`traffic.tsv`로 묶어 함께 판정한다(없으면 그룹별 단독 탐색 + 경고).
-- 종료 코드: 0 성공, 1 오류(인자·모델 없음 등), 2 성공했으나 경고(판정 실패·실행 실패 포함).
+- 모델을 만들 때 `<Model>.arc\input.sig`(그룹·타입·자재 순서·Routes·대기 CP·SimLength의 지문)를 쓴다. 지금 `input.xlsx`와 다르면 "모델 재생성 필요"로 종료 코드 1. T/T·임계값·재고·Warmup·반복 수 등은 실행마다 `params.txt`로 넘어가므로 바꿔도 다시 만들 필요 없다.
+- 판정(대수마다, 반복 평균): 공정 정지 0 → 최소 재고 ≥ 안전재고 → 가동률 ≤ UtilMax → 소비량 ≥ 이론 소비량의 95%(생산 달성; 공급 횟수는 보고용, 초기 재고를 쓰는 동안은 공급이 적어도 된다) → 교착 0. 교착 = 한 구간 이동이 Settings `DeadlockSec`(기본 600초) 초과.
+- 가동률은 AutoMod `.report`의 차량 상태 비율에서 계산하며 **warmup 구간을 포함**한다(로직에서 통계를 초기화할 방법이 없음).
+- 탐색 실행 수(묶음 하나, 그룹 k개, 범위 R = Max−Min+1, 초기 반복 1): 기준 1 + k·⌈log2 R⌉ + 이후 패스마다 k(한 대씩만 줄여 봄) + 확정 반복 + 확인. 최대 대수에서 실패한 그룹은 1패스 뒤 건너뛴다. `InitStockMode Fixed`는 시드 영향이 없어 반복 1회로 실행한다.
+- 종료 코드: 0 성공, 1 오류(인자·모델 없음, 모델 재생성 필요, 기준 실행이 모두 실패 — 이때 최근 `<Model>.message` 앞 5줄을 출력), 2 성공했으나 경고(판정 실패·실행 실패 포함).
 - `--am-home <AutoMod 폴더>`를 주면 모델 실행 프로세스의 PATH 앞에 `<폴더>\bin`이 붙는다(생략하면 PATH 그대로).
 - `summary.tsv`의 `ok`/`reason`은 그 실행 하나의 한 그룹만 단일 반복으로 판정한 값이다. 탐색의 최종 판정은 반복 평균이라 다를 수 있다.

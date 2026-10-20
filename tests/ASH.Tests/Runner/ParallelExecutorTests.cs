@@ -1,7 +1,5 @@
-#if NET10_0_OR_GREATER
 using ASH.Core.Model;
 using ASH.Core.Runner;
-using ASH.Runner;
 
 namespace ASH.Tests.Runner;
 
@@ -41,5 +39,13 @@ public class ParallelExecutorTests
         ex.ExecuteMany(Enumerable.Range(1, 5).Select(S).ToList());
         Assert.Equal(1, peak);
     }
+
+    [Fact]
+    public void Cancellation_Stops_Starting_New_Runs()
+    {
+        using var cts = new CancellationTokenSource();
+        var ex = new ParallelExecutor(1, (slot, s) => { if (s.Seed == 2) cts.Cancel(); return new[] { new RunKpi("G1", 1, 0, 2, s.Seed, 0, 0, 0, 0) }; });
+        Assert.ThrowsAny<OperationCanceledException>(() => ex.ExecuteMany(Enumerable.Range(1, 10).Select(S).ToList(), cts.Token));
+        Assert.InRange(ex.Runs, 2, 3);
+    }
 }
-#endif

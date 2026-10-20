@@ -14,7 +14,7 @@ namespace ASH.Core.AutoMod
             var closed = new List<string>();
             var psi = new ProcessStartInfo(Path.Combine(amHome, "bin", "am264.exe"), "-bq " + modelName)
             { WorkingDirectory = modelDir, UseShellExecute = false };
-            // AM's link.exe must win over any other link.exe (e.g. Git's usrin) on PATH.
+            // AM's link.exe must win over any other link.exe (e.g. Git's usr\bin) on PATH.
             psi.EnvironmentVariables["PATH"] = Path.Combine(amHome, "bin") + ";" + Environment.GetEnvironmentVariable("PATH");
             bool ok;
             var started = DateTime.UtcNow;

@@ -13,10 +13,12 @@ using ASH.Core.Model;
 namespace ASH.Core.Runner;
 
 /// <param name="WorkDir">Execution cwd holding &lt;Model&gt;.exe/.arc/.dir (default ProjectDir; see PrepareWorkSlot for parallel runs).</param>
-/// <param name="AmHome">When set, &lt;AmHome&gt;in is put first on the child process PATH (as AmBuilder does).</param>
+/// <param name="AmHome">When set, &lt;AmHome&gt;\bin is put first on the child process PATH (as AmBuilder does).</param>
 /// <param name="RunsDir">Where runs\&lt;RunId&gt; land (default &lt;ProjectDir&gt;\runs).</param>
+/// <param name="DialogButton">Button to click on an AutoMod "Authorization" dialog ("Student Version" on a trial install); null = never click,
+/// so a licensed server never falls into the student mode.</param>
 public sealed record RunRequest(string ProjectDir, string ModelName, ProjectInput Input, RunScenario Scenario, TimeSpan Timeout,
-    string? DialogButton, string? WorkDir = null, string? RunsDir = null, string? AmHome = null)
+    string? DialogButton = null, string? WorkDir = null, string? RunsDir = null, string? AmHome = null)
 {
     /// <summary>Test hook: run this executable (with ExeArgs) instead of &lt;WorkDir&gt;\&lt;Model&gt;.exe -w.</summary>
     internal string? ExeOverride { get; init; }
@@ -73,6 +75,9 @@ public static class ModelRunner
         return "Global\\ASH-run-" + BitConverter.ToString(h).Replace("-", "");
     }
 
+    /// <summary>How long a run waits for its work dir (a slot in use by another process, e.g. a second ash-run on the same project).</summary>
+    internal static TimeSpan MutexWait = TimeSpan.FromSeconds(30);
+
     /// <summary>Never throws: every failure comes back as Success=false with Error.</summary>
     public static RunOutcome Run(RunRequest r)
     {
@@ -85,8 +90,8 @@ public static class ModelRunner
             var workDir = r.WorkDir ?? r.ProjectDir;
             using var mtx = new Mutex(false, MutexName(workDir));
             bool got;
-            try { got = mtx.WaitOne(1000); } catch (AbandonedMutexException) { got = true; } // previous holder died
-            if (!got) return new RunOutcome(id, false, runDir, sw.Elapsed, "work dir busy");
+            try { got = mtx.WaitOne(MutexWait); } catch (AbandonedMutexException) { got = true; } // previous holder died
+            if (!got) return new RunOutcome(id, false, runDir, sw.Elapsed, $"work dir busy (another run held it for {MutexWait.TotalSeconds:0} s): {workDir}");
             try { return RunLocked(r, id, runDir, workDir, sw); }
             finally { mtx.ReleaseMutex(); }
         }

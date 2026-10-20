@@ -153,6 +153,8 @@ public class ServerAssemblyTests
         {
             var r = ModelBuilder.Build(new ModelBuildRequest(dir, "m", input, Loop(), Opt(null), MaterialOverrides: mats), null, TimeSpan.Zero);
             Assert.Contains("1 7 9 8 ", File.ReadAllText(Path.Combine(r.ArcDir, "params.txt")));
+            // thresholds and stocks are run-time values: the overrides leave the build fingerprint unchanged
+            Assert.Equal(InputSignature.Compute(input), InputSignature.Read(r.ArcDir));
             Assert.Equal(4, input.Materials[0].CallThreshold); // original untouched
             Directory.Delete(dir, true);
 

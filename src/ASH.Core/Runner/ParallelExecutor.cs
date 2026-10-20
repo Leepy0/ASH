@@ -1,11 +1,14 @@
+using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using ASH.Core.Model;
-using ASH.Core.Runner;
 
-namespace ASH.Runner;
+namespace ASH.Core.Runner;
 
 /// <summary>Owns <c>slots</c> work slots; each run takes a free slot, so at most <c>slots</c> runs are in flight.
-/// <c>run</c> gets (slot 1..slots, scenario) and must not throw.</summary>
+/// <c>run</c> gets (slot 1..slots, scenario) and must not throw. Cancellation stops starting new runs; runs in flight finish.</summary>
 public sealed class ParallelExecutor : IBatchRunExecutor
 {
     readonly Func<int, RunScenario, IReadOnlyList<RunKpi>> run;
@@ -23,18 +26,20 @@ public sealed class ParallelExecutor : IBatchRunExecutor
 
     public int Runs => Volatile.Read(ref count);
 
-    public IReadOnlyList<RunKpi> Execute(RunScenario s)
+    public IReadOnlyList<RunKpi> Execute(RunScenario s) => Execute(s, default);
+
+    IReadOnlyList<RunKpi> Execute(RunScenario s, CancellationToken ct)
     {
-        gate.Wait();
+        gate.Wait(ct);
         free.TryDequeue(out var slot);
         try { Interlocked.Increment(ref count); return run(slot, s); }
         finally { free.Enqueue(slot); gate.Release(); }
     }
 
-    public IReadOnlyList<IReadOnlyList<RunKpi>> ExecuteMany(IReadOnlyList<RunScenario> scenarios)
+    public IReadOnlyList<IReadOnlyList<RunKpi>> ExecuteMany(IReadOnlyList<RunScenario> scenarios, CancellationToken ct = default)
     {
         var res = new IReadOnlyList<RunKpi>[scenarios.Count];
-        Parallel.For(0, scenarios.Count, new ParallelOptions { MaxDegreeOfParallelism = slots }, i => res[i] = Execute(scenarios[i]));
+        Parallel.For(0, scenarios.Count, new ParallelOptions { MaxDegreeOfParallelism = slots, CancellationToken = ct }, i => res[i] = Execute(scenarios[i], ct));
         return res;
     }
 }
