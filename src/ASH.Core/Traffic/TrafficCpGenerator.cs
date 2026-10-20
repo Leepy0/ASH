@@ -41,6 +41,11 @@ public static class TrafficCpGenerator
         return res;
     }
 
+    // Segment bbox disjoint from rect (inflated by tol).
+    private static bool Outside(LineSeg s, Rect2 r, double tol) =>
+        Math.Max(s.Start.X, s.End.X) < r.Min.X - tol || Math.Min(s.Start.X, s.End.X) > r.Max.X + tol ||
+        Math.Max(s.Start.Y, s.End.Y) < r.Min.Y - tol || Math.Min(s.Start.Y, s.End.Y) > r.Max.Y + tol;
+
     public static CpProposal Generate(Layout.Layout l, TrafficParams p)
     {
         var cps = new List<LayoutCp>();
@@ -60,6 +65,7 @@ public static class TrafficCpGenerator
         foreach (var b in l.Blocks)
             foreach (var path in l.Paths)
             {
+                if (path.Segments.All(sg => sg is LineSeg ls && Outside(ls, b.Rect, l.Tolerance))) continue; // no entry, no warning
                 var entries = Entries(path, b.Rect, l.Tolerance, out var insideOnly);
                 if (insideOnly && entries.Count == 0) { warns.Add($"{path.Name}: 경로가 {b.Name} 안에서만 존재하여 CP를 배치하지 않았습니다"); continue; }
                 foreach (var d in entries)

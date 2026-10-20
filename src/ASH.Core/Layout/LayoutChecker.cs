@@ -60,6 +60,7 @@ public static class LayoutChecker
             double off = 0;
             foreach (var s in path.Segments)
             {
+                if (best != null && s is LineSeg ls && BoxDist(ls, p) >= best.Value.Item3) { off += s.Length; continue; } // can't beat best
                 double d = s.DistanceAlong(p); // clamped for lines; arcs snap to the nearer end outside the sweep
                 double perp = p.DistanceTo(s.PointAt(d));
                 if (best == null || perp < best.Value.Item3) best = (path, off + d, perp);
@@ -69,8 +70,18 @@ public static class LayoutChecker
         return best;
     }
 
+    private static double BoxDist(LineSeg s, Point2 p)
+    {
+        double dx = Math.Max(Math.Max(Math.Min(s.Start.X, s.End.X) - p.X, 0), p.X - Math.Max(s.Start.X, s.End.X));
+        double dy = Math.Max(Math.Max(Math.Min(s.Start.Y, s.End.Y) - p.Y, 0), p.Y - Math.Max(s.Start.Y, s.End.Y));
+        return Math.Sqrt(dx * dx + dy * dy);
+    }
+
     private static bool Touches(Rect2 r, Segment s, double tol)
     {
+        if (s is LineSeg ls &&
+            (Math.Max(ls.Start.X, ls.End.X) < r.Min.X - tol || Math.Min(ls.Start.X, ls.End.X) > r.Max.X + tol ||
+             Math.Max(ls.Start.Y, ls.End.Y) < r.Min.Y - tol || Math.Min(ls.Start.Y, ls.End.Y) > r.Max.Y + tol)) return false; // bbox disjoint
         if (r.Contains(s.Start)) return true;
         Point2 a = r.Min, b = new(r.Max.X, r.Min.Y), c = r.Max, d = new(r.Min.X, r.Max.Y);
         foreach (var e in new[] { new LineSeg(a, b), new LineSeg(b, c), new LineSeg(c, d), new LineSeg(d, a) })
