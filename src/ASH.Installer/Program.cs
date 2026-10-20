@@ -19,14 +19,16 @@ static class Program
     static int Main(string[] args)
     {
         // ASH.Core is embedded, not shipped next to the exe; hook before any Core type is touched
+        Assembly? core = null; // cached: a second Assembly.Load(byte[]) would give a distinct, type-incompatible copy
         AppDomain.CurrentDomain.AssemblyResolve += (_, e) =>
         {
             if (new AssemblyName(e.Name).Name != "ASH.Core") return null;
+            if (core != null) return core;
             using var s = Assembly.GetExecutingAssembly().GetManifestResourceStream("ASH.Core.dll");
             if (s == null) return null;
             using var m = new MemoryStream();
             s.CopyTo(m);
-            return Assembly.Load(m.ToArray());
+            return core = Assembly.Load(m.ToArray());
         };
         return Run(args);
     }
@@ -46,15 +48,18 @@ static class Program
             bad.ForEach(r.Log);
             var targets = Detect().Concat(manual).Distinct().ToList();
             if (targets.Count == 0) { r.Log("ZWCAD 설치를 찾지 못했습니다."); return 1; }
-            return (uninstall ? r.Uninstall(targets) : r.Install(targets)) ? 0 : 1;
+            try { if (uninstall) r.Uninstall(targets); else r.Install(targets); }
+            catch (Exception ex) { r.Log("오류: " + ex.Message); return 1; }
+            return r.ExitCode; // 0 ok, 1 failure, 2 warnings (autoload not registered)
         }
 
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         if (capture != null) return Capture(capture);
         if (bad.Count > 0) MessageBox.Show(string.Join(Environment.NewLine, bad), "ASH 설치");
-        Application.Run(new MainForm(Detect().Concat(manual).Distinct().ToList(), uninstall));
-        return 0;
+        var form = new MainForm(Detect().Concat(manual).Distinct().ToList(), uninstall);
+        Application.Run(form);
+        return form.ExitCode;
     }
 
     public static List<ZwcadInstall> Detect() => ZwcadLocator.Find(new Win32Registry(), new RealFileSystem(),

@@ -22,6 +22,9 @@ sealed class MainForm : Form
     readonly TextBox _log = new() { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BorderStyle = BorderStyle.None, Font = new Font("Consolas", 9f) };
     readonly Button _install, _uninstall;
 
+    /// <summary>Exit code of the last 설치/제거 (0 ok, 1 failure, 2 warnings), same as /silent.</summary>
+    public int ExitCode { get; private set; }
+
     sealed class Item
     {
         public readonly ZwcadInstall Install;
@@ -123,11 +126,14 @@ sealed class MainForm : Form
         if (d.ShowDialog(this) != DialogResult.OK) return;
         var m = Program.Manual(d.SelectedPath);
         if (m == null) { MessageBox.Show(this, "이 폴더에 ZWCAD.exe가 없습니다.", Text, MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
-        if (m.Version.Length == 0)
+        // without a 20xx version autoload cannot be registered, so do not add the folder until one is given
+        var prompt = "ZWCAD 버전(연도)을 입력하세요. 예: 2026";
+        while (m.Version.Length == 0)
         {
-            // without a version the planner copies the DLLs but cannot register autoload
-            var v = Microsoft.VisualBasic.Interaction.InputBox("ZWCAD 버전(연도)을 입력하세요. 예: 2026", Text, "2026").Trim();
-            if (v.Length == 4 && v.All(char.IsDigit)) m = m with { Version = v, ProfileKeyPath = @"Software\ZWSoft\ZWCAD\" + v };
+            var v = Microsoft.VisualBasic.Interaction.InputBox(prompt, Text, "2026").Trim();
+            if (v.Length == 0) return; // cancelled
+            if (System.Text.RegularExpressions.Regex.IsMatch(v, @"^20\d{2}$")) m = m with { Version = v, ProfileKeyPath = @"Software\ZWSoft\ZWCAD\" + v };
+            else prompt = "버전은 20xx 형식이어야 합니다(예: 2026). 다시 입력하세요.";
         }
         _list.Items.Add(new Item(m), true);
         UpdateState();
@@ -140,16 +146,32 @@ sealed class MainForm : Form
         if (uninstall && MessageBox.Show(this, "선택한 ZWCAD에서 ASH를 제거할까요?", Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
         UseWaitCursor = true;
         _install.Enabled = _uninstall.Enabled = false;
-        bool ok;
+        StepRunner? r = null;
         try
         {
-            using var r = new StepRunner(line => { _log.AppendText(line + Environment.NewLine); _log.Update(); });
-            try { ok = uninstall ? r.Uninstall(targets) : r.Install(targets); }
-            catch (Exception ex) { r.Log("오류: " + ex.Message); ok = false; }
+            r = new StepRunner(line => { _log.AppendText(line + Environment.NewLine); _log.Update(); });
+            if (uninstall) r.Uninstall(targets); else r.Install(targets);
+            ExitCode = r.ExitCode;
         }
-        finally { UseWaitCursor = false; UpdateState(); }
-        var msg = ok ? (uninstall ? "제거 완료. ZWCAD를 다시 시작하세요." : "완료. ZWCAD를 다시 시작하면 ASH 탭과 AGV* 명령을 쓸 수 있습니다.")
-                     : "일부 작업이 실패했습니다. 로그를 확인하세요: " + Path.Combine(Path.GetTempPath(), "ASH-install.log");
-        MessageBox.Show(this, msg, Text, MessageBoxButtons.OK, ok ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+        catch (Exception ex)
+        {
+            if (r != null) r.Log("오류: " + ex.Message); else _log.AppendText("오류: " + ex.Message + Environment.NewLine);
+            ExitCode = 1;
+        }
+        finally { r?.Dispose(); UseWaitCursor = false; UpdateState(); }
+
+        if (ExitCode == 1)
+        {
+            MessageBox.Show(this, "일부 작업이 실패했습니다. 로그를 확인하세요: " + StepRunner.LogPath, Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
+            return;
+        }
+        var notes = new List<string>();
+        if (r!.AutoloadWarnings.Count > 0)
+            notes.Add("DLL은 복사했지만 자동 로드 등록을 못 했습니다: " + string.Join(" / ", r.AutoloadWarnings) + ". ZWCAD를 한 번 실행한 뒤 다시 설치하세요.");
+        notes.AddRange(r.SessionWarnings);
+        notes.AddRange(r.FallbackDirs.Select(d => "ZWCAD 폴더에 쓸 수 없어 DLL을 " + d + "에 설치했습니다."));
+        var done = uninstall ? "제거 완료. ZWCAD를 다시 시작하세요." : "완료. ZWCAD를 다시 시작하면 ASH 탭과 AGV* 명령을 쓸 수 있습니다.";
+        if (notes.Count == 0) MessageBox.Show(this, done, Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
+        else MessageBox.Show(this, string.Join(Environment.NewLine + Environment.NewLine, notes), Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
     }
 }

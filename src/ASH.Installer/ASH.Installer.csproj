@@ -13,6 +13,7 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
     <Reference Include="Microsoft.VisualBasic" />
+    <Reference Include="System.Management" />
   </ItemGroup>
 
   <ItemGroup>

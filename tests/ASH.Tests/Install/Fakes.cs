@@ -65,7 +65,11 @@ public sealed class FakeOps : IFileOps, IRegistryWriter
         Log.Add("copy " + dest);
     }
     public void Unblock(string path) => Log.Add("unblock " + path);
-    public void DeleteDir(string path) => Log.Add("rmdir " + path);
+    public void DeleteDir(string path)
+    {
+        if (Denied.Contains(path)) throw new System.IO.IOException("locked " + path);
+        Log.Add("rmdir " + path);
+    }
     public void SetString(string hive, string path, string name, string value) => Log.Add($"sz {hive}|{path}|{name}={value}");
     public void SetDword(string hive, string path, string name, int value) => Log.Add($"dw {hive}|{path}|{name}={value}");
     public void DeleteKey(string hive, string path) => Log.Add($"delkey {hive}|{path}");

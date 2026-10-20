@@ -24,7 +24,8 @@ public class StepExecutorTests
     {
         var ops = new FakeOps(); var log = new List<string>();
         var r = new StepExecutor(ops, ops, log.Add).Run(InstallPlanner.Plan(new[] { I }, @"D:\src", true, false));
-        Assert.Null(r);
+        Assert.True(r.Ok);
+        Assert.Empty(r.Warnings);
         Assert.Contains(@"copy C:\ZWCAD2026\ASH\ASH.Plugin.dll", ops.Log);
         Assert.Contains(@"unblock C:\ZWCAD2026\ASH\ASH.Core.dll", ops.Log);
         Assert.Contains($@"sz HKCU|{Key}|LOADER=C:\ZWCAD2026\ASH\ASH.Plugin.dll", ops.Log);
@@ -37,7 +38,9 @@ public class StepExecutorTests
     {
         var ops = new FakeOps(); ops.Denied.Add(@"C:\ZWCAD2026\");
         var log = new List<string>();
-        Assert.True(new StepExecutor(ops, ops, log.Add).Install(I, @"D:\src", false, new FakeRegistry(), @"C:\ProgramData\ASH\2026"));
+        var r = new StepExecutor(ops, ops, log.Add).Install(I, @"D:\src", false, new FakeRegistry(), @"C:\ProgramData\ASH\2026");
+        Assert.True(r.Ok);
+        Assert.Equal(@"C:\ProgramData\ASH\2026", r.FallbackDir);
         Assert.Contains(@"copy C:\ProgramData\ASH\2026\ASH.Plugin.dll", ops.Log);
         Assert.Contains($@"sz HKCU|{Key}|LOADER=C:\ProgramData\ASH\2026\ASH.Plugin.dll", ops.Log);
         Assert.DoesNotContain(ops.Log, l => l.Contains(@"=C:\ZWCAD2026"));
@@ -48,16 +51,39 @@ public class StepExecutorTests
     {
         var ops = new FakeOps(); ops.Denied.Add(@"C:\");
         var r = new StepExecutor(ops, ops, _ => { }).Run(InstallPlanner.Plan(new[] { I }, @"D:\src", false, false));
-        Assert.NotNull(r);
-        Assert.Equal("CopyFile", r!.Value.Step.Kind);
+        Assert.False(r.Ok);
+        Assert.Equal("CopyFile", r.Failed!.Value.Step.Kind);
         Assert.Empty(ops.Log);
-        Assert.False(new StepExecutor(ops, ops, _ => { }).Install(I, @"D:\src", false, new FakeRegistry(), @"C:\ProgramData\ASH\2026"));
+        var i = new StepExecutor(ops, ops, _ => { }).Install(I, @"D:\src", false, new FakeRegistry(), @"C:\ProgramData\ASH\2026");
+        Assert.False(i.Ok);
+        Assert.Equal(1, RunResult.ExitCode(new[] { new RunResult(), i }));
     }
 
     [Fact] public void Uninstall_Deletes_Keys_Ash_Dir_And_Fallback_Dir()
     {
         var ops = new FakeOps();
-        Assert.True(new StepExecutor(ops, ops, _ => { }).Uninstall(new[] { I }, false, new FakeRegistry(), t => @"C:\ProgramData\ASH\" + t.Version));
+        Assert.True(new StepExecutor(ops, ops, _ => { }).Uninstall(new[] { I }, false, new FakeRegistry(), t => @"C:\ProgramData\ASH\" + t.Version).Ok);
         Assert.Equal(new[] { $"delkey HKCU|{Key}", @"rmdir C:\ZWCAD2026\ASH", @"rmdir C:\ProgramData\ASH\2026" }, ops.Log);
+    }
+
+    [Fact] public void Run_Returns_Warnings()
+    {
+        var noLang = new ZwcadInstall("2024", "", @"C:\ZWCAD2024", @"Software\ZWSoft\ZWCAD\2024");
+        var ops = new FakeOps();
+        var r = new StepExecutor(ops, ops, _ => { }).Install(noLang, @"D:\src", false, new FakeRegistry(), @"C:\ProgramData\ASH\2024");
+        Assert.True(r.Ok);
+        Assert.Single(r.Warnings);
+        Assert.Contains("2024", r.Warnings[0]);
+        Assert.Equal(2, RunResult.ExitCode(new[] { new RunResult(), r }));
+        Assert.Equal(0, RunResult.ExitCode(new[] { new RunResult() }));
+    }
+
+    [Fact] public void Uninstall_Continues_Past_DeleteDir_Failure()
+    {
+        var ops = new FakeOps(); ops.Denied.Add(@"C:\ZWCAD2026\ASH");
+        var r = new StepExecutor(ops, ops, _ => { }).Uninstall(new[] { I }, false, new FakeRegistry(), t => @"C:\ProgramData\ASH\" + t.Version);
+        Assert.False(r.Ok);
+        Assert.Single(r.Failures);
+        Assert.Contains(@"rmdir C:\ProgramData\ASH\2026", ops.Log);
     }
 }
