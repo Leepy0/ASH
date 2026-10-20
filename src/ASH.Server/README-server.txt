@@ -21,6 +21,9 @@ ASH.Server - ASH 배포 서버 (최소판)
      cd /d "C:\Program Files\ASH.Server"
      ASH.Server.exe --install
    Releases:Dir 를 바꿨다면 그 폴더에 같은 mkdir/icacls 를 한다.
+   윈도우 표시 언어 때문에 Administrators/SYSTEM 이름이 통하지 않으면 SID 로 준다:
+     icacls "%ProgramData%\ASH.Server" /inheritance:r /grant:r "*S-1-5-32-544:(OI)(CI)F" "*S-1-5-18:(OI)(CI)F"
+   (*S-1-5-32-544 = Administrators, *S-1-5-18 = SYSTEM. 설치 폴더 명령도 같다.)
    등록 후 출력되는 BINARY_PATH_NAME 이 따옴표로 감싸져 있는지 확인한다:  sc qc ASH.Server
    서비스 시작: sc start ASH.Server     제거: ASH.Server.exe --uninstall
    확인만 하려면 서비스 등록 없이 ASH.Server.exe 를 직접 실행해도 된다(설정은 exe 와 같은 폴더의 appsettings.json).

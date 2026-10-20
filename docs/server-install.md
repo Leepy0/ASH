@@ -29,6 +29,7 @@
    sc qc ASH.Server
    sc start ASH.Server
    ```
+   - 윈도우 표시 언어가 한국어 등이라 `Administrators`/`SYSTEM` 이름이 통하지 않으면 SID로 준다: `icacls "%ProgramData%\ASH.Server" /inheritance:r /grant:r "*S-1-5-32-544:(OI)(CI)F" "*S-1-5-18:(OI)(CI)F"` (`*S-1-5-32-544` = Administrators, `*S-1-5-18` = SYSTEM). 설치 폴더 명령도 같다.
    - `sc qc`의 `BINARY_PATH_NAME`이 `"C:\Program Files\ASH.Server\ASH.Server.exe"`처럼 따옴표로 감싸졌는지 확인한다(경로에 공백이 있다).
    - `Releases:Dir`을 다른 곳으로 바꿨다면 그 폴더에 같은 `mkdir`/`icacls`를 한다.
    - 서비스는 기본적으로 LocalSystem으로 돈다. 권한을 줄이려고 LocalService로 바꾼다면 `sc config ASH.Server obj= "NT AUTHORITY\LocalService"` 뒤에 배포 폴더에 수정 권한, 설치 폴더에 읽기 권한을 준다.
@@ -124,7 +125,7 @@ scripts\publish-release.ps1 -Server http://<서버>:5080
 ASH-Setup-x.y.z.exe /silent /server:http://<서버>:5080
 ```
 
-SYSTEM으로 실행하면 사용자 프로필을 알 수 없어 HKCU 등록과 사용자 파일은 건너뛰고, HKLM 등록과 PC 공용 `ash.machine.tsv`만 쓴다. 그래도 종료 코드는 0이다(PC 공용 파일을 썼다면). 모든 사용자가 같은 서버 주소를 쓴다.
+SYSTEM으로 실행해도 로그온한 대화형 사용자가 있고 그 사용자의 레지스트리 하이브가 로드되어 있으면 그 사용자의 HKCU 등록과 사용자 파일(`ash.user.tsv`)을 쓴다. 로그온한 사용자를 알 수 없으면(아무도 로그온하지 않았거나 하이브가 없음) HKCU 등록과 사용자 파일은 건너뛰고 HKLM 등록과 PC 공용 `ash.machine.tsv`만 쓴다. 이 경우에도 종료 코드는 0이다(PC 공용 파일을 썼다면). 사용자 파일에 주소가 없는 사용자는 PC 공용 주소를 쓴다.
 
 ## 4. 서명 키 교체
 

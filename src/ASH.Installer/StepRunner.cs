@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text;
 using ASH.Core.Install;
@@ -110,8 +111,13 @@ sealed class StepRunner : IDisposable
             {
                 var dir = Path.GetDirectoryName(machine)!;
                 var acl = RealFileSystem.LockedAcl(); // Administrators/SYSTEM full, Users read
-                if (Directory.Exists(dir)) new DirectoryInfo(dir).SetAccessControl(acl); else Directory.CreateDirectory(dir, acl);
-                new UserSettings(url).Save(machine);
+                if (Directory.Exists(dir)) ReclaimDir(dir, acl); else Directory.CreateDirectory(dir, acl);
+                // temp file + move: a file a standard user pre-created at the target (and still owns) is replaced, never written through
+                var tmp = machine + ".tmp";
+                File.Delete(tmp);
+                new UserSettings(url).Save(tmp);
+                File.Delete(machine);
+                File.Move(tmp, machine);
                 machineOk = true;
                 Log($"서버 주소 저장(PC 공용): {url} → {machine}");
             }
@@ -130,6 +136,18 @@ sealed class StepRunner : IDisposable
         else Log("사용자 폴더를 알 수 없어 사용자 파일은 쓰지 않음");
         if (!machineOk && !userOk) Warn($"서버 주소를 저장하지 못했습니다 (PC 공용 파일 {machine}, 사용자 파일 없음/실패)");
         else if (!machineOk && Elevated) Warn($"서버 주소를 PC 공용 파일에 저장하지 못했습니다 ({machine})");
+    }
+
+    // A folder a standard user pre-created before the first elevated install: take ownership back (owner can always rewrite the ACL) and lock it.
+    // SIDs only, no localized account names.
+    static void ReclaimDir(string dir, DirectorySecurity locked)
+    {
+        var di = new DirectoryInfo(dir);
+        if ((di.Attributes & FileAttributes.ReparsePoint) != 0) throw new IOException("재해석 지점(junction/symlink)이라 사용하지 않음: " + dir);
+        var admins = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+        var owner = di.GetAccessControl(AccessControlSections.Owner).GetOwner(typeof(SecurityIdentifier));
+        if (!admins.Equals(owner) && !new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null).Equals(owner)) locked.SetOwner(admins);
+        di.SetAccessControl(locked);
     }
 
     public void Log(string line)
