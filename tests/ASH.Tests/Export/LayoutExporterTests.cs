@@ -138,7 +138,37 @@ public class LayoutExporterTests
         var dir = Path.Combine(Path.GetTempPath(), "ash_exp_" + Guid.NewGuid().ToString("N"), "m.arc"); Directory.CreateDirectory(dir);
         File.WriteAllText(Path.Combine(dir, "agv.asy"), "VERSION 12.6.1.19\nSYSTYPE AGVS\nUNITS Meters Seconds\n");
         var r = ExportRunner.Run(Of(L.Line("a",0,0,10,0)), G, dir);
-        Assert.NotNull(r.BackupPath); Assert.Matches(@"agv\.asy\.bak\.\d{8}_\d{6}$", r.BackupPath!); Assert.True(File.Exists(r.TrafficTsvPath));
+        Assert.NotNull(r.BackupPath); Assert.Matches(@"agv\.asy\.bak\.\d{8}_\d{6}_\d{3}(_\d+)?$", r.BackupPath!); Assert.True(File.Exists(r.TrafficTsvPath));
         Assert.Contains("GPATH name a ", File.ReadAllText(r.AsyPath));
+    }
+    const string Hdr = "VERSION 12.6.1.19\nSYSTYPE AGVS\nUNITS Meters Seconds\n";
+    [Fact] public void Two_Runs_Make_Two_Distinct_Backups()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "ash_exp_" + Guid.NewGuid().ToString("N"), "m.arc"); Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "agv.asy"), Hdr);
+        var r1 = ExportRunner.Run(Of(L.Line("a",0,0,10,0)), G, dir);
+        var r2 = ExportRunner.Run(Of(L.Line("a",0,0,10,0)), G, dir);
+        var r3 = ExportRunner.Run(Of(L.Line("a",0,0,10,0)), G, dir);
+        Assert.Equal(3, new[]{ r1.BackupPath, r2.BackupPath, r3.BackupPath }.Distinct().Count());
+        Assert.Equal(Hdr, File.ReadAllText(r1.BackupPath!));
+        Assert.Equal(3, Directory.GetFiles(dir, "agv.asy.bak.*").Length);
+    }
+    [Fact] public void Diff_Tolerates_Duplicate_Names_In_Previous_File()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "ash_exp_" + Guid.NewGuid().ToString("N"), "m.arc"); Directory.CreateDirectory(dir);
+        File.WriteAllLines(Path.Combine(dir, "agv.asy"), new[]{ Hdr.TrimEnd(),
+            "GPATH name a type DefaultGuidePath piece begx 0 begy 0 endx 10 endy 0 upz 1",
+            "GPATH name a type DefaultGuidePath piece begx 0 begy 0 endx 5 endy 0 upz 1",
+            "CPOINT name S1 type DefaultControlPoint at a 0", "CPOINT name S1 type DefaultControlPoint at a 1" });
+        var r = ExportRunner.Run(Of(L.Line("a",0,0,10,0)), G, dir);
+        Assert.Equal(new ExportSummary(0,0,0,0,0,0), r.Summary);
+    }
+    [Fact] public void Failed_Export_Leaves_Files_Untouched()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "ash_exp_" + Guid.NewGuid().ToString("N"), "m.arc"); Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "agv.asy"), "old");
+        Assert.Throws<InvalidOperationException>(() => ExportRunner.Run(L.Of(L.Line("a",0,0,10,0)), G, dir));
+        Assert.Equal(new[]{ "agv.asy" }, Directory.GetFiles(dir).Select(Path.GetFileName));
+        Assert.Equal("old", File.ReadAllText(Path.Combine(dir, "agv.asy")));
     }
 }

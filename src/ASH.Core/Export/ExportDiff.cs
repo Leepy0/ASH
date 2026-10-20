@@ -21,8 +21,9 @@ public static class ExportDiff
 
     public static ExportSummary Compare(AgvsSystem? previous, AgvsSystem current)
     {
-        var pp = previous?.Paths.ToDictionary(p => p.Name) ?? new Dictionary<string, GuidePath>();
-        var pc = previous?.ControlPoints.ToDictionary(c => c.Name) ?? new Dictionary<string, ControlPoint>();
+        // a hand-edited previous file may repeat names: first one wins
+        var pp = previous?.Paths.GroupBy(p => p.Name).ToDictionary(g => g.Key, g => g.First()) ?? new Dictionary<string, GuidePath>();
+        var pc = previous?.ControlPoints.GroupBy(c => c.Name).ToDictionary(g => g.Key, g => g.First()) ?? new Dictionary<string, ControlPoint>();
         var cc = current.ControlPoints.ToDictionary(c => c.Name);
         var cp = current.Paths.ToDictionary(p => p.Name);
         return new ExportSummary(
