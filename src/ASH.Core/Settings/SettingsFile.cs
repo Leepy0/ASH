@@ -39,6 +39,7 @@ public static class SettingsFile
             Origin = new Point2(Num("OriginX", s.Origin.X), Num("OriginY", s.Origin.Y)),
             ModelName = string.IsNullOrEmpty(Str(nameof(s.ModelName))) ? s.ModelName : Str(nameof(s.ModelName))!,
             Groups = Str(nameof(s.Groups)) ?? s.Groups,
+            AmHome = string.IsNullOrEmpty(Str(nameof(s.AmHome))) ? s.AmHome : Str(nameof(s.AmHome))!,
         };
         foreach (var (k, v) in new[] { (nameof(r.SafetyGap), r.SafetyGap), (nameof(r.VehicleLength), r.VehicleLength), (nameof(r.VehicleWidth), r.VehicleWidth), (nameof(r.Scale), r.Scale) })
             if (!(v > 0)) throw new FormatException($"설정 {k} 값 {v.ToString(C)}은 0보다 커야 합니다.");
@@ -62,6 +63,7 @@ public static class SettingsFile
             $"OriginY\t{N(s.Origin.Y)}",
             $"{nameof(s.ModelName)}\t{s.ModelName}",
             $"{nameof(s.Groups)}\t{s.Groups}",
+            $"{nameof(s.AmHome)}\t{s.AmHome}",
         });
     }
 

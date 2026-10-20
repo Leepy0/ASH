@@ -25,7 +25,7 @@ public static class AgvRibbon
             ("교차 분할", GlyphKind.Split, "AGVSPLIT"), ("경로 잇기", GlyphKind.Join, "AGVJOIN"), ("필렛", GlyphKind.Fillet, "AGVFILLET")));
         tab.Panels.Add(Panel("CP", ("CP 배치", GlyphKind.Cp, "AGVCP"), ("traffic CP 자동", GlyphKind.Cp, "AGVCPAUTO")));
         tab.Panels.Add(Panel("교통제어", ("교통제어 자동", GlyphKind.Traffic, "AGVTRAFFIC"), ("block 자동", GlyphKind.Block, "AGVBLOCKAUTO")));
-        tab.Panels.Add(Panel("검증·내보내기", ("검증", GlyphKind.Check, "AGVCHECK"), ("내보내기", GlyphKind.Export, "AGVEXPORT")));
+        tab.Panels.Add(Panel("검증·내보내기", ("검증", GlyphKind.Check, "AGVCHECK"), ("내보내기", GlyphKind.Export, "AGVEXPORT"), ("Excel 양식", GlyphKind.Excel, "AGVEXCEL"), ("모델 생성·빌드", GlyphKind.Model, "AGVMODEL")));
         ribbon.Tabs.Add(tab);
     }
 

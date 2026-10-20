@@ -53,7 +53,8 @@ public sealed class AgvPaletteControl : UserControl
 
         var checkResult = Theme.Caption("마지막 검사 결과: -");
         tabs.TabPages.Add(Page("검증·내보내기", Theme.Section("검증"), Theme.Make("검증", GlyphKind.Check, "AGVCHECK"), checkResult,
-            Theme.Section("내보내기"), Theme.Make("내보내기", GlyphKind.Export, "AGVEXPORT")));
+            Theme.Section("내보내기"), Theme.Make("내보내기", GlyphKind.Export, "AGVEXPORT"),
+            Theme.Section("모델"), Theme.Make("Excel 양식", GlyphKind.Excel, "AGVEXCEL"), Theme.Make("모델 생성·빌드", GlyphKind.Model, "AGVMODEL")));
 
         var header = new Panel { Dock = DockStyle.Top, Height = 50, BackColor = Theme.Panel, Padding = new Padding(10, 6, 6, 6) };
         var init = Theme.Make("양식 초기화", GlyphKind.Init, "AGVINIT");

@@ -11,7 +11,7 @@ public class SettingsFileTests
     [Fact] public void Missing_File_Gives_Defaults() => Assert.Equal(new ProjectSettings(), SettingsFile.Load(Path.Combine(Path.GetTempPath(), Guid.NewGuid()+".tsv")));
     [Fact] public void Save_Then_Load_RoundTrips()
     {
-        var p = Path.GetTempFileName(); var s = new ProjectSettings(SafetyGap: 0.8, ClaimDist: 1.0, Origin: new(100,200), ModelName: "plantA");
+        var p = Path.GetTempFileName(); var s = new ProjectSettings(SafetyGap: 0.8, ClaimDist: 1.0, Origin: new(100,200), ModelName: "plantA", AmHome: @"D:\AM");
         SettingsFile.Save(s, p); Assert.Equal(s, SettingsFile.Load(p));
     }
     [Fact] public void ParseGroups_Rejects_Bad_MaxCount()

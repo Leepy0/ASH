@@ -4,7 +4,7 @@ using System.Drawing.Drawing2D;
 
 namespace ASH.Plugin.Ui;
 
-public enum GlyphKind { Init, Path, Reverse, Offset, Array, Split, Join, Fillet, Cp, Block, Traffic, Check, Export, Settings }
+public enum GlyphKind { Init, Path, Reverse, Offset, Array, Split, Join, Fillet, Cp, Block, Traffic, Check, Export, Settings, Excel, Model }
 
 /// <summary>Single-colour line icons drawn in code (no image files). Coordinates are in a unit square scaled to px.</summary>
 public static class Glyphs
@@ -78,6 +78,18 @@ public static class Glyphs
             case GlyphKind.Export:
                 g.DrawLines(pen, new[] { P(0.32f, 0.45f), P(0.15f, 0.45f), P(0.15f, 0.85f), P(0.85f, 0.85f), P(0.85f, 0.45f), P(0.68f, 0.45f) });
                 Arrow(g, pen, P(0.5f, 0.68f), P(0.5f, 0.12f));
+                break;
+            case GlyphKind.Excel: // grid with an X
+                g.DrawRectangle(pen, 0.15f, 0.15f, 0.7f, 0.7f);
+                g.DrawLine(pen, 0.15f, 0.38f, 0.85f, 0.38f);
+                g.DrawLine(pen, 0.38f, 0.38f, 0.38f, 0.85f);
+                g.DrawLine(pen, 0.5f, 0.5f, 0.76f, 0.76f);
+                g.DrawLine(pen, 0.76f, 0.5f, 0.5f, 0.76f);
+                break;
+            case GlyphKind.Model: // box with a gear dot
+                g.DrawRectangle(pen, 0.15f, 0.15f, 0.7f, 0.7f);
+                g.DrawEllipse(pen, 0.33f, 0.33f, 0.34f, 0.34f);
+                g.FillEllipse(fill, 0.45f, 0.45f, 0.1f, 0.1f);
                 break;
             case GlyphKind.Settings: // gear: ring + 4 ticks + hub
                 g.DrawEllipse(pen, 0.27f, 0.27f, 0.46f, 0.46f);
