@@ -16,13 +16,23 @@ public sealed class PluginEntry : IExtensionApplication
     {
         try { HookRibbon(); }
         catch (System.Exception ex) { Debug.WriteLine("ASH ribbon: " + ex); } // never throw from Initialize
+        try { StartUpdateCheck(); }
+        catch (System.Exception ex) { Debug.WriteLine("ASH update: " + ex); }
     }
 
     public void Terminate()
     {
         try { UnhookRibbon(); }
         catch (System.Exception ex) { Debug.WriteLine("ASH ribbon: " + ex); }
+        try { StopUpdateCheck(); }
+        catch (System.Exception ex) { Debug.WriteLine("ASH update: " + ex); }
     }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void StartUpdateCheck() => Update.UpdateNotifier.Start();
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void StopUpdateCheck() => Update.UpdateNotifier.Stop();
 
     // NoInlining: a missing ZdWindows.dll then fails inside the try above instead of when Initialize is JIT-compiled
     [MethodImpl(MethodImplOptions.NoInlining)]

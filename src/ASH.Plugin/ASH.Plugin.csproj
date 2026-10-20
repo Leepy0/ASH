@@ -28,4 +28,9 @@
     <ProjectReference Include="..\ASH.Core\ASH.Core.csproj" />
   </ItemGroup>
 
+  <!-- Public key for update signatures. Absent = unsigned mode (SHA-256 only, with a warning in AGVUPDATE). -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\update-key.pub" LogicalName="update-key.pub" Condition="Exists('..\..\update-key.pub')" />
+  </ItemGroup>
+
 </Project>

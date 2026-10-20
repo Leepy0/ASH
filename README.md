@@ -21,6 +21,8 @@ ZWCAD 플러그인과 실행기로 AutoMod AGV 수량 산출 업무를 자동화
 제거: `ASH-Setup-x.y.z.exe /uninstall` (창에서 "제거"). 무인 설치: `/silent`, 폴더 추가: `/dir:"D:\CAD\ZWCAD 2026"`. 로그: `%TEMP%\ASH-install.log`. 종료 코드: 0 성공, 1 실패(ZWCAD 실행 중 포함), 2 경고(자동 로드 등록 못 함 — ZWCAD를 한 번 실행한 뒤 다시 설치, 미지원 버전 건너뜀, SYSTEM 계정 등 사용자 하이브를 알 수 없음).
 DLL은 `<ZWCAD 폴더>\ASH\`에 들어가고(쓰기 실패 시 `%ProgramData%\ASH\<버전>\`), 자동 로드는 `HKCU`·`HKLM\Software\ZWSoft\ZWCAD\<버전>\<언어>\Applications\ASH`에 등록된다.
 
+업데이트: 플러그인은 시작할 때(3초 제한, 백그라운드) 사내 서버(`ASH.Server`)에 새 버전이 있는지 확인해 명령줄에 한 줄만 알린다. 서버 주소는 PC별 `%APPDATA%\ASH\ash.user.tsv`의 `ServerUrl`(없으면 확인하지 않음)이며 `AGVSERVER`로 바꾸고, 설치할 때 `/server:http://server:5080`으로 미리 넣을 수 있다. `AGVUPDATE`는 설치 파일을 `%TEMP%\ASH-update\`에 받아(SHA-256·서명 확인) 폴더를 열어 준다. ZWCAD를 완전히 종료한 뒤 그 파일을 실행한다.
+
 ## ash-run (수량 탐색 실행기)
 
 플러그인으로 모델을 만든 뒤(`<Project>\<Model>.exe`, `<Model>.arc\`), 콘솔에서 그룹별 최소 AGV 대수를 탐색한다. `input.xlsx`는 프로젝트 폴더에 둔다. 설치: `dist/ASH-Runner-x.y.z-win-x64.zip`을 풀고 `ash-run.exe`를 실행한다(.NET 런타임 설치 불필요, win-x64 자가 포함 단일 파일).

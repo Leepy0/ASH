@@ -65,6 +65,16 @@ public sealed class AgvPaletteControl : UserControl
         title.Controls.Add(new Label { Text = "AGV Simul Helper", Font = new Font("Segoe UI", 8.25f), ForeColor = Theme.Muted, AutoSize = true, Margin = Padding.Empty });
         header.Controls.Add(title); // Fill first, then the right-docked button
         header.Controls.Add(init);
+        // icon-only so the header still fits the 260 px minimum width
+        var update = Theme.Make("업데이트", GlyphKind.Update, "AGVUPDATE");
+        update.Text = "";
+        update.TextAlign = ContentAlignment.MiddleCenter;
+        update.ImageAlign = ContentAlignment.MiddleCenter;
+        update.Padding = Padding.Empty;
+        update.Dock = DockStyle.Right;
+        update.Width = 36;
+        new ToolTip().SetToolTip(update, "업데이트 확인 (AGVUPDATE)");
+        header.Controls.Add(update);
 
         var status = new Label { Dock = DockStyle.Bottom, Height = 24, ForeColor = Theme.Muted, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(8, 0, 4, 0), Text = "준비" };
         PaletteStatus.Line = t => status.Text = t;

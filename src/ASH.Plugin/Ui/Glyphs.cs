@@ -4,7 +4,7 @@ using System.Drawing.Drawing2D;
 
 namespace ASH.Plugin.Ui;
 
-public enum GlyphKind { Init, Path, Reverse, Offset, Array, Split, Join, Fillet, Cp, Block, Traffic, Check, Export, Settings, Excel, Model }
+public enum GlyphKind { Init, Path, Reverse, Offset, Array, Split, Join, Fillet, Cp, Block, Traffic, Check, Export, Settings, Excel, Model, Update }
 
 /// <summary>Single-colour line icons drawn in code (no image files). Coordinates are in a unit square scaled to px.</summary>
 public static class Glyphs
@@ -91,6 +91,10 @@ public static class Glyphs
                 g.DrawEllipse(pen, 0.33f, 0.33f, 0.34f, 0.34f);
                 g.FillEllipse(fill, 0.45f, 0.45f, 0.1f, 0.1f);
                 break;
+            case GlyphKind.Update: // circular arrow: ~290 degree arc with a head at its end
+                g.DrawArc(pen, 0.2f, 0.2f, 0.6f, 0.6f, -60, 290);
+                Head(g, pen, OnCircle(200), OnCircle(230));
+                break;
             case GlyphKind.Settings: // gear: ring + 4 ticks + hub
                 g.DrawEllipse(pen, 0.27f, 0.27f, 0.46f, 0.46f);
                 for (int i = 0; i < 4; i++)
@@ -105,6 +109,9 @@ public static class Glyphs
     }
 
     private static PointF P(float x, float y) => new PointF(x, y);
+
+    // point on the Update glyph's circle (centre 0.5, radius 0.3) at a GDI+ angle (degrees, clockwise from +x)
+    private static PointF OnCircle(double deg) => P(0.5f + (float)(0.3 * Math.Cos(deg * Math.PI / 180)), 0.5f + (float)(0.3 * Math.Sin(deg * Math.PI / 180)));
 
     private static void Arrow(Graphics g, Pen pen, PointF a, PointF b)
     {
