@@ -1,0 +1,274 @@
+using System.Net;
+using System.Net.Http.Headers;
+using System.Security.Cryptography;
+using System.Text;
+using ASH.Core.Update;
+using ASH.Server;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace ASH.Server.Tests;
+
+/// <summary>Server over a temp release folder. key=true: a fresh P-256 key is injected via Update:PublicKeyPem, otherwise "no key" (empty override).</summary>
+public sealed class Env : IDisposable
+{
+    public readonly string Dir = Path.Combine(Path.GetTempPath(), "ash-server-test-" + Guid.NewGuid().ToString("N"));
+    public readonly ECDsa Key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+    public readonly WebApplicationFactory<Program> Factory;
+    public readonly HttpClient Http;
+    public ReleaseStore Store => Factory.Services.GetRequiredService<ReleaseStore>();
+
+    public Env(bool key = true, string token = "t")
+    {
+        var pem = key ? Key.ExportSubjectPublicKeyInfoPem() : "";
+        Factory = new WebApplicationFactory<Program>().WithWebHostBuilder(b =>
+        {
+            b.UseSetting("Releases:Dir", Dir);
+            b.UseSetting("Admin:Token", token);
+            b.UseSetting("Update:PublicKeyPem", pem);
+        });
+        Http = Factory.CreateClient();
+    }
+
+    public sealed record Release(byte[] Json, byte[] Sig, byte[] Setup, string File, string Version);
+
+    public Release MakeRelease(string version, string? setupText = null, bool sign = true)
+    {
+        var setup = Encoding.UTF8.GetBytes(setupText ?? "setup-bytes-" + version);
+        var m = new ReleaseManifest
+        {
+            Version = version, MinSupported = "0.1.0", File = $"ASH-Setup-{version}.exe",
+            Sha256 = Convert.ToHexString(SHA256.HashData(setup)).ToLowerInvariant(), Size = setup.Length,
+            Published = ReleaseManifest.FormatPublished(DateTime.UtcNow),
+        };
+        var json = m.ToJson();
+        var sig = sign ? Key.SignData(json, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence) : Array.Empty<byte>();
+        return new Release(json, sig, setup, m.File, version);
+    }
+
+    public Task<HttpResponseMessage> Upload(Release r, string? token = "t", string query = "", bool withSig = true, string? setupName = null, byte[]? setup = null, byte[]? sig = null, bool withSetup = true)
+    {
+        var form = new MultipartFormDataContent();
+        form.Add(new ByteArrayContent(r.Json), "manifest", "ASH.json");
+        if (withSig && (sig ?? r.Sig).Length > 0) form.Add(new ByteArrayContent(sig ?? r.Sig), "signature", "ASH.json.sig");
+        if (withSetup) form.Add(new ByteArrayContent(setup ?? r.Setup), "setup", setupName ?? r.File);
+        var req = new HttpRequestMessage(HttpMethod.Post, "/api/admin/releases" + query) { Content = form };
+        if (token != null) req.Headers.Add("X-ASH-Admin-Token", token);
+        return Http.SendAsync(req);
+    }
+
+    public async Task Published(Release r) => Assert.Equal(HttpStatusCode.OK, (await Upload(r)).StatusCode);
+    public Task<byte[]> Get(string path) => Http.GetByteArrayAsync(path);
+
+    public void Dispose()
+    {
+        Http.Dispose();
+        Factory.Dispose();
+        Key.Dispose();
+        try { Directory.Delete(Dir, true); } catch (IOException) { }
+    }
+}
+
+public class ServerTests
+{
+    [Fact]
+    public async Task Upload_serves_exact_bytes()
+    {
+        using var e = new Env();
+        var r = e.MakeRelease("0.2.0");
+        var resp = await e.Upload(r);
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+
+        var v = await e.Http.GetAsync("/api/ash/version");
+        Assert.Equal("application/json", v.Content.Headers.ContentType?.MediaType);
+        Assert.Equal(r.Json, await v.Content.ReadAsByteArrayAsync());
+        var s = await e.Http.GetAsync("/api/ash/version.sig");
+        Assert.Equal("application/octet-stream", s.Content.Headers.ContentType?.MediaType);
+        Assert.Equal(r.Sig, await s.Content.ReadAsByteArrayAsync());
+        Assert.Equal(r.Setup, await e.Get("/download/" + r.File));
+        Assert.Empty(Directory.GetDirectories(Path.Combine(e.Dir, "incoming")));
+    }
+
+    [Fact]
+    public async Task Empty_server_answers_404()
+    {
+        using var e = new Env();
+        Assert.Equal(HttpStatusCode.NotFound, (await e.Http.GetAsync("/api/ash/version")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await e.Http.GetAsync("/api/ash/version.sig")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await e.Http.GetAsync("/download/ASH-Setup-9.9.9.exe")).StatusCode);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("wrong")]
+    public async Task Bad_token_is_401_and_nothing_published(string? token)
+    {
+        using var e = new Env();
+        Assert.Equal(HttpStatusCode.Unauthorized, (await e.Upload(e.MakeRelease("0.2.0"), token)).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await e.Http.GetAsync("/api/ash/version")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Empty_admin_token_disables_uploads_with_403()
+    {
+        using var e = new Env(token: "");
+        Assert.Equal(HttpStatusCode.Forbidden, (await e.Upload(e.MakeRelease("0.2.0"), "")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await e.Upload(e.MakeRelease("0.2.0"), null)).StatusCode);
+        Assert.Contains("꺼짐", await e.Http.GetStringAsync("/"));
+    }
+
+    [Fact]
+    public async Task Bad_signature_is_400_and_current_unchanged()
+    {
+        using var e = new Env();
+        var v1 = e.MakeRelease("0.2.0");
+        await e.Published(v1);
+        var v2 = e.MakeRelease("0.3.0");
+        using var other = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+        var forged = other.SignData(v2.Json, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence);
+        Assert.Equal(HttpStatusCode.BadRequest, (await e.Upload(v2, sig: forged)).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await e.Upload(v2, withSig: false)).StatusCode); // key set: signature is mandatory
+        Assert.Equal(v1.Json, await e.Get("/api/ash/version"));
+        Assert.Equal(v1.Sig, await e.Get("/api/ash/version.sig"));
+        Assert.Equal(HttpStatusCode.NotFound, (await e.Http.GetAsync("/download/" + v2.File)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Hash_mismatch_is_400_and_current_unchanged()
+    {
+        using var e = new Env();
+        var v1 = e.MakeRelease("0.2.0");
+        await e.Published(v1);
+        var v2 = e.MakeRelease("0.3.0");
+        var resp = await e.Upload(v2, setup: Encoding.UTF8.GetBytes("setup-bytes-0.3.X")); // same length, other content
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+        Assert.Contains("SHA-256", await resp.Content.ReadAsStringAsync());
+        Assert.Equal(v1.Json, await e.Get("/api/ash/version"));
+        Assert.Equal(HttpStatusCode.NotFound, (await e.Http.GetAsync("/download/" + v2.File)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Size_mismatch_and_file_name_mismatch_are_400()
+    {
+        using var e = new Env();
+        var r = e.MakeRelease("0.2.0");
+        Assert.Equal(HttpStatusCode.BadRequest, (await e.Upload(r, setup: r.Setup.Append((byte)0).ToArray())).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await e.Upload(r, setupName: "ASH-Setup-0.2.1.exe")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await e.Http.GetAsync("/api/ash/version")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Missing_setup_part_is_400()
+    {
+        using var e = new Env();
+        Assert.Equal(HttpStatusCode.BadRequest, (await e.Upload(e.MakeRelease("0.2.0"), withSetup: false)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Lower_version_is_409_unless_forced()
+    {
+        using var e = new Env();
+        var v2 = e.MakeRelease("0.3.0");
+        var v1 = e.MakeRelease("0.2.0");
+        await e.Published(v2);
+        Assert.Equal(HttpStatusCode.Conflict, (await e.Upload(v1)).StatusCode);
+        Assert.Equal(v2.Json, await e.Get("/api/ash/version"));
+
+        Assert.Equal(HttpStatusCode.OK, (await e.Upload(v1, query: "?force=1")).StatusCode);
+        Assert.Equal(v1.Json, await e.Get("/api/ash/version"));
+        Assert.True(File.Exists(Path.Combine(e.Dir, "history", "0.3.0", "ASH.json"))); // previous current kept
+        Assert.Contains("0.3.0", await e.Http.GetStringAsync("/"));
+    }
+
+    [Fact]
+    public async Task Same_file_name_with_other_content_is_409()
+    {
+        using var e = new Env();
+        var a = e.MakeRelease("0.2.0");
+        await e.Published(a);
+        var b = e.MakeRelease("0.2.0", setupText: "different content!"); // same file name, other hash
+        Assert.Equal(HttpStatusCode.Conflict, (await e.Upload(b)).StatusCode);
+        Assert.Equal(a.Setup, await e.Get("/download/" + a.File));
+        Assert.Equal(HttpStatusCode.OK, (await e.Upload(a)).StatusCode); // identical re-upload is fine
+    }
+
+    [Theory]
+    [InlineData("/download/..%2Fcurrent%2FASH.json")]
+    [InlineData("/download/%2e%2e%2f%2e%2e%2fwindows%2fwin.ini")]
+    [InlineData("/download/..%5Ccurrent%5CASH.json")]
+    [InlineData("/download/ASH.json")]
+    [InlineData("/download/ASH-Setup-1.0.0.txt")]
+    [InlineData("/download/C:%5Cwindows%5Cwin.ini")]
+    public async Task Download_rejects_traversal_and_foreign_names(string path)
+    {
+        using var e = new Env();
+        await e.Published(e.MakeRelease("0.2.0"));
+        var code = (await e.Http.GetAsync(path)).StatusCode;
+        Assert.True(code is HttpStatusCode.BadRequest or HttpStatusCode.NotFound, code.ToString());
+    }
+
+    [Theory]
+    [InlineData("validated")]
+    [InlineData("moved")]
+    public async Task Failure_mid_upload_leaves_current_and_files_unchanged(string stage)
+    {
+        using var e = new Env();
+        var v1 = e.MakeRelease("0.2.0");
+        await e.Published(v1);
+        var v2 = e.MakeRelease("0.3.0");
+        e.Store.Stage = s => { if (s == stage) throw new IOException("boom"); };
+        var code = (await e.Upload(v2)).StatusCode;
+        e.Store.Stage = null;
+        Assert.Equal(HttpStatusCode.InternalServerError, code);
+        Assert.Equal(v1.Json, await e.Get("/api/ash/version"));
+        Assert.Equal(v1.Sig, await e.Get("/api/ash/version.sig"));
+        Assert.Equal(new[] { v1.File }, Directory.GetFiles(Path.Combine(e.Dir, "files")).Select(Path.GetFileName));
+        Assert.Empty(Directory.GetDirectories(Path.Combine(e.Dir, "incoming")));
+        Assert.Equal(HttpStatusCode.OK, (await e.Upload(v2)).StatusCode); // and the retry works
+    }
+
+    [Fact]
+    public async Task Without_key_unsigned_upload_is_accepted_and_status_warns()
+    {
+        using var e = new Env(key: false);
+        var r = e.MakeRelease("0.2.0", sign: false);
+        var resp = await e.Upload(r);
+        Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
+        Assert.Contains("경고", await resp.Content.ReadAsStringAsync());
+        Assert.Equal(r.Json, await e.Get("/api/ash/version"));
+        Assert.Equal(HttpStatusCode.NotFound, (await e.Http.GetAsync("/api/ash/version.sig")).StatusCode);
+        var page = await e.Http.GetStringAsync("/");
+        Assert.Contains("서명 키 없음(서명 확인 안 함)", page);
+        Assert.Contains("0.2.0", page);
+    }
+
+    [Fact]
+    public async Task Status_page_shows_key_id_when_key_is_set()
+    {
+        using var e = new Env();
+        await e.Published(e.MakeRelease("0.2.0"));
+        var page = await e.Http.GetStringAsync("/");
+        Assert.Contains(e.Store.Key!.KeyId, page);
+        Assert.DoesNotContain("서명 키 없음", page);
+        Assert.Contains("가능", page);
+    }
+
+    [Fact]
+    public async Task Concurrent_uploads_both_finish_consistently()
+    {
+        using var e = new Env();
+        var a = e.MakeRelease("0.2.0");
+        var b = e.MakeRelease("0.3.0");
+        var codes = await Task.WhenAll(e.Upload(a), e.Upload(b));
+        Assert.All(codes, c => Assert.True(c.StatusCode is HttpStatusCode.OK or HttpStatusCode.Conflict));
+        var cur = ReleaseManifest.Parse(await e.Get("/api/ash/version"));
+        Assert.Equal("0.3.0", cur.Version); // b can never be overwritten by the lower a
+    }
+
+    [Fact]
+    public async Task Healthz_is_200()
+    {
+        using var e = new Env();
+        Assert.Equal(HttpStatusCode.OK, (await e.Http.GetAsync("/healthz")).StatusCode);
+    }
+}

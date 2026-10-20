@@ -1,5 +1,6 @@
 # Release build -> dist/ASH-Setup-<Version>.exe (single exe, plugin DLLs embedded), dist/ASH-Plugin-<Version>.zip (manual NETLOAD)
-# and dist/ASH-Runner-<Version>-win-x64.zip (ash-run.exe, self-contained single file: no .NET install needed).
+# and dist/ASH-Runner-<Version>-win-x64.zip (ash-run.exe, self-contained single file: no .NET install needed)
+# and dist/ASH-Server-<Version>-win-x64.zip (ASH.Server.exe self-contained single file + appsettings.json + README-server.txt).
 # Version comes from <Version> in Directory.Build.props.
 # Also dist/ASH.json (release manifest: version, ASH_MIN_SUPPORTED or the current version as minSupported, SHA-256/size of the Setup exe)
 # and dist/ASH.json.sig when $env:ASH_SIGNING_KEY points at the private-key PEM (AshRelease keygen). -RequireSignature fails without that key or without update-key.pub in the repo root;
@@ -47,4 +48,10 @@ dotnet publish "$root\src\ASH.Runner" -c Release -r win-x64 -o $pub -nologo -v q
 if ($LASTEXITCODE) { throw "dotnet publish ash-run failed (exit $LASTEXITCODE)" }
 $runnerZip = "$dist\ASH-Runner-$version-win-x64.zip"
 Compress-Archive -Path "$pub\ash-run.exe" -DestinationPath $runnerZip -Force
-Get-Item $exe, $zip, $runnerZip, $manifest, "$manifest.sig" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ("{0}  {1:N0} bytes" -f $_.FullName, $_.Length) }
+$serverPub = "$root\src\ASH.Server\bin\Release\publish"
+if (Test-Path $serverPub) { Remove-Item $serverPub -Recurse -Force }
+dotnet publish "$root\src\ASH.Server" -c Release -r win-x64 -o $serverPub -nologo -v q
+if ($LASTEXITCODE) { throw "dotnet publish ASH.Server failed (exit $LASTEXITCODE)" }
+$serverZip = "$dist\ASH-Server-$version-win-x64.zip"
+Compress-Archive -Path "$serverPub\ASH.Server.exe", "$serverPub\appsettings.json", "$root\src\ASH.Server\README-server.txt" -DestinationPath $serverZip -Force
+Get-Item $exe, $zip, $runnerZip, $serverZip, $manifest, "$manifest.sig" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ("{0}  {1:N0} bytes" -f $_.FullName, $_.Length) }
