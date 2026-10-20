@@ -12,13 +12,14 @@ namespace ASH.Server.Tests;
 /// <summary>Server over a temp release folder. key=true: a fresh P-256 key is injected via Update:PublicKeyPem, otherwise "no key" (empty override).</summary>
 public sealed class Env : IDisposable
 {
+    public const string Token = "test-token-1234567890";
     public readonly string Dir = Path.Combine(Path.GetTempPath(), "ash-server-test-" + Guid.NewGuid().ToString("N"));
     public readonly ECDsa Key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
     public readonly WebApplicationFactory<Program> Factory;
     public readonly HttpClient Http;
     public ReleaseStore Store => Factory.Services.GetRequiredService<ReleaseStore>();
 
-    public Env(bool key = true, string token = "t")
+    public Env(bool key = true, string token = Token)
     {
         var pem = key ? Key.ExportSubjectPublicKeyInfoPem() : "";
         Factory = new WebApplicationFactory<Program>().WithWebHostBuilder(b =>
@@ -32,21 +33,21 @@ public sealed class Env : IDisposable
 
     public sealed record Release(byte[] Json, byte[] Sig, byte[] Setup, string File, string Version);
 
-    public Release MakeRelease(string version, string? setupText = null, bool sign = true)
+    public Release MakeRelease(string version, string? setupText = null, bool sign = true, string? published = null)
     {
         var setup = Encoding.UTF8.GetBytes(setupText ?? "setup-bytes-" + version);
         var m = new ReleaseManifest
         {
             Version = version, MinSupported = "0.1.0", File = $"ASH-Setup-{version}.exe",
             Sha256 = Convert.ToHexString(SHA256.HashData(setup)).ToLowerInvariant(), Size = setup.Length,
-            Published = ReleaseManifest.FormatPublished(DateTime.UtcNow),
+            Published = published ?? ReleaseManifest.FormatPublished(DateTime.UtcNow),
         };
         var json = m.ToJson();
         var sig = sign ? Key.SignData(json, HashAlgorithmName.SHA256, DSASignatureFormat.Rfc3279DerSequence) : Array.Empty<byte>();
         return new Release(json, sig, setup, m.File, version);
     }
 
-    public Task<HttpResponseMessage> Upload(Release r, string? token = "t", string query = "", bool withSig = true, string? setupName = null, byte[]? setup = null, byte[]? sig = null, bool withSetup = true)
+    public Task<HttpResponseMessage> Upload(Release r, string? token = Token, string query = "", bool withSig = true, string? setupName = null, byte[]? setup = null, byte[]? sig = null, bool withSetup = true)
     {
         var form = new MultipartFormDataContent();
         form.Add(new ByteArrayContent(r.Json), "manifest", "ASH.json");
@@ -65,7 +66,7 @@ public sealed class Env : IDisposable
         Http.Dispose();
         Factory.Dispose();
         Key.Dispose();
-        try { Directory.Delete(Dir, true); } catch (IOException) { }
+        try { Directory.Delete(Dir, true); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
     }
 }
 
@@ -114,6 +115,16 @@ public class ServerTests
         using var e = new Env(token: "");
         Assert.Equal(HttpStatusCode.Forbidden, (await e.Upload(e.MakeRelease("0.2.0"), "")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await e.Upload(e.MakeRelease("0.2.0"), null)).StatusCode);
+        Assert.Contains("꺼짐", await e.Http.GetStringAsync("/"));
+    }
+
+    [Theory]
+    [InlineData("short")]
+    [InlineData("0123456789abcde")] // 15 chars
+    public async Task Short_admin_token_disables_uploads_with_403(string token)
+    {
+        using var e = new Env(token: token);
+        Assert.Equal(HttpStatusCode.Forbidden, (await e.Upload(e.MakeRelease("0.2.0"), token)).StatusCode);
         Assert.Contains("꺼짐", await e.Http.GetStringAsync("/"));
     }
 
@@ -228,6 +239,55 @@ public class ServerTests
     }
 
     [Fact]
+    public async Task Failure_after_sig_swap_restores_previous_signature()
+    {
+        using var e = new Env();
+        var v1 = e.MakeRelease("0.2.0");
+        await e.Published(v1);
+        e.Store.Stage = s => { if (s == "sig-swapped") throw new IOException("boom"); };
+        var code = (await e.Upload(e.MakeRelease("0.3.0"))).StatusCode;
+        e.Store.Stage = null;
+        Assert.Equal(HttpStatusCode.InternalServerError, code);
+        Assert.Equal(v1.Sig, await e.Get("/api/ash/version.sig")); // old manifest must not sit next to the new signature
+        Assert.Equal(v1.Json, await e.Get("/api/ash/version"));
+        var cur = ReleaseManifest.Parse(await e.Get("/api/ash/version"));
+        Assert.True(e.Store.Key!.Verify(await e.Get("/api/ash/version"), await e.Get("/api/ash/version.sig")));
+        Assert.Equal("0.2.0", cur.Version);
+    }
+
+    [Fact]
+    public async Task Version_and_sig_are_no_store()
+    {
+        using var e = new Env();
+        await e.Published(e.MakeRelease("0.2.0"));
+        foreach (var path in new[] { "/api/ash/version", "/api/ash/version.sig" })
+            Assert.Contains("no-store", (await e.Http.GetAsync(path)).Headers.CacheControl?.ToString());
+    }
+
+    [Fact]
+    public async Task Status_page_html_encodes_manifest_text()
+    {
+        using var e = new Env();
+        await e.Published(e.MakeRelease("0.2.0", published: "<script>alert(1)</script>"));
+        await e.Published(e.MakeRelease("0.3.0"));
+        var page = await e.Http.GetStringAsync("/"); // 0.2.0 is in the history list
+        Assert.DoesNotContain("<script>", page);
+        Assert.Contains("&lt;script&gt;", page);
+    }
+
+    [Fact]
+    public async Task Same_hash_upload_keeps_existing_file()
+    {
+        using var e = new Env();
+        var a = e.MakeRelease("0.2.0");
+        await e.Published(a);
+        var path = Path.Combine(e.Dir, "files", a.File);
+        File.SetLastWriteTimeUtc(path, new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        await e.Published(a);
+        Assert.Equal(new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc), File.GetLastWriteTimeUtc(path)); // not replaced
+    }
+
+    [Fact]
     public async Task Without_key_unsigned_upload_is_accepted_and_status_warns()
     {
         using var e = new Env(key: false);
@@ -270,5 +330,28 @@ public class ServerTests
     {
         using var e = new Env();
         Assert.Equal(HttpStatusCode.OK, (await e.Http.GetAsync("/healthz")).StatusCode);
+    }
+}
+
+public class UnitTests
+{
+    [Fact]
+    public void Create_args_quote_the_binary_path()
+    {
+        const string exe = @"C:\Program Files\ASH Server\ASH.Server.exe";
+        var a = ServiceCommand.BuildCreateArgs(exe);
+        Assert.Equal(new[] { "create", "ASH.Server", "binPath=", "\"" + exe + "\"", "start=", "auto", "DisplayName=", "ASH Server" }, a);
+    }
+
+    [Theory]
+    [InlineData(null, "EMB", false, "EMB")]
+    [InlineData("", "EMB", false, "EMB")]  // empty override ignored outside Development
+    [InlineData("", "EMB", true, "")]      // ... honoured in Development
+    [InlineData("OVR", "EMB", false, "OVR")]
+    [InlineData("OVR", null, false, "OVR")]
+    [InlineData(null, null, false, null)]
+    public void ResolveKeyPem_rules(string? over, string? embedded, bool dev, string? expected)
+    {
+        Assert.Equal(expected, ReleaseStore.ResolveKeyPem(over, embedded, dev, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance));
     }
 }

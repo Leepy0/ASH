@@ -20,13 +20,14 @@ public sealed record CurrentRelease(byte[] Json, ReleaseManifest Manifest);
 public sealed class ReleaseStore
 {
     public const string HeaderName = "X-ASH-Admin-Token";
+    public const int MinTokenLength = 16;
     private const long MaxManifestBytes = 1 << 20, MaxSignatureBytes = 4096;
 
     private readonly ILogger _log;
     private readonly byte[]? _token;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
-    /// <summary>Test hook: called with "validated" and "moved" during an upload; a throw there simulates a mid-upload failure.</summary>
+    /// <summary>Test hook: called with "validated", "moved" and "sig-swapped" during an upload; a throw there simulates a mid-upload failure.</summary>
     internal Action<string>? Stage { get; set; }
 
     public string Dir { get; }
@@ -41,7 +42,9 @@ public sealed class ReleaseStore
     {
         Dir = dir;
         _log = log;
-        _token = string.IsNullOrEmpty(adminToken) ? null : Encoding.UTF8.GetBytes(adminToken);
+        if (!string.IsNullOrEmpty(adminToken) && adminToken.Length < MinTokenLength)
+            _log.LogWarning("Admin:Token이 {Min}자 미만이라 업로드를 끕니다.", MinTokenLength);
+        else if (!string.IsNullOrEmpty(adminToken)) _token = Encoding.UTF8.GetBytes(adminToken);
         Key = string.IsNullOrWhiteSpace(publicKeyPem) ? null : new ManifestSignature(publicKeyPem);
         foreach (var d in new[] { CurrentDir, FilesDir, HistoryDir }) Directory.CreateDirectory(d);
         // leftovers of a crashed upload
@@ -50,14 +53,29 @@ public sealed class ReleaseStore
         else _log.LogInformation("서명 공개키 {KeyId}", Key.KeyId);
     }
 
-    public static ReleaseStore Create(IConfiguration cfg, ILogger log)
+    public static ReleaseStore Create(IConfiguration cfg, IHostEnvironment env, ILogger log)
     {
         var dir = cfg["Releases:Dir"];
         if (string.IsNullOrWhiteSpace(dir)) dir = "%ProgramData%\\ASH.Server\\releases";
         dir = Path.GetFullPath(Environment.ExpandEnvironmentVariables(dir));
-        // Update:PublicKeyPem (test/ops override): set = wins over the embedded key; set but empty = no key at all
-        var pem = cfg["Update:PublicKeyPem"] ?? EmbeddedKey();
+        var pem = ResolveKeyPem(cfg["Update:PublicKeyPem"], EmbeddedKey(), env.IsDevelopment(), log);
         return new ReleaseStore(dir, pem, cfg["Admin:Token"], log);
+    }
+
+    /// <summary>
+    /// Update:PublicKeyPem is a test/dev override of the embedded key: when set it wins (a warning if it replaces an embedded key).
+    /// An EMPTY override ("no key at all") only counts in Development, so a stray empty setting cannot switch signature checking off in production.
+    /// </summary>
+    internal static string? ResolveKeyPem(string? over, string? embedded, bool isDevelopment, ILogger log)
+    {
+        if (over == null) return embedded;
+        if (over.Length == 0 && !isDevelopment)
+        {
+            log.LogWarning("Update:PublicKeyPem이 비어 있지만 개발 환경이 아니라 무시합니다.");
+            return embedded;
+        }
+        if (embedded != null) log.LogWarning("Update:PublicKeyPem 설정이 내장 공개키(update-key.pub)를 대체합니다. 운영에서는 설정하지 마세요.");
+        return over;
     }
 
     private static string? EmbeddedKey()
@@ -152,8 +170,8 @@ public sealed class ReleaseStore
             var dest = Path.Combine(FilesDir, m.File);
             if (File.Exists(dest))
             {
+                // same bytes already published: keep the file (it may be downloading right now)
                 if (await HashFile(dest, ct) != m.Sha256) throw new UploadException(409, $"{m.File}이(가) 이미 있고 내용이 다릅니다. 버전을 올려서 다시 만드세요.");
-                File.Move(staged, dest, overwrite: true);
             }
             else { File.Move(staged, dest); movedNew = dest; }
             Stage?.Invoke("moved");
@@ -164,6 +182,7 @@ public sealed class ReleaseStore
             try
             {
                 if (sig != null) Swap(sigPath, sig); else File.Delete(sigPath);
+                Stage?.Invoke("sig-swapped");
                 Swap(Path.Combine(CurrentDir, ReleaseManifest.FileName), json);
             }
             catch

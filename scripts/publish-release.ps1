@@ -1,15 +1,18 @@
 # Uploads dist/ASH.json, dist/ASH.json.sig (if present) and the Setup exe named in the manifest to an ASH.Server.
-#   publish-release.ps1 -Server http://host:5080 -Token <Admin:Token> [-Dist dist] [-Force]
+#   publish-release.ps1 -Server http://host:5080 [-Token <Admin:Token>] [-Dist <folder>] [-Force]
+# -Token defaults to $env:ASH_ADMIN_TOKEN (keeps the token out of the command line / history). -Dist defaults to <repo>\dist.
 # -Force also allows publishing a version lower than the current one (rollback).
 # Uses System.Net.Http.HttpClient so it behaves the same on Windows PowerShell 5.1 and PowerShell 7 (streams the exe, no -Form needed).
 param(
     [Parameter(Mandatory)][string]$Server,
-    [Parameter(Mandatory)][string]$Token,
-    [string]$Dist = 'dist',
+    [string]$Token = $env:ASH_ADMIN_TOKEN,
+    [string]$Dist,
     [switch]$Force
 )
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Net.Http
+if (-not $Token) { throw 'No token: pass -Token or set $env:ASH_ADMIN_TOKEN' }
+if (-not $Dist) { $Dist = Join-Path $PSScriptRoot '..\dist' } # not a param default: $PSScriptRoot is empty there on 5.1
 $Dist = (Resolve-Path $Dist).Path
 $manifestPath = Join-Path $Dist 'ASH.json'
 if (-not (Test-Path $manifestPath)) { throw "$manifestPath not found (run scripts\build-release.ps1)" }
