@@ -489,3 +489,10 @@ report/
 
 # release output (scripts/build-release.ps1)
 dist/
+
+# release signing keys (never commit)
+*.pem
+ash-signing*
+
+# tests/ASH.Tests/Release holds the release-signing tests, not build output
+!tests/ASH.Tests/Release/

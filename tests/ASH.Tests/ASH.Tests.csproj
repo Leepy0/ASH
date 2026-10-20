@@ -25,9 +25,10 @@
     <ProjectReference Include="..\..\src\ASH.Core\ASH.Core.csproj" />
   </ItemGroup>
 
-  <!-- ash-run is net10.0 only; its tests are #if NET10_0_OR_GREATER -->
+  <!-- ash-run and AshRelease are net10.0 only; their tests are #if NET10_0_OR_GREATER -->
   <ItemGroup Condition="'$(TargetFramework)'=='net10.0'">
     <ProjectReference Include="..\..\src\ASH.Runner\ASH.Runner.csproj" />
+    <ProjectReference Include="..\..\tools\AshRelease\AshRelease.csproj" />
   </ItemGroup>
 
 </Project>
