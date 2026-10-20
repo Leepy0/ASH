@@ -1,0 +1,32 @@
+AGVSVEH type DefVehicle numveh 10
+	vehsegs item DefSegment 
+	start nlwork
+	Stacking OTT_LDDISP	
+	 display picpos begx -45.0009908136483 begy 54.3317683727034 endx -44.0009908136483 endy 54.3317683727034
+
+	load Default 
+		accel	0 1 Feet Seconds Seconds
+		decel	0 1 Feet Seconds Seconds
+		vel	0 3 Feet Seconds
+		crvvel	0 3 Feet Seconds
+		sprvel	0 3 Feet Seconds
+		rvel	0 3 Feet Seconds
+		rcrvvel	0 3 Feet Seconds
+		rsprvel	0 3 Feet Seconds
+		crabvel	0 3 Feet Seconds
+		rotate	0 2 Seconds
+		brakedist	0 4.5 Feet
+		stopdist	0 0 Feet
+	load Empty 
+		accel	1 0 Feet Seconds Seconds
+		decel	1 0 Feet Seconds Seconds
+		vel	1 0 Feet Seconds
+		crvvel	1 0 Feet Seconds
+		sprvel	1 0 Feet Seconds
+		rvel	1 0 Feet Seconds
+		rcrvvel	1 0 Feet Seconds
+		rsprvel	1 0 Feet Seconds
+		crabvel	1 0 Feet Seconds
+		rotate	1 0 Seconds
+		brakedist	1 0 Feet
+		stopdist	1 0 Feet

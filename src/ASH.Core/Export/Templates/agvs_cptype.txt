@@ -1,0 +1,1 @@
+CPOINTTYPE name DefaultControlPoint cap 1 release distance 0 Feet align leadingpap limit Infinite scale 1 color -1 nrot 0 nscale 1

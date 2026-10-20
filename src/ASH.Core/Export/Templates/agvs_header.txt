@@ -1,0 +1,21 @@
+SYSDEF timeout 60 Seconds confname Config1
+FLAGS
+	System Inherit
+	Text Invisible Inherit
+	Paths Inherit
+	Path Names Invisible Inherit
+	Direction Invisible Inherit
+	Vehicles Inherit
+	Path Attach Points Invisible Inherit
+	Control Points Invisible Inherit
+	Control Point Names Invisible Inherit
+	Transfers Invisible Inherit
+AGVSDEF secname path31 name workcheck1 UserId 2
+	NEXTPATH name path31 type DefaultGuidePath
+	NEXTCP name workcheck1 type DefaultControlPoint
+	ALTERNATE NONE ignore ResumeSpeedWhenClaimed
+	vel 0 Infinite Feet Seconds
+	crabvel 0 Infinite Feet Seconds
+	sprvel 0 Infinite Feet Seconds
+	crvvel 0 Infinite Feet Seconds
+AGVSTOL minang 450 maxang 1350
