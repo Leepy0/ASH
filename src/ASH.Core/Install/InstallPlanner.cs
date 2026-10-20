@@ -16,10 +16,16 @@ public static class InstallPlanner
     /// Enumerates language sub-keys for installs whose Language is empty. Callers (installer exe) must pass it,
     /// for uninstall too, otherwise empty-language installs get no registry steps (uninstall would leave keys behind).
     /// </param>
-    public static List<InstallStep> Plan(IEnumerable<ZwcadInstall> targets, string dllSourceDir, bool elevated, bool uninstall, IRegistryReader? reg = null)
+    /// <param name="installDirOverride">
+    /// Replaces "&lt;InstallDir&gt;\ASH" as the DLL folder (and LOADER path) for every target; meant for a single-install
+    /// re-plan when the ZWCAD folder is not writable (fallback %ProgramData%\ASH\&lt;ver&gt;).
+    /// </param>
+    public static List<InstallStep> Plan(IEnumerable<ZwcadInstall> targets, string dllSourceDir, bool elevated, bool uninstall,
+                                         IRegistryReader? reg = null, string? installDirOverride = null)
     {
         var list = targets.Distinct().ToList();
-        var dirs = list.Select(t => t.InstallDir.TrimEnd('\\')).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        string AshDir(ZwcadInstall t) => installDirOverride?.TrimEnd('\\') ?? t.InstallDir.TrimEnd('\\') + @"\ASH";
+        var dirs = list.Select(AshDir).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
         var regs = new List<InstallStep>();
         var warns = new List<InstallStep>();
         var seenKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -29,7 +35,7 @@ public static class InstallPlanner
             var key = hive + @"\Software\ZWSoft\ZWCAD\" + t.Version + "\\" + lang + @"\Applications\ASH";
             if (!seenKeys.Add(key)) return;
             if (uninstall) { regs.Add(new InstallStep("DeleteKey", key, null)); return; }
-            var loader = t.InstallDir.TrimEnd('\\') + @"\ASH\ASH.Plugin.dll";
+            var loader = AshDir(t) + @"\ASH.Plugin.dll";
             regs.Add(new InstallStep("RegString", key + @"\LOADER", loader));
             regs.Add(new InstallStep("RegDword", key + @"\LOADCTRLS", "2"));
             regs.Add(new InstallStep("RegDword", key + @"\MANAGED", "1"));
@@ -62,9 +68,9 @@ public static class InstallPlanner
         }
 
         if (uninstall)
-            return regs.Concat(dirs.Select(d => new InstallStep("DeleteDir", d + @"\ASH", null))).ToList();
+            return regs.Concat(dirs.Select(d => new InstallStep("DeleteDir", d, null))).ToList();
 
-        var dests = dirs.SelectMany(d => Files.Select(f => (dest: d + @"\ASH\" + f, src: dllSourceDir.TrimEnd('\\') + "\\" + f))).ToList();
+        var dests = dirs.SelectMany(d => Files.Select(f => (dest: d + "\\" + f, src: dllSourceDir.TrimEnd('\\') + "\\" + f))).ToList();
         return dests.Select(x => new InstallStep("CopyFile", x.dest, x.src))
             .Concat(dests.Select(x => new InstallStep("Unblock", x.dest, null)))
             .Concat(regs).Concat(warns).ToList();

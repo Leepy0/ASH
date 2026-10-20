@@ -53,3 +53,20 @@ public sealed class FakeFs : IFileSystem
                               && System.IO.Path.GetFileName(d).StartsWith(pre, StringComparison.OrdinalIgnoreCase)).ToList();
     }
 }
+
+/// <summary>Records file and registry side effects; paths in <see cref="Denied"/> throw UnauthorizedAccessException on Copy.</summary>
+public sealed class FakeOps : IFileOps, IRegistryWriter
+{
+    public readonly List<string> Log = new();
+    public readonly HashSet<string> Denied = new(StringComparer.OrdinalIgnoreCase);
+    public void Copy(string source, string dest)
+    {
+        if (Denied.Any(d => dest.StartsWith(d, StringComparison.OrdinalIgnoreCase))) throw new UnauthorizedAccessException("denied " + dest);
+        Log.Add("copy " + dest);
+    }
+    public void Unblock(string path) => Log.Add("unblock " + path);
+    public void DeleteDir(string path) => Log.Add("rmdir " + path);
+    public void SetString(string hive, string path, string name, string value) => Log.Add($"sz {hive}|{path}|{name}={value}");
+    public void SetDword(string hive, string path, string name, int value) => Log.Add($"dw {hive}|{path}|{name}={value}");
+    public void DeleteKey(string hive, string path) => Log.Add($"delkey {hive}|{path}");
+}
