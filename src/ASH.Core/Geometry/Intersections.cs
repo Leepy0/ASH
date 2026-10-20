@@ -50,7 +50,8 @@ public static class Intersections
         if (A <= 0) return res;
         double R = b.Radius, B = 2 * (fx * dx + fy * dy), C = fx * fx + fy * fy - R * R;
         double disc = B * B - 4 * A * C;
-        if (disc < 0) return res;
+        // near-tangent: accept a line passing within tol of the circle (disc of a circle grown by tol), treat as tangent
+        if (disc < 0) { if (disc < -4 * A * (2 * R * tol + tol * tol)) return res; disc = 0; }
         double sq = Math.Sqrt(disc), len = Math.Sqrt(A), et = tol / len;
         var ts = sq < 1e-12 ? new[] { -B / (2 * A) } : new[] { (-B - sq) / (2 * A), (-B + sq) / (2 * A) };
         foreach (var t in ts)

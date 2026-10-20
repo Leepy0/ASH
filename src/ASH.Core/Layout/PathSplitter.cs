@@ -15,10 +15,20 @@ public static class PathSplitter
         var points = Collect(paths, tol, cuts);
         var result = new List<LayoutPath>();
         var renamed = new Dictionary<string, List<string>>();
+        var taken = new HashSet<string>(paths.Select(p => p.Name));
         for (int i = 0; i < paths.Count; i++)
         {
             var pieces = cuts.TryGetValue(i, out var c) ? SplitAt(paths[i], c, tol) : new List<LayoutPath> { paths[i] };
-            if (pieces.Count > 1) renamed[paths[i].Name] = pieces.Select(p => p.Name).ToList();
+            if (pieces.Count > 1)
+            {
+                int k = 1;
+                foreach (var piece in pieces)
+                {
+                    while (!taken.Add(paths[i].Name + "_" + k)) k++; // skip suffixes already used by other paths
+                    piece.Name = paths[i].Name + "_" + k++;
+                }
+                renamed[paths[i].Name] = pieces.Select(p => p.Name).ToList();
+            }
             result.AddRange(pieces);
         }
         return new SplitResult(result, points.Count, renamed);
@@ -68,22 +78,29 @@ public static class PathSplitter
         return new LineSeg(s.PointAt(d0), s.PointAt(d1));
     }
 
-    // Finds distinct intersection points across paths and fills cuts (path index -> distances from path start).
+    // Finds distinct intersection points (incl. self-intersections and path ends lying on another path's interior)
+    // and fills cuts (path index -> distances from path start).
     private static List<Point2> Collect(IReadOnlyList<LayoutPath> paths, double tol, Dictionary<int, List<double>> cuts)
     {
-        var segs = new List<(int Path, double Off, Segment Seg, double X0, double X1, double Y0, double Y1)>();
+        // Seg == null marks a path end (End) entry, swept together with segments for the T-junction projection pass.
+        var segs = new List<(int Path, int Index, double Off, Segment? Seg, Point2 End, double X0, double X1, double Y0, double Y1)>();
         for (int i = 0; i < paths.Count; i++)
         {
+            if (paths[i].Segments.Count == 0) continue;
             double off = 0;
-            foreach (var s in paths[i].Segments)
+            for (int k = 0; k < paths[i].Segments.Count; k++)
             {
+                var s = paths[i].Segments[k];
                 var (x0, y0, x1, y1) = Bounds(s);
-                segs.Add((i, off, s, x0 - tol, x1 + tol, y0 - tol, y1 + tol));
+                segs.Add((i, k, off, s, default, x0 - tol, x1 + tol, y0 - tol, y1 + tol));
                 off += s.Length;
             }
+            foreach (var e in new[] { paths[i].Start, paths[i].End })
+                segs.Add((i, -1, 0, null, e, e.X - tol, e.X + tol, e.Y - tol, e.Y + tol));
         }
         var order = Enumerable.Range(0, segs.Count).OrderBy(i => segs[i].X0).ToList();
         var points = new List<Point2>();
+        void Hit(Point2 pt) { if (!points.Any(q => q.DistanceTo(pt) <= tol)) points.Add(pt); }
         for (int oi = 0; oi < order.Count; oi++)
         {
             var a = segs[order[oi]];
@@ -91,11 +108,29 @@ public static class PathSplitter
             {
                 var b = segs[order[oj]];
                 if (b.X0 > a.X1) break;
-                if (a.Path == b.Path || b.Y0 > a.Y1 || a.Y0 > b.Y1) continue;
+                if (b.Y0 > a.Y1 || a.Y0 > b.Y1) continue;
+                if (a.Seg == null && b.Seg == null) continue;
+                if (a.Seg == null || b.Seg == null)
+                {
+                    // T-junction: a path end on another path's interior (or on its own interior: P-loop).
+                    var (e, s) = a.Seg == null ? (a, b) : (b, a);
+                    double along = s.Seg!.DistanceAlong(e.End);
+                    if (s.Seg.PointAt(along).DistanceTo(e.End) > tol) continue;
+                    if (e.Path != s.Path && NearPathEnd(paths[s.Path], e.End, tol)) continue;
+                    double d = s.Off + along;
+                    if (d <= tol || d >= paths[s.Path].Length - tol) continue;
+                    Hit(e.End);
+                    AddCut(cuts, paths, s.Path, d, tol);
+                    continue;
+                }
+                bool self = a.Path == b.Path;
+                if (self && a.Index == b.Index) continue;
                 foreach (var pt in Intersections.SegSeg(a.Seg, b.Seg, tol))
                 {
-                    if (NearPathEnd(paths[a.Path], pt, tol) && NearPathEnd(paths[b.Path], pt, tol)) continue; // plain end-to-end touch
-                    if (!points.Any(q => q.DistanceTo(pt) <= tol)) points.Add(pt);
+                    if (NearPathEnd(paths[a.Path], pt, tol) && NearPathEnd(paths[b.Path], pt, tol)) continue; // plain end-to-end touch; self: handled by the T pass
+                    if (self && Math.Abs(a.Index - b.Index) == 1 &&
+                        (a.Index < b.Index ? a.Seg.End : b.Seg.End).DistanceTo(pt) <= tol) continue; // shared vertex of adjacent segments
+                    Hit(pt);
                     AddCut(cuts, paths, a.Path, a.Off + a.Seg.DistanceAlong(pt), tol);
                     AddCut(cuts, paths, b.Path, b.Off + b.Seg.DistanceAlong(pt), tol);
                 }
