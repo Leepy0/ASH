@@ -5,8 +5,9 @@ using ASH.Core.Input;
 
 namespace ASH.Core.Runner;
 
-/// <summary>Note = data problems the numbers hide (missing report/result row); null when clean.</summary>
-public sealed record RunKpi(string Group, int Active, double Utilization, double MinStockRatio, int Supplies, double Expected,
+/// <summary>Note = data problems the numbers hide (missing report/result row); null when clean. Supplies (deliveries) is reported only;
+/// Consumed (containers consumed after warmup) against Expected is what Judge checks.</summary>
+public sealed record RunKpi(string Group, int Active, double Utilization, double MinStockRatio, int Supplies, double Consumed, double Expected,
     double StopTimeSec, int Deadlocks, string? Note = null);
 
 public static class Kpi
@@ -14,7 +15,9 @@ public static class Kpi
     const double Pass = 1e9;
 
     /// <summary>One KPI per group. Utilization = (delivering+retrieving time share summed over the type's vehicles) / active,
-    /// since excess vehicles are parked and add nothing; NaN when the report is missing or lacks the type. MinStockRatio = min over the
+    /// since excess vehicles are parked and add nothing; NaN when the report is missing or lacks the type. Utilization comes from the AM
+    /// .report, which covers the whole run including warmup (AM has no statistics reset from logic), so it is diluted by the warmup share
+    /// when the warmup is quieter or busier than the rest. MinStockRatio = min over the
     /// group's input materials of minStock/safety (a material without a result row counts 0; no materials, or zero safety stock with
     /// no stop time, pass). Deadlocks is the model-wide count, repeated per group.</summary>
     public static IReadOnlyList<RunKpi> FromRun(ResultSet rs, ReportStats? report, ProjectInput input)
@@ -30,7 +33,7 @@ public static class Kpi
             else if (!report.Types.TryGetValue(g.Type, out var ts)) notes.Add($"보고서에 {g.Type} 통계 없음: 가동률 미산출");
             else util = Math.Min(1.0, ts.Vehicles.Sum(v => v.DeliveringPct + v.RetrievingPct) / active);
 
-            double ratio = Pass, supplies = 0, expected = 0, stop = 0;
+            double ratio = Pass, supplies = 0, consumed = 0, expected = 0, stop = 0;
             foreach (var mi in input.Materials.Where(x => x.Group == g.Group))
             {
                 var m = rs.Materials.FirstOrDefault(x => x.Name == mi.Material && x.Group == g.Group);
@@ -38,9 +41,9 @@ public static class Kpi
                 var safety = mi.SafetyStock ?? input.Settings.SafetyStock;
                 var rr = safety > 0 ? m.MinStock / safety : (m.MinStock >= 0 && m.StopTimeSec == 0 ? Pass : 0);
                 ratio = Math.Min(ratio, rr);
-                supplies += m.Supplies; expected += m.Expected; stop += m.StopTimeSec;
+                supplies += m.Supplies; consumed += m.Consumed; expected += m.Expected; stop += m.StopTimeSec;
             }
-            list.Add(new RunKpi(g.Group, active, util, ratio, (int)supplies, expected, stop, rs.Deadlocks,
+            list.Add(new RunKpi(g.Group, active, util, ratio, (int)supplies, consumed, expected, stop, rs.Deadlocks,
                 notes.Count == 0 ? null : string.Join("; ", notes)));
         }
         return list;

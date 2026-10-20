@@ -46,7 +46,7 @@ public static class ParamsFile
             L((i + 1) + " " + N(m.CallThreshold) + " " + N(m.UnloadThreshold) + " " + N(init) + " " + N(m.SafetyStock ?? st.SafetyStock)
               + " " + N(m.TaktTime) + " " + N(m.UnitsPerCycle) + " " + N(m.UnitsPerContainer));
         }
-        L("SIM " + N(st.SimLengthSec) + " " + N(st.WarmupSec));
+        L("SIM " + N(st.SimLengthSec) + " " + N(st.WarmupSec) + " " + N(st.DeadlockSec));
         L("DEBUG " + (s.Debug ? 1 : 0));
         L("END");
         return sb.ToString();

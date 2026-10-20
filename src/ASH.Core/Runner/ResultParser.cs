@@ -38,7 +38,7 @@ public static class ResultParser
             double V(int k) => k < vals.Length ? vals[k] : 0; // k = value index - 1
             switch (c[0])
             {
-                case "material": mats.Add(new MaterialResult(c[1], c[2], V(0), V(1), (int)V(2), V(3), V(4))); break;
+                case "material": mats.Add(new MaterialResult(c[1], c[2], V(0), V(1), (int)V(2), V(3), V(4), V(5))); break;
                 case "group": groups.Add(new GroupResult(c[1], (int)V(0))); break;
                 case "block": blocks.Add(new BlockResult(c[1], V(0), V(1), V(2), V(3))); break;
                 case "blockgroup": bgs.Add(new BlockGroupResult(c[1], c[2], V(0), V(1))); break;

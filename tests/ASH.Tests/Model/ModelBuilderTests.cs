@@ -153,7 +153,7 @@ public class ServerAssemblyTests
         {
             var r = ModelBuilder.Build(new ModelBuildRequest(dir, "m", input, Loop(), Opt(null), MaterialOverrides: mats), null, TimeSpan.Zero);
             Assert.Contains("1 7 9 8 ", File.ReadAllText(Path.Combine(r.ArcDir, "params.txt")));
-            Assert.Equal(2, input.Materials[0].CallThreshold); // original untouched
+            Assert.Equal(4, input.Materials[0].CallThreshold); // original untouched
             Directory.Delete(dir, true);
 
             var r2 = ModelBuilder.Build(new ModelBuildRequest(dir, "m", input, Loop(), Opt(null), MaterialOverrides: mats.Take(1).ToList()), null, TimeSpan.Zero);

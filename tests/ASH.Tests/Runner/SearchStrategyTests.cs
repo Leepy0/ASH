@@ -19,7 +19,7 @@ public class SearchStrategyTests
             Calls++;
             Assert.True(keys.Add(s.Seed + "|" + string.Join(",", s.ActiveByGroup.OrderBy(k => k.Key).Select(k => k.Value))), "duplicate run");
             // G2 utilization drops 0.01 per G1 vehicle (gives the impact table something to show)
-            return s.ActiveByGroup.Select(kv => new RunKpi(kv.Key, kv.Value, kv.Key == "G2" ? 0.5 - 0.01 * s.ActiveByGroup["G1"] : 0.5, 2, 10, 10,
+            return s.ActiveByGroup.Select(kv => new RunKpi(kv.Key, kv.Value, kv.Key == "G2" ? 0.5 - 0.01 * s.ActiveByGroup["G1"] : 0.5, 2, 10, 10, 10,
                 Fail(s, kv.Key) ? 10 : 0, 0)).ToList();
         }
     }

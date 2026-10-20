@@ -19,7 +19,7 @@ public class ParamsFileTests
     public void Render_Matches_Spec_Format()
     {
         var s = ParamsFile.Render(Make("Fixed", 0), new RunScenario(7, new Dictionary<string, int> { ["work"] = 3 }));
-        Assert.Equal("SEED 7\nGROUPS 1\n1 3\nMATERIALS 2\n1 3 5 10 1.5 60 1 4\n2 3 5 8 2 90.5 2 4\nSIM 28800 3600\nDEBUG 0\nEND\n", s);
+        Assert.Equal("SEED 7\nGROUPS 1\n1 3\nMATERIALS 2\n1 3 5 10 1.5 60 1 4\n2 3 5 8 2 90.5 2 4\nSIM 28800 3600 600\nDEBUG 0\nEND\n", s);
         Assert.EndsWith("DEBUG 1\nEND\n", ParamsFile.Render(Make("Fixed", 0), new RunScenario(7, new Dictionary<string, int>(), true)));
     }
 

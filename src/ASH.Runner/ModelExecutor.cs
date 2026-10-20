@@ -41,7 +41,7 @@ public sealed class ModelExecutor
         {
             failed = true; error = o.Success ? e.Message : error ?? e.Message; // a parse failure after an OK exit still counts as a failed run
             kpis = input.Groups.Select(g => new RunKpi(g.Group, s.ActiveByGroup.TryGetValue(g.Group, out var n) ? n : g.MinCount,
-                double.NaN, double.NaN, 0, 0, 0, 0, "run failed: " + e.Message)).ToList();
+                double.NaN, double.NaN, 0, 0, 0, 0, 0, "run failed: " + e.Message)).ToList();
         }
         if (failed) lock (FailureMessages) { Failures++; FailureMessages.Add($"{o.RunId}: {error}"); }
         var scen = ModelRunner.ScenarioText(input, s);

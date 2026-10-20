@@ -97,6 +97,7 @@ public static class ExcelReader
             InitStockSpread = N("InitStockSpread", def.InitStockSpread),
             TrafficMode = S("TrafficMode", def.TrafficMode),
             WorkDefinition = S("WorkDefinition", def.WorkDefinition),
+            DeadlockSec = N("DeadlockSec", def.DeadlockSec),
         };
 
         foreach (var r in Rows(wb, "AGV_Types"))

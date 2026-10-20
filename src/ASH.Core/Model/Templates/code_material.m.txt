@@ -22,6 +22,7 @@ begin P_consume_{{M}} arriving procedure
 				if ac > V_stopSince({{M}}) then inc V_stop({{M}}) by ac - V_stopSince({{M}})
 			end
 			dec V_stock({{M}}) by V_need({{M}})
+			if ac >= V_warmup then inc V_consumed({{M}}) by V_need({{M}})
 		end
 		if ac >= V_warmup then begin
 			inc V_samples({{M}}) by 1

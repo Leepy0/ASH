@@ -48,6 +48,7 @@ public static class ExcelTemplate
         ("InitStockSpread", "10", "Uniform의 N(%) 또는 Staggered 오프셋(용기)"),
         ("TrafficMode", "Block", "Block / CPOnly"),
         ("WorkDefinition", "LoadToUnload", "LoadToUnload / CallToReturn"),
+        ("DeadlockSec", "600", "한 구간 이동이 이 시간(초)을 넘으면 교착"),
     };
 
     static void Put(IXLCell cell, string v)

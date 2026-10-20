@@ -24,7 +24,7 @@ begin model initialization function
 		set V_minStock(V_i) to 1000000000
 		inc V_i by 1
 	end
-	read V_tok, V_simLen, V_warmup from V_fp
+	read V_tok, V_simLen, V_warmup, V_deadlockSec from V_fp
 	read V_tok, V_debug from V_fp
 	close V_fp
 	set V_fp to null

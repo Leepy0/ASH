@@ -19,7 +19,7 @@ public class ParallelExecutorTests
             lock (inUse) { Assert.True(inUse.Add(slot), "slot used twice at once"); peak = Math.Max(peak, ++now); }
             Thread.Sleep(30 + (s.Seed % 3) * 20);                    // finish out of order
             lock (inUse) { now--; inUse.Remove(slot); }
-            return new[] { new RunKpi("G1", 1, s.Seed / 100.0, 2, s.Seed, 0, 0, 0) };
+            return new[] { new RunKpi("G1", 1, s.Seed / 100.0, 2, s.Seed, 0, 0, 0, 0) };
         });
         var res = ex.ExecuteMany(Enumerable.Range(1, 12).Select(S).ToList());
         Assert.Equal(Enumerable.Range(1, 12), res.Select(r => r[0].Supplies));
@@ -35,7 +35,7 @@ public class ParallelExecutorTests
         {
             Assert.Equal(1, slot);
             peak = Math.Max(peak, Interlocked.Increment(ref now)); Thread.Sleep(10); Interlocked.Decrement(ref now);
-            return new[] { new RunKpi("G1", 1, 0, 2, s.Seed, 0, 0, 0) };
+            return new[] { new RunKpi("G1", 1, 0, 2, s.Seed, 0, 0, 0, 0) };
         });
         Assert.Equal(7, ex.Execute(S(7))[0].Supplies);
         ex.ExecuteMany(Enumerable.Range(1, 5).Select(S).ToList());

@@ -2,7 +2,9 @@ using System.Collections.Generic;
 
 namespace ASH.Core.Runner;
 
-public sealed record MaterialResult(string Name, string Group, double MinStock, double AvgStock, int Supplies, double Expected, double StopTimeSec);
+/// <summary>Supplies = deliveries after warmup; Consumed = containers consumed after warmup (value6); Expected = theoretical consumption.</summary>
+public sealed record MaterialResult(string Name, string Group, double MinStock, double AvgStock, int Supplies, double Expected, double StopTimeSec,
+    double Consumed);
 public sealed record GroupResult(string Group, int ActiveCount);
 public sealed record BlockResult(string Name, double Passes, double AvgWaitSec, double MaxWaitSec, double Utilization);
 

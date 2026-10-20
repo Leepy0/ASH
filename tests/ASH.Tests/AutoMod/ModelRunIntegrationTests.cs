@@ -220,4 +220,28 @@ public class ModelRunIntegrationTests
         Console.WriteLine($"verdict {v.Ok} '{v.Reason}' util {kpi.Utilization}");
         Cleanup(run.Work);
     }
+
+    [SkippableFact]
+    public void Run_Fixed_High_Init_Stock_Passes_On_Consumption_Despite_Few_Supplies()
+    {
+        Skip.If(AmHome is null, "ASH_AM_HOME not set");
+        var input = LogicGeneratorTests.Sample();
+        for (int i = 0; i < input.Materials.Count; i++) input.Materials[i] = input.Materials[i] with { InitStock = 8 }; // Call 4: first call after 40 takts
+        var run = BuildAndRun(input, 1);
+        var verdicts = new List<(int Active, RunKpi Kpi, Verdict V)>();
+        for (int n = 1; n <= 3; n++)
+        {
+            var o = n == 1 ? run.Result : ModelRunner.Run(new RunRequest(run.Work, Model, input, new RunScenario(1, new Dictionary<string, int> { ["G1"] = n }), TimeSpan.FromMinutes(2), "Student Version"));
+            Assert.True(o.Success, o.Error);
+            var k = Kpi.FromRun(ResultParser.Parse(o.ResultTsvPath!), ResultParser.ParseReport(o.ReportPath!), input).Single();
+            var v = Judge.Evaluate(new[] { k }, input.Settings);
+            Console.WriteLine($"n{n}: supplies {k.Supplies} consumed {k.Consumed} expected {k.Expected} stop {k.StopTimeSec} stock {k.MinStockRatio} util {k.Utilization} -> {v.Ok} {v.Reason}");
+            verdicts.Add((n, k, v));
+            if (v.Ok) break;
+        }
+        var ok = Assert.Single(verdicts, x => x.V.Ok);
+        Assert.True(ok.Kpi.Supplies < 0.95 * ok.Kpi.Expected, "old supplies rule would have failed this run");
+        Assert.Equal(0, ok.Kpi.StopTimeSec);
+        Cleanup(run.Work);
+    }
 }

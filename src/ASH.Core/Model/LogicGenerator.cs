@@ -89,8 +89,8 @@ public static class LogicGenerator
             int gi = i + 1;
             var parkOk = string.Join("\n", StandbyOf(g, layout).Select(cp => $"\tif parkLoc = {sys}:{cp} then return true"));
             groupLogic.Append(Fill(Res("code_group.m.txt"), ("G", gi.ToString()), ("TYPE", Lit(g.Type)), ("SYS", sys), ("PARK_OK", parkOk)));
-            snap.Append($"\tset V_tmp to {g.MaxCount} - V_parked({gi})\n");
-            snap.Append($"\tprint \"group\\t{Lit(g.Group)}\\t{g.Group}\\t\" V_tmp \"\\t0\\t0\\t0\\t0\\t0\\t0\\t0\" to V_out\n");
+            // value1 = the requested active count; Max - parked would count never-woken vehicles as active
+            snap.Append($"\tprint \"group\\t{Lit(g.Group)}\\t{g.Group}\\t\" V_active({gi}) \"\\t0\\t0\\t0\\t0\\t0\\t0\\t0\" to V_out\n");
         }
 
         // blockgroup wait keys (block, group) -> 1-based slot; a leg to a traffic-entry CP counts for that CP's block, any other leg for "-".
@@ -104,6 +104,7 @@ public static class LogicGenerator
             if (ix < 0) { bgKeys.Add(key); ix = bgKeys.Count - 1; }
             return ix + 1;
         }
+        int nm = input.Materials.Count;
         var matLogic = new StringBuilder();
         var create = new StringBuilder();
         for (int i = 0; i < input.Materials.Count; i++)
@@ -113,18 +114,23 @@ public static class LogicGenerator
             var r = RouteOf(input, m);
             var g = input.Groups.First(x => x.Group == m.Group);
             var t = input.AgvTypes.FirstOrDefault(x => x.Type == g.Type) ?? throw new ArgumentException($"그룹 '{g.Group}'의 Type '{g.Type}'이(가) AGV_Types에 없습니다.");
-            string Leg(string to) => Fill(Res("code_leg.m.txt"), ("M", mi.ToString()), ("SYS", sys), ("TO", Cp(layout, to)), ("BG", Bg(to, m.Group).ToString()));
+            // leg slot = mi for supply legs, mi + nm for return legs (a return can overlap the next supply of the same material)
+            string Leg(string to, int slot) => Fill(Res("code_leg.m.txt"), ("M", mi.ToString()), ("SLOT", slot.ToString()), ("SYS", sys),
+                ("TO", Cp(layout, to)), ("BG", Bg(to, m.Group).ToString()));
             var legs = new StringBuilder();
             if (!string.IsNullOrEmpty(r.BufferCP))
             {
-                legs.Append(Leg(r.BufferCP!));
+                legs.Append(Leg(r.BufferCP!, mi));
                 legs.Append($"\twhile V_stock({mi}) > V_unload({mi}) do begin\n\t\twait for 5 sec\n\tend\n");
             }
-            legs.Append(Leg(r.SupplyToCP));
+            legs.Append(Leg(r.SupplyToCP, mi));
             var ret = new StringBuilder();
             if (m.EmptyReturn)
-                foreach (var cp in new[] { r.ReturnFromCP, r.ReturnToCP })
-                    if (!string.IsNullOrEmpty(cp)) ret.Append(Leg(cp!));
+            {
+                // empty container: picked up at ReturnFrom (LoadTime), set down at ReturnTo (UnloadTime)
+                if (!string.IsNullOrEmpty(r.ReturnFromCP)) ret.Append(Leg(r.ReturnFromCP!, mi + nm)).Append($"\twait for {N(t.LoadTime)} sec\n");
+                if (!string.IsNullOrEmpty(r.ReturnToCP)) ret.Append(Leg(r.ReturnToCP!, mi + nm)).Append($"\twait for {N(t.UnloadTime)} sec\n");
+            }
             // Route.ExtraTime: once per supply cycle, after the unload, with the vehicle still held
             var extra = r.ExtraTime > 0 ? $"\twait for {N(r.ExtraTime)} sec" : "";
             matLogic.Append(Fill(Res("code_material.m.txt"), ("M", mi.ToString()), ("NAME", Lit(m.Material)), ("SYS", sys),
@@ -139,9 +145,10 @@ public static class LogicGenerator
             snap.Append($"\tif V_samples({mi}) > 0 then set V_x to V_stockSum({mi}) / V_samples({mi})\n\telse set V_x to V_stock({mi})\n");
             snap.Append($"\tif V_samples({mi}) = 0 then set V_minStock({mi}) to V_stock({mi})\n");
             snap.Append($"\tset V_y to (V_simLen - V_warmup) / V_takt({mi}) * V_need({mi})\n");
-            snap.Append($"\tprint \"material\\t{m.Material}\\t{Lit(m.Group)}\\t\" V_minStock({mi}) \"\\t\" V_x \"\\t\" V_supplies({mi}) \"\\t\" V_y \"\\t\" V_stop({mi}) \"\\t0\\t0\\t0\" to V_out\n");
-            // a supply leg still running at the end counts as stuck once it is over the limit
-            snap.Append($"\tif V_inLeg({mi}) = 1 and ac - V_legStart({mi}) > V_deadlockSec then inc V_deadlock by 1\n");
+            snap.Append($"\tprint \"material\\t{m.Material}\\t{Lit(m.Group)}\\t\" V_minStock({mi}) \"\\t\" V_x \"\\t\" V_supplies({mi}) \"\\t\" V_y \"\\t\" V_stop({mi}) \"\\t\" V_consumed({mi}) \"\\t0\\t0\" to V_out\n");
+            // a leg still running at the end counts as stuck once it is over the limit
+            foreach (var slot in new[] { mi, mi + nm })
+                snap.Append($"\tif V_inLeg({slot}) = 1 and ac - V_legStart({slot}) > V_deadlockSec then inc V_deadlock by 1\n");
         }
         for (int k = 0; k < bgKeys.Count; k++)
             snap.Append($"\tprint \"blockgroup\\t{Lit(bgKeys[k].Block)}\\t{Lit(bgKeys[k].Group)}\\t\" V_bgWait({k + 1}) \"\\t\" V_bgCnt({k + 1}) \"\\t0\\t0\\t0\\t0\\t0\\t0\" to V_out\n");
@@ -206,16 +213,18 @@ public static class LogicGenerator
         m.Queues.Add(new("Q_park"));
         m.Orders.Add("OL_forever");
         m.Atts.Add(new("A_index", "Integer")); m.Atts.Add(new("A_grp", "Integer"));
-        m.Atts.Add(new("A_veh", "VehiclePtr")); m.Atts.Add(new("A_mv0", "Real")); m.Atts.Add(new("A_w", "Real"));
+        m.Atts.Add(new("A_veh", "VehiclePtr")); m.Atts.Add(new("A_mv0", "Real")); m.Atts.Add(new("A_w", "Real")); m.Atts.Add(new("A_t0", "Real"));
         m.Vars.Add(new("V_fp", "FilePtr")); m.Vars.Add(new("V_out", "FilePtr")); m.Vars.Add(new("V_tok", "String"));
         foreach (var v in new[] { "V_seed", "V_n", "V_i", "V_tmp", "V_deadlock", "V_extMat", "V_debug" }) m.Vars.Add(new(v, "Integer"));
         foreach (var v in new[] { "V_simLen", "V_warmup", "V_x", "V_y" }) m.Vars.Add(new(v, "Real"));
         m.Vars.Add(new("V_deadlockSec", "Real", 0, "600"));
         foreach (var v in new[] { "V_active", "V_vehCount", "V_parked" }) m.Vars.Add(new(v, "Integer", gs));
-        foreach (var v in new[] { "V_pending", "V_samples", "V_supplies", "V_inLeg", "V_stopped" }) m.Vars.Add(new(v, "Integer", ms));
+        foreach (var v in new[] { "V_pending", "V_samples", "V_supplies", "V_stopped" }) m.Vars.Add(new(v, "Integer", ms));
         foreach (var v in new[] { "V_call", "V_unload", "V_stock", "V_safety", "V_takt", "V_perCycle", "V_perContainer", "V_need",
-                     "V_minStock", "V_stockSum", "V_stop", "V_stopSince", "V_legStart" })
+                     "V_minStock", "V_stockSum", "V_stop", "V_stopSince", "V_consumed" })
             m.Vars.Add(new(v, "Real", ms));
+        // leg slots: 1..nm supply legs, nm+1..2nm return legs
+        m.Vars.Add(new("V_inLeg", "Integer", 2 * nm)); m.Vars.Add(new("V_legStart", "Real", 2 * nm));
         int bgs = Math.Max(2, nm * 4); // at most 4 legs per material (buffer, supply, 2 return); slots are keyed by (block, group) in Render
         m.Vars.Add(new("V_bgWait", "Real", bgs)); m.Vars.Add(new("V_bgCnt", "Integer", bgs));
         m.Funcs.AddRange(new[] { "F_ext_on_call", "F_ext_select_vehicle", "F_ext_before_unload", "F_ext_on_snap" });

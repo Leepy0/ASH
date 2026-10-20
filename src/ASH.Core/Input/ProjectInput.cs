@@ -15,6 +15,8 @@ public sealed record Settings
     public double InitStockSpread { get; init; } = 10;
     public string TrafficMode { get; init; } = "Block";
     public string WorkDefinition { get; init; } = "LoadToUnload";
+    /// <summary>A single travel leg longer than this counts as a deadlock.</summary>
+    public double DeadlockSec { get; init; } = 600;
 }
 
 public sealed record AgvType(string Type, string Group, double SpeedLoaded, double SpeedEmpty, double Accel, double Decel,

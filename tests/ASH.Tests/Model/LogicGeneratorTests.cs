@@ -10,11 +10,11 @@ public class LogicGeneratorTests
     public static ProjectInput Sample(double takt = 60, double simSec = 3600, double warmupSec = 360)
     {
         var p = new ProjectInput { Settings = new ASH.Core.Input.Settings { Units = "Meters", SimLengthSec = simSec, WarmupSec = warmupSec, InitStockMode = "Fixed" } };
-        p.AgvTypes.Add(new AgvType("Tug", "G1", 1.0, 1.0, 1, 1, 1, 10, 10, 0, 0, 2, 1, "red"));
+        p.AgvTypes.Add(new AgvType("Tug", "G1", 1.0, 1.0, 0, 0, 1, 10, 10, 0, 0, 2, 1, "red"));
         p.Groups.Add(new AgvGroup("G1", "Tug", 1, 3, new List<string> { "S001" }, "Nearest"));
         foreach (var m in new[] { "M1", "M2" })
         {
-            p.Materials.Add(new MaterialInfo(m, "ST1", "G1", takt, 1, 10, 2, 3, 5, null, false));
+            p.Materials.Add(new MaterialInfo(m, "ST1", "G1", takt, 1, 10, 4, 3, 5, null, false)); // Call 4 > Settings SafetyStock 2
             p.Routes.Add(new Route(m, "L001", "U001", "B001", null, null, 0));
         }
         p.Stations.Add(new StationInfo("ST1", "U001", 0));
@@ -62,6 +62,29 @@ public class LogicGeneratorTests
         Assert.Throws<ArgumentException>(() => LogicGenerator.Render(shared, Layout2));
         var orphan = TwoGroups(); orphan.Materials[1] = orphan.Materials[1] with { Group = "GX" };
         Assert.Throws<ArgumentException>(() => LogicGenerator.AddDispatchLists(s, orphan, Layout2));
+    }
+
+    [Fact]
+    public void Render_Group_Row_Consumed_Column_And_Return_Leg_Slots()
+    {
+        var p = Sample();
+        p.Materials[0] = p.Materials[0] with { EmptyReturn = true };
+        p.Routes[0] = p.Routes[0] with { ReturnFromCP = "U001", ReturnToCP = "L001" };
+        var t = LogicGenerator.Render(p, Layout);
+        Assert.Contains("print \"group\\tG1\\tG1\\t\" V_active(1) \"", t);                     // requested active count, not Max - parked
+        Assert.Contains("inc V_consumed(1) by V_need(1)", t);
+        Assert.Contains("V_stop(1) \"\\t\" V_consumed(1) \"\\t0\\t0\" to V_out", t);
+        // supply legs of material 1 use slot 1, its return legs slot 1 + 2 = 3; durations come from the load's A_t0
+        var supply = t.Substring(t.IndexOf("begin P_supply_1"), t.IndexOf("begin P_consume_2") - t.IndexOf("begin P_supply_1"));
+        Assert.Equal(2, Regex.Matches(supply, @"set V_inLeg\(1\) to 1").Count);
+        Assert.Equal(2, Regex.Matches(supply, @"set V_inLeg\(3\) to 1").Count);
+        Assert.Contains("if ac - A_t0 > V_deadlockSec", supply);
+        Assert.DoesNotContain("ac - V_legStart", supply);
+        // empty container pickup at ReturnFrom (LoadTime 10) and set-down at ReturnTo (UnloadTime 10)
+        var ret = supply.Substring(supply.IndexOf("V_pending(1) to 0"));
+        Assert.Matches(@"travel to agv:U001[\s\S]*?wait for 10 sec[\s\S]*?travel to agv:L001[\s\S]*?wait for 10 sec[\s\S]*?send to die", ret);
+        Assert.Contains("if V_inLeg(3) = 1 and ac - V_legStart(3) > V_deadlockSec", t);
+        Assert.Contains("read V_tok, V_simLen, V_warmup, V_deadlockSec from V_fp", t);
     }
 
     [Fact]

@@ -7,7 +7,7 @@ namespace ASH.Tests.Runner;
 public class ResultJudgeTests
 {
     static string Fx(string n) => Path.Combine(AppContext.BaseDirectory, "Fixtures", "runner", n);
-    static RunKpi K(double util = 0.5, double stock = 1.5, int sup = 10, int exp = 10, int dead = 0, double stop = 0) => new("G1", 1, util, stock, sup, exp, stop, dead);
+    static RunKpi K(double util = 0.5, double stock = 1.5, int sup = 10, int exp = 10, int dead = 0, double stop = 0, double con = 10) => new("G1", 1, util, stock, sup, con, exp, stop, dead);
     static readonly ASH.Core.Input.Settings S = new() { UtilMax = 0.75 };
 
     [Fact]
@@ -58,9 +58,28 @@ public class ResultJudgeTests
     [Fact] public void Judge_Fails_When_Util_Over_Max() { var v = Judge.Evaluate(new[] { K(util: 0.9) }, S); Assert.False(v.Ok); Assert.Contains("가동률", v.Reason); }
     [Fact] public void Judge_Fails_On_Supply_Shortfall_Then_Deadlock()
     {
-        Assert.Contains("공급", Judge.Evaluate(new[] { K(sup: 9, exp: 10) }, S).Reason);
+        Assert.Contains("생산 미달", Judge.Evaluate(new[] { K(con: 9, exp: 10) }, S).Reason);
         Assert.Contains("교착", Judge.Evaluate(new[] { K(), K(dead: 1) }, S).Reason);
     }
+    [Fact]
+    public void Judge_Passes_When_Consumption_Meets_Theory_Despite_Low_Supplies()
+    {
+        // initial stock covers part of the run: 3 deliveries for 5.4 containers consumed, as in the 1 h sample model
+        var v = Judge.Evaluate(new[] { K(sup: 3, exp: 5, con: 5) }, S);
+        Assert.True(v.Ok, v.Reason);
+        Assert.Equal(RuleCode.Supply, Judge.Evaluate(new[] { K(sup: 10, exp: 10, con: 9.4) }, S).Rule);
+    }
+
+    [Fact]
+    public void Material_Row_Value6_Is_Consumed()
+    {
+        var r = ResultParser.Parse(W("kind\tname\tgroup\tvalue1\tvalue2\tvalue3\tvalue4\tvalue5\tvalue6\nmaterial\tM1\tG1\t2\t3\t4\t5.4\t0\t5.4\nclock\tclock\t\t0\t3600\n"));
+        Assert.Equal(5.4, r.Materials[0].Consumed);
+        var input = LogicGeneratorTests.Sample(); input.Materials.RemoveAt(1);
+        var k = Kpi.FromRun(r with { Groups = new[] { new GroupResult("G1", 1) } }, null, input).Single();
+        Assert.Equal((4, 5.4), (k.Supplies, k.Consumed));
+    }
+
     [Fact]
     public void Judge_Fails_On_Stop_Time_Even_If_Ratio_Ok()
     {
