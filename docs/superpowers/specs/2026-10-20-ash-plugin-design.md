@@ -367,3 +367,15 @@ Process `.asy`의 `code.m`에 들어간다. 사용자는 이 파일을 편집하
 ## 13. 저장소
 
 저장소는 `Leepy0/ASH`(ASH = AGV Simul Helper). 솔루션 이름은 `ASH`, 프로젝트는 `ASH.Core`, `ASH.Plugin`, `ASH.Runner`, `ASH.Tests`. 이 설계서는 저장소의 `docs/superpowers/specs/`에 그대로 옮긴다.
+
+## 14. 구현 중 확정된 사항 (2026-10-20 추가)
+
+1차(Core+Plugin), 1.5차(UI·설치) 구현과 관문 확인으로 바뀌거나 확정된 내용이다. 본문과 다르면 이 절이 우선한다.
+
+- **관문 결과** (`docs/gates.md`): (1) 창 없는 실행 — USB 키 서버에서는 Authorization 창이 뜨지 않음(사용자 확인). 체험판은 "Student Version" 버튼 클릭으로 진행. Runner는 **완전 자동 모드**. (2) 동시 실행 가능. (3) 엔티티 200 제한은 체험판 전용. (4) Process block 문법 `BLOCK name <N> <표시수> cap <C>` + `dis` 줄. claim/release는 경계 기준으로 자동.
+- **교통제어 방식**: Path Mover 시스템 기본값 "Claim Block = When claiming next control point"를 기본으로 한다. AGVS `.asy`의 `AGVSDEF … ALTERNATE NONE ignore OldBlockClaim ResumeSpeedWhenClaimed`로 기록(토큰 대응은 추정, 2차 시작 시 편집기 저장본으로 확정). 진입 traffic CP는 유지(대기 위치 = claim 시점).
+- **UI**: 팔레트는 탭 4개(경로/CP/교통제어/검증·내보내기) 평면 스타일; 리본 탭 `ASH` 패널 5개(`ZdWindows.dll`의 `ZwSoft.Windows` 리본 API). 계획서 `2026-10-20-ash-ui-and-installer.md`.
+- **설치**: `ASH-Setup-<ver>.exe`가 ZWCAD 설치 위치를 찾아 `<ZWCAD>\ASH\`에 DLL을 넣고 `HKCU/HKLM\Software\ZWSoft\ZWCAD\<ver>\<lang>\Applications\ASH`(LOADCTRLS=2, MANAGED=1)로 자동 로드 등록. 플러그인은 ZWCAD 2026 API로 빌드.
+- **단위**: Core는 단위 무관. Plugin이 `ash.settings.tsv`의 `Scale`(도면 단위→m)로 모든 길이 파라미터·허용 오차(물리 1 mm)·기호 크기를 환산. 설정은 Excel이 생기기 전까지 `ash.settings.tsv`.
+- **내보내기 규칙 보강**: `ExportOptions.Groups` 필수, 그룹마다 standby/buffer CP 1개 이상 필수(없으면 오류), CP cap별 `CPOINTTYPE`(`DefaultControlPoint_cap<N>`), 숫자는 지수 표기 없이 출력.
+- **2차 범위 재조정**: 모듈 C(Excel·공용 로직·모델 생성·빌드)와 모듈 D의 Plugin 무관 핵심(Runner 반복 실행·결과 파서·탐색·summary)을 한 계획으로 묶어 체험판에서 끝까지 검증한다. PPTX·히트맵·영상은 3차.
