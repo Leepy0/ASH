@@ -37,7 +37,7 @@ public static class SettingsFile
             Units = Str(nameof(s.Units)) ?? s.Units,
             Scale = Num(nameof(s.Scale), s.Scale),
             Origin = new Point2(Num("OriginX", s.Origin.X), Num("OriginY", s.Origin.Y)),
-            ModelName = Str(nameof(s.ModelName)) ?? s.ModelName,
+            ModelName = string.IsNullOrEmpty(Str(nameof(s.ModelName))) ? s.ModelName : Str(nameof(s.ModelName))!,
             Groups = Str(nameof(s.Groups)) ?? s.Groups,
         };
     }
@@ -70,7 +70,15 @@ public static class SettingsFile
         {
             var f = item.Split(':');
             if (f.Length != 6) throw new FormatException($"Groups 항목 '{item}'은 Group:TypeName:MaxCount:Speed:Length:Width 6칸이어야 합니다.");
-            res.Add(new VehicleGroupSpec(f[0].Trim(), f[1].Trim(), (int)Parse("MaxCount", f[2]), Parse("Speed", f[3]), Parse("Length", f[4]), Parse("Width", f[5])));
+            if (!int.TryParse(f[2].Trim(), NumberStyles.Integer, C, out var max) || max < 1)
+                throw new FormatException($"Groups 항목 '{item}': MaxCount는 1 이상의 정수여야 합니다.");
+            double Pos(string key, string v)
+            {
+                var d = double.TryParse(v.Trim(), NumberStyles.Float, C, out var x) ? x : double.NaN;
+                if (!(d > 0)) throw new FormatException($"Groups 항목 '{item}': {key}는 0보다 큰 숫자여야 합니다.");
+                return d;
+            }
+            res.Add(new VehicleGroupSpec(f[0].Trim(), f[1].Trim(), max, Pos("Speed", f[3]), Pos("Length", f[4]), Pos("Width", f[5])));
         }
         return res;
     }

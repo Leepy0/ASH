@@ -254,6 +254,10 @@ public sealed class PathCommands
                 tr.Commit();
             }
         }
+        catch (OperationCanceledException)
+        {
+            // Esc in a nested prompt: abort without committing
+        }
         catch (System.Exception ex)
         {
             doc.Editor.WriteMessage($"\n{cmd} 오류: {ex.Message}");

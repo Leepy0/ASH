@@ -39,7 +39,7 @@ public sealed class TrafficCommands
             var members = blocks.Where(b => g.Contains(b.Name)).ToList();
             if (members.Count < 2) continue; // an earlier merge already took them
             var ans = PathCommands.Keyword(ed, $"\n{string.Join(", ", g)} 합칠까요? [Y/N] <Y>", "Y", "Y", "N");
-            if (ans == null) return false;
+            if (ans == null) throw new System.OperationCanceledException(); // Run aborts the whole command, AGVTRAFFIC included
             if (ans != "Y") continue;
             var merged = BlockGenerator.Merge(members, members[0].Name);
             blocks.Insert(blocks.IndexOf(members[0]), merged);

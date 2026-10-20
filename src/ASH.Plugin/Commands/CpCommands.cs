@@ -39,6 +39,7 @@ public sealed class CpCommands
                     ed.WriteMessage($"\n경로에서 너무 멉니다 (허용 {maxOffset} m).");
                     continue;
                 }
+                var prefix = string.IsNullOrEmpty(s.Prefix) ? AutoNamer.PrefixFor(s.Type) : s.Prefix;
                 var cp = new LayoutCp
                 {
                     Type = s.Type, Group = s.Group, Station = s.Station, Cap = s.Cap,
@@ -46,7 +47,12 @@ public sealed class CpCommands
                 };
                 if (s.DetailedMode)
                 {
-                    var name = Ask(ed, "NAME", AutoNamer.Next(s.Prefix, names));
+                    var name = Ask(ed, "NAME", AutoNamer.Next(prefix, names));
+                    while (name != null && names.Contains(name))
+                    {
+                        ed.WriteMessage("\n이미 있는 이름입니다.");
+                        name = Ask(ed, "NAME", AutoNamer.Next(prefix, names));
+                    }
                     var type = name == null ? null : Ask(ed, "TYPE", s.Type);
                     var group = type == null ? null : Ask(ed, "GROUP", s.Group);
                     var station = group == null ? null : Ask(ed, "STATION", s.Station);
@@ -57,7 +63,7 @@ public sealed class CpCommands
                     names.Add(cp.Name);
                     naming = new CpNaming(names); // typed names must not be handed out again
                 }
-                else { cp.Name = naming.Next(s.Prefix); names.Add(cp.Name); }
+                else { cp.Name = naming.Next(prefix); names.Add(cp.Name); }
                 DrawingWriter.AddCp(db, tr, cp);
                 tr.TransactionManager.QueueForGraphicsFlush();
                 doc.TransactionManager.FlushGraphics();
