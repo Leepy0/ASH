@@ -4,8 +4,8 @@ using System.Collections.Generic;
 namespace ASH.Core.Geometry;
 
 /// <summary>
-/// Segment intersections. A point is dropped only when it lies within tol of an endpoint of BOTH
-/// segments (plain end-to-end touch); an endpoint of one segment on the interior of the other (T) is kept.
+/// Plain segment geometry: every common point is returned, including ones at segment endpoints.
+/// End-to-end touch exclusion is path-level and lives in PathSplitter.
 /// </summary>
 public static class Intersections
 {
@@ -89,9 +89,7 @@ public static class Intersections
 
     private static void Add(List<Point2> res, Segment a, Segment b, Point2 p, double tol)
     {
-        if (NearEnd(a, p, tol) && NearEnd(b, p, tol)) return;
         res.Add(p);
     }
 
-    private static bool NearEnd(Segment s, Point2 p, double tol) => s.Start.DistanceTo(p) <= tol || s.End.DistanceTo(p) <= tol;
 }

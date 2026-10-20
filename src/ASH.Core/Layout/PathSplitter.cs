@@ -94,6 +94,7 @@ public static class PathSplitter
                 if (a.Path == b.Path || b.Y0 > a.Y1 || a.Y0 > b.Y1) continue;
                 foreach (var pt in Intersections.SegSeg(a.Seg, b.Seg, tol))
                 {
+                    if (NearPathEnd(paths[a.Path], pt, tol) && NearPathEnd(paths[b.Path], pt, tol)) continue; // plain end-to-end touch
                     if (!points.Any(q => q.DistanceTo(pt) <= tol)) points.Add(pt);
                     AddCut(cuts, paths, a.Path, a.Off + a.Seg.DistanceAlong(pt), tol);
                     AddCut(cuts, paths, b.Path, b.Off + b.Seg.DistanceAlong(pt), tol);
@@ -102,6 +103,8 @@ public static class PathSplitter
         }
         return points;
     }
+
+    private static bool NearPathEnd(LayoutPath p, Point2 pt, double tol) => p.Start.DistanceTo(pt) <= tol || p.End.DistanceTo(pt) <= tol;
 
     private static void AddCut(Dictionary<int, List<double>> cuts, IReadOnlyList<LayoutPath> paths, int idx, double d, double tol)
     {
