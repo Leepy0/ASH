@@ -1,3 +1,4 @@
+using System;
 using ClosedXML.Excel;
 
 namespace ASH.Core.Input;
@@ -49,6 +50,12 @@ public static class ExcelTemplate
         ("WorkDefinition", "LoadToUnload", "LoadToUnload / CallToReturn"),
     };
 
+    static void Put(IXLCell cell, string v)
+    {
+        if (double.TryParse(v, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d)) cell.Value = d;
+        else cell.Value = v;
+    }
+
     public static void Write(string path)
     {
         using var wb = new XLWorkbook();
@@ -60,20 +67,36 @@ public static class ExcelTemplate
                 ws.Cell(1, c + 1).Value = cols[c];
                 ws.Cell(2, c + 1).Value = desc[c];
             }
+            int lastRow = 2;
             if (sheet == "Settings")
+            {
                 for (int r = 0; r < SettingsDefaults.Length; r++)
                 {
                     ws.Cell(r + 3, 1).Value = SettingsDefaults[r].Key;
-                    ws.Cell(r + 3, 2).Value = SettingsDefaults[r].Value;
+                    Put(ws.Cell(r + 3, 2), SettingsDefaults[r].Value);
                     ws.Cell(r + 3, 3).Value = SettingsDefaults[r].Desc;
                 }
+                lastRow = 2 + SettingsDefaults.Length;
+            }
             else
+            {
                 for (int c = 0; c < example.Length; c++)
-                    if (example[c].Length > 0) { var cell = ws.Cell(3, c + 1); if (double.TryParse(example[c], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d)) cell.Value = d; else cell.Value = example[c]; } // example row: replace or delete
+                    if (example[c].Length > 0) Put(ws.Cell(3, c + 1), example[c]);
+                var ex = ws.Range(3, 1, 3, cols.Length); // example row: replace or delete
+                ex.Style.Font.Italic = true;
+                ex.Style.Fill.BackgroundColor = XLColor.LightGray;
+                lastRow = 3;
+            }
             var head = ws.Range(1, 1, 1, cols.Length);
             head.Style.Font.Bold = true;
-            head.Style.Fill.BackgroundColor = XLColor.LightGray;
-            ws.Columns().AdjustToContents();
+            head.Style.Fill.BackgroundColor = XLColor.LightBlue;
+            ws.SheetView.FreezeRows(2);
+            for (int c = 1; c <= cols.Length; c++)
+            {
+                var col = ws.Column(c);
+                col.AdjustToContents(1, lastRow);
+                col.Width = Math.Min(40, Math.Max(8, col.Width));
+            }
         }
         wb.SaveAs(path);
     }

@@ -2,6 +2,8 @@
 
 "양식 생성"으로 만든 파일의 시트·열 요약이다. 모든 시트에서 1행은 헤더, 2행은 설명/단위, 3행부터 데이터이다. 생성된 3행은 예시 값(`M001`, `*_EX`)이므로 지우거나 덮어쓴다.
 
+> **주의:** 3행의 예시 행은 회색 기울임으로 표시된다. 반드시 실제 값으로 바꾸거나 삭제해야 한다(그대로 두면 예시 자재 M001이 모델에 들어간다).
+
 ## Settings (키/값)
 
 | Key | 기본값 | 단위·설명 |
@@ -35,4 +37,7 @@
 - Routes·Stations·StandbyCPs의 CP 이름은 레이아웃에 있어야 한다.
 - TaktTime > 0, UnitsPerContainer ≥ 1, MinCount ≥ 1, MaxCount ≥ MinCount.
 - 타입·그룹·자재·공정 이름은 중복될 수 없다.
+- InitStockMode / TrafficMode / WorkDefinition / Dispatch는 허용 값만 쓸 수 있고, Replications ≥ 1, Warmup < SimLength이다. 자재의 Station은 Stations에 있어야 한다.
+- 필수 이름(자재·공정·그룹·타입·CP 열)이 비어 있으면 오류이다. AGV 타입의 Group이 그 타입을 쓰는 그룹과 다르면 경고이다.
 - 오류 위치는 `시트!행` 형식으로 표시된다. 숫자 형식 오류는 시트·행·열을 알려 준다.
+- Settings의 알 수 없거나 중복된 키는 경고로 알려 준다.

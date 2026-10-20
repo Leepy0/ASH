@@ -52,4 +52,50 @@ public class InputValidatorTests
         Assert.Contains(f, x => x.EntityId == "AGV_Groups!3");
         Assert.Contains(f, x => x.EntityId == "Stations!4");
     }
+
+    [Fact]
+    public void Validate_Reports_Source_Row_After_Blank_Row()
+    {
+        var p = Good();
+        p.Routes[0] = p.Routes[0] with { Material = "NOPE", Row = 7 };
+        Assert.Equal("Routes!7", Assert.Single(InputValidator.Validate(p, Cps)).EntityId);
+    }
+
+    [Fact]
+    public void Validate_Flags_Blank_Required_Fields()
+    {
+        var p = Good();
+        p.Routes[0] = p.Routes[0] with { SupplyFromCP = "", SupplyToCP = " " };
+        p.Stations[0] = p.Stations[0] with { CPName = "" };
+        p.Materials[0] = p.Materials[0] with { Station = "" };
+        foreach (var cps in new IReadOnlyCollection<string>?[] { Cps, null })
+        {
+            var f = InputValidator.Validate(p, cps);
+            Assert.Equal(2, f.Count(x => x.EntityId == "Routes!3"));
+            Assert.Contains(f, x => x.EntityId == "Stations!3");
+            Assert.Contains(f, x => x.EntityId == "Materials!3");
+        }
+    }
+
+    [Fact]
+    public void Validate_Flags_Enums_And_Settings()
+    {
+        var p = Good();
+        p.Settings = p.Settings with { InitStockMode = "X", TrafficMode = "Y", WorkDefinition = "Z", Replications = 0, WarmupSec = 99999 };
+        p.Groups[0] = p.Groups[0] with { Dispatch = "Random" };
+        p.Materials[0] = p.Materials[0] with { TaktTime = double.NaN };
+        var f = InputValidator.Validate(p, Cps);
+        Assert.Equal(7, f.Count(x => x.Code == FindingCode.InputError));
+    }
+
+    [Fact]
+    public void Validate_Warns_On_Type_Group_Mismatch_And_Unknown_Station()
+    {
+        var p = Good();
+        p.AgvTypes[0] = p.AgvTypes[0] with { Group = "OTHER" };
+        p.Materials[0] = p.Materials[0] with { Station = "NOSUCH" };
+        var f = InputValidator.Validate(p, Cps);
+        Assert.Contains(f, x => x.Code == FindingCode.InputWarning && x.EntityId == "AGV_Types!3");
+        Assert.Contains(f, x => x.Code == FindingCode.InputError && x.EntityId == "Materials!3");
+    }
 }

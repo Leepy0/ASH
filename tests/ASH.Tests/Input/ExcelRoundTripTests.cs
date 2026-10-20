@@ -41,7 +41,7 @@ public class ExcelRoundTripTests
             ExcelTemplate.Write(path);
             using (var wb = new XLWorkbook(path))
             {
-                wb.Worksheet("Settings").Cell(4, 2).Value = "2.5"; // SimLength is row 4 (Units row 3)
+                SetSetting(wb, "SimLength", "2.5");
                 var m = wb.Worksheet("Materials");
                 m.Cell(3, 1).Value = "M9"; m.Cell(3, 4).Value = "45.5"; m.Cell(3, 9).Value = 3; m.Cell(3, 11).Value = "N";
                 wb.Worksheet("AGV_Groups").Cell(3, 5).Value = "A, B";
@@ -74,6 +74,85 @@ public class ExcelRoundTripTests
             Assert.Contains("Materials", ex.Message);
             Assert.Contains("3행", ex.Message);
             Assert.Contains("TaktTime", ex.Message);
+        }
+        finally { File.Delete(path); }
+    }
+
+    static void SetSetting(XLWorkbook wb, string key, string value)
+    {
+        var ws = wb.Worksheet("Settings");
+        for (int r = 3; r < 40; r++)
+            if (ws.Cell(r, 1).GetString() == key) { ws.Cell(r, 2).Value = value; return; }
+        throw new InvalidOperationException(key);
+    }
+
+    [Fact]
+    public void Read_Skips_Blank_Rows_And_Records_Source_Row()
+    {
+        var path = Tmp();
+        try
+        {
+            ExcelTemplate.Write(path);
+            using (var wb = new XLWorkbook(path))
+            {
+                var ws = wb.Worksheet("Stations");
+                ws.Cell(5, 1).Value = "S2"; ws.Cell(5, 2).Value = "CP2"; ws.Cell(5, 3).Value = 1; // row 4 blank
+                wb.Save();
+            }
+            var p = ExcelReader.Read(path);
+            Assert.Equal(2, p.Stations.Count);
+            Assert.Equal(new[] { 3, 5 }, p.Stations.Select(s => s.Row));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Theory]
+    [InlineData("Y", true)] [InlineData("y", true)] [InlineData("TRUE", true)] [InlineData("1", true)]
+    [InlineData("N", false)] [InlineData("false", false)] [InlineData("", false)]
+    public void Read_Parses_YesNo_Variants(string text, bool expected)
+    {
+        var path = Tmp();
+        try
+        {
+            ExcelTemplate.Write(path);
+            using (var wb = new XLWorkbook(path)) { wb.Worksheet("Materials").Cell(3, 11).Value = text; wb.Save(); }
+            Assert.Equal(expected, ExcelReader.Read(path).Materials[0].EmptyReturn);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Read_Missing_Sheet_Throws_With_Name()
+    {
+        var path = Tmp();
+        try
+        {
+            ExcelTemplate.Write(path);
+            using (var wb = new XLWorkbook(path)) { wb.Worksheet("Routes").Delete(); wb.Save(); }
+            Assert.Contains("Routes", Assert.Throws<FormatException>(() => ExcelReader.Read(path)).Message);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Read_Warns_On_Unknown_And_Duplicate_Settings_Keys_And_Rejects_Fractional_Int()
+    {
+        var path = Tmp();
+        try
+        {
+            ExcelTemplate.Write(path);
+            using (var wb = new XLWorkbook(path))
+            {
+                var ws = wb.Worksheet("Settings");
+                ws.Cell(30, 1).Value = "Bogus"; ws.Cell(30, 2).Value = "1";
+                ws.Cell(31, 1).Value = "SeedBase"; ws.Cell(31, 2).Value = 7;
+                wb.Save();
+            }
+            ExcelReader.Read(path, out var w);
+            Assert.Equal(2, w.Count);
+            Assert.All(w, x => Assert.Equal(ASH.Core.Layout.FindingCode.InputWarning, x.Code));
+            using (var wb = new XLWorkbook(path)) { SetSetting(wb, "Replications", "2.5"); wb.Save(); }
+            Assert.Contains("Replications", Assert.Throws<FormatException>(() => ExcelReader.Read(path)).Message);
         }
         finally { File.Delete(path); }
     }

@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using ASH.Core.Geometry;
+using ASH.Core.Layout;
 using ClosedXML.Excel;
 
 namespace ASH.Core.Input;
@@ -13,6 +15,7 @@ public static class ExcelReader
     sealed class Row
     {
         readonly IXLWorksheet _ws; readonly Dictionary<string, int> _cols; readonly int _row;
+        public int RowNum => _row;
         public Row(IXLWorksheet ws, Dictionary<string, int> cols, int row) { _ws = ws; _cols = cols; _row = row; }
 
         FormatException Err(string col, string why) => new FormatException($"{_ws.Name} 시트 {_row}행 '{col}' 열: {why}");
@@ -57,14 +60,28 @@ public static class ExcelReader
         return list;
     }
 
-    public static ProjectInput Read(string path)
+    public static ProjectInput Read(string path) => Read(path, out _);
+
+    public static ProjectInput Read(string path, out List<Finding> warnings)
     {
         using var wb = new XLWorkbook(path);
         var p = new ProjectInput();
 
         var kv = new Dictionary<string, Row>(StringComparer.OrdinalIgnoreCase);
-        foreach (var r in Rows(wb, "Settings")) kv[r.Str("Key")] = r;
-        double N(string k, double d) => kv.TryGetValue(k, out var r) ? r.Num("Value", d) : d;
+        var w = new List<Finding>();
+        warnings = w;
+        foreach (var r in Rows(wb, "Settings"))
+        {
+            var key = r.Str("Key");
+            if (!Array.Exists(ExcelTemplate.SettingsDefaults, d => string.Equals(d.Key, key, StringComparison.OrdinalIgnoreCase)))
+                w.Add(new Finding(FindingCode.InputWarning, $"알 수 없는 Settings 키 '{key}'은(는) 무시됩니다.", default(Point2), $"Settings!{r.RowNum}"));
+            else if (kv.ContainsKey(key))
+                w.Add(new Finding(FindingCode.InputWarning, $"Settings 키 '{key}'이(가) 중복되어 마지막 값을 사용합니다.", default(Point2), $"Settings!{r.RowNum}"));
+            kv[key] = r;
+        }
+        T Key<T>(string k, Func<Row, T> get, T d) { if (!kv.TryGetValue(k, out var r)) return d; try { return get(r); } catch (FormatException e) { throw new FormatException($"{e.Message} (키 {k})"); } }
+        int I(string k, int d) => Key(k, r => r.Int("Value", d), d);
+        double N(string k, double d) => Key(k, r => r.Num("Value", d), d);
         string S(string k, string d) => kv.TryGetValue(k, out var r) && r.Str("Value").Length > 0 ? r.Str("Value") : d;
         var def = new Settings();
         p.Settings = new Settings
@@ -72,8 +89,8 @@ public static class ExcelReader
             Units = S("Units", def.Units),
             SimLengthSec = N("SimLength", def.SimLengthSec / 3600) * 3600,
             WarmupSec = N("Warmup", def.WarmupSec / 3600) * 3600,
-            Replications = (int)N("Replications", def.Replications),
-            SeedBase = (int)N("SeedBase", def.SeedBase),
+            Replications = I("Replications", def.Replications),
+            SeedBase = I("SeedBase", def.SeedBase),
             UtilMax = N("UtilMax", def.UtilMax),
             SafetyStock = N("SafetyStock", def.SafetyStock),
             InitStockMode = S("InitStockMode", def.InitStockMode),
@@ -84,20 +101,20 @@ public static class ExcelReader
 
         foreach (var r in Rows(wb, "AGV_Types"))
             p.AgvTypes.Add(new AgvType(r.Str("Type"), r.Str("Group"), r.Num("SpeedLoaded"), r.Num("SpeedEmpty"), r.Num("Accel"), r.Num("Decel"),
-                r.Int("Capacity"), r.Num("LoadTime", 0), r.Num("UnloadTime", 0), r.Num("MTBF", 0), r.Num("MTTR", 0), r.Num("Length"), r.Num("Width"), r.Str("Color")));
+                r.Int("Capacity"), r.Num("LoadTime", 0), r.Num("UnloadTime", 0), r.Num("MTBF", 0), r.Num("MTTR", 0), r.Num("Length"), r.Num("Width"), r.Str("Color"), r.RowNum));
         foreach (var r in Rows(wb, "AGV_Groups"))
             p.Groups.Add(new AgvGroup(r.Str("Group"), r.Str("Type"), r.Int("MinCount"), r.Int("MaxCount"),
-                r.Str("StandbyCPs").Split(',').Select(s => s.Trim()).Where(s => s.Length > 0).ToList(), r.Str("Dispatch")));
+                r.Str("StandbyCPs").Split(',').Select(s => s.Trim()).Where(s => s.Length > 0).ToList(), r.Str("Dispatch"), r.RowNum));
         foreach (var r in Rows(wb, "Materials"))
             p.Materials.Add(new MaterialInfo(r.Str("Material"), r.Str("Station"), r.Str("Group"), r.Num("TaktTime"), r.Num("UnitsPerCycle"),
-                r.Num("UnitsPerContainer"), r.Num("CallThreshold"), r.Num("UnloadThreshold"), r.OptNum("InitStock"), r.OptNum("SafetyStock"), r.Bool("EmptyReturn")));
+                r.Num("UnitsPerContainer"), r.Num("CallThreshold"), r.Num("UnloadThreshold"), r.OptNum("InitStock"), r.OptNum("SafetyStock"), r.Bool("EmptyReturn"), r.RowNum));
         foreach (var r in Rows(wb, "Routes"))
             p.Routes.Add(new Route(r.Str("Material"), r.Str("SupplyFromCP"), r.Str("SupplyToCP"), r.OptStr("BufferCP"),
-                r.OptStr("ReturnFromCP"), r.OptStr("ReturnToCP"), r.Num("ExtraTime", 0)));
+                r.OptStr("ReturnFromCP"), r.OptStr("ReturnToCP"), r.Num("ExtraTime", 0), r.RowNum));
         foreach (var r in Rows(wb, "Stations"))
-            p.Stations.Add(new StationInfo(r.Str("Station"), r.Str("CPName"), r.Num("BufferCapacity", 0)));
+            p.Stations.Add(new StationInfo(r.Str("Station"), r.Str("CPName"), r.Num("BufferCapacity", 0), r.RowNum));
         foreach (var r in Rows(wb, "Ext"))
-            p.Ext.Add(new ExtHook(r.Str("Name"), r.Bool("Enabled"), r.Str("Description")));
+            p.Ext.Add(new ExtHook(r.Str("Name"), r.Bool("Enabled"), r.Str("Description"), r.RowNum));
         return p;
     }
 }
