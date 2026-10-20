@@ -5,7 +5,7 @@ ZWCAD가 설치된 PC에서 실행한다. 각 항목에 결과(OK/NG), 날짜, Z
 
 ## 설치
 
-설치 프로그램(`dist/ASH-Setup-<버전>.exe`, 아래 I1~I6)을 쓴다. 아래 1~5는 수동 `NETLOAD` 방법이다.
+설치 프로그램(`dist/ASH-Setup-<버전>.exe`, 아래 I1~I9)을 쓴다. 아래 1~5는 수동 `NETLOAD` 방법이다.
 
 1. 빌드 PC에서 `dotnet build ASH.sln -c Release`.
 2. `src/ASH.Plugin/bin/Release/net48/ASH.Plugin.dll`과 같은 폴더의 `ASH.Core.dll`을 ZWCAD PC의 한 폴더에 복사한다.
@@ -152,13 +152,14 @@ ZWCAD가 설치된 PC에서 실행한다. 각 항목에 결과(OK/NG), 날짜, Z
 
 | 항목 | 결과 | 날짜 | ZWCAD 버전 | 메모 |
 |---|---|---|---|---|
-| I1 설치: `ASH-Setup-x.y.z.exe` 실행 → UAC 요청 → 목록에 "ZWCAD 2026 (ko_KR) — C:\Program Files\ZWSOFT\ZWCAD 2026"이 선택된 채 표시 → "설치" → 로그에 복사 2건·등록 4건×(HKCU, HKLM), "완료. ZWCAD를 다시 시작하면…" 메시지. `<ZWCAD>\ASH\ASH.Plugin.dll`·`ASH.Core.dll` 존재, 속성에 "차단 해제" 체크박스 없음 | | | | |
-| I2 재시작 후 자동 로드: ZWCAD 재시작 → `NETLOAD` 없이 리본 `ASH` 탭과 `AGVINIT` 등 명령 동작. `regedit`에서 `HKCU\Software\ZWSoft\ZWCAD\<ver>\<lang>\Applications\ASH`의 `LOADER`/`LOADCTRLS=2`/`MANAGED=1`/`DESCRIPTION` 확인 | | | | |
+| I1 설치: `ASH-Setup-x.y.z.exe` 실행 → UAC 요청 → 목록에 "ZWCAD 2026 (ko_KR) — C:\Program Files\ZWSOFT\ZWCAD 2026"이 선택된 채 표시 → "설치" → 로그에 복사 2건·등록 4건×(HKCU, HKLM), "완료. ZWCAD를 다시 시작하면…" 메시지와 안내 3줄("ZWCAD를 완전히 종료한 뒤 다시 시작하세요." / AGVRIBBON·AGVPALETTE / AGVINIT·Scale 0.001). ZWCAD 2026만 지원(ZWCAD.NetApi 20.26.0). `<ZWCAD>\ASH\ASH.Plugin.dll`·`ASH.Core.dll` 존재, 속성에 "차단 해제" 체크박스 없음 | | | | |
+| I2 재시작 후 자동 로드: ZWCAD 재시작 → `NETLOAD` 없이 리본 `ASH` 탭과 `AGVINIT` 등 명령 동작. `regedit`에서 `HKCU\Software\ZWSoft\ZWCAD\<ver>\<lang>\Applications\ASH`의 `LOADER`/`LOADCTRLS=2`/`MANAGED=1`/`DESCRIPTION` 확인. `<ver>`는 ZWCAD가 만든 실제 키 이름 그대로(예: `2026.0`이면 `2026.0` 아래, 새 `2026` 키를 만들지 않음). ZWCAD를 한 번도 실행하지 않아 `HKCU\…\<ver>\<lang>`이 없으면 HKCU 등록은 건너뛰고(HKLM은 관리자면 등록) 경고 "…ZWCAD를 한 번 실행한 뒤 다시 설치하세요.", 종료 코드 2 | | | | |
 | I3 두 버전(예: 2024, 2026) 설치 PC: 둘 다 목록에 나오고 기본 모두 선택(Review Focus 1). 설치 후 두 버전 모두 자동 로드 | | | | |
 | I4 제거: `ASH-Setup-x.y.z.exe /uninstall` → "제거" → 확인 → `Applications\ASH` 키(HKCU·HKLM)와 `<ZWCAD>\ASH` 폴더 삭제, ZWCAD 재시작 시 ASH 탭 없음. ZWCAD 실행 중이면 DLL 잠김으로 "제거 중 오류" 로그 | | | | |
 | I5 비관리자: UAC에서 "아니요" → 실행 안 됨(관리자 필수 매니페스트). `<ZWCAD>` 폴더 쓰기 거부 시 로그 "쓰기 실패 → %ProgramData%\ASH\<ver> 사용", LOADER가 그 경로, 완료 창에 대체 폴더 안내. 그 폴더 보안: 상속 끊김, Administrators/SYSTEM 모든 권한, Users 읽기 및 실행만 | | | | |
 | I6 재설치: 설치를 두 번 → 오류 없이 덮어씀, `Applications\ASH` 키 하나뿐, 값 중복 없음(Review Focus 5). ZWCAD 실행 중 재설치는 복사 실패로 중단되고 "ZWCAD가 실행 중이면 닫고 다시 시도" 로그 | | | | |
 | I7 다른 관리자 계정으로 권한 상승: 표준 사용자로 로그인 → 실행 → UAC에 관리자 계정 자격 증명 입력 → 로그 첫 줄 "등록 대상 사용자: <도메인\로그인 사용자> (HKEY_USERS\<SID>, 실행 계정 <관리자>)" → 설치 후 로그인 사용자의 `HKCU\Software\ZWSoft\ZWCAD\<ver>\<lang>\Applications\ASH`에 키가 있고 관리자 프로필에는 없음. 로그인 사용자 하이브가 없으면 경고 "사용자 하이브가 로드되지 않아…" + 종료 코드 2. 제거도 같은 하이브에서 지움 | | | | |
-| I8 잠긴 DLL: ZWCAD 실행 중 재설치 → 로그 "실패: CopyFile … — IOException: …"(예외 형식 기록), 오류 창, 종료 코드 1. 실행 중 제거 → 키는 지워지고 폴더 삭제 실패만 모아서 "제거 중 오류 n건: <폴더>" 보고, 나머지 폴더 삭제는 계속 | | | | |
+| I8 ZWCAD 실행 중: 설치·제거 시작 전에 `ZWCAD` 프로세스를 확인 → 창 모드는 "ZWCAD를 닫고 다시 실행하세요." 창만 뜨고 아무것도 바꾸지 않음, `/silent`는 같은 문구를 로그에 남기고 종료 코드 1. (확인 뒤 ZWCAD를 켜서 DLL이 잠기면: 설치는 "실패: CopyFile … — IOException: …", 오류 창, 종료 코드 1. 제거는 키를 지우고 폴더 삭제 실패만 모아 "제거 중 오류 n건: <폴더>" 보고, 나머지 폴더 삭제는 계속) | | | | |
+| I9 미지원 버전: ZWCAD 2024(또는 2026 아닌 버전)가 있는 PC → 목록에 "ZWCAD 2024 … (미지원: ASH는 ZWCAD 2026용)"이 선택 해제된 채 표시. 직접 선택해 설치해도 로그 "미지원 버전 건너뜀: ZWCAD 2024 (ASH는 ZWCAD 2026용) …"만 남고 복사·등록 없음. `/silent` → 같은 경고, 종료 코드 2. SYSTEM 계정 `/silent`(예: 배포 도구) → 경고 "사용자 하이브를 알 수 없어 HKCU 등록을 건너뜀", HKLM만 등록, 종료 코드 2 | | | | |
 
-종료 코드(`/silent`와 창 모드 같음): 0 성공, 1 실패, 2 경고(예: ZWCAD를 한 번도 실행하지 않아 HKCU 프로필이 없어 자동 로드 등록을 건너뜀 → 창에는 "DLL은 복사했지만 자동 로드 등록을 못 했습니다: … ZWCAD를 한 번 실행한 뒤 다시 설치하세요.").
+종료 코드(`/silent`와 창 모드 같음): 0 성공, 1 실패, 2 경고(예: ZWCAD를 한 번도 실행하지 않아 HKCU 프로필이 없어 HKCU 등록을 건너뜀, 미지원 버전 건너뜀, 사용자 하이브를 알 수 없음 → 창에는 "경고:" 아래 각 메시지).

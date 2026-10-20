@@ -5,7 +5,9 @@ $root = [IO.Path]::GetFullPath("$PSScriptRoot\..")
 $version = ([xml](Get-Content "$root\Directory.Build.props" -Raw)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
 if (-not $version) { throw "Directory.Build.props has no <Version>" }
 dotnet build "$root\ASH.sln" -c Release -nologo -v q
-if ($LASTEXITCODE) { exit $LASTEXITCODE }
+if ($LASTEXITCODE) { throw "dotnet build failed (exit $LASTEXITCODE)" }
+dotnet test "$root\tests\ASH.Tests" -c Release -nologo -v q
+if ($LASTEXITCODE) { throw "dotnet test failed (exit $LASTEXITCODE); release not packaged" }
 $dist = "$root\dist"
 New-Item -ItemType Directory -Force $dist | Out-Null
 $exe = "$dist\ASH-Setup-$version.exe"

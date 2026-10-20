@@ -9,7 +9,14 @@ ZWCAD 플러그인과 실행기로 AutoMod AGV 수량 산출 업무를 자동화
 
 1. `ASH-Setup-x.y.z.exe`를 받는다(빌드: `scripts/build-release.ps1` → `dist/`).
 2. 실행한다(관리자 권한을 요청한다). 찾은 ZWCAD가 모두 선택된 상태로 나온다. 못 찾으면 "직접 지정…"으로 `ZWCAD.exe`가 있는 폴더를 고른다. "설치"를 누른다.
-3. ZWCAD를 다시 시작하면 리본에 `ASH` 탭이 생기고 `AGV*` 명령을 쓸 수 있다.
+3. ZWCAD를 완전히 종료한 뒤 다시 시작하세요. 리본에 `ASH` 탭이 생기고 `AGV*` 명령을 쓸 수 있다.
+4. 탭이 안 보이면 명령줄에 AGVRIBBON 또는 AGVPALETTE.
+5. 첫 사용: 도면 저장 → AGVINIT. mm 도면이면 ash.settings.tsv의 Scale을 0.001로.
 
-제거: `ASH-Setup-x.y.z.exe /uninstall` (창에서 "제거"). 무인 설치: `/silent`, 폴더 추가: `/dir:"D:\CAD\ZWCAD 2026"`. 로그: `%TEMP%\ASH-install.log`. 종료 코드: 0 성공, 1 실패, 2 경고(자동 로드 등록 못 함 — ZWCAD를 한 번 실행한 뒤 다시 설치).
+- 지원 버전: ZWCAD 2026만(`Directory.Build.props`의 `AshZwcadVersion`). 다른 버전은 목록에 "(미지원: ASH는 ZWCAD 2026용)"으로 선택 해제된 채 나오고, 선택해도 건너뛴다(`/silent`는 종료 코드 2).
+- ZWCAD가 실행 중이면 설치·제거를 하지 않는다("ZWCAD를 닫고 다시 실행하세요.", `/silent`는 종료 코드 1).
+- exe는 서명되지 않았다. Windows SmartScreen이 막으면 "추가 정보 → 실행".
+- 제거에도 이 exe가 필요하다(아직 "프로그램 추가/제거" 항목 없음). exe를 지우지 말고 보관한다.
+
+제거: `ASH-Setup-x.y.z.exe /uninstall` (창에서 "제거"). 무인 설치: `/silent`, 폴더 추가: `/dir:"D:\CAD\ZWCAD 2026"`. 로그: `%TEMP%\ASH-install.log`. 종료 코드: 0 성공, 1 실패(ZWCAD 실행 중 포함), 2 경고(자동 로드 등록 못 함 — ZWCAD를 한 번 실행한 뒤 다시 설치, 미지원 버전 건너뜀, SYSTEM 계정 등 사용자 하이브를 알 수 없음).
 DLL은 `<ZWCAD 폴더>\ASH\`에 들어가고(쓰기 실패 시 `%ProgramData%\ASH\<버전>\`), 자동 로드는 `HKCU`·`HKLM\Software\ZWSoft\ZWCAD\<버전>\<언어>\Applications\ASH`에 등록된다.
