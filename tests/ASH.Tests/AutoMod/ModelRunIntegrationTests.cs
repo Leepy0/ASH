@@ -54,6 +54,8 @@ public class ModelRunIntegrationTests
 
     static Run BuildAndRun(ProjectInput input, int activeG1) => BuildAndRun(input, new Dictionary<string, int> { ["G1"] = activeG1 });
 
+    static void Cleanup(string dir) { if (Environment.GetEnvironmentVariable("ASH_KEEP_TEMP") != "1") Directory.Delete(dir, true); }
+
     static double V(string[] row, int i) => double.Parse(row[2 + i], CultureInfo.InvariantCulture);
     static string[] Mat(Run r, string name) => r.Rows.Single(x => x[0] == "material" && x[1] == name);
 
@@ -70,7 +72,7 @@ public class ModelRunIntegrationTests
         Assert.True(V(blk, 1) > 0, "block passes"); // first real check of the 1x1 block template geometry
         Assert.Equal(3600, V(run.Rows.Single(x => x[0] == "clock"), 2), 3);
         Assert.Equal(0, V(run.Rows.Single(x => x[0] == "deadlock"), 1));
-        Directory.Delete(run.Work, true); // kept on failure for inspection
+        Cleanup(run.Work); // kept on failure for inspection
     }
 
     [SkippableFact]
@@ -81,7 +83,7 @@ public class ModelRunIntegrationTests
         var g = run.Rows.Single(x => x[0] == "group");
         Assert.Equal("G1", g[1]);
         Assert.Equal(1, V(g, 1)); // numveh 3, 2 parked
-        Directory.Delete(run.Work, true);
+        Cleanup(run.Work);
     }
 
     [SkippableFact]
@@ -90,7 +92,7 @@ public class ModelRunIntegrationTests
         Skip.If(AmHome is null, "ASH_AM_HOME not set");
         var run = BuildAndRun(LogicGeneratorTests.Sample(takt: 5), 1);
         Assert.Contains(run.Rows, x => x[0] == "material" && V(x, 5) > 0);
-        Directory.Delete(run.Work, true);
+        Cleanup(run.Work);
     }
 
     [SkippableFact]
@@ -109,7 +111,7 @@ public class ModelRunIntegrationTests
             Assert.True(V(row, 3) >= 2, m + " supplies");            // called again after the first delivery
             Assert.True(V(row, 5) < span * 0.95, m + " stop time");  // not a permanent stop
         }
-        Directory.Delete(run.Work, true);
+        Cleanup(run.Work);
     }
 
     [SkippableFact]
@@ -127,7 +129,7 @@ public class ModelRunIntegrationTests
             var m = System.Text.RegularExpressions.Regex.Match(report, @"\n" + type + @":\r?\n\s+[\d.]+\s+(\d+)");
             Assert.True(m.Success && int.Parse(m.Groups[1].Value) > 0, type + " made no deliveries");
         }
-        Directory.Delete(run.Work, true);
+        Cleanup(run.Work);
     }
 
     [SkippableFact]
@@ -147,6 +149,6 @@ public class ModelRunIntegrationTests
         var a = BuildAndRun(Uniform(), active);
         var b = BuildAndRun(Uniform(), active);
         Assert.Equal(File.ReadAllBytes(a.Result.ResultTsvPath), File.ReadAllBytes(b.Result.ResultTsvPath));
-        Directory.Delete(a.Work, true); Directory.Delete(b.Work, true);
+        Cleanup(a.Work); Cleanup(b.Work);
     }
 }

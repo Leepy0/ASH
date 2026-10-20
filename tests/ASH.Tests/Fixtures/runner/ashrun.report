@@ -1,0 +1,129 @@
+*** AutoMod 14.5 ***
+Model ashrun
+Statistics at Absolute Clock = 1:00:00.00, Relative Clock = 1:00:00.00
+CPU time: Absolute: 0.518 sec, Relative: 0.518 sec
+
+Statistics for Process System "ashrun"
+
+Process Statistics
+Name                   Total   Cur  Average Capacity   Max   Min   Util    Av_Time    Av_Wait
+========================================================================================
+P_consume_1                1     1     1.00       --     1     0     --    3600.00 
+P_supply_1                 4     1     0.05       --     1     0     --      49.11 
+P_consume_2                1     1     1.00       --     1     0     --    3600.00 
+P_supply_2                 4     1     0.09       --     1     0     --      81.60 
+
+Process Traffic Limit Statistics
+Name                   Total   Cur  Average Capacity   Max   Min   Util    Av_Time    Av_Wait
+========================================================================================
+P_consume_1                1     1     1.00 Infinite     1     0     --    3600.00 
+P_supply_1                 4     1     0.05 Infinite     1     0     --      49.11 
+P_consume_2                1     1     1.00 Infinite     1     0     --    3600.00 
+P_supply_2                 4     1     0.09 Infinite     1     0     --      81.60 
+
+Queue Statistics
+Name                   Total   Cur  Average Capacity   Max   Min   Util    Av_Time    Av_Wait
+========================================================================================
+Space                     10     4     2.07 Infinite     4     0     --     745.69 
+Q_park                     3     3     1.48 Infinite     3     0     --    1780.28 
+
+Order List Statistics
+Name              Total   Cur  Average   Max   Min    Av_Time
+=============================================================
+OL_forever            3     3     1.48     3     0    1780.28
+
+Order List Backordered Statistics
+Name              Total   Cur  Average   Max   Min  Fulfilled
+=============================================================
+OL_forever            0     0     0.00     0     0          0
+
+Block Statistics
+Name                   Total   Cur  Average Capacity   Max   Min   Util    Av_Time    Av_Wait
+========================================================================================
+B_x1                       6     1     0.49        1     1     0  0.489     293.18       9.74
+
+Random Number Streams
+Name                 Total 
+============================
+stream0              0ld
+
+Statistics for Path Mover System "ashrun.agv"
+
+Guide Path Type Statistics
+Name                   Total   Cur  Average Capacity   Max   Min   Util    Av_Time    Av_Wait
+========================================================================================
+DefaultGuidePath          29     2     3.54 Infinite     6     0     --     439.01 
+
+Guide Path Statistics
+Name                   Total   Cur  Average Capacity   Max   Min   Util    Av_Time    Av_Wait
+========================================================================================
+p1                         9     1     1.97 Infinite     4     0     --     789.27 
+p2                         6     0     0.05 Infinite     2     0     --      32.52 
+p3                         6     0     0.06 Infinite     2     0     --      35.75 
+p4                         8     1     1.45 Infinite     2     0     --     652.27 
+
+Control Point Type Statistics
+Name                   Total   Cur  Average Capacity   Max   Min   Util    Av_Time    Av_Wait
+========================================================================================
+DefaultControlPoint       42     2     2.00 Infinite     4     0     --     171.85 
+
+Control Point Statistics
+Name                   Total   Cur  Average Capacity   Max   Min   Util    Av_Time    Av_Wait
+========================================================================================
+S001                       9     0     0.95        1     1     0  0.953     381.06     406.57
+L001                       7     1     0.04        1     1     0  0.040      20.37       1.90
+B001                       6     0     0.03        1     1     0  0.026      15.45       0.00
+U001                       6     0     0.03        1     1     0  0.029      17.30       0.00
+S002                       8     1     0.94        1     1     0  0.941     423.27     225.00
+L002                       6     0     0.02        1     1     0  0.017      10.47       0.00
+
+Vehicle Statistics
+       Delivering              Retrieving            Going To Park       Parking
+ Percent        Average  Percent        Average  Percent        Average  Percent
+Of Total  Trips  Time/  Of Total  Trips  Time/  Of Total  Trips  Time/  Of Total
+  Time     Made  Trip     Time     Made  Trip     Time     Made  Trip     Time
+================================================================================
+Tug:
+   0.030      6   17.95    0.025      4   22.19    0.027      3   32.75    0.918
+   0.000      0    0.00    0.000      0    0.00    0.000      0    0.00    0.492
+   0.000      0    0.00    0.000      0    0.00    0.000      0    0.00    0.492
+All Tug:
+   0.010      6    5.98    0.008      4    7.40    0.009      3   10.92    0.634
+Tug2:
+   0.027      6   16.38    0.063      4   57.04    0.014      3   16.45    0.896
+   0.000      0    0.00    0.000      0    0.00    0.000      0    0.00    0.500
+All Tug2:
+   0.014      6    8.19    0.032      4   28.52    0.007      3    8.22    0.698
+
+The Average Capacity Lost Due To Congestion is 30.8 Percent
+Of Total Capacity Which is 1.5 Vehicles
+
+Vehicle Segment Statistics
+Vehicle                Total      Cur    Average Capacity      Max      Min
+==========================================================================================================
+Tug:
+Tug(1)                     1        1       1.00 Infinite        1        0
+Tug(2)                     1        1       1.00 Infinite        1        0
+Tug(3)                     1        1       1.00 Infinite        1        0
+Tug2:
+Tug2(1)                    1        1       1.00 Infinite        1        0
+Tug2(2)                    1        1       1.00 Infinite        1        0
+
+Current Status Of Vehicles
+                                        Time In  Current              Destination          Load On or
+Vehicle              Status             Cur Status Location             Location             Claimed By Veh
+==========================================================================================================
+Tug(1)               Retrieve               0.00 S001                 L001                 Empty          
+Tug(2)               Idle                1770.42 Q_park               <null>               Empty          
+Tug(3)               Idle                1770.42 Q_park               <null>               Empty          
+Tug2(1)              Retrieve               0.00 S002                 L002                 Empty          
+Tug2(2)              Idle                1800.00 Q_park               <null>               Empty          
+
+Current Status Summary
+              Average Time   Maximum Time   Minimum Time
+Type         In Cur Status   In Cur Status  In Cur Status
+========================================================
+          Tug      1180.28        1770.42           0.00
+         Tug2       900.00        1800.00           0.00
+
+
