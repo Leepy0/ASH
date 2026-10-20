@@ -12,6 +12,7 @@ using ASH.Core.Layout;
 
 namespace ASH.Core.Model;
 
+/// <summary>MaterialOverrides replaces Input.Materials. VehicleOverrides, when set, wins over AgvsOptions.VehicleOverrides.</summary>
 public sealed record ModelBuildRequest(string ProjectDir, string ModelName, ProjectInput Input, Layout.Layout Layout, ExportOptions AgvsOptions,
     IReadOnlyList<MaterialInfo>? MaterialOverrides = null, IReadOnlyDictionary<string, VehicleTemplateOverride>? VehicleOverrides = null, bool AutoView = false);
 /// <summary>Build is null when no AutoMod was given (generate only) or validation failed (ArcDir then has no files).</summary>

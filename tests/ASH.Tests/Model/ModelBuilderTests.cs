@@ -149,14 +149,52 @@ public class ServerAssemblyTests
         var dir = Path.Combine(Path.GetTempPath(), "ash_sa_" + Guid.NewGuid().ToString("N"));
         var input = LogicGeneratorTests.Sample();
         var mats = input.Materials.Select(m => m with { CallThreshold = 7, UnloadThreshold = 9, InitStock = 8 }).ToList();
-        var r = ModelBuilder.Build(new ModelBuildRequest(dir, "m", input, Loop(), Opt(null), MaterialOverrides: mats), null, TimeSpan.Zero);
-        Assert.Contains("1 7 9 8 ", File.ReadAllText(Path.Combine(r.ArcDir, "params.txt")));
-        Assert.Equal(2, input.Materials[0].CallThreshold); // original untouched
-        Directory.Delete(dir, true);
+        try
+        {
+            var r = ModelBuilder.Build(new ModelBuildRequest(dir, "m", input, Loop(), Opt(null), MaterialOverrides: mats), null, TimeSpan.Zero);
+            Assert.Contains("1 7 9 8 ", File.ReadAllText(Path.Combine(r.ArcDir, "params.txt")));
+            Assert.Equal(2, input.Materials[0].CallThreshold); // original untouched
+            Directory.Delete(dir, true);
 
-        var r2 = ModelBuilder.Build(new ModelBuildRequest(dir, "m", input, Loop(), Opt(null), MaterialOverrides: mats.Take(1).ToList()), null, TimeSpan.Zero);
-        Assert.Contains(r2.Findings, f => f.Code == ASH.Core.Layout.FindingCode.InputError);
-        Assert.False(Directory.Exists(r2.ArcDir));
+            var r2 = ModelBuilder.Build(new ModelBuildRequest(dir, "m", input, Loop(), Opt(null), MaterialOverrides: mats.Take(1).ToList()), null, TimeSpan.Zero);
+            Assert.Contains(r2.Findings, f => f.Code == ASH.Core.Layout.FindingCode.InputError);
+            Assert.False(Directory.Exists(r2.ArcDir));
+        }
+        finally { if (Directory.Exists(dir)) Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public void Vehicle_Override_Without_Start_Line_Gets_Start_Inserted()
+    {
+        var s = ASH.Core.Export.LayoutExporter.ToAgvs(Loop(), Opt(new VehicleTemplateOverride(VehicleBlockText: "AGVSVEH\n\tload Default \n")));
+        Assert.Equal(new[] { "AGVSVEH type Tug numveh 3", "\tvehsegs item Seg_Tug", "\tstart nl_G1", "\tload Default " }, s.VehicleLines);
+    }
+
+    [Fact]
+    public void VehSeg_Override_Without_Name_Throws() =>
+        Assert.Throws<ArgumentException>(() => ASH.Core.Export.LayoutExporter.ToAgvs(Loop(), Opt(new VehicleTemplateOverride(VehSegText: "AGVVEHSEG cap 1\n"))));
+
+    [Fact]
+    public void Override_For_Unknown_Type_Warns()
+    {
+        var w = new List<string>();
+        ASH.Core.Export.LayoutExporter.ToAgvs(Loop(), Opt(null) with { VehicleOverrides = new Dictionary<string, VehicleTemplateOverride> { ["Nope"] = new(VehSegText: Seg) } }, w);
+        Assert.Contains(w, x => x.Contains("Nope"));
+    }
+
+    [Fact]
+    public void Request_VehicleOverrides_Win_And_AutoView_Reach_Files()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "ash_sa_" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var req = new ModelBuildRequest(dir, "m", LogicGeneratorTests.Sample(), Loop(), Opt(new VehicleTemplateOverride(VehSegText: Seg.Replace("Custom", "Loser"))), AutoView: true,
+                VehicleOverrides: new Dictionary<string, VehicleTemplateOverride> { ["Tug"] = new(VehSegText: Seg.Replace("cap 2", "cap 7")) });
+            var r = ModelBuilder.Build(req, null, TimeSpan.Zero);
+            Assert.Contains("AGVVEHSEG name Seg_Tug cap 7 ", File.ReadAllText(Path.Combine(r.ArcDir, "agv.asy")));
+            Assert.Contains("autorep autoview", File.ReadAllText(Path.Combine(r.ArcDir, "model.amo")));
+        }
+        finally { if (Directory.Exists(dir)) Directory.Delete(dir, true); }
     }
 
     [Fact]
