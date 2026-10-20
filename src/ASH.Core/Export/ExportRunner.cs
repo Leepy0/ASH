@@ -35,7 +35,7 @@ public static class ExportRunner
 
         var tsv = Path.Combine(arcDir, "traffic.tsv");
         using (var w = new StreamWriter(tsv, false, new UTF8Encoding(false)))
-            table.WriteTsv(w);
+            table.WriteTsv(w, o.Scale);
         return new ExportResult(asy, backup, tsv, summary, warnings);
     }
 }

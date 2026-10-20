@@ -26,7 +26,7 @@ public static class SettingsFile
         string? Str(string k) => kv.TryGetValue(k, out var v) ? v : null;
         double Num(string k, double def) => Str(k) is string v ? Parse(k, v) : def;
         double? Opt(string k, double? def) => Str(k) is string v ? (v.Length == 0 ? null : Parse(k, v)) : def;
-        return s with
+        var r = s with
         {
             SafetyGap = Num(nameof(s.SafetyGap), s.SafetyGap),
             CpSpacing = Num(nameof(s.CpSpacing), s.CpSpacing),
@@ -40,6 +40,9 @@ public static class SettingsFile
             ModelName = string.IsNullOrEmpty(Str(nameof(s.ModelName))) ? s.ModelName : Str(nameof(s.ModelName))!,
             Groups = Str(nameof(s.Groups)) ?? s.Groups,
         };
+        foreach (var (k, v) in new[] { (nameof(r.SafetyGap), r.SafetyGap), (nameof(r.VehicleLength), r.VehicleLength), (nameof(r.VehicleWidth), r.VehicleWidth), (nameof(r.Scale), r.Scale) })
+            if (!(v > 0)) throw new FormatException($"설정 {k} 값 {v.ToString(C)}은 0보다 커야 합니다.");
+        return r;
     }
 
     public static void Save(ProjectSettings s, string path)

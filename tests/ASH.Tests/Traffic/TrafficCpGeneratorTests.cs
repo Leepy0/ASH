@@ -66,4 +66,10 @@ public class TrafficCpGeneratorTests
         var e = TrafficTable.Build(l).Entries.Single(x => x.PathName == "a");
         Assert.Equal(6.5, e.BoundaryDist, 9); Assert.NotNull(e.CpName);
     }
+    [Fact] public void Traffic_Tsv_Boundary_Dist_Is_Scaled()
+    {
+        var l = L.Of(L.Line("a",-10000,0,0,0)); l.Blocks.Add(L.Block("B001",-3500,-3500,3500,3500)); l.Tolerance = 1;
+        var sw = new StringWriter(); TrafficTable.Build(l).WriteTsv(sw, 0.001);
+        Assert.Contains("B001	a	6.5	", sw.ToString());
+    }
 }

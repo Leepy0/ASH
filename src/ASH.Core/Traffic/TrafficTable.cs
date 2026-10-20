@@ -31,10 +31,11 @@ public sealed class TrafficTable
         return t;
     }
 
-    public void WriteTsv(TextWriter w)
+    /// <summary>scale converts layout units to meters (ExportOptions.Scale), same as the .asy output.</summary>
+    public void WriteTsv(TextWriter w, double scale = 1.0)
     {
         w.Write("block\tpath\tboundary_dist\tentry_cp\n");
         foreach (var e in Entries)
-            w.Write(e.BlockName + "\t" + e.PathName + "\t" + e.BoundaryDist.ToString("R", CultureInfo.InvariantCulture) + "\t" + (e.CpName ?? "") + "\n");
+            w.Write(e.BlockName + "\t" + e.PathName + "\t" + (e.BoundaryDist * scale).ToString("R", CultureInfo.InvariantCulture) + "\t" + (e.CpName ?? "") + "\n");
     }
 }

@@ -109,7 +109,7 @@ public static class LayoutExporter
             s.CpTypeLines.Add(cpTemplate.Replace("DefaultControlPoint", kv.Value).Replace(" cap 1 ", " cap " + kv.Key + " ").Replace("Feet", o.Units));
 
         foreach (var g in groups)
-            if (!s.NameLists.ContainsKey("nl_" + g.Group)) throw new InvalidOperationException($"group {g.Group} has no standby/buffer CP");
+            if (!s.NameLists.ContainsKey("nl_" + g.Group)) throw new ExportException(g.Group);
 
         foreach (var g in groups)
         {

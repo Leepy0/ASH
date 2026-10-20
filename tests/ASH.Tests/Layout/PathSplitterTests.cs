@@ -126,4 +126,10 @@ public class PathSplitterTests
         Assert.Equal(4, r.Paths.Select(p => p.Name).Distinct().Count());
         Assert.Equal(new[]{"path11_2","path11_3"}, r.Renamed["path11"]);
     }
+    [Fact] public void Piece_Ids_Are_Original_Id_Hash_K() // PathCommands.SplitPaths parses this
+    {
+        var h = L.Line("h",-10,0,10,0); h.Id = "1A";
+        var r = PathSplitter.SplitAll(new[]{ h, L.Line("v",0,-10,0,10) }, 0.001);
+        Assert.Equal(new[]{"1A#1","1A#2"}, r.Paths.Where(p => p.Name.StartsWith("h_")).Select(p => p.Id).OrderBy(x => x));
+    }
 }

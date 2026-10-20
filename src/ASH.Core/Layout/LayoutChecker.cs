@@ -10,8 +10,8 @@ public static class LayoutChecker
     static readonly HashSet<string> Reserved = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         { "name", "type", "at", "spur", "crab", "piece", "item", "cap", "align", "begx", "begy", "endx", "endy", "cenx", "ceny", "upz", "angle" };
 
-    /// <summary>Usable as a single .asy token: non-empty, no whitespace, not a reserved keyword (case-insensitive).</summary>
-    public static bool IsValidName(string n) => n.Length > 0 && !n.Any(char.IsWhiteSpace) && !Reserved.Contains(n);
+    /// <summary>Usable as a single .asy token: non-empty, no whitespace, not a reserved keyword (case-insensitive), not "?..." (DrawingReader's untagged placeholder).</summary>
+    public static bool IsValidName(string n) => n.Length > 0 && n[0] != '?' && !n.Any(char.IsWhiteSpace) && !Reserved.Contains(n);
 
     public static List<Finding> Check(Layout l, CheckOptions o)
     {
@@ -36,8 +36,12 @@ public static class LayoutChecker
             if (dupPaths.Contains(p.Name)) res.Add(new Finding(FindingCode.DuplicatePathName, $"Duplicate path name {p.Name}", at, p.Name));
             if (!IsValidName(p.Name)) res.Add(new Finding(FindingCode.InvalidName, $"Invalid path name '{p.Name}'", at, p.Name));
         }
+        var dupBlocks = new HashSet<string>(l.Blocks.GroupBy(b => b.Name).Where(x => x.Count() > 1).Select(x => x.Key));
         foreach (var b in l.Blocks)
+        {
             if (!IsValidName(b.Name)) res.Add(new Finding(FindingCode.InvalidName, $"Invalid block name '{b.Name}'", b.Rect.Min, b.Name));
+            else if (dupBlocks.Contains(b.Name)) res.Add(new Finding(FindingCode.DuplicateBlockName, $"Duplicate block name {b.Name}", b.Rect.Min, b.Name));
+        }
 
         foreach (var c in l.Cps)
         {

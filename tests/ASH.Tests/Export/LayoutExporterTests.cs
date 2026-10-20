@@ -64,8 +64,8 @@ public class LayoutExporterTests
     }
     [Fact] public void Group_Without_Standby_Cps_Throws()
     {
-        var ex = Assert.Throws<InvalidOperationException>(() => LayoutExporter.ToAgvs(L.Of(L.Line("a",0,0,10,0)), new ExportOptions(Groups: new[]{ new VehicleGroupSpec("G1","Tug",5,1.2,2.0,1.0) })));
-        Assert.Contains("group G1 has no standby/buffer CP", ex.Message);
+        var ex = Assert.Throws<ExportException>(() => LayoutExporter.ToAgvs(L.Of(L.Line("a",0,0,10,0)), new ExportOptions(Groups: new[]{ new VehicleGroupSpec("G1","Tug",5,1.2,2.0,1.0) })));
+        Assert.Contains("group G1 has no standby/buffer CP", ex.Message); Assert.Equal("G1", ex.Group);
     }
     [Fact] public void Missing_Groups_Throws()
     {
@@ -167,7 +167,7 @@ public class LayoutExporterTests
     {
         var dir = Path.Combine(Path.GetTempPath(), "ash_exp_" + Guid.NewGuid().ToString("N"), "m.arc"); Directory.CreateDirectory(dir);
         File.WriteAllText(Path.Combine(dir, "agv.asy"), "old");
-        Assert.Throws<InvalidOperationException>(() => ExportRunner.Run(L.Of(L.Line("a",0,0,10,0)), G, dir));
+        Assert.Throws<ExportException>(() => ExportRunner.Run(L.Of(L.Line("a",0,0,10,0)), G, dir));
         Assert.Equal(new[]{ "agv.asy" }, Directory.GetFiles(dir).Select(Path.GetFileName));
         Assert.Equal("old", File.ReadAllText(Path.Combine(dir, "agv.asy")));
     }

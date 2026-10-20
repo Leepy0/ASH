@@ -33,4 +33,12 @@ public class SettingsFileTests
         Assert.Equal(new[] { new VehicleGroupSpec("G1", "Tug", 5, 1.2, 2.0, 1.0), new VehicleGroupSpec("G2", "Fork", 3, 0.8, 2.5, 1.2) },
             SettingsFile.ParseGroups(SettingsFile.Load(p).Groups));
     }
+    [Fact] public void UnitScale_Mm_Drawing_Gives_1000_Units_Per_Meter() => Assert.Equal(1000, UnitScale.FromSettings(new ProjectSettings(Scale: 0.001)), 9);
+    [Theory]
+    [InlineData("SafetyGap	0")] [InlineData("VehicleLength	-1")] [InlineData("VehicleWidth	0")] [InlineData("Scale	0")]
+    public void Non_Positive_Sizes_Rejected(string line)
+    {
+        var p = Path.GetTempFileName(); File.WriteAllLines(p, new[] { line });
+        Assert.Throws<FormatException>(() => SettingsFile.Load(p));
+    }
 }
