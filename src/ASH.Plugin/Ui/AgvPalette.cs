@@ -36,8 +36,12 @@ public sealed class AgvPalette
     {
         var doc = Application.DocumentManager.MdiActiveDocument;
         if (doc == null) return;
-        // a command waiting for input would take the command name as its answer
-        if (!string.IsNullOrEmpty(Application.GetSystemVariable("CMDNAMES") as string)) { doc.Editor.WriteMessage("\n실행 중인 명령을 먼저 끝내세요."); return; }
-        doc.SendStringToExecute(cmd + " ", true, false, true);
+        try
+        {
+            // a command waiting for input would take the command name as its answer
+            if (!string.IsNullOrEmpty(Application.GetSystemVariable("CMDNAMES") as string)) { doc.Editor.WriteMessage("\n실행 중인 명령을 먼저 끝내세요."); return; }
+            doc.SendStringToExecute(cmd + " ", true, false, true);
+        }
+        catch (System.Exception ex) { doc.Editor.WriteMessage("\nASH: " + ex.Message); } // never let it reach the WinForms/WPF click handler
     }
 }

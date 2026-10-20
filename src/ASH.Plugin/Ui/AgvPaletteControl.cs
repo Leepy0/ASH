@@ -17,7 +17,7 @@ public sealed class AgvPaletteControl : UserControl
         ForeColor = Theme.Text;
         MinimumSize = new Size(260, 0);
 
-        var tabs = new TabControl { Dock = DockStyle.Fill, DrawMode = TabDrawMode.OwnerDrawFixed, Appearance = TabAppearance.Normal, Padding = new Point(5, 6), Font = Theme.Base };
+        var tabs = new TabControl { Dock = DockStyle.Fill, DrawMode = TabDrawMode.OwnerDrawFixed, Appearance = TabAppearance.Normal, Padding = new Point(2, 6), Font = Theme.Base };
         tabs.DrawItem += DrawTab;
 
         tabs.TabPages.Add(Page("경로", Theme.Section("경로 그리기·편집"),
@@ -45,7 +45,7 @@ public sealed class AgvPaletteControl : UserControl
             Theme.Caption("접두어"), prefix, Theme.Caption("CAP"), cap,
             Theme.Section("배치"), Theme.Make("CP 배치", GlyphKind.Cp, "AGVCP"), Theme.Make("traffic CP 자동 생성", GlyphKind.Cp, "AGVCPAUTO")));
 
-        var settings = Theme.Make("Settings 열기", GlyphKind.Init, "");
+        var settings = Theme.Make("Settings 열기", GlyphKind.Settings, "");
         settings.Click += (o, e) => Commands.ExportCommands.OpenSettings();
         tabs.TabPages.Add(Page("교통제어", Theme.Section("자동 생성"),
             Theme.Make("block 자동 생성", GlyphKind.Block, "AGVBLOCKAUTO"), Theme.Make("교통제어 자동 생성", GlyphKind.Traffic, "AGVTRAFFIC"),

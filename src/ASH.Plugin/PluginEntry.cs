@@ -3,6 +3,7 @@ using System.Runtime.CompilerServices;
 using ASH.Plugin.Ui;
 using ZwSoft.Windows;
 using ZwSoft.ZwCAD.Runtime;
+using ZwApp = ZwSoft.ZwCAD.ApplicationServices.Application;
 
 [assembly: ExtensionApplication(typeof(ASH.Plugin.PluginEntry))]
 
@@ -28,6 +29,7 @@ public sealed class PluginEntry : IExtensionApplication
     private static void HookRibbon()
     {
         ComponentManager.ItemInitialized += OnItemInitialized;
+        ZwApp.SystemVariableChanged += OnSysVarChanged;
         if (ComponentManager.Ribbon != null) AgvRibbon.EnsureBuilt();
     }
 
@@ -35,12 +37,21 @@ public sealed class PluginEntry : IExtensionApplication
     private static void UnhookRibbon()
     {
         ComponentManager.ItemInitialized -= OnItemInitialized;
+        ZwApp.SystemVariableChanged -= OnSysVarChanged;
         AgvRibbon.Remove();
     }
 
-    // also fires when a workspace switch recreates the ribbon; EnsureBuilt is idempotent
+    // fires as ribbon items are created (incl. a recreated ribbon); EnsureBuilt is idempotent
     private static void OnItemInitialized(object sender, RibbonItemEventArgs e)
     {
+        try { AgvRibbon.EnsureBuilt(); }
+        catch (System.Exception ex) { Debug.WriteLine("ASH ribbon: " + ex); }
+    }
+
+    // workspace switch may rebuild the ribbon without an ItemInitialized we can rely on
+    private static void OnSysVarChanged(object sender, ZwSoft.ZwCAD.ApplicationServices.SystemVariableChangedEventArgs e)
+    {
+        if (!string.Equals(e.Name, "WSCURRENT", System.StringComparison.OrdinalIgnoreCase)) return;
         try { AgvRibbon.EnsureBuilt(); }
         catch (System.Exception ex) { Debug.WriteLine("ASH ribbon: " + ex); }
     }

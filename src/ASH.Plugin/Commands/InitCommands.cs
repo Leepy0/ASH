@@ -30,6 +30,7 @@ public sealed class InitCommands
                 var missing = MissingCpTags(doc.Database, tr);
                 tr.Commit();
                 ed.WriteMessage($"\nASH 양식 초기화: 새로 만든 항목 {made}개.");
+                Ui.PaletteStatus.Set($"AGVINIT 완료: 새 항목 {made}개" + (missing.Count > 0 ? ", CP 어트리뷰트 누락 경고" : ""));
                 if (missing.Count > 0)
                     ed.WriteMessage($"\n경고: 기존 {Conventions.CpBlockName} 블록 정의에 어트리뷰트 {string.Join(", ", missing)}이(가) 없습니다. 블록 정의를 고치거나 지운 뒤 AGVINIT을 다시 실행하세요.");
             }
@@ -37,6 +38,7 @@ public sealed class InitCommands
         catch (System.Exception ex)
         {
             ed.WriteMessage($"\nAGVINIT 오류: {ex.Message}");
+            Ui.PaletteStatus.Set($"AGVINIT 오류: {ex.Message}");
         }
     }
 

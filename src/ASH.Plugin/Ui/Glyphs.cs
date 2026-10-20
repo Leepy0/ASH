@@ -4,7 +4,7 @@ using System.Drawing.Drawing2D;
 
 namespace ASH.Plugin.Ui;
 
-public enum GlyphKind { Init, Path, Reverse, Offset, Array, Split, Join, Fillet, Cp, Block, Traffic, Check, Export }
+public enum GlyphKind { Init, Path, Reverse, Offset, Array, Split, Join, Fillet, Cp, Block, Traffic, Check, Export, Settings }
 
 /// <summary>Single-colour line icons drawn in code (no image files). Coordinates are in a unit square scaled to px.</summary>
 public static class Glyphs
@@ -78,6 +78,15 @@ public static class Glyphs
             case GlyphKind.Export:
                 g.DrawLines(pen, new[] { P(0.32f, 0.45f), P(0.15f, 0.45f), P(0.15f, 0.85f), P(0.85f, 0.85f), P(0.85f, 0.45f), P(0.68f, 0.45f) });
                 Arrow(g, pen, P(0.5f, 0.68f), P(0.5f, 0.12f));
+                break;
+            case GlyphKind.Settings: // gear: ring + 4 ticks + hub
+                g.DrawEllipse(pen, 0.27f, 0.27f, 0.46f, 0.46f);
+                for (int i = 0; i < 4; i++)
+                {
+                    double a = i * Math.PI / 2 + Math.PI / 4;
+                    g.DrawLine(pen, P(0.5f + (float)(0.23 * Math.Cos(a)), 0.5f + (float)(0.23 * Math.Sin(a))), P(0.5f + (float)(0.37 * Math.Cos(a)), 0.5f + (float)(0.37 * Math.Sin(a))));
+                }
+                g.FillEllipse(fill, 0.43f, 0.43f, 0.14f, 0.14f);
                 break;
         }
         return bmp;

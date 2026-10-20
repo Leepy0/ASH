@@ -101,16 +101,16 @@ public sealed class ExportCommands
     {
         var doc = Application.DocumentManager.MdiActiveDocument;
         if (doc == null) return;
-        if (Convert.ToInt32(Application.GetSystemVariable("DWGTITLED")) == 0) { doc.Editor.WriteMessage("\n도면을 먼저 저장하세요. 설정 파일(" + SettingsFileName + ")은 도면 폴더에 둡니다."); return; }
-        var path = Path.Combine((string)Application.GetSystemVariable("DWGPREFIX"), SettingsFileName);
-        try
+        try // palette click handler: nothing may escape to WinForms
         {
+            if (Convert.ToInt32(Application.GetSystemVariable("DWGTITLED")) == 0) { doc.Editor.WriteMessage("\n도면을 먼저 저장하세요. 설정 파일(" + SettingsFileName + ")은 도면 폴더에 둡니다."); return; }
+            var path = Path.Combine((string)Application.GetSystemVariable("DWGPREFIX"), SettingsFileName);
             if (!File.Exists(path)) SettingsFile.Save(new ProjectSettings(), path);
             Process.Start("notepad.exe", "\"" + path + "\"");
         }
-        catch (System.Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is System.ComponentModel.Win32Exception)
+        catch (System.Exception ex)
         {
-            doc.Editor.WriteMessage($"\n설정 파일을 열 수 없습니다 ({path}): {ex.Message}");
+            doc.Editor.WriteMessage("\nASH: " + ex.Message);
         }
     }
 

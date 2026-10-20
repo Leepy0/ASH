@@ -25,7 +25,7 @@ public sealed class TrafficCommands
     private static void RunWithSettings(string cmd, System.Func<Database, Transaction, Editor, TrafficParams, bool> body)
     {
         var doc = Application.DocumentManager.MdiActiveDocument;
-        if (!ExportCommands.TryLoadSettings(doc.Editor, out var s, out _)) return;
+        if (!ExportCommands.TryLoadSettings(doc.Editor, out var s, out _)) { Ui.PaletteStatus.Set($"{cmd} 중단: 설정 파일 확인 (명령줄 참고)"); return; }
         double u = UnitScale.FromSettings(s); // settings are meters, the drawing is in drawing units
         var p = new TrafficParams(s.VehicleLength * u, s.VehicleWidth * u, s.SafetyGap * u, s.BlockReach * u, s.ClaimDist * u, s.CpSpacing * u);
         PathCommands.Run(doc, cmd, (db, tr) => body(db, tr, doc.Editor, p), refreshArrows: false, unitsPerMeter: u);
