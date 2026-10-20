@@ -126,3 +126,32 @@
 - AM에 통계 리셋/실시간 시계 액션이 있는지(없으면 `clock` 행 realSec는 Runner가 측정한 값으로 대체).
 - `<model>.report`의 vehicle statistics 표 형식(Task 7 fixture로 고정).
 - `OldBlockClaim` 토큰 대응(편집기 저장본으로 확정; 틀리면 `ExportOptions` 한 곳만 수정).
+
+---
+
+## 추가 (2026-10-21, 분석 서버 설계서 `ASH_Servrr/docs/superpowers/specs/2026-10-21-ash-server-design.md` §6.7·§14 반영)
+
+### Task 4b: 서버 연동 준비 — blocks.tsv, Debug 플래그, block×그룹 대기, Excel 모르는 열
+
+**Files:** Modify `src/ASH.Core/Export/ExportRunner.cs`(+`BlocksTsv`), `Model/ParamsFile.cs`(`DEBUG <0|1>` 줄을 `SIM` 다음·`END` 앞에 추가; `RunScenario.Debug` 기본 false), `Model/Templates/code*.m.txt` + `LogicGenerator.cs`(`V_debug` 읽기; 모든 `print … to message`는 `if V_debug = 1 then` 안으로; snap에 `blockgroup` 행: `kind=blockgroup name=<block> group=<G> value1=waitSec value2=waitCount` — 공급 로드가 block 앞에서 기다린 시간을 그룹별로 누적: 각 `travel` leg 전후 `ac` 차이에서 기대 이동시간을 뺀 값을 "대기"로 근사하되, 가능하면 block 속성 `average waiting time`×`total`을 그룹별로 나눌 수 없으므로 로드 측에서 `theVehicle current block`류 속성이 없으면 leg 단위 근사를 쓰고 보고서에 방법을 적는다), `Input/ExcelReader.cs`(모르는 열 무시 테스트 `Read_Ignores_Unknown_Columns`), `tests/...`.
+- `blocks.tsv` 열: `name cap minx miny maxx maxy` (export 단위, InvariantCulture). 테스트 `Runner_Writes_Blocks_Tsv`.
+- AM 통합: 기존 ModelRun 테스트에 `blockgroup` 행 존재(`G1` 행, waitSec ≥ 0)와 Debug=0일 때 `.message`에 print 출력이 없음을 단언.
+- 커밋 `feat(core): blocks.tsv, debug flag, block-group wait rows, unknown Excel columns`.
+
+### Task 9 (변경): 묶음 좌표 하강 탐색
+
+서버 설계 §6.7을 따른다. `SearchStrategy.Search(ProjectInput input, IRunExecutor exec, GroupClusters clusters, int initialReplications = 1)`:
+1. **묶음**: `GroupClusters.Build(Layout, ProjectInput, TrafficTable)` — 그룹별로 Routes의 CP 쌍 사이 최단 경로(`PathGraph` 위 Dijkstra, 경로 길이 가중)에 쓰이는 경로 Id 집합과 그 경로가 지나는 block 집합을 구하고, 교집합이 있는 그룹을 union-find로 묶는다. 공유 없는 그룹은 단독 묶음. 테스트: 공유 경로 2그룹 → 1묶음, 분리 2그룹 → 2묶음.
+2. **묶음별 좌표 하강**: 전 그룹 `MaxCount` 시작 → 묶음 안 그룹을 차례로 이진 탐색으로 줄이되 판정은 **묶음 전체 그룹**에 대해(`Judge` 모든 그룹 Ok) → 한 바퀴에 변화가 있으면 반복, 없으면 종료. 탐색 중 반복 `initialReplications`.
+3. 결정값과 −1에서 `Replications`회 판정(−1이 통과하면 채택하고 다시 −1).
+4. **확인 실행**: 전 그룹 권장 조합 `Replications`회 → 실패 그룹 +1 → 재확인(최대 3회).
+5. 영향표(선택, 기본 켜짐): 그룹마다 +1로 `Replications`회 실행해 다른 그룹 KPI 변화를 `impact.tsv`에 기록(`group plusOne otherGroup utilDelta minStockDelta`).
+- `IRunExecutor.Execute(RunScenario) : IReadOnlyList<RunKpi>`(그룹별). 테스트는 가짜 executor(묶음 안 그룹 합이 임계 이상이면 통과하는 함수)로 묶음 판정이 그룹 독립 판정과 다른 결과를 내는 경우를 고정한다.
+
+### Task 10 (변경): `--parallel` 기본값 2.
+
+### Task 5b: 외부 값으로 모델 조립 (서버용)
+
+`ModelBuildRequest`에 `VehicleOverrides`(그룹별 `AGVVEHSEG` 원문 블록과 `AGVSVEH` 속성 블록을 통째로 교체할 수 있는 `string? VehSegText`, `string? VehicleBlockText`)와 `MaterialOverrides`(`MaterialInfo` 목록 치환)를 추가하고, `ModelBuilder.Build`가 있으면 그것을 쓴다. `ExportOptions`에 `VehicleTemplateOverride` 전달 경로 추가. 테스트: 오버라이드 문자열이 `agv.asy`에 그대로 들어가고 자재 치환이 `params.txt`/로직에 반영됨. 커밋 `feat(core): external vehicle/material overrides for server assembly`.
+
+### 후속(서버 구현 시): `ash.settings.tsv`의 `ServerUrl`, 플러그인 "서버로 보내기"/"결과 올리기", 입력 내용 해시 기록.
