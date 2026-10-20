@@ -78,8 +78,14 @@ public static class ProcessAsyWriter
             w.WriteLine("\tcmrgseed 1 " + string.Join(" ", r.Seed, r.Seed, r.Seed, r.Seed, r.Seed, r.Seed));
         }
         foreach (var f in m.Funcs) w.WriteLine($"FUNC name {f} type Integer");
-        w.WriteLine("SFileBegin\tname code.m");
-        w.Write(m.LogicSource.TrimEnd('\r', '\n').Replace("\r\n", "\n"));
+        Section(w, "code.m", m.LogicSource);
+        if (m.UserExtSource != null) Section(w, "user_ext.m", m.UserExtSource);
+    }
+
+    static void Section(TextWriter w, string name, string source)
+    {
+        w.WriteLine("SFileBegin\tname " + name);
+        w.Write(source.TrimEnd('\r', '\n').Replace("\r\n", "\n"));
         w.WriteLine();
         w.WriteLine();
         w.WriteLine("#@!");

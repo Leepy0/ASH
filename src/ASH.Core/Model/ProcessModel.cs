@@ -26,4 +26,6 @@ public sealed class ProcessModel
     public List<string> Funcs { get; } = new List<string>();
     public string Units { get; set; } = "Feet";
     public string LogicSource { get; set; } = "";
+    /// <summary>Second source section `user_ext.m` (AM compiles every `SFileBegin` section of a Process .asy); null = none.</summary>
+    public string? UserExtSource { get; set; }
 }

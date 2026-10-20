@@ -1,0 +1,15 @@
+/* group {{G}} = vehicle type {{TYPE}}: vehicles numbered 1..n; index > active parks for the whole run */
+begin {{SYS}}.{{TYPE}} vehicle initialization procedure
+	inc V_vehCount({{G}}) by 1
+	set theVehicle A_index to V_vehCount({{G}})
+	return true
+end
+
+begin {{SYS}}.{{TYPE}} task search procedure
+	if A_index > V_active({{G}}) then begin
+		inc V_parked({{G}}) by 1
+		move into Q_park
+		wait to be ordered on OL_forever
+	end
+end
+

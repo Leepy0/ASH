@@ -1,0 +1,18 @@
+/* ASH user extension hooks. Created once and never overwritten; edit freely.
+   V_extMat holds the material index (1-based Excel row order) when a material hook runs.
+   Return values are ignored. */
+begin F_ext_on_call function
+	return true
+end
+
+begin F_ext_select_vehicle function
+	return true
+end
+
+begin F_ext_before_unload function
+	return true
+end
+
+begin F_ext_on_snap function
+	return true
+end

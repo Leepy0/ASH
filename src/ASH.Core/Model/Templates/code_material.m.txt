@@ -1,0 +1,44 @@
+/* material {{M}} = {{NAME}} */
+begin P_consume_{{M}} arriving procedure
+	while 1 = 1 do begin
+		if V_stock({{M}}) < V_need({{M}}) - 0.000001 then begin
+			set A_t0 to ac
+			while V_stock({{M}}) < V_need({{M}}) - 0.000001 do begin
+				wait to be ordered on OL_refill_{{M}}
+			end
+			if A_t0 < V_warmup then set A_t0 to V_warmup
+			if ac > A_t0 then inc V_stop({{M}}) by ac - A_t0
+		end
+		wait for V_takt({{M}}) sec
+		dec V_stock({{M}}) by V_need({{M}})
+		if ac >= V_warmup then begin
+			inc V_samples({{M}}) by 1
+			inc V_stockSum({{M}}) by V_stock({{M}})
+			if V_stock({{M}}) < V_minStock({{M}}) then set V_minStock({{M}}) to V_stock({{M}})
+		end
+		if V_stock({{M}}) <= V_call({{M}}) and V_pending({{M}}) = 0 then begin
+			set V_pending({{M}}) to 1
+			set V_extMat to {{M}}
+			set V_tmp to F_ext_on_call()
+			clone 1 load to P_supply_{{M}}
+		end
+	end
+end
+
+begin P_supply_{{M}} arriving procedure
+	set V_extMat to {{M}}
+	set V_tmp to F_ext_select_vehicle()
+	move into {{SYS}}:{{FROM}}
+	wait for {{LOAD_TIME}} sec
+{{SUPPLY_LEGS}}
+	set V_extMat to {{M}}
+	set V_tmp to F_ext_before_unload()
+	wait for {{UNLOAD_TIME}} sec
+	inc V_stock({{M}}) by 1
+	if ac >= V_warmup then inc V_supplies({{M}}) by 1
+	order 1 load from OL_refill_{{M}} to continue
+	set V_pending({{M}}) to 0
+{{RETURN_LEGS}}
+	send to die
+end
+

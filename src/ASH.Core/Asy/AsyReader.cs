@@ -12,7 +12,7 @@ public static class AsyReader
     static readonly HashSet<string> Keywords = new HashSet<string>
     {
         "VERSION","SYSTYPE","UNITS","SYSDEF","FLAGS","AGVSDEF","AGVSTOL","GPATHTYPE","GPATH",
-        "CPOINTTYPE","CPOINT","NAMELST","PARKLST","WORKLST","AGVVEHSEG","AGVSVEH",
+        "CPOINTTYPE","CPOINT","NAMELST","PARKLST","WORKLST","SRCHLST","AGVVEHSEG","AGVSVEH",
     };
 
     static readonly char[] Sep = { ' ', '\t' };
@@ -59,6 +59,7 @@ public static class AsyReader
                 break;
             case "PARKLST": s.ParkListLines.Add(line); break;
             case "WORKLST": s.WorkListLines.Add(line); break;
+            case "SRCHLST": s.SearchListLines.Add(line); break;
             case "AGVVEHSEG": s.VehicleSegmentLines.Add(line); break;
             case "AGVSVEH": s.VehicleLines.Add(line); break;
         }
@@ -75,6 +76,7 @@ public static class AsyReader
             case "CPOINTTYPE": s.CpTypeLines.Add(line); break;
             case "PARKLST": s.ParkListLines.Add(line); break;
             case "WORKLST": s.WorkListLines.Add(line); break;
+            case "SRCHLST": s.SearchListLines.Add(line); break;
         }
     }
 

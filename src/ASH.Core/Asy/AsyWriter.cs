@@ -43,6 +43,7 @@ public static class AsyWriter
         }
         All(s.ParkListLines);
         All(s.WorkListLines);
+        All(s.SearchListLines);
         All(s.VehicleSegmentLines);
         All(s.VehicleLines);
     }

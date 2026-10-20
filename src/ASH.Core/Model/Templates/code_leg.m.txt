@@ -1,0 +1,5 @@
+	set V_legStart({{M}}) to ac
+	set V_inLeg({{M}}) to 1
+	travel to {{SYS}}:{{TO}}
+	set V_inLeg({{M}}) to 0
+	if ac - V_legStart({{M}}) > V_deadlockSec then inc V_deadlock by 1
