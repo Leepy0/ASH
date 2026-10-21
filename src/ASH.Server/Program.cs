@@ -28,6 +28,8 @@ builder.Services.AddSingleton(sp => JobStore.Create(sp.GetRequiredService<IConfi
 builder.Services.AddSingleton<IJobRunner, AutoModJobRunner>();
 builder.Services.AddSingleton<JobWorker>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<JobWorker>());
+builder.Services.AddSingleton<JobRetention>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<JobRetention>());
 
 var app = builder.Build();
 app.Services.GetRequiredService<ReleaseStore>(); // bad key/folder/GitHub URL fails at start, not at the first request
@@ -165,6 +167,19 @@ app.MapPost("/api/jobs", async (HttpContext ctx, JobStore js, IConfiguration cfg
             CreatedUtc = DateTime.UtcNow, Impact = form["impact"].ToString() != "0", InitialReps = 1, Files = files.ToList(), UploadBytes = pkg.Length,
         };
         if (job.Project.Length == 0) job.Project = model;
+        if (JobPackage.HasResults(js.ProjectDir(id)))
+        {
+            // a result run on the user's PC (ash-run): shown like a server job, nothing is queued
+            var sum = SearchSummaryFile.Read(Path.Combine(js.ProjectDir(id), "runs", SearchSummaryFile.FileName));
+            var now = DateTime.UtcNow;
+            job.Source = JobSource.Local;
+            job.State = sum.ExitCode == 1 ? JobState.Failed : JobState.Done;
+            job.StartedUtc = now.AddSeconds(-Math.Max(0, sum.ElapsedSec)); job.FinishedUtc = now;
+            job.ExitCode = sum.ExitCode; job.Error = sum.Error; job.RunsDone = sum.Runs; job.RunsFailed = sum.Failures;
+            job.Decided = sum.Decided.Count == 0 ? null : sum.Decided.ToDictionary(kv => kv.Key, kv => kv.Value);
+            job.Clusters = sum.Clusters.Select(c => c.ToList()).ToList();
+            job.ConfirmRunIds = sum.ConfirmRunIds.ToList(); job.Warnings = sum.Warnings.ToList(); job.FailureMessages = sum.FailureMessages.ToList();
+        }
         js.Add(job);
         var q = js.QueueInfo(id);
         return Results.Json(new { id, url = $"{ctx.Request.Scheme}://{ctx.Request.Host}/jobs/{id}", ahead = q.Ahead });
@@ -232,12 +247,14 @@ app.MapGet("/jobs/{id}/files/{name}", (string id, string name, JobStore js) =>
         "job.log" => js.LogPath(id),
         "upload.zip" => js.UploadPath(id),
         "runs.zip" => Path.Combine(js.JobDir(id), "runs.zip"),
+        "report.xlsx" => Path.Combine(js.JobDir(id), "report.xlsx"),
         _ => null,
     };
     if (path == null) return Msg(404, "그런 파일은 없습니다.");
     if (name == "runs.zip")
     {
         if (!j.Finished) return Msg(409, "작업이 끝난 뒤에 받을 수 있습니다.");
+        if (j.RunsPurgedUtc is { } purged) return Msg(410, $"실행 원본은 보관 기간이 지나 {ASH.Core.SeoulTime.Text(purged)}에 정리되었습니다(Jobs:KeepRunsDays). summary.tsv와 upload.zip은 남아 있습니다.");
         if (!Directory.Exists(runs)) return Msg(404, "실행 폴더가 없습니다.");
         if (!File.Exists(path))
         {
@@ -247,8 +264,15 @@ app.MapGet("/jobs/{id}/files/{name}", (string id, string name, JobStore js) =>
             File.Move(tmp, path, true);
         }
     }
+    if (name == "report.xlsx")
+    {
+        if (!j.Finished) return Msg(409, "작업이 끝난 뒤에 받을 수 있습니다.");
+        // made on first request; a job that changed afterwards (purged, re-read) gets a fresh one
+        if (!File.Exists(path) || File.GetLastWriteTimeUtc(path) < File.GetLastWriteTimeUtc(Path.Combine(js.JobDir(id), "job.json")))
+            JobReport.Write(j, JobView.For(js, j), path);
+    }
     if (!File.Exists(path)) return Msg(404, "파일이 아직 없습니다.");
-    var type = name.EndsWith(".zip") ? "application/zip" : "text/plain; charset=utf-8";
+    var type = name.EndsWith(".zip") ? "application/zip" : name.EndsWith(".xlsx") ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" : "text/plain; charset=utf-8";
     var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
     return Results.File(fs, type, $"{id}-{name}", enableRangeProcessing: name.EndsWith(".zip"));
 });

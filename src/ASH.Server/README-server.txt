@@ -28,7 +28,9 @@ ASH.Server - ASH 배포 서버 (최소판)
                     DialogButton 체험판처럼 실행 때 대화상자가 뜨는 설치면 누를 버튼 이름(예: "Student Version"). 정식판은 비운다.
                     RunTimeoutMin 실행 하나의 시간 제한(기본 30분), BuildTimeoutMin 빌드 시간 제한(기본 10분),
                     JobTimeoutHours 작업 하나의 시간 제한(기본 24시간). 넘으면 끊고 다음 작업으로 넘어간다.
-                    Dir 작업 폴더(기본 %ProgramData%/ASH.Server/jobs). 올린 파일·실행 결과를 지우지 않으므로 디스크를 지켜본다.
+                    Dir 작업 폴더(기본 %ProgramData%/ASH.Server/jobs).
+                    KeepRunsDays 끝난 작업의 실행 원본(실행 폴더, 빌드 출력, runs.zip)을 이 일수 뒤 지운다(기본 30, 0 = 지우지 않음).
+                      요약(summary.tsv, 결과 화면, Excel 보고서), 올린 원본(upload.zip), 로그는 남는다. 한 시간마다 확인한다.
                     Enabled false 면 작업을 받지 않는다. WorkerEnabled false 면 받기만 하고 실행하지 않는다.
                     주의: 올린 모델의 로직(user_ext.m 등)이 서버에서 AutoMod 로 컴파일·실행된다. 사내망에서만 연다.
                     작업 대기열과 결과는 http://서버:8082/jobs 에서 본다. 취소는 보낸 PC(같은 IP)나 관리자 토큰으로만 된다.

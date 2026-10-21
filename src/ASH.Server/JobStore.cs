@@ -14,10 +14,19 @@ public static class JobState
     };
 }
 
+public static class JobSource
+{
+    /// <summary>Server = built and searched here; Local = searched by ash-run on the user's PC and uploaded with its results.</summary>
+    public const string Server = "server", Local = "local";
+}
+
 /// <summary>One job: who sent which model, where it is in the queue, and what came out. Saved as job.json in the job's folder.</summary>
 public sealed class JobInfo
 {
     public string Id { get; set; } = "";
+    public string Source { get; set; } = JobSource.Server;
+    /// <summary>When the raw run folders were deleted (Jobs:KeepRunsDays); summaries, the upload and the log stay.</summary>
+    public DateTime? RunsPurgedUtc { get; set; }
     public string Project { get; set; } = "";
     public string Plan { get; set; } = "";
     public string Model { get; set; } = "";

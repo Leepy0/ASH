@@ -63,6 +63,7 @@ button{padding:6px 14px}";
     {
         var sb = new StringBuilder();
         sb.Append($"<h1>{H(j.Project)} / {H(j.Plan)} <span class=\"muted\">· 모델 {H(j.Model)}</span></h1>");
+        if (j.Source == JobSource.Local) sb.Append("<p><span class=\"state s-cancelled\">내 PC에서 실행한 결과</span> ash-run으로 돌린 결과를 올린 것입니다. 서버에서 다시 실행하지 않았습니다.</p>");
         sb.Append($"<p>{State(j)} {(j.Phase != null ? H(j.Phase) + " · " : "")}작업 {H(j.Id)} · 보낸 사람 {H(j.Submitter)} ({H(j.Ip)}) · 보낸 시각 {H(When(j.CreatedUtc))}");
         if (j.StartedUtc != null) sb.Append($" · 실행 시간 {Dur(j.Duration)}");
         sb.Append($" · 모델 실행 {j.RunsDone}회{(j.RunsFailed > 0 ? $" <span class=\"bad\">(실패 {j.RunsFailed})</span>" : "")}</p>");
@@ -103,6 +104,7 @@ button{padding:6px 14px}";
         sb.Append($"<div class=\"card\"><div class=\"sub\">모델 실행</div><div class=\"big\">{j.RunsDone}회</div><div class=\"sub\">실패 {j.RunsFailed}회 · 경고 {j.Warnings.Count}건 · {Dur(j.Duration)}</div></div>");
         sb.Append("</div>");
 
+        sb.Append($"<p><a href=\"/jobs/{H(j.Id)}/files/report.xlsx\">Excel 보고서 받기</a></p>");
         sb.Append("<h2>그룹별 권장 대수와 부하율</h2><table><tr><th>그룹</th><th>AGV 타입</th><th>권장</th><th>범위</th><th>가동률(확인 실행 평균)</th><th>최소 재고/안전재고</th><th>판정</th></tr>");
         foreach (var g in v.Groups)
         {
@@ -285,9 +287,12 @@ button{padding:6px 14px}";
     {
         string Link(string name, string label) => $"<li><a href=\"/jobs/{H(j.Id)}/files/{name}\">{label}</a></li>";
         sb.Append("<h2>내려받기</h2><ul>");
+        sb.Append(Link("report.xlsx", "report.xlsx — Excel 보고서(요약, 대수별 가동률, 실행 목록, 영향표, block, 입력)"));
         sb.Append(Link("summary.tsv", "summary.tsv — 실행별·그룹별 결과"));
         sb.Append(Link("impact.tsv", "impact.tsv — 영향표"));
-        sb.Append(Link("runs.zip", "runs.zip — 모든 실행 폴더(결과·보고서·메시지)"));
+        if (j.RunsPurgedUtc is { } purged) sb.Append($"<li class=\"muted\">runs.zip — 실행 원본은 보관 기간이 지나 {H(SeoulTime.Text(purged))}에 정리되었습니다</li>");
+        else sb.Append(Link("runs.zip", "runs.zip — 모든 실행 폴더(결과·보고서·메시지)"));
+
         sb.Append(Link("upload.zip", "upload.zip — 올린 원본"));
         sb.Append(Link("job.log", "job.log — 작업 로그 전체"));
         sb.Append("</ul>");

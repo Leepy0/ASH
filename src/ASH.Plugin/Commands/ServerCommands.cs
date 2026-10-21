@@ -23,22 +23,28 @@ public sealed class ServerCommands
     private static readonly TimeSpan HardCapGrace = TimeSpan.FromSeconds(2);
 
     [CommandMethod("AGVSEND")]
-    public void AgvSend()
+    public void AgvSend() => Command("AGVSEND", results: false);
+
+    /// <summary>Uploads what ash-run computed on this PC (runs\summary.tsv, search.tsv, the runs' result.tsv) with the model, for the same result pages.</summary>
+    [CommandMethod("AGVRESULTUP")]
+    public void AgvResultUp() => Command("AGVRESULTUP", results: true);
+
+    private static void Command(string name, bool results)
     {
         var doc = Application.DocumentManager.MdiActiveDocument;
         if (doc == null) return;
         var ed = doc.Editor;
         var zip = Path.Combine(Path.GetTempPath(), "ASH-send-" + Guid.NewGuid().ToString("N") + ".zip");
-        try { Send(ed, zip); }
+        try { Send(ed, zip, results); }
         catch (System.Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is InvalidOperationException)
         {
-            Say(ed, "AGVSEND 오류: " + ex.Message);
-            PluginLog.Write("AGVSEND", ex);
+            Say(ed, name + " 오류: " + ex.Message);
+            PluginLog.Write(name, ex);
         }
         finally { try { File.Delete(zip); } catch (System.Exception) { /* temp file; the OS cleans it up eventually */ } }
     }
 
-    private static void Send(Editor ed, string zip)
+    private static void Send(Editor ed, string zip, bool results)
     {
         if (!ExportCommands.TryLoadSettings(ed, out var s, out var dir)) return;
         var missing = JobPackage.Missing(dir, s.ModelName);
@@ -46,6 +52,12 @@ public sealed class ServerCommands
         {
             ed.WriteMessage("\n보낼 파일이 없습니다: " + string.Join(", ", missing));
             Say(ed, "먼저 모델 생성(AGVMODEL)을 실행하세요.");
+            return;
+        }
+        if (results && JobPackage.MissingResults(dir) is { Count: > 0 } noRuns)
+        {
+            ed.WriteMessage("\n올릴 결과가 없습니다: " + string.Join(", ", noRuns));
+            Say(ed, "먼저 이 PC에서 ash-run으로 대수 탐색을 실행하세요(ash-run 0.12.0 이상이 runs\\search.tsv를 남깁니다).");
             return;
         }
 
@@ -62,14 +74,22 @@ public sealed class ServerCommands
             q = Run(qc.GetQueueAsync, QueueTimeout);
         }
         catch (System.Exception e) when (IsNetwork(e)) { Fail(ed, "서버에 연결하지 못했습니다", e); return; }
-        if (!q.Enabled) { Say(ed, "이 서버는 작업을 실행하지 않습니다(서버 설정에서 꺼져 있음)."); return; }
-        ed.WriteMessage($"\n서버 대기 {q.Ahead}건");
-        if (!string.IsNullOrEmpty(q.EstimatedStart)) ed.WriteMessage($" · 예상 시작 {SeoulTime.FromIso(q.EstimatedStart)}");
-        if (q.TypicalMinutes is double m) ed.WriteMessage($" · 보통 {m:0.#}분 걸림");
-        if (PathCommands.Keyword(ed, "\n서버로 보낼까요? [Y/N] <Y>", "Y", "Y", "N") != "Y") { PaletteStatus.Set("AGVSEND: 취소"); return; }
+        if (!q.Enabled && !results) { Say(ed, "이 서버는 작업을 실행하지 않습니다(서버 설정에서 꺼져 있음)."); return; }
+        if (results)
+        {
+            // nothing is queued for an uploaded result: only the question
+            if (PathCommands.Keyword(ed, "\n이 PC의 ash-run 결과를 서버에 올릴까요? [Y/N] <Y>", "Y", "Y", "N") != "Y") { PaletteStatus.Set("AGVRESULTUP: 취소"); return; }
+        }
+        else
+        {
+            ed.WriteMessage($"\n서버 대기 {q.Ahead}건");
+            if (!string.IsNullOrEmpty(q.EstimatedStart)) ed.WriteMessage($" · 예상 시작 {SeoulTime.FromIso(q.EstimatedStart)}");
+            if (q.TypicalMinutes is double m) ed.WriteMessage($" · 보통 {m:0.#}분 걸림");
+            if (PathCommands.Keyword(ed, "\n서버로 보낼까요? [Y/N] <Y>", "Y", "Y", "N") != "Y") { PaletteStatus.Set("AGVSEND: 취소"); return; }
+        }
 
         Say(ed, "패키지 만드는 중…");
-        var files = JobPackage.Create(dir, s.ModelName, zip);
+        var files = JobPackage.Create(dir, s.ModelName, zip, includeResults: results);
         Say(ed, $"서버로 보내는 중… (파일 {files.Count}개, {new FileInfo(zip).Length / 1048576.0:0.#} MB, 최대 {UploadTimeout.TotalMinutes:0}분)");
         var job = new JobSubmission(Path.GetFileName(dir.TrimEnd('\\', '/')), Path.GetFileNameWithoutExtension((string)Application.GetSystemVariable("DWGNAME")),
             s.ModelName, Environment.UserName);
@@ -77,7 +97,7 @@ public sealed class ServerCommands
         {
             using var client = new JobServerClient(new Uri(url));
             var receipt = Run(ct => client.SubmitAsync(zip, job, ct), UploadTimeout);
-            Say(ed, $"전송 완료: 작업 {receipt.Id} (앞에 {receipt.Ahead}건)");
+            Say(ed, results ? $"결과 올림: {receipt.Id}" : $"전송 완료: 작업 {receipt.Id} (앞에 {receipt.Ahead}건)");
             var page = client.PageUri(receipt);
             if (page == null) { ed.WriteMessage("\n서버가 알려 준 주소가 올바르지 않아 브라우저를 열지 않습니다: " + receipt.Url); return; }
             ed.WriteMessage("\n" + page);

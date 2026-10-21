@@ -87,7 +87,15 @@ public sealed class JobView
             }
             catch (Exception e) when (e is IOException or InvalidDataException) { }
         }
-        v.Blocks = acc.Select(kv => new BlockView(kv.Key, Mean(kv.Value.Select(b => b.Utilization)), Mean(kv.Value.Select(b => b.AvgWaitSec)), Mean(kv.Value.Select(b => b.Passes))))
+        var saved = Path.Combine(store.JobDir(job.Id), JobRetention.BlocksFile);
+        if (acc.Count == 0 && File.Exists(saved))
+        {
+            // the run folders were purged (Jobs:KeepRunsDays): the numbers were kept here first
+            static double D(string s) => double.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out var d) ? d : double.NaN;
+            v.Blocks = File.ReadAllLines(saved).Skip(1).Select(l => l.Split('\t')).Where(t => t.Length >= 4)
+                .Select(t => new BlockView(t[0], D(t[1]), D(t[2]), D(t[3]))).OrderByDescending(b => b.AvgWaitSec).ToList();
+        }
+        else v.Blocks = acc.Select(kv => new BlockView(kv.Key, Mean(kv.Value.Select(b => b.Utilization)), Mean(kv.Value.Select(b => b.AvgWaitSec)), Mean(kv.Value.Select(b => b.Passes))))
             .OrderByDescending(b => b.AvgWaitSec).ToList();
 
         try { v.Layout = ArcLayout.Load(Path.Combine(project, job.Model + ".arc")).Layout; } catch (Exception e) when (e is IOException or FormatException or InvalidDataException) { }

@@ -30,8 +30,15 @@ public static class JobPackage
         Required(model).Where(p => !File.Exists(Path.Combine(projectDir, p.Replace('/', Path.DirectorySeparatorChar)))).ToList();
 
     /// <summary>Writes the package for a project folder to <paramref name="zipPath"/>: every file of &lt;Model&gt;.arc plus the snapshot (and ash.settings.tsv when
-    /// present). Throws InvalidOperationException naming the missing files when a required one is not there.</summary>
-    public static IReadOnlyList<PackageFile> Create(string projectDir, string model, string zipPath)
+    /// present); with <paramref name="includeResults"/> also ash-run's results from runs\. Throws InvalidOperationException naming the missing files when a required one is not there.</summary>
+    /// <summary>Missing files for a local result upload (ash-run's summary and search decision), as package paths; empty = ready.</summary>
+    public static IReadOnlyList<string> MissingResults(string projectDir) =>
+        new[] { "runs/summary.tsv", "runs/" + SearchSummaryFile.FileName }.Where(p => !File.Exists(Path.Combine(projectDir, p.Replace('/', Path.DirectorySeparatorChar)))).ToList();
+
+    /// <summary>True when an unpacked package carries a local result (ash-run's runs folder) instead of asking the server to run.</summary>
+    public static bool HasResults(string projectDir) => MissingResults(projectDir).Count == 0;
+
+    public static IReadOnlyList<PackageFile> Create(string projectDir, string model, string zipPath, bool includeResults = false)
     {
         var missing = Missing(projectDir, model);
         if (missing.Count > 0) throw new InvalidOperationException("보낼 파일이 없습니다: " + string.Join(", ", missing));
@@ -43,6 +50,20 @@ public static class JobPackage
         {
             var p = Path.Combine(projectDir, extra);
             if (File.Exists(p)) files.Add((extra, p));
+        }
+        if (includeResults)
+        {
+            // a local result: the summary, the decision and every run's result.tsv (the block maps); reports and AutoMod output stay at home
+            var miss = MissingResults(projectDir);
+            if (miss.Count > 0) throw new InvalidOperationException("ash-run 결과가 없습니다: " + string.Join(", ", miss));
+            var runs = Path.Combine(projectDir, "runs");
+            foreach (var name in new[] { "summary.tsv", "impact.tsv", SearchSummaryFile.FileName })
+                if (File.Exists(Path.Combine(runs, name))) files.Add(("runs/" + name, Path.Combine(runs, name)));
+            foreach (var d in Directory.GetDirectories(runs).OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
+            {
+                var r = Path.Combine(d, "result.tsv");
+                if (File.Exists(r)) files.Add(("runs/" + Path.GetFileName(d) + "/result.tsv", r));
+            }
         }
         var list = new List<PackageFile>();
         using (var fs = new FileStream(zipPath, FileMode.Create, FileAccess.Write))

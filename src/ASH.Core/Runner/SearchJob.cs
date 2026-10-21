@@ -76,7 +76,19 @@ public static class SearchJob
         return input;
     }
 
+    /// <summary>Runs the search and, once it got that far, writes runs\search.tsv (what was decided), which a local result upload carries to the server.</summary>
     public static SearchJobResult Run(SearchJobOptions a, ProjectInput? input, TextWriter o, IProgress<RunOutcome>? progress = null, CancellationToken ct = default)
+    {
+        var r = RunSearch(a, input, o, progress, ct);
+        if (r.Search != null)
+        {
+            try { SearchSummaryFile.Write(Path.Combine(r.RunsDir, SearchSummaryFile.FileName), SearchSummaryFile.From(r, a.Debug)); }
+            catch (Exception e) when (e is IOException || e is UnauthorizedAccessException) { o.WriteLine("warning: " + SearchSummaryFile.FileName + " not written: " + e.Message); }
+        }
+        return r;
+    }
+
+    static SearchJobResult RunSearch(SearchJobOptions a, ProjectInput? input, TextWriter o, IProgress<RunOutcome>? progress, CancellationToken ct)
     {
         var sw = Stopwatch.StartNew();
         var warnings = new List<string>();

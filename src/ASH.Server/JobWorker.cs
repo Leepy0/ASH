@@ -45,12 +45,8 @@ public sealed class AutoModJobRunner(IConfiguration cfg) : IJobRunner
 
         phase("대수 탐색");
         var r = SearchJob.Run(new SearchJobOptions(projectDir, job.Model, AmHome, Parallel, DialogButton, RunTimeout, job.InitialReps, job.Impact), null, log, progress, ct);
-        var confirm = new List<string>();
-        if (r.Search != null && r.Input != null)
-            foreach (var t in r.Search.Trace.Where(t => t.Phase == "confirm").TakeLast(1))
-                confirm.AddRange(t.Seeds.Select(seed => ModelRunner.RunId(r.Input, t.Scenario with { Seed = seed })));
-        return new JobOutcome(r.ExitCode, r.Error, r.Search?.Decided, r.Clusters?.Clusters, confirm,
-            r.Warnings.Concat((IEnumerable<string>?)r.Search?.Warnings ?? Array.Empty<string>()).Distinct().ToList(), r.FailureMessages.Take(50).ToList());
+        var sum = SearchSummaryFile.From(r);
+        return new JobOutcome(r.ExitCode, r.Error, r.Search?.Decided, r.Clusters?.Clusters, sum.ConfirmRunIds, sum.Warnings, sum.FailureMessages);
     }
 }
 
