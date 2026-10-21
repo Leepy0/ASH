@@ -17,6 +17,8 @@ public static class JobReport
         Runs(wb.AddWorksheet("실행 목록"), view);
         Impact(wb.AddWorksheet("영향표"), view);
         Blocks(wb.AddWorksheet("block"), view);
+        Vehicles(wb.AddWorksheet("차량"), view);
+        MaterialStats(wb.AddWorksheet("자재 통계"), view);
         Input(wb.AddWorksheet("입력"), job, view);
 
         // saved beside the target and moved over it: a failure half way must not leave a truncated report
@@ -166,6 +168,46 @@ public static class JobReport
         Header(ws, 1, "block", "평균 대기 초", "점유율", "통과 수");
         int r = 2;
         foreach (var b in v.Blocks) { Put(ws, r, 1, b.Name); Put(ws, r, 2, b.AvgWaitSec, "0.0"); Put(ws, r, 3, b.Utilization, Pct); Put(ws, r, 4, b.Passes, "0.#"); r++; }
+        ws.SheetView.FreezeRows(1); Widths(ws);
+    }
+
+    static void Vehicles(IXLWorksheet ws, JobView v)
+    {
+        if (v.Vehicles.Count == 0) { Note(ws, "차량 결과가 없습니다(모델이 차량 통계를 쓰지 않았거나 확인 실행 결과가 없음)."); return; }
+        int r = 1;
+        Title(ws, r++, "그룹별 요약 (확인 실행 평균, 권장 대수만큼 움직인 차량)");
+        Header(ws, r++, "그룹", "대수", "평균 가동률", "작업/대", "주행 거리/대(m)", "m/작업", "초/작업");
+        foreach (var g in v.VehicleGroups)
+        {
+            Put(ws, r, 1, g.Group); Put(ws, r, 2, g.Count); Put(ws, r, 3, g.Util, Pct); Put(ws, r, 4, g.Jobs, "0.#"); Put(ws, r, 5, g.Distance, "0");
+            Put(ws, r, 6, g.DistPerJob, "0.#"); Put(ws, r, 7, g.BusyPerJob, "0.#");
+            r++;
+        }
+        r++; Title(ws, r++, "차량별");
+        Header(ws, r++, "차량", "그룹", "가동률", "작업 수", "주행 거리(m)", "m/작업", "초/작업", "고장 시간(초)");
+        foreach (var x in v.Vehicles)
+        {
+            Put(ws, r, 1, x.Name); Put(ws, r, 2, x.Group); Put(ws, r, 3, x.Util, Pct); Put(ws, r, 4, x.Jobs, "0.#"); Put(ws, r, 5, x.Distance, "0");
+            Put(ws, r, 6, x.DistPerJob, "0.#"); Put(ws, r, 7, x.BusyPerJob, "0.#"); Put(ws, r, 8, x.Down, "0");
+            r++;
+        }
+        Widths(ws);
+    }
+
+    static void MaterialStats(IXLWorksheet ws, JobView v)
+    {
+        if (v.Materials.Count == 0) { Note(ws, "자재 통계가 없습니다(모델이 쓰지 않았거나 확인 실행 결과가 없음)."); return; }
+        Header(ws, 1, "자재", "그룹", "공급 수", "기대 공급 수", "결품 시간(초)", "호출→상차 평균(초)", "호출→상차 최대(초)", "호출→하차 평균(초)", "호출→하차 최대(초)",
+            "재고 평균", "재고 표준편차", "재고 최소", "재고 최대", "안전재고", "주의");
+        int r = 2;
+        foreach (var m in v.Materials)
+        {
+            Put(ws, r, 1, m.Name); Put(ws, r, 2, m.Group); Put(ws, r, 3, m.Supplies, "0.#"); Put(ws, r, 4, m.Expected, "0.#"); Put(ws, r, 5, m.StopSec, "0.#");
+            Put(ws, r, 6, m.PickAvg, "0.0"); Put(ws, r, 7, m.PickMax, "0.0"); Put(ws, r, 8, m.DelivAvg, "0.0"); Put(ws, r, 9, m.DelivMax, "0.0");
+            Put(ws, r, 10, m.StockAvg, "0.0"); Put(ws, r, 11, m.StockStd, "0.0"); Put(ws, r, 12, m.StockMin, "0.#"); Put(ws, r, 13, m.StockMax, "0.#");
+            Put(ws, r, 14, m.Safety, "0.##"); Put(ws, r, 15, m.Warn ? "주의" : "");
+            r++;
+        }
         ws.SheetView.FreezeRows(1); Widths(ws);
     }
 
