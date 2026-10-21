@@ -4,7 +4,7 @@ using System.Drawing.Drawing2D;
 
 namespace ASH.Plugin.Ui;
 
-public enum GlyphKind { Init, Path, Reverse, Offset, Array, Split, Join, Fillet, Cp, Block, Traffic, Check, Export, Settings, Excel, Model, Update }
+public enum GlyphKind { Init, Path, Reverse, Offset, Array, Split, Join, Fillet, Cp, Block, Traffic, Check, Export, Settings, Excel, Model, Update, PathType }
 
 /// <summary>Single-colour line icons drawn in code (no image files). Coordinates are in a unit square scaled to px.</summary>
 public static class Glyphs
@@ -35,6 +35,11 @@ public static class Glyphs
             case GlyphKind.Reverse:
                 Arrow(g, pen, P(0.15f, 0.33f), P(0.85f, 0.33f));
                 Arrow(g, pen, P(0.85f, 0.67f), P(0.15f, 0.67f));
+                break;
+            case GlyphKind.PathType:
+                g.DrawLine(pen, 0.12f, 0.5f, 0.88f, 0.5f);
+                Head(g, pen, P(0.35f, 0.5f), P(0.12f, 0.5f));
+                Head(g, pen, P(0.65f, 0.5f), P(0.88f, 0.5f));
                 break;
             case GlyphKind.Offset:
                 g.DrawLine(pen, 0.15f, 0.62f, 0.62f, 0.15f);

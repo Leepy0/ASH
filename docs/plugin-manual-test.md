@@ -18,7 +18,10 @@ ZWCAD가 설치된 PC에서 실행한다. 각 항목에 결과(OK/NG), 날짜, Z
 | 항목 | 결과 | 날짜 | ZWCAD 버전 | 메모 |
 |---|---|---|---|---|
 | T11-1 `NETLOAD`로 `ASH.Plugin.dll` 로드, 오류 없음 | | | | |
-| T11-2 `AGVINIT` → 레이어 패널에 `AGV_PATH`, `AGV_PATH_SPUR`, `AGV_DIR`, `AGV_CP`, `AGV_BLOCK`, `AGV_STATION` 6개(색 3,2,8,1,5,6) | | | | |
+| T11-2 `AGVINIT` → 레이어 패널에 `AGV_PATH`, `AGV_PATH_SPUR`, `AGV_PATH_TWO`, `AGV_PATH_CRAB`, `AGV_DIR`, `AGV_CP`, `AGV_BLOCK`, `AGV_STATION` 8개(색 3,2,4,30,8,1,5,6), 블록 `AGV_DIR`와 `AGV_DIR2` | | | | |
+| T12-1b `AGVPATH` → 종류 선택 "[단방향(O)/양방향(T)/지선(S)/크랩(C)] <단방향>"에서 각각 그린 뒤 레이어가 `AGV_PATH`/`_TWO`/`_SPUR`/`_CRAB`이고 명령줄에 "경로 P00x 추가 (양방향)"처럼 종류가 나옴. 양방향은 양쪽 화살표, 나머지는 한쪽 화살표 | | | | |
+| T12-1c `AGVPTYPE`(리본 "경로 종류", 팔레트 "경로 종류 변경") → 경로 선택 후 종류 지정 → 레이어·화살표가 바뀌고, `AGVEXPORT` 뒤 `agv.asy`의 `GPATH`에 `two`/`spur`/`crab`이 해당 경로에만 붙음(지선에 `crab`이 자동으로 붙지 않음) | | | | |
+| T12-1d 방향표가 너무 작지 않음: 기본 2 m. `ash.settings.tsv`에 `ArrowSize<탭>5`를 넣고 아무 편집 명령 실행 → 5 m로 바뀜. 짧은 원호 조각에서는 조각 길이의 80%로 줄어 겹치지 않음 | | | | |
 | T11-3 `AGV_CP` 블록 정의에 어트리뷰트 5개(NAME TYPE GROUP STATION CAP) | | | | |
 | T11-4 `AGVINIT` 재실행 → "새로 만든 항목 0개", 중복 없음 | | | | |
 | T12-1 십자 모양 폴리라인 2개를 `AGVPATH`로 그림 → XData name `P001`, `P002`, 화살표 표시 | | | | |
@@ -43,7 +46,7 @@ ZWCAD가 설치된 PC에서 실행한다. 각 항목에 결과(OK/NG), 날짜, Z
 | R10 dir=1(뒤집힌) 경로가 `AGVSPLIT`/`AGVJOIN`/`AGVFILLET` 뒤에도 진행 방향 유지 | | | | |
 | R11 bulge>1(반원 초과) 원호 폴리라인을 `AGVSPLIT` 등으로 다시 쓰면 형상 동일(180° 초과 원호는 둘로 나뉨) | | | | |
 | R12 CP 어트리뷰트 위치·표시: NAME만 보이고 나머지 숨김, `AGV_CP` 레이어 동결 시 어트리뷰트도 같이 숨음 | | | | |
-| R13 `SelectionFilter` 레이어 목록 `AGV_PATH,AGV_PATH_SPUR`(쉼표)로 두 레이어 모두 선택됨 | | | | |
+| R13 `SelectionFilter` 레이어 목록 `AGV_PATH,AGV_PATH_TWO,AGV_PATH_SPUR,AGV_PATH_CRAB`(쉼표)로 네 레이어 모두 선택됨 | | | | |
 | R14 `GetKeywords` 프롬프트: `[...]` 표시가 중복 없이 나오고 Enter가 기본값으로 동작 | | | | |
 | R15 일반(비동적) 블록에서 `DynamicBlockTableRecord`가 자기 정의를 돌려줌(CP/스테이션 인식) | | | | |
 | R16 화살표 크기 0.6: mm 단위 도면과 m 단위 도면에서 보이는 크기 확인 | | | | |

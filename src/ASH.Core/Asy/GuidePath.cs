@@ -21,4 +21,4 @@ public sealed record ArcPiece(Point2 Center, Point2 Beg, int AngleTenths) : Path
     }
 }
 
-public sealed record GuidePath(string Name, string Type, bool IsSpur, bool IsCrab, PathPiece Piece);
+public sealed record GuidePath(string Name, string Type, bool IsSpur, bool IsCrab, PathPiece Piece, bool IsTwoWay = false);

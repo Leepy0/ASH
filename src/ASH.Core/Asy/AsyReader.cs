@@ -102,7 +102,7 @@ public static class AsyReader
             : new LinePiece(new Point2(Num(body, "begx"), Num(body, "begy")),
                             new Point2(Num(body, "endx"), Num(body, "endy")));
         return new GuidePath(Val(head, "name") ?? "", Val(head, "type") ?? "",
-            head.Contains("spur"), head.Contains("crab"), p);
+            head.Contains("spur"), head.Contains("crab"), p, head.Contains("two"));
     }
 
     static ControlPoint ParseCp(string[] t)

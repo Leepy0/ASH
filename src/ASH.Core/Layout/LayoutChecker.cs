@@ -8,7 +8,7 @@ namespace ASH.Core.Layout;
 public static class LayoutChecker
 {
     static readonly HashSet<string> Reserved = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-        { "name", "type", "at", "spur", "crab", "piece", "item", "cap", "align", "begx", "begy", "endx", "endy", "cenx", "ceny", "upz", "angle" };
+        { "name", "type", "at", "two", "spur", "crab", "piece", "item", "cap", "align", "begx", "begy", "endx", "endy", "cenx", "ceny", "upz", "angle" };
 
     /// <summary>Usable as a single .asy token: non-empty, no whitespace, not a reserved keyword (case-insensitive), not "?..." (DrawingReader's untagged placeholder).</summary>
     public static bool IsValidName(string n) => n.Length > 0 && n[0] != '?' && !n.Any(char.IsWhiteSpace) && !Reserved.Contains(n);

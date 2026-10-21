@@ -155,6 +155,6 @@ public static class LayoutExporter
                 break;
             default: throw new NotSupportedException(s.GetType().Name);
         }
-        return new GuidePath(name, o.PathType, p.IsSpur, p.IsSpur, piece);
+        return new GuidePath(name, o.PathType, p.IsSpur, p.IsCrab, piece, p.IsTwoWay);
     }
 }

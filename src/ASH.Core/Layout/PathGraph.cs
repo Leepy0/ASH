@@ -11,8 +11,9 @@ public sealed class PathNode
     public List<(LayoutPath Path, bool AtStart)> Ends { get; } = new();
     public int Degree => Ends.Count;
     public bool IsJunction => Degree >= 3;
-    public int InCount => Ends.Count(e => !e.AtStart);
-    public int OutCount => Ends.Count(e => e.AtStart);
+    // a two-way path can be entered and left at both ends
+    public int InCount => Ends.Count(e => e.Path.IsTwoWay || !e.AtStart);
+    public int OutCount => Ends.Count(e => e.Path.IsTwoWay || e.AtStart);
 }
 
 public sealed class PathGraph

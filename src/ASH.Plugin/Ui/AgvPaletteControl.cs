@@ -21,7 +21,7 @@ public sealed class AgvPaletteControl : UserControl
         tabs.DrawItem += DrawTab;
 
         tabs.TabPages.Add(Page("경로", Theme.Section("경로 그리기·편집"),
-            Theme.Make("경로 그리기", GlyphKind.Path, "AGVPATH"), Theme.Make("방향 반전", GlyphKind.Reverse, "AGVREVERSE"),
+            Theme.Make("경로 그리기", GlyphKind.Path, "AGVPATH"), Theme.Make("방향 반전", GlyphKind.Reverse, "AGVREVERSE"), Theme.Make("경로 종류 변경", GlyphKind.PathType, "AGVPTYPE"),
             Theme.Make("평행 복제", GlyphKind.Offset, "AGVOFFSET"), Theme.Make("배열 복제", GlyphKind.Array, "AGVARRAY"),
             Theme.Section("연결"),
             Theme.Make("교차 분할", GlyphKind.Split, "AGVSPLIT"), Theme.Make("경로 잇기", GlyphKind.Join, "AGVJOIN"), Theme.Make("필렛", GlyphKind.Fillet, "AGVFILLET")));

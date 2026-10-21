@@ -47,7 +47,7 @@ public static class DrawingWriter
         {
             var pl = ToPolyline(p);
             var id = Append(db, tr, pl);
-            XData.WritePath(pl, p.Name, false, p.IsSpur, tr);
+            XData.WritePath(pl, p.Name, false, (p.IsSpur, p.IsTwoWay, p.IsCrab), tr);
             p.Id = pl.Handle.ToString();
             added.Add(id);
         }
@@ -56,7 +56,7 @@ public static class DrawingWriter
 
     public static Polyline ToPolyline(LayoutPath p)
     {
-        var pl = new Polyline { Layer = p.IsSpur ? Conventions.LayerPathSpur : Conventions.LayerPath };
+        var pl = new Polyline { Layer = Conventions.LayerFor(p.IsSpur, p.IsTwoWay, p.IsCrab) };
         int i = 0;
         foreach (var s in p.Segments.SelectMany(SplitWideArc))
         {
@@ -78,12 +78,13 @@ public static class DrawingWriter
         return new[] { s };
     }
 
-    /// <summary>Deletes every AGV_DIR arrow and inserts one at each path segment midpoint, pointing along travel.</summary>
+    /// <summary>Deletes every direction arrow and inserts one at each path segment midpoint: a single arrow along travel, a double-headed one on two-way paths.</summary>
     public static void RefreshDirectionArrows(Database db, Transaction tr)
     {
         foreach (var id in DrawingReader.ModelSpace(db, tr, OpenMode.ForRead))
             if (tr.GetObject(id, OpenMode.ForRead) is BlockReference br && !br.IsErased &&
-                (DrawingReader.Eq(br.Layer, Conventions.LayerDir) || DrawingReader.Eq(DrawingReader.BlockName(br, tr), Conventions.DirBlockName)))
+                (DrawingReader.Eq(br.Layer, Conventions.LayerDir) || DrawingReader.Eq(DrawingReader.BlockName(br, tr), Conventions.DirBlockName)
+                 || DrawingReader.Eq(DrawingReader.BlockName(br, tr), Conventions.DirTwoBlockName)))
             {
                 br.UpgradeOpen();
                 br.Erase();
@@ -95,17 +96,20 @@ public static class DrawingWriter
                 double ang;
                 if (s is ArcSeg a) ang = Math.Atan2(mid.Y - a.Center.Y, mid.X - a.Center.X) + (a.SweepDeg >= 0 ? Math.PI / 2 : -Math.PI / 2);
                 else ang = Math.Atan2(s.End.Y - s.Start.Y, s.End.X - s.Start.X);
-                InsertBlock(db, tr, Conventions.DirBlockName, Conventions.LayerDir, mid, ang, null);
+                // ArrowSize meters, but at most 80% of the piece so arrows on short arcs do not pile up
+                double lenM = s.Length / DrawingUnits.PerMeter, sizeM = Math.Min(DrawingUnits.ArrowMeters, 0.8 * lenM);
+                if (sizeM <= 0) continue;
+                InsertBlock(db, tr, p.IsTwoWay ? Conventions.DirTwoBlockName : Conventions.DirBlockName, Conventions.LayerDir, mid, ang, null, sizeM / Conventions.ArrowDefMeters);
             }
     }
 
     /// <summary>Block definitions are drawn for meters; the reference is scaled by DrawingUnits.PerMeter so symbols keep their real size in mm drawings.</summary>
-    public static ObjectId InsertBlock(Database db, Transaction tr, string blockName, string layer, Point2 pos, double rotation, IDictionary<string, string>? attrs)
+    public static ObjectId InsertBlock(Database db, Transaction tr, string blockName, string layer, Point2 pos, double rotation, IDictionary<string, string>? attrs, double sizeFactor = 1.0)
     {
         var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
         if (!bt.Has(blockName)) throw new InvalidOperationException($"블록 정의 '{blockName}'이 없습니다. AGVINIT을 먼저 실행하세요.");
         var defId = bt[blockName];
-        var br = new BlockReference(new Point3d(pos.X, pos.Y, 0), defId) { Layer = layer, Rotation = rotation, ScaleFactors = new Scale3d(DrawingUnits.PerMeter) };
+        var br = new BlockReference(new Point3d(pos.X, pos.Y, 0), defId) { Layer = layer, Rotation = rotation, ScaleFactors = new Scale3d(DrawingUnits.PerMeter * sizeFactor) };
         var id = Append(db, tr, br);
         if (attrs == null) return id;
         var def = (BlockTableRecord)tr.GetObject(defId, OpenMode.ForRead);

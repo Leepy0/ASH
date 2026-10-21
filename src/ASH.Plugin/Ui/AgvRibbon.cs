@@ -22,7 +22,7 @@ public static class AgvRibbon
         tab.Panels.Add(Panel("레이아웃", ("양식 초기화", GlyphKind.Init, "AGVINIT"), ("팔레트", GlyphKind.Block, "AGVPALETTE"),
             ("업데이트", GlyphKind.Update, "AGVUPDATE"), ("서버 설정", GlyphKind.Settings, "AGVSERVER")));
         tab.Panels.Add(Panel("경로", ("경로 그리기", GlyphKind.Path, "AGVPATH"),
-            ("방향 반전", GlyphKind.Reverse, "AGVREVERSE"), ("평행 복제", GlyphKind.Offset, "AGVOFFSET"), ("배열 복제", GlyphKind.Array, "AGVARRAY"),
+            ("방향 반전", GlyphKind.Reverse, "AGVREVERSE"), ("경로 종류", GlyphKind.PathType, "AGVPTYPE"), ("평행 복제", GlyphKind.Offset, "AGVOFFSET"), ("배열 복제", GlyphKind.Array, "AGVARRAY"),
             ("교차 분할", GlyphKind.Split, "AGVSPLIT"), ("경로 잇기", GlyphKind.Join, "AGVJOIN"), ("필렛", GlyphKind.Fillet, "AGVFILLET")));
         tab.Panels.Add(Panel("CP", ("CP 배치", GlyphKind.Cp, "AGVCP"), ("traffic CP 자동", GlyphKind.Cp, "AGVCPAUTO")));
         tab.Panels.Add(Panel("교통제어", ("교통제어 자동", GlyphKind.Traffic, "AGVTRAFFIC"), ("block 자동", GlyphKind.Block, "AGVBLOCKAUTO")));

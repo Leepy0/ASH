@@ -49,7 +49,8 @@ public sealed class InitCommands
         var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
         foreach (var (name, color) in new[]
         {
-            (Conventions.LayerPath, (short)3), (Conventions.LayerPathSpur, (short)2), (Conventions.LayerDir, (short)8),
+            (Conventions.LayerPath, (short)3), (Conventions.LayerPathSpur, (short)2), (Conventions.LayerPathTwo, (short)4), (Conventions.LayerPathCrab, (short)30),
+            (Conventions.LayerDir, (short)8),
             (Conventions.LayerCp, (short)1), (Conventions.LayerBlock, (short)5), (Conventions.LayerStation, (short)6),
         })
         {
@@ -88,6 +89,16 @@ public sealed class InitCommands
             b(new Line(new Point3d(-0.3, 0, 0), new Point3d(0.3, 0, 0)));
             b(new Line(new Point3d(0.3, 0, 0), new Point3d(0.1, 0.15, 0)));
             b(new Line(new Point3d(0.3, 0, 0), new Point3d(0.1, -0.15, 0)));
+        });
+
+        made += Def(db, tr, bt, Conventions.DirTwoBlockName, b =>
+        {
+            // double-headed arrow along X for two-way paths, centred on the insertion point
+            b(new Line(new Point3d(-0.3, 0, 0), new Point3d(0.3, 0, 0)));
+            b(new Line(new Point3d(0.3, 0, 0), new Point3d(0.1, 0.15, 0)));
+            b(new Line(new Point3d(0.3, 0, 0), new Point3d(0.1, -0.15, 0)));
+            b(new Line(new Point3d(-0.3, 0, 0), new Point3d(-0.1, 0.15, 0)));
+            b(new Line(new Point3d(-0.3, 0, 0), new Point3d(-0.1, -0.15, 0)));
         });
 
         var rat = (RegAppTable)tr.GetObject(db.RegAppTableId, OpenMode.ForRead);

@@ -60,7 +60,7 @@ public static class PathSplitter
         for (int k = 0; k < bounds.Count - 1; k++)
         {
             double a = bounds[k], b = bounds[k + 1];
-            var piece = new LayoutPath(p.Name + "_" + (k + 1)) { Id = p.Id + "#" + (k + 1), IsSpur = p.IsSpur };
+            var piece = new LayoutPath(p.Name + "_" + (k + 1)) { Id = p.Id + "#" + (k + 1), IsSpur = p.IsSpur, IsTwoWay = p.IsTwoWay, IsCrab = p.IsCrab };
             for (int i = 0; i < p.Segments.Count; i++)
             {
                 double lo = Math.Max(a, offs[i]), hi = Math.Min(b, offs[i + 1]);

@@ -51,6 +51,7 @@ public static class AsyWriter
     public static string FormatPath(GuidePath p)
     {
         var sb = new StringBuilder("GPATH name ").Append(p.Name).Append(" type ").Append(p.Type);
+        if (p.IsTwoWay) sb.Append(" two");
         if (p.IsSpur) sb.Append(" spur");
         if (p.IsCrab) sb.Append(" crab");
         sb.Append(" piece ");

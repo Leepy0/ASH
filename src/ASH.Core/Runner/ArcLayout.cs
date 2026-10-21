@@ -24,7 +24,7 @@ public static class ArcLayout
         var byName = new Dictionary<string, LayoutPath>();
         foreach (var g in sys.Paths)
         {
-            var p = new LayoutPath(g.Name) { IsSpur = g.IsSpur };
+            var p = new LayoutPath(g.Name) { IsSpur = g.IsSpur, IsTwoWay = g.IsTwoWay, IsCrab = g.IsCrab };
             switch (g.Piece)
             {
                 case LinePiece lp: p.Segments.Add(new LineSeg(lp.Beg, lp.End)); break;

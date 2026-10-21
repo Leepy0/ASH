@@ -133,7 +133,9 @@ ASH.Runner      (.NET 10 콘솔/트레이 앱, ZWCAD 밖에서 독립 실행)
 | 레이어 | 내용 | AM 대응 |
 |---|---|---|
 | `AGV_PATH` | 폴리라인/선/원호 = 주행 경로. 방향은 XData | `GPATH … piece` |
-| `AGV_PATH_SPUR` | 지선(spur), 횡행(crab) 경로 | `GPATH … spur crab piece` |
+| `AGV_PATH_TWO` | 양방향 경로(색 4) | `GPATH … two piece` |
+| `AGV_PATH_SPUR` | 지선(spur) 경로(색 2) | `GPATH … spur piece` |
+| `AGV_PATH_CRAB` | 크랩(crab) 경로(색 30) | `GPATH … crab piece` |
 | `AGV_DIR` | 방향 화살표 블록(표시용, 자동 생성·갱신) | 없음 |
 | `AGV_CP` | CP 어트리뷰트 블록 | `CPOINT name X type T at <path> <dist>` |
 | `AGV_BLOCK` | 교통제어 사각형 또는 폴리라인 영역 | Process 시스템의 block 엔티티(cap 1) + 로직의 claim/release |
@@ -198,7 +200,9 @@ Settings 시트에 다음 값을 둔다. `SafetyGap`(기본 0.5 m), `CPSpacing`(
 
 - 직선 세그먼트 → `GPATH name <n> type <ptype> piece begx … begy … endx … endy … upz 1`
 - 원호 세그먼트(폴리라인 bulge 또는 ARC) → `GPATH … piece cenx … ceny … begx … begy … upz 1 angle <a>`. `a`는 0.1도 단위 정수(예: 90도 → 900). 부호는 회전 방향에 따르며, 데모 파일의 부호 규칙을 샘플로 검증한다.
-- 지선 → `spur crab` 키워드 추가.
+- 경로 종류 → AutoMod `GPATH` 키워드: 단방향(없음), 양방향 `two`, 지선 `spur`, 크랩 `crab`. 종류는 도면 XData(`path`/`two`/`spur`/`crab`, 겹치면 `spur+crab`)가 정하고 레이어는 색 표시용이다. 예전에는 지선을 항상 `spur crab`으로 내보냈지만 이제 `spur`만 내보낸다(크랩은 따로 고른다).
+- 양방향 경로: 노드의 들어오는/나가는 수를 양쪽으로 세고, 교통 CP는 블록 양쪽에서 들어오는 방향마다 만든다. 방향표는 양쪽 화살표(`AGV_DIR2`).
+- 방향표 길이는 `ash.settings.tsv`의 `ArrowSize`(미터, 기본 2.0)이고 짧은 조각에서는 조각 길이의 80%로 줄인다.
 - 경로 타입 → `GPATHTYPE name <ptype> … vel <v> …`. 속도는 Excel의 AGV_Types에서 가져온다.
 - CP → `CPOINTTYPE`(타입별 cap) + `CPOINT name <NAME> type <T> at <path> <dist>`. `dist`는 경로 시작점부터의 거리.
 - 차량 → `AGVVEHSEG`(세그먼트, 그래픽 크기), `AGVSVEH type <type> numveh <max>` + `start <namelist>`. `numveh`는 Excel의 그룹별 최대 시험 대수로 쓴다(주차 패턴).

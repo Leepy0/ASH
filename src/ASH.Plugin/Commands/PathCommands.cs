@@ -25,11 +25,10 @@ public sealed class PathCommands
     {
         var doc = Application.DocumentManager.MdiActiveDocument;
         var ed = doc.Editor;
-        var kw = new PromptKeywordOptions("\n지선이면 S, 일반 경로는 Enter [지선(S)]") { AllowNone = true, AppendKeywordsToMessage = false };
-        kw.Keywords.Add("S");
-        var r = ed.GetKeywords(kw);
-        if (r.Status != PromptStatus.OK && r.Status != PromptStatus.None) return;
-        bool spur = r.Status == PromptStatus.OK && r.StringResult == "S";
+        var key = Keyword(ed, KindPrompt, "O", "O", "T", "S", "C");
+        if (key == null) return;
+        var kind = KindOf(key);
+        var label = PathKinds.Label(kind.Spur, kind.Two, kind.Crab);
 
         var db = doc.Database;
         var added = new List<ObjectId>();
@@ -49,11 +48,11 @@ public sealed class PathCommands
                 foreach (var id in live)
                 {
                     var pl = (Polyline)tr.GetObject(id, OpenMode.ForWrite);
-                    pl.Layer = spur ? Conventions.LayerPathSpur : Conventions.LayerPath;
+                    pl.Layer = Conventions.LayerFor(kind.Spur, kind.Two, kind.Crab);
                     var name = AutoNamer.Next("P", names);
                     names.Add(name);
-                    XData.WritePath(pl, name, false, spur, tr);
-                    ed.WriteMessage($"\n경로 {name} 추가.");
+                    XData.WritePath(pl, name, false, kind, tr);
+                    ed.WriteMessage($"\n경로 {name} 추가 ({label}).");
                 }
                 return live.Count > 0;
             });
@@ -65,6 +64,38 @@ public sealed class PathCommands
         doc.SendStringToExecute("_.PLINE ", true, false, false);
     }
 
+    // ---------- path type ----------
+
+    private const string KindPrompt = "\n경로 종류 [단방향(O)/양방향(T)/지선(S)/크랩(C)] <단방향>";
+
+    /// <summary>O one-way, T two-way, S spur, C crab (the four AutoMod path types).</summary>
+    private static (bool Spur, bool Two, bool Crab) KindOf(string key) => key switch
+    {
+        "T" => (false, true, false),
+        "S" => (true, false, false),
+        "C" => (false, false, true),
+        _ => (false, false, false),
+    };
+
+    [CommandMethod("AGVPTYPE")]
+    public void AgvPType() => Run(Doc, "AGVPTYPE", (db, tr) =>
+    {
+        var ids = SelectPaths(Ed, "\n종류를 바꿀 경로 선택");
+        if (ids.Count == 0) return false;
+        var key = Keyword(Ed, KindPrompt, "O", "O", "T", "S", "C");
+        if (key == null) return false;
+        var kind = KindOf(key);
+        foreach (var id in ids)
+        {
+            var e = (Entity)tr.GetObject(id, OpenMode.ForWrite);
+            var x = XData.ReadPath(e);
+            e.Layer = Conventions.LayerFor(kind.Spur, kind.Two, kind.Crab);
+            XData.WritePath(e, x?.Name ?? "?" + e.Handle, x?.Reversed ?? false, kind, tr);
+        }
+        Ed.WriteMessage($"\n경로 {ids.Count}개를 {PathKinds.Label(kind.Spur, kind.Two, kind.Crab)}(으)로 변경.");
+        return true;
+    });
+
     // ---------- edits ----------
 
     [CommandMethod("AGVREVERSE")]
@@ -75,7 +106,8 @@ public sealed class PathCommands
         {
             var e = (Entity)tr.GetObject(id, OpenMode.ForWrite);
             var x = XData.ReadPath(e);
-            XData.WritePath(e, x?.Name ?? "?" + e.Handle, !(x?.Reversed ?? false), x?.IsSpur ?? DrawingReader.Eq(e.Layer, Conventions.LayerPathSpur), tr);
+            var kind = x is { } t ? (t.IsSpur, t.IsTwoWay, t.IsCrab) : Conventions.KindOfLayer(e.Layer);
+            XData.WritePath(e, x?.Name ?? "?" + e.Handle, !(x?.Reversed ?? false), kind, tr);
         }
         Ed.WriteMessage($"\n경로 {ids.Count}개 방향 반전.");
         return ids.Count > 0;
@@ -251,6 +283,7 @@ public sealed class PathCommands
     internal static void Run(Document doc, string cmd, Func<Database, Transaction, bool> body, bool refreshArrows = true, double? unitsPerMeter = null)
     {
         DrawingUnits.PerMeter = unitsPerMeter ?? ExportCommands.UnitsPerMeter(doc.Editor);
+        DrawingUnits.ArrowMeters = ExportCommands.ArrowMeters();
         try
         {
             using (doc.LockDocument())
@@ -282,7 +315,7 @@ public sealed class PathCommands
 
     private static List<ObjectId> SelectPaths(Editor ed, string msg)
     {
-        var filter = new SelectionFilter(new[] { new TypedValue((int)DxfCode.LayerName, Conventions.LayerPath + "," + Conventions.LayerPathSpur) });
+        var filter = new SelectionFilter(new[] { new TypedValue((int)DxfCode.LayerName, string.Join(",", Conventions.PathLayers)) });
         var r = ed.GetSelection(new PromptSelectionOptions { MessageForAdding = msg }, filter);
         return r.Status == PromptStatus.OK ? r.Value.GetObjectIds().ToList() : new List<ObjectId>();
     }
@@ -292,7 +325,7 @@ public sealed class PathCommands
         var r = ed.GetEntity(new PromptEntityOptions(msg));
         if (r.Status != PromptStatus.OK) return null;
         var p = layout.Paths.FirstOrDefault(q => q.Id == r.ObjectId.Handle.ToString());
-        if (p == null) ed.WriteMessage("\nAGV_PATH/AGV_PATH_SPUR 레이어의 경로가 아닙니다.");
+        if (p == null) ed.WriteMessage("\nAGV_PATH 계열 레이어(AGV_PATH, _TWO, _SPUR, _CRAB)의 경로가 아닙니다.");
         return p;
     }
 

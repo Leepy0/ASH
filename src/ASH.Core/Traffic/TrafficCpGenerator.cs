@@ -45,6 +45,16 @@ public static class TrafficCpGenerator
         return res;
     }
 
+    /// <summary>A two-way path is entered from both ends, so its traffic CPs are placed for travel in each direction.</summary>
+    static IEnumerable<LayoutPath> Directions(LayoutPath p)
+    {
+        yield return p;
+        if (!p.IsTwoWay) yield break;
+        var back = new LayoutPath(p.Name) { Id = p.Id, IsSpur = p.IsSpur, IsTwoWay = true, IsCrab = p.IsCrab };
+        for (int i = p.Segments.Count - 1; i >= 0; i--) back.Segments.Add(p.Segments[i].Reversed());
+        yield return back;
+    }
+
     static bool OnBoundary(Rect2 r, Point2 p, double tol) => r.Expand(tol).Contains(p) && !r.Expand(-tol).Contains(p);
 
     // Segment bbox disjoint from rect (inflated by tol).
@@ -69,7 +79,7 @@ public static class TrafficCpGenerator
 
         if (l.Blocks.Count == 0) warns.Add("block이 없습니다. AGVBLOCKAUTO를 먼저 실행하세요.");
         foreach (var b in l.Blocks)
-            foreach (var path in l.Paths)
+            foreach (var path in l.Paths.SelectMany(Directions))
             {
                 if (path.Segments.All(sg => sg is LineSeg ls && Outside(ls, b.Rect, l.Tolerance))) continue; // no entry, no warning
                 var entries = Entries(path, b.Rect, l.Tolerance, out var insideOnly);

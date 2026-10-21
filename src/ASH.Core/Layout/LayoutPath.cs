@@ -10,6 +10,10 @@ public sealed class LayoutPath
     public string Name { get; set; }
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public bool IsSpur { get; set; }
+    /// <summary>Bidirectional: vehicles may travel it both ways (GPATH "two"). Segments still run in drawing order.</summary>
+    public bool IsTwoWay { get; set; }
+    /// <summary>Crab path: the vehicle keeps its heading and moves sideways (GPATH "crab").</summary>
+    public bool IsCrab { get; set; }
     /// <summary>Drawing order = travel direction.</summary>
     public List<Segment> Segments { get; set; } = new();
 

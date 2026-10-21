@@ -1,27 +1,29 @@
+using ASH.Core.Layout;
 using ZwSoft.ZwCAD.DatabaseServices;
 
 namespace ASH.Plugin.Cad;
 
-/// <summary>Path XData under regapp ASH: (1000) name, (1070) dir 0/1, (1000) ptype "path"|"spur".</summary>
+/// <summary>Path XData under regapp ASH: (1000) name, (1070) dir 0/1, (1000) path type code from PathKinds ("path", "two", "spur", "crab", "spur+crab", ...).</summary>
 public static class XData
 {
-    public static (string Name, bool Reversed, bool IsSpur)? ReadPath(Entity e)
+    public static (string Name, bool Reversed, bool IsSpur, bool IsTwoWay, bool IsCrab)? ReadPath(Entity e)
     {
         using var rb = e.GetXDataForApplication(Conventions.AppName);
         if (rb == null) return null;
         var v = rb.AsArray();
         if (v.Length < 4 || !(v[1].Value is string name) || v[2].TypeCode != (short)DxfCode.ExtendedDataInteger16 || !(v[3].Value is string ptype)) return null; // foreign/old layout: treat as untagged
-        return (name, System.Convert.ToInt32(v[2].Value) == 1, ptype == "spur");
+        var k = PathKinds.Decode(ptype); // older drawings hold "path" or "spur"
+        return (name, System.Convert.ToInt32(v[2].Value) == 1, k.Spur, k.Two, k.Crab);
     }
 
-    public static void WritePath(Entity e, string name, bool reversed, bool isSpur, Transaction tr)
+    public static void WritePath(Entity e, string name, bool reversed, (bool Spur, bool Two, bool Crab) kind, Transaction tr)
     {
         EnsureRegApp(e.Database, tr);
         using var rb = new ResultBuffer(
             new TypedValue((int)DxfCode.ExtendedDataRegAppName, Conventions.AppName),
             new TypedValue((int)DxfCode.ExtendedDataAsciiString, name),
             new TypedValue((int)DxfCode.ExtendedDataInteger16, (short)(reversed ? 1 : 0)),
-            new TypedValue((int)DxfCode.ExtendedDataAsciiString, isSpur ? "spur" : "path"));
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, PathKinds.Encode(kind.Spur, kind.Two, kind.Crab)));
         e.XData = rb;
     }
 

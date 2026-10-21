@@ -112,7 +112,7 @@ public static class PathOps
 
     private static LayoutPath Copy(LayoutPath src, string name, IEnumerable<Segment> segs, bool keepId)
     {
-        var p = new LayoutPath(name) { IsSpur = src.IsSpur, Segments = segs.ToList() };
+        var p = new LayoutPath(name) { IsSpur = src.IsSpur, IsTwoWay = src.IsTwoWay, IsCrab = src.IsCrab, Segments = segs.ToList() };
         if (keepId) p.Id = src.Id;
         return p;
     }

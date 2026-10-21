@@ -21,9 +21,9 @@ public static class DrawingReader
         {
             if (!(tr.GetObject(id, OpenMode.ForRead) is Entity e) || e.IsErased) continue;
             string layer = e.Layer;
-            if (Eq(layer, Conventions.LayerPath) || Eq(layer, Conventions.LayerPathSpur))
+            if (Conventions.PathLayers.Any(l => Eq(layer, l)))
             {
-                var p = ReadPath(e, Eq(layer, Conventions.LayerPathSpur));
+                var p = ReadPath(e, Conventions.KindOfLayer(layer));
                 if (p != null) layout.Paths.Add(p);
             }
             else if (e is BlockReference br)
@@ -66,7 +66,7 @@ public static class DrawingReader
     }
 
     /// <summary>Converts a path entity (Line/Arc/Polyline) to a LayoutPath in travel order; null for other entity types.</summary>
-    public static LayoutPath? ReadPath(Entity e, bool spurLayer)
+    public static LayoutPath? ReadPath(Entity e, (bool Spur, bool Two, bool Crab) layerKind)
     {
         var segs = new List<Segment>();
         switch (e)
@@ -104,7 +104,11 @@ public static class DrawingReader
             segs.Reverse();
             segs = segs.Select(s => s.Reversed()).ToList();
         }
-        return new LayoutPath(x?.Name ?? "?" + e.Handle) { Id = e.Handle.ToString(), IsSpur = x?.IsSpur ?? spurLayer, Segments = segs };
+        return new LayoutPath(x?.Name ?? "?" + e.Handle)
+        {
+            Id = e.Handle.ToString(), Segments = segs,
+            IsSpur = x?.IsSpur ?? layerKind.Spur, IsTwoWay = x?.IsTwoWay ?? layerKind.Two, IsCrab = x?.IsCrab ?? layerKind.Crab,
+        };
     }
 
     internal static IEnumerable<ObjectId> ModelSpace(Database db, Transaction tr, OpenMode mode)

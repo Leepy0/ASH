@@ -34,7 +34,7 @@ public sealed class CheckCommands
                     if (id.IsNull) continue;
                     var e = (Entity)tr.GetObject(id, OpenMode.ForWrite);
                     var x = XData.ReadPath(e);
-                    XData.WritePath(e, rename[p.Id], x?.Reversed ?? false, p.IsSpur, tr); // XData only: geometry, dir and ptype stay
+                    XData.WritePath(e, rename[p.Id], x?.Reversed ?? false, (p.IsSpur, p.IsTwoWay, p.IsCrab), tr); // XData only: geometry, dir and ptype stay
                     ed.WriteMessage($"\n경로 {p.Name} → {rename[p.Id]}");
                     p.Name = rename[p.Id];
                 }
