@@ -265,3 +265,14 @@ AutoMod 12.6이 있는 PC 필요(T16-2, T16-4). 검증·내보내기 탭 "Excel 
 | F3 `input.xlsx`를 메모장으로 열어 아무 글이나 저장 → "텍스트(CSV·HTML 등)로 저장된 파일" 안내 | | | |
 | F4 Excel로 연 채 `AGVMODEL` → "다른 프로그램이 사용 중" 안내(원인 메시지 포함). 같은 내용이 `%APPDATA%\ASH\plugin.log`에도 남음 | | | |
 | F5 `AGVEXCEL`로 새 양식을 만든 뒤 폴더에 `input.xlsx.tmp`가 남지 않음 | | | |
+
+## 암호화(NASCA)된 input.xlsx (0.8.3)
+
+| 항목 | 날짜 | 결과 | 비고 |
+|---|---|---|---|
+| G1 Excel로 `input.xlsx`를 저장해 NASCA 암호화가 걸린 상태에서 `AGVMODEL` → "xlsx를 직접 읽지 못해 ... Excel로 읽습니다…" 뒤에 모델 생성이 진행됨 | | | |
+| G2 Excel에서 `input.xlsx`를 연 채(저장 안 한 수정 포함) `AGVMODEL` → 열려 있는 통합 문서를 읽고 "저장하지 않은 변경까지 포함" 안내 | | | |
+| G3 `AGVMODEL` 뒤 프로젝트 폴더에 `input.cells.tsv`가 생김(텍스트, 메모장으로 열림) | | | |
+| G4 `ash-run`을 암호화된 `input.xlsx`로 실행 → 경고 "마지막 모델 생성 때의 셀 스냅샷을 씁니다"와 함께 실행됨 | | | |
+| G5 Excel이 없는 PC에서 암호화된 파일로 `AGVMODEL` → "Excel이 설치되어 있지 않습니다" 오류와 파일 점검 결과 | | | |
+| G6 `AGVMODEL`이 끝난 뒤 작업 관리자에 숨은 EXCEL.EXE가 새로 남지 않음(이 PC처럼 Excel이 종료 뒤 다시 뜨는 환경은 제외) | | | |

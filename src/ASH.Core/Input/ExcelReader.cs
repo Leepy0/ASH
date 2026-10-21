@@ -62,10 +62,29 @@ public static class ExcelReader
 
     public static ProjectInput Read(string path) => Read(path, out _);
 
-    public static ProjectInput Read(string path, out List<Finding> warnings)
+    /// <summary>Opens the workbook with the font-free engine installed (the default one parses system fonts and fails inside ZWCAD).</summary>
+    public static XLWorkbook Open(string path)
     {
         FontFreeGraphicEngine.Install();
-        using var wb = new XLWorkbook(path);
+        return new XLWorkbook(path);
+    }
+
+    /// <summary>An empty workbook, created with the font-free engine installed.</summary>
+    public static XLWorkbook NewWorkbook()
+    {
+        FontFreeGraphicEngine.Install();
+        return new XLWorkbook();
+    }
+
+    public static ProjectInput Read(string path, out List<Finding> warnings)
+    {
+        using var wb = Open(path);
+        return Read(wb, out warnings);
+    }
+
+    /// <summary>The workbook may come from a file, from <see cref="CellDump"/>, or from cells read out of a running Excel.</summary>
+    public static ProjectInput Read(XLWorkbook wb, out List<Finding> warnings)
+    {
         var p = new ProjectInput();
 
         var kv = new Dictionary<string, Row>(StringComparer.OrdinalIgnoreCase);

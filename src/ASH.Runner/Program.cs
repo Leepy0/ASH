@@ -56,9 +56,22 @@ public static class Program
         if (input == null)
         {
             var xlsx = Path.Combine(a.ProjectDir, "input.xlsx");
-            if (!File.Exists(xlsx)) { o.WriteLine("error: input.xlsx not found: " + xlsx); return 1; }
+            var snap = Path.Combine(a.ProjectDir, CellDump.FileName);
+            if (!File.Exists(xlsx) && !File.Exists(snap)) { o.WriteLine("error: input.xlsx not found: " + xlsx); return 1; }
             System.Collections.Generic.List<ASH.Core.Layout.Finding> findings;
-            try { input = ExcelReader.Read(xlsx, out findings); }
+            try
+            {
+                if (!File.Exists(xlsx)) throw new FileNotFoundException("input.xlsx 없음", xlsx);
+                input = ExcelReader.Read(xlsx, out findings);
+            }
+            // company document encryption (NASCA) leaves input.xlsx readable by Excel only: the plugin saved the cells as text when it last built the model
+            catch (Exception ex) when (!(ex is OperationCanceledException || ex is ExcelDataException) && File.Exists(snap))
+            {
+                var msg = $"input.xlsx를 읽지 못해({ex.GetType().Name}) 마지막 모델 생성 때의 셀 스냅샷 {CellDump.FileName}을 씁니다. 그 뒤의 input.xlsx 수정은 반영되지 않습니다.";
+                o.WriteLine("warning: " + msg); warnings.Add(msg);
+                using var snapBook = CellDump.Load(snap);
+                input = ExcelReader.Read(snapBook, out findings);
+            }
             catch (Exception ex) when (!(ex is OperationCanceledException))
             {
                 o.WriteLine("error: input.xlsx를 읽지 못함: " + ex.Message);

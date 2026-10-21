@@ -64,24 +64,8 @@ public sealed class ModelCommands
         if (!File.Exists(xlsx)) { ed.WriteMessage($"\n{ExcelFileName}이 없습니다. 먼저 AGVEXCEL로 양식을 만들어 채우세요."); return; }
         PathCommands.Run(doc, "AGVMODEL", (db, tr) =>
         {
-            ProjectInput input;
-            try
-            {
-                input = ExcelReader.Read(xlsx, out var xw);
-                foreach (var w in xw) ed.WriteMessage($"\nExcel 경고: {w.Message}");
-            }
-            catch (System.Exception ex) when (!(ex is OperationCanceledException))
-            {
-                // a bad value names its sheet, row and column; anything else is a damaged or locked file, so look into the file and say what is wrong with it
-                ed.WriteMessage($"\nExcel 읽기 오류: {ex.Message}");
-                if (!(ex is ExcelDataException))
-                {
-                    foreach (var line in ExcelDiagnosis.Explain(xlsx, ex)) ed.WriteMessage("\n  " + line);
-                    PluginLog.Write("AGVMODEL Excel read failed", ex);
-                    foreach (var line in ExcelDiagnosis.Inspect(xlsx)) PluginLog.Write("  " + line);
-                }
-                return Fail();
-            }
+            var input = LoadInput(ed, xlsx, dir);
+            if (input == null) return Fail();
             var layout = DrawingReader.Read(db, tr);
             int errors = CheckCommands.Report(ed, layout).Count(f => Blocking.Contains(f.Code));
             if (errors > 0 && PathCommands.Keyword(ed, $"\n오류 {errors}건이 있습니다. 계속할까요? [Y/N] <N>", "N", "Y", "N") != "Y") return false;
@@ -124,6 +108,53 @@ public sealed class ModelCommands
             PathCommands.FinalStatus = ok ? "AGVMODEL 완료" : "AGVMODEL 오류";
             return false; // nothing in the drawing changed
         }, refreshArrows: false, unitsPerMeter: UnitScale.FromSettings(s));
+    }
+
+    /// <summary>input.xlsx as a ProjectInput; null (after saying why) when it cannot be had. The file is read directly; when that fails (company document encryption
+    /// leaves only Excel able to read it, or Excel has it locked) Excel is asked for the cells. Whichever way it was read, the cells are also written to
+    /// input.cells.tsv beside the workbook so ash-run can still read them.</summary>
+    private static ProjectInput? LoadInput(Editor ed, string xlsx, string dir)
+    {
+        ClosedXML.Excel.XLWorkbook? wb = null;
+        try
+        {
+            try { wb = ExcelReader.Open(xlsx); }
+            catch (System.Exception ex) when (!(ex is OperationCanceledException))
+            {
+                ed.WriteMessage("\nxlsx를 직접 읽지 못해(" + ex.GetType().Name + ") Excel로 읽습니다…");
+                PluginLog.Write("AGVMODEL direct read failed", ex);
+                try
+                {
+                    wb = ExcelCom.Read(xlsx, out var note);
+                    if (note.Length > 0) ed.WriteMessage("\n" + note);
+                }
+                catch (System.Exception cex) when (!(cex is OperationCanceledException))
+                {
+                    ed.WriteMessage("\nExcel 읽기 오류: " + ex.Message);
+                    ed.WriteMessage("\nExcel로 읽기도 실패했습니다: " + cex.GetType().Name + ": " + cex.Message.Split('\n')[0].Trim());
+                    foreach (var line in ExcelDiagnosis.Explain(xlsx, ex)) ed.WriteMessage("\n  " + line);
+                    PluginLog.Write("AGVMODEL Excel (COM) read failed", cex);
+                    foreach (var line in ExcelDiagnosis.Inspect(xlsx)) PluginLog.Write("  " + line);
+                    return null;
+                }
+            }
+            ProjectInput input;
+            try
+            {
+                input = ExcelReader.Read(wb, out var xw);
+                foreach (var w in xw) ed.WriteMessage("\nExcel 경고: " + w.Message);
+            }
+            catch (System.Exception ex) when (ex is FormatException || ex is InvalidOperationException || ex is ArgumentException)
+            {
+                ed.WriteMessage("\nExcel 읽기 오류: " + ex.Message); // names sheet, row and column when a value is the problem
+                return null;
+            }
+            try { CellDump.Write(wb, Path.Combine(dir, CellDump.FileName)); }
+            catch (System.Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
+            { ed.WriteMessage("\n경고: 셀 스냅샷(" + CellDump.FileName + ")을 쓰지 못했습니다. ash-run이 암호화된 input.xlsx를 읽지 못할 수 있습니다: " + ex.Message); }
+            return input;
+        }
+        finally { wb?.Dispose(); }
     }
 
     private static bool Fail() { PathCommands.FinalStatus = "AGVMODEL 오류"; return false; }

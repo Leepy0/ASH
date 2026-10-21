@@ -77,7 +77,11 @@ if ($sign) {
 $plugin = "$root\src\ASH.Plugin\bin\Release\net48"
 $zip = "$dist\ASH-Plugin-$version.zip"
 # every dll of the plugin output (ASH.Plugin, ASH.Core, ClosedXML and its dependencies): the plugin needs them next to it
-Compress-Archive -Path (Get-ChildItem "$plugin\*.dll").FullName -DestinationPath $zip -Force
+# Defender / the indexer often still hold the freshly built dlls for a moment: retry instead of leaving the zip out
+for ($try = 1; ; $try++) {
+    try { Compress-Archive -Path (Get-ChildItem "$plugin\*.dll").FullName -DestinationPath $zip -Force -ErrorAction Stop; break }
+    catch { if ($try -ge 6) { throw "plugin zip failed: $_" }; Start-Sleep -Seconds 3 }
+}
 # dotnet publish has no --no-incremental: delete the RID-specific intermediates so the publish below compiles from scratch
 $rid = "obj\Release\net10.0\win-x64"
 $pub = "$root\src\ASH.Runner\bin\Release\publish"

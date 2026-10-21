@@ -70,7 +70,7 @@ public static class ExcelDiagnosis
             return "xlsx가 아닙니다. 옛 .xls 형식이거나 암호가 걸린 파일입니다. 암호를 풀고 'Excel 통합 문서(*.xlsx)'로 저장하세요.";
         if (head[0] == '<' || head[0] == 0xEF || head[0] == 0xFF || head[0] == 0xFE || (head[0] >= 0x20 && head[0] < 0x7F))
             return "xlsx가 아닙니다. 텍스트(CSV·HTML 등)로 저장된 파일입니다. 'Excel 통합 문서(*.xlsx)'로 다시 저장하세요.";
-        return "xlsx가 아닙니다(알 수 없는 형식).";
+        return "xlsx가 아닙니다(알 수 없는 형식). 사내 문서 암호화(DRM, 예: NASCA)로 저장된 파일일 수 있습니다. 이 경우 Excel만 읽을 수 있으며, 플러그인은 Excel로 읽습니다.";
     }
 
     static List<string> Walk(ZipArchive zip)
