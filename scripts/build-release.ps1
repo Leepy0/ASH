@@ -5,6 +5,7 @@
 # Also dist/ASH.json (release manifest: version, minSupported, SHA-256/size of the Setup exe)
 # and dist/ASH.json.sig, signed with the private-key PEM at $env:ASH_SIGNING_KEY (AshRelease keygen) and verified against update-key.pub.
 # and dist/ASH.Server.json(.sig): version/SHA-256/size of the server zip, signed with the same key (running servers replace themselves from it).
+# and dist/ASH.Runner.json(.sig): the same for the runner zip (ash-run replaces itself from it, through the server).
 #   -MinSupported <ver>  PCs below this version are told to update (default: $env:ASH_MIN_SUPPORTED, else 0.0.0 = nobody is "below minimum").
 #                        It never defaults to the current version. Must not exceed the version being built.
 #   -AllowUnsigned       DEV ONLY: build without signing (no ASH_SIGNING_KEY / no update-key.pub). Without it the build throws when either is missing.
@@ -72,6 +73,10 @@ if (Test-Path $pub) { Remove-Item $pub -Recurse -Force }
 Remove-Item "$root\src\ASH.Runner\$rid" -Recurse -Force -ErrorAction SilentlyContinue
 dotnet publish "$root\src\ASH.Runner" -c Release -r win-x64 -o $pub -nologo -v q
 if ($LASTEXITCODE) { throw "dotnet publish ash-run failed (exit $LASTEXITCODE)" }
+if ($havePub) { # ash-run only updates itself when the signing key is inside it
+    dotnet $ashRelease check-resource --dll "$root\src\ASH.Runner\$rid\ash-run.dll" --name update-key.pub
+    if ($LASTEXITCODE) { throw "published ash-run does not embed update-key.pub" }
+}
 $runnerZip = "$dist\ASH-Runner-$version-win-x64.zip"
 Compress-Archive -Path "$pub\ash-run.exe" -DestinationPath $runnerZip -Force
 $serverPub = "$root\src\ASH.Server\bin\Release\publish"
@@ -85,16 +90,22 @@ if ($havePub) { # the single-file exe bundles this assembly; the published one i
 }
 $serverZip = "$dist\ASH-Server-$version-win-x64.zip"
 Compress-Archive -Path "$serverPub\ASH.Server.exe", "$serverPub\appsettings.json", "$root\src\ASH.Server\README-server.txt", "$root\src\ASH.Server\install-service.bat", "$root\src\ASH.Server\uninstall-service.bat" -DestinationPath $serverZip -Force
-# ASH.Server.json(.sig): what a running server checks before it replaces itself (same key as ASH.json)
-$serverManifest = "$dist\ASH.Server.json"
-Remove-Item $serverManifest, "$serverManifest.sig" -Force -ErrorAction SilentlyContinue
-$serverJson = [ordered]@{ product = 'ASH.Server'; version = $version; file = (Split-Path $serverZip -Leaf)
-    sha256 = (Get-FileHash $serverZip -Algorithm SHA256).Hash.ToLowerInvariant(); size = (Get-Item $serverZip).Length } | ConvertTo-Json -Compress
-[IO.File]::WriteAllText($serverManifest, $serverJson, (New-Object Text.UTF8Encoding $false))
-if ($sign) {
-    dotnet $ashRelease sign --key $signKey --in $serverManifest
-    if ($LASTEXITCODE) { throw "AshRelease sign ASH.Server.json failed (exit $LASTEXITCODE)" }
-    dotnet $ashRelease verify --pub $pubKey --in $serverManifest
-    if ($LASTEXITCODE) { throw "ASH.Server.json signature does not verify against $pubKey" }
+# ASH.Server.json / ASH.Runner.json (+ .sig): version, SHA-256 and size of a zip, signed with the same key.
+# A running server replaces itself from the first; the server hands the second to ash-run, which replaces itself from it.
+function New-PackageManifest($product, $zipPath, $name) {
+    $out = "$dist\$name"
+    Remove-Item $out, "$out.sig" -Force -ErrorAction SilentlyContinue
+    $json = [ordered]@{ product = $product; version = $version; file = (Split-Path $zipPath -Leaf)
+        sha256 = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLowerInvariant(); size = (Get-Item $zipPath).Length } | ConvertTo-Json -Compress
+    [IO.File]::WriteAllText($out, $json, (New-Object Text.UTF8Encoding $false))
+    if ($sign) {
+        dotnet $ashRelease sign --key $signKey --in $out | Out-Host
+        if ($LASTEXITCODE) { throw "AshRelease sign $name failed (exit $LASTEXITCODE)" }
+        dotnet $ashRelease verify --pub $pubKey --in $out | Out-Host
+        if ($LASTEXITCODE) { throw "$name signature does not verify against $pubKey" }
+    }
+    return $out
 }
-Get-Item $exe, $zip, $runnerZip, $serverZip, $manifest, "$manifest.sig", $serverManifest, "$serverManifest.sig" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ("{0}  {1:N0} bytes" -f $_.FullName, $_.Length) }
+$serverManifest = New-PackageManifest 'ASH.Server' $serverZip 'ASH.Server.json'
+$runnerManifest = New-PackageManifest 'ASH.Runner' $runnerZip 'ASH.Runner.json'
+Get-Item $exe, $zip, $runnerZip, $serverZip, $manifest, "$manifest.sig", $serverManifest, "$serverManifest.sig", $runnerManifest, "$runnerManifest.sig" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ("{0}  {1:N0} bytes" -f $_.FullName, $_.Length) }

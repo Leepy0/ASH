@@ -5,8 +5,6 @@ using System.Reflection;
 using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Text;
-using System.Text.Json;
-using System.Text.RegularExpressions;
 using ASH.Core.Update;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
@@ -14,36 +12,6 @@ using Microsoft.Extensions.Hosting.WindowsServices;
 using Microsoft.Win32;
 
 namespace ASH.Server;
-
-/// <summary>ASH.Server.json: signed description of the server zip (same key as ASH.json; the signature covers the file bytes).</summary>
-public sealed partial record ServerManifest(string Version, string File, string Sha256, long Size)
-{
-    public const string FileName = "ASH.Server.json";
-    public const string SignatureFileName = "ASH.Server.json.sig";
-
-    [GeneratedRegex(@"^ASH-Server-[0-9A-Za-z.+-]+-win-x64\.zip\z")] private static partial Regex FileRx();
-    [GeneratedRegex(@"^[0-9a-f]{64}\z")] private static partial Regex ShaRx();
-
-    /// <exception cref="InvalidDataException">Not a server manifest.</exception>
-    public static ServerManifest Parse(byte[] json)
-    {
-        try
-        {
-            using var d = JsonDocument.Parse(json);
-            var r = d.RootElement;
-            string S(string n) => r.TryGetProperty(n, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
-            if (S("product") != "ASH.Server") throw new InvalidDataException("ASH.Server.json의 product가 ASH.Server가 아닙니다.");
-            var m = new ServerManifest(S("version"), S("file"), S("sha256"),
-                r.TryGetProperty("size", out var sz) && sz.ValueKind == JsonValueKind.Number ? sz.GetInt64() : -1);
-            if (!SemVersion.TryParse(m.Version, out _)) throw new InvalidDataException("ASH.Server.json의 version이 올바르지 않습니다: " + m.Version);
-            if (!FileRx().IsMatch(m.File)) throw new InvalidDataException("ASH.Server.json의 file 이름이 올바르지 않습니다: " + m.File);
-            if (!ShaRx().IsMatch(m.Sha256)) throw new InvalidDataException("ASH.Server.json의 sha256은 소문자 hex 64자여야 합니다.");
-            if (m.Size <= 0) throw new InvalidDataException("ASH.Server.json의 size가 없습니다.");
-            return m;
-        }
-        catch (JsonException e) { throw new InvalidDataException("ASH.Server.json을 읽을 수 없습니다: " + e.Message, e); }
-    }
-}
 
 /// <summary>
 /// Server self-update, the AGV_FOTA_GATEWAY way: the signed server zip from the GitHub release is checked (signature, size, SHA-256),
@@ -118,17 +86,17 @@ public sealed class ServerUpdater
 
     private async Task<string> Check(HttpClient http, string baseUrl, CancellationToken ct)
     {
-        var json = await GitHubSync.GetSmall(http, $"{baseUrl}/releases/latest/download/{ServerManifest.FileName}", 1 << 16, ct);
-        if (json == null) return $"GitHub 최신 릴리스에 {ServerManifest.FileName}이(가) 없음";
-        var m = ServerManifest.Parse(json);
+        var json = await GitHubSync.GetSmall(http, $"{baseUrl}/releases/latest/download/{PackageManifest.ServerManifestName}", 1 << 16, ct);
+        if (json == null) return $"GitHub 최신 릴리스에 {PackageManifest.ServerManifestName}이(가) 없음";
+        var m = PackageManifest.ParseServer(json);
         SemVersion.TryParse(m.Version, out var latest);
         if (!SemVersion.TryParse(Current, out var cur) || latest!.CompareTo(cur) <= 0) return $"최신({Current})";
         if (File.Exists(SkipPath) && File.ReadAllText(SkipPath).Trim() == m.Version)
             return $"{m.Version}은(는) 지난 교체에 실패해 자동 적용하지 않음(update\\apply.log 확인, 더 높은 버전이 나오면 다시 시도)";
 
         var tag = $"{baseUrl}/releases/download/v{Uri.EscapeDataString(m.Version)}";
-        var sig = await GitHubSync.GetSmall(http, $"{tag}/{ServerManifest.SignatureFileName}", 4096, ct);
-        if (sig == null) return $"거절: {ServerManifest.SignatureFileName}이(가) 없음";
+        var sig = await GitHubSync.GetSmall(http, $"{tag}/{PackageManifest.ServerSignatureName}", 4096, ct);
+        if (sig == null) return $"거절: {PackageManifest.ServerSignatureName}이(가) 없음";
         if (!_store.Key!.Verify(json, sig)) return "거절: 서버 배포 서명이 맞지 않습니다.";
 
         Directory.CreateDirectory(_dir);

@@ -10,8 +10,13 @@ public static class Program
 {
     public static int Main(string[] args)
     {
+        if (args.Length == 1 && args[0] == "--version") { Console.WriteLine(RunnerUpdater.CurrentVersion); return 0; }
         using var cts = new CancellationTokenSource();
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); }; // Ctrl+C: finish runs in flight, start no new ones
+        if (args.Length > 0 && args[0] == "--update") return RunnerUpdater.UpdateCommandAsync(args, Console.Out, cts.Token).GetAwaiter().GetResult();
+        // a job starts only after the update check, so one job never runs on two versions; --no-update skips it
+        if (RunnerArgs.Parse(args, out _) is { NoUpdate: false } a && RunnerUpdater.TryAsync(args, a.Server, Console.Out, cts.Token).GetAwaiter().GetResult() is { } code)
+            return code;
         return RunAsync(args, ct: cts.Token).GetAwaiter().GetResult();
     }
 

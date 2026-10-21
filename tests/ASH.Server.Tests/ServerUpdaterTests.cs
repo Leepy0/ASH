@@ -1,4 +1,5 @@
 using System.Text;
+using ASH.Core.Update;
 
 namespace ASH.Server.Tests;
 
@@ -10,8 +11,8 @@ public class ServerUpdaterTests
     [Fact]
     public void Server_manifest_parses()
     {
-        var m = ServerManifest.Parse(J($"{{\"product\":\"ASH.Server\",\"version\":\"0.3.0\",\"file\":\"ASH-Server-0.3.0-win-x64.zip\",\"sha256\":\"{Sha}\",\"size\":42}}"));
-        Assert.Equal(new ServerManifest("0.3.0", "ASH-Server-0.3.0-win-x64.zip", Sha, 42), m);
+        var m = PackageManifest.ParseServer(J($"{{\"product\":\"ASH.Server\",\"version\":\"0.3.0\",\"file\":\"ASH-Server-0.3.0-win-x64.zip\",\"sha256\":\"{Sha}\",\"size\":42}}"));
+        Assert.Equal(("0.3.0", "ASH-Server-0.3.0-win-x64.zip", Sha, 42L), (m.Version, m.File, m.Sha256, m.Size));
     }
 
     [Theory]
@@ -21,11 +22,11 @@ public class ServerUpdaterTests
     [InlineData("ASH.Server", "0.3.0", "ASH-Setup-0.3.0.exe", 42)]
     [InlineData("ASH.Server", "0.3.0", "ASH-Server-0.3.0-win-x64.zip", 0)]
     public void Bad_server_manifest_is_rejected(string product, string version, string file, long size)
-        => Assert.Throws<InvalidDataException>(() => ServerManifest.Parse(J(
+        => Assert.Throws<InvalidDataException>(() => PackageManifest.ParseServer(J(
             $"{{\"product\":\"{product}\",\"version\":\"{version}\",\"file\":\"{file.Replace("\\", "\\\\")}\",\"sha256\":\"{Sha}\",\"size\":{size}}}")));
 
     [Fact]
-    public void Not_json_is_invalid_data() => Assert.Throws<InvalidDataException>(() => ServerManifest.Parse(J("<html>")));
+    public void Not_json_is_invalid_data() => Assert.Throws<InvalidDataException>(() => PackageManifest.ParseServer(J("<html>")));
 
     [Theory]
     [InlineData("\"C:\\Program Files\\ASH.Server\\ASH.Server.exe\"", true)]

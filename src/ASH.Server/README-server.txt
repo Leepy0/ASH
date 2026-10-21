@@ -82,6 +82,8 @@ ASH.Server - ASH 배포 서버 (최소판)
   결과: 상태 페이지 "지난 업데이트" 줄, update\apply.log. 이전 exe 는 ASH.Server.exe.old 로 남는다.
   LocalService 계정으로 바꾸면 설치 폴더에 쓸 수 없어 자동 교체가 실패한다(이전 버전 유지).
   0.2.0 이하 서버는 이 기능이 없어 한 번은 손으로 바꾼다: sc stop ASH.Server, ASH.Server.exe 교체, sc start ASH.Server.
+- Runner(ash-run) 배포: GitHub 릴리스의 ASH.Runner.json(.sig)와 ASH-Runner-x.y.z-win-x64.zip 을 서명 확인 후 runner\ 폴더에 보관하고,
+  분석 PC 의 ash-run 이 작업 시작 전에 /api/ash/runner 로 새 버전을 확인해 스스로 교체한다. 상태 페이지 "Runner(ash-run)" 줄에서 확인한다.
 - 서버 exe 를 교체한 뒤에는 상태 페이지의 서명 키 ID 가 교체 전과 같은지 확인한다.
 - 롤백: publish-release.ps1 -Force 로 낮은 버전을 올려도 이미 새 버전을 쓰는 PC 는 내려가지 않는다(서버 버전이 더 낮다는 안내만 나온다).
   되돌리려면 옛 코드를 더 높은 버전 번호로 다시 빌드해 게시한다.

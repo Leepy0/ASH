@@ -5,17 +5,17 @@ namespace ASH.Runner;
 /// <param name="DialogButton">Null (default) never clicks AutoMod dialogs; a trial install needs "Student Version".</param>
 /// <param name="Append">Keep an existing runs\ folder instead of rotating it to runs.&lt;yyyyMMdd_HHmmss&gt;\.</param>
 public sealed record RunnerArgs(string ProjectDir, string Model, string? AmHome = null, int Parallel = 2, string? DialogButton = null,
-    int TimeoutMin = 30, int InitialReps = 1, bool Impact = false, bool Debug = false, bool Append = false)
+    int TimeoutMin = 30, int InitialReps = 1, bool Impact = false, bool Debug = false, bool Append = false, string? Server = null, bool NoUpdate = false)
 {
-    public const string Usage = "usage: ash-run <ProjectDir> --model <name> [--am-home <AutoMod dir>] [--parallel 2] [--dialog-button \"Student Version\"] [--timeout-min 30] [--initial-reps 1] [--impact] [--append] [--debug]";
+    public const string Usage = "usage: ash-run <ProjectDir> --model <name> [--am-home <AutoMod dir>] [--parallel 2] [--dialog-button \"Student Version\"] [--timeout-min 30] [--initial-reps 1] [--impact] [--append] [--debug] [--server <http://host:port>] [--no-update]\n       ash-run --update [--server <http://host:port>]   (check the server and update ash-run now)\n       ash-run --version";
 
     /// <summary>Null result = error (message in <paramref name="error"/>).</summary>
     public static RunnerArgs? Parse(string[] args, out string? error)
     {
         error = null;
-        string? dir = null, model = null, am = null, btn = null;
+        string? dir = null, model = null, am = null, btn = null, server = null;
         int parallel = 2, timeout = 30, reps = 1;
-        bool impact = false, debug = false, append = false;
+        bool impact = false, debug = false, append = false, noUpdate = false;
         for (int i = 0; i < args.Length; i++)
         {
             var a = args[i];
@@ -44,6 +44,8 @@ public sealed record RunnerArgs(string ProjectDir, string Model, string? AmHome 
                 case "--no-impact": impact = false; break;
                 case "--append": append = true; break;
                 case "--debug": debug = true; break;
+                case "--server": server = Val(); break;
+                case "--no-update": noUpdate = true; break;
                 default:
                     if (a.StartsWith("--")) err = "unknown option " + a;
                     else if (dir == null) dir = a;
@@ -54,6 +56,6 @@ public sealed record RunnerArgs(string ProjectDir, string Model, string? AmHome 
         }
         if (dir == null) { error = "ProjectDir is required"; return null; }
         if (string.IsNullOrEmpty(model)) { error = "--model is required"; return null; }
-        return new RunnerArgs(dir, model, am, parallel, btn, timeout, reps, impact, debug, append);
+        return new RunnerArgs(dir, model, am, parallel, btn, timeout, reps, impact, debug, append, server, noUpdate);
     }
 }

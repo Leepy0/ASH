@@ -14,6 +14,11 @@ builder.Host.UseWindowsService(o => o.ServiceName = ServiceCommand.ServiceName);
 builder.Services.Configure<FormOptions>(o => o.MultipartBodyLengthLimit = UploadLimit);
 builder.Services.AddSingleton(sp => ReleaseStore.Create(sp.GetRequiredService<IConfiguration>(), sp.GetRequiredService<IHostEnvironment>(),
     sp.GetRequiredService<ILoggerFactory>().CreateLogger<ReleaseStore>()));
+builder.Services.AddSingleton(sp =>
+{
+    var rs = sp.GetRequiredService<ReleaseStore>();
+    return new RunnerStore(rs.Dir, rs.Key, sp.GetRequiredService<ILoggerFactory>().CreateLogger<RunnerStore>());
+});
 builder.Services.AddSingleton<ServerUpdater>();
 builder.Services.AddSingleton<GitHubSync>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<GitHubSync>());
@@ -41,10 +46,24 @@ app.MapGet("/api/ash/version.sig", (HttpContext ctx, ReleaseStore s) =>
     return s.ReadSignatureBytes() is { } b ? Results.Bytes(b, "application/octet-stream") : Msg(404, "서명이 없습니다.");
 });
 
-app.MapGet("/download/{file}", (string file, ReleaseStore s) =>
+// the runner (ash-run) updates itself from these: manifest + signature, then the zip through /download
+app.MapGet("/api/ash/runner", (HttpContext ctx, RunnerStore r) =>
 {
-    if (!ReleaseManifest.IsValidFileName(file)) return Msg(400, "파일 이름이 올바르지 않습니다.");
-    var path = Path.Combine(s.FilesDir, file);
+    ctx.Response.Headers.CacheControl = "no-store";
+    return r.ReadManifestBytes() is { } b ? Results.Bytes(b, "application/json") : Msg(404, "게시된 Runner가 없습니다.");
+});
+
+app.MapGet("/api/ash/runner.sig", (HttpContext ctx, RunnerStore r) =>
+{
+    ctx.Response.Headers.CacheControl = "no-store";
+    return r.ReadSignatureBytes() is { } b ? Results.Bytes(b, "application/octet-stream") : Msg(404, "서명이 없습니다.");
+});
+
+app.MapGet("/download/{file}", (string file, ReleaseStore s, RunnerStore r) =>
+{
+    var dir = ReleaseManifest.IsValidFileName(file) ? s.FilesDir : PackageManifest.IsRunnerFileName(file) ? r.FilesDir : null;
+    if (dir == null) return Msg(400, "파일 이름이 올바르지 않습니다.");
+    var path = Path.Combine(dir, file);
     return File.Exists(path) ? Results.File(path, "application/octet-stream", file, enableRangeProcessing: true) : Msg(404, "파일이 없습니다.");
 });
 
@@ -69,7 +88,7 @@ app.MapPost("/api/admin/releases", async (HttpContext ctx, ReleaseStore s, Cance
     catch (InvalidDataException e) { return Msg(400, e.Message); } // malformed multipart
 });
 
-app.MapGet("/", (ReleaseStore s, GitHubSync g, ServerUpdater u) =>
+app.MapGet("/", (ReleaseStore s, GitHubSync g, ServerUpdater u, RunnerStore r) =>
 {
     static string H(string? t) => WebUtility.HtmlEncode(t ?? "");
     var cur = s.GetCurrent()?.Manifest;
@@ -82,6 +101,7 @@ app.MapGet("/", (ReleaseStore s, GitHubSync g, ServerUpdater u) =>
         : H(s.Key.KeyId)).Append("</p>");
     sb.Append("<p>GitHub 가져오기: ").Append(g.BaseUrl == null ? "꺼짐" : H(g.BaseUrl) + $" ({g.Interval.TotalMinutes:0}분마다, DNS {(g.DnsServers.Count == 0 ? "PC 기본" : string.Join(", ", g.DnsServers))})")
       .Append("<br>마지막 확인: ").Append(g.LastCheckUtc is { } t ? H(t.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")) + " — " + H(g.LastResult) : H(g.LastResult)).Append("</p>");
+    sb.Append("<p>Runner(ash-run): ").Append(r.Current is { } rc ? H(rc.Version) + $" ({rc.Size:N0} bytes)" : "게시된 버전 없음").Append(" — 마지막 확인: ").Append(H(g.RunnerResult)).Append("</p>");
     sb.Append("<p>서버 프로그램: ").Append(H(u.Current)).Append(" — 자동 업데이트: ").Append(H(u.LastResult));
     if (u.PreviousRun != null) sb.Append("<br>지난 업데이트: ").Append(H(u.PreviousRun));
     sb.Append("</p>");

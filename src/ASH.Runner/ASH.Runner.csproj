@@ -18,4 +18,9 @@
     <ProjectReference Include="..\ASH.Core\ASH.Core.csproj" />
   </ItemGroup>
 
+  <!-- public key the self-update verifies with (repo root, created by AshRelease keygen); absent = this build never updates itself -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\update-key.pub" LogicalName="update-key.pub" Condition="Exists('..\..\update-key.pub')" />
+  </ItemGroup>
+
 </Project>

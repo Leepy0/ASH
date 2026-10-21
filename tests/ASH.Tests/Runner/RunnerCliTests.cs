@@ -49,5 +49,16 @@ public class RunnerCliTests
         Assert.Contains("m.exe", sw.ToString());
         Directory.Delete(dir, true);
     }
+
+    [Fact]
+    public void Update_Options()
+    {
+        var d = RunnerArgs.Parse(new[] { @"C:\p", "--model", "m" }, out _)!;
+        Assert.Equal(((string?)null, false), (d.Server, d.NoUpdate));
+        var a = RunnerArgs.Parse(new[] { @"C:\p", "--model", "m", "--server", "http://srv:8082", "--no-update" }, out _)!;
+        Assert.Equal(("http://srv:8082", true), (a.Server, a.NoUpdate));
+        Assert.Null(RunnerArgs.Parse(new[] { @"C:\p", "--model", "m", "--server" }, out var err));
+        Assert.Contains("--server", err);
+    }
 }
 #endif

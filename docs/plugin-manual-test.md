@@ -204,3 +204,14 @@ AutoMod 12.6이 있는 PC 필요(T16-2, T16-4). 검증·내보내기 탭 "Excel 
 | S3 서비스 시작 10초쯤 뒤 상태 페이지 → "마지막 확인 — 가져옴: x.y.z"와 현재 버전·게시 시각·서명 키 ID 표시(키 내장 빌드면 "서명 키 없음" 문구가 없음). GitHub에 더 높은 버전을 릴리스한 뒤 서비스를 재시작하면 그 버전으로 바뀜. (수동 업로드 확인 시) `Admin:Token`을 넣고 `publish-release.ps1` → "200 OK", 토큰이 틀리면 401, 비었거나 16자 미만이면 403 | | | | |
 | S4 사용자 PC에서 `ASH-Setup-<현재보다 낮은 버전>.exe /server:http://<서버>:8082` 설치 → ZWCAD 시작 후 3초 안에 "ASH <새 버전> 사용 가능 — AGVUPDATE로 받기"(릴리스를 `-MinSupported`/`ASH_MIN_SUPPORTED` 없이 빌드했다면 기본값이 `0.0.0`이라 "최소 지원 미만" 안내는 **뜨지 않는 것이 정상**. 그 안내를 보려면 PC 버전보다 높은 `-MinSupported <버전>`으로 빌드·게시해 U5와 맞춰 확인) → `AGVUPDATE` → 다운로드 완료·탐색기 열림. 서명 키 내장 빌드에서는 "서명 키 미설정" 경고가 없음. 서버 서비스를 중지(`sc.exe stop ASH.Server`)한 뒤 ZWCAD 시작 → "업데이트 확인 실패(서버 응답 없음)" 한 줄(멈춤 없음) | | | | |
 | S5 서버 자동 업데이트: 서버보다 높은 버전을 GitHub에 릴리스한 뒤 서비스 재시작(또는 `CheckIntervalMin` 대기) → 약 10초 뒤 상태 페이지 "서버 프로그램: <새 버전>", "지난 업데이트: 서버 <새 버전>(으)로 자동 업데이트됨". 설치 폴더에 `ASH.Server.exe.old`, `update\apply.log`에 "healthy". `appsettings.json` 값(포트·토큰)과 게시된 버전·이전 버전 목록이 그대로이고 S4 업데이트 확인이 계속 동작. 서버 PC 재부팅 뒤에도 유지 | | | | |
+
+## Runner 자동 업데이트 (분석 PC)
+
+| 항목 | 날짜 | 결과 | 비고 |
+|---|---|---|---|
+| A1 서버가 GitHub에서 새 릴리스를 가져온 뒤 상태 페이지 "Runner(ash-run): x.y.z" 표시. 서버 `Releases:Dir\runner\files`에 zip이 있음 | | | |
+| A2 분석 PC에서 낮은 버전 `ash-run.exe --version` 확인 후 `ash-run --update --server http://<서버>:8082` → "ash-run a -> b", `ash-run --version`이 새 버전, 같은 폴더에 `ash-run.exe.old` | | | |
+| A3 다시 `ash-run --update` → "up to date". 서버를 끄고 실행 → "update skipped: server ... does not answer", 작업은 계속됨(3초 안) | | | |
+| A4 작업 실행(`ash-run <프로젝트> --model m`)이 업데이트 뒤 새 버전으로 이어져 끝까지 돌고 종료 코드가 같음. `--no-update`면 확인하지 않음 | | | |
+| A5 `ash-run`을 두 창에서 동시에 시작 → 한쪽만 받고 다른 쪽은 기다렸다가 새 파일로 실행. `ash-run.exe.old`는 하나 | | | |
+| A6 `ash-run.exe.old`를 `ash-run.exe`로 되돌려 롤백 가능(ZWCAD 없이) | | | |

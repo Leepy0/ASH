@@ -103,7 +103,7 @@ git add update-key.pub; git commit -m "chore: update signing public key"
 ```powershell
 $env:ASH_SIGNING_KEY = 'D:\secure\ash-keys\ash-signing.pem'
 scripts\build-release.ps1 -MinSupported 0.1.0 -Notes notes.txt     # dist\ 에 Setup, Plugin, Runner, Server zip, ASH.json, ASH.json.sig
-gh release create v<버전> dist\ASH-Setup-<버전>.exe dist\ASH.json dist\ASH.json.sig dist\ASH.Server.json dist\ASH.Server.json.sig dist\ASH-Plugin-<버전>.zip dist\ASH-Runner-<버전>-win-x64.zip dist\ASH-Server-<버전>-win-x64.zip --title "v<버전>" --notes-file notes.txt
+gh release create v<버전> dist\ASH-Setup-<버전>.exe dist\ASH.json dist\ASH.json.sig dist\ASH.Server.json dist\ASH.Server.json.sig dist\ASH.Runner.json dist\ASH.Runner.json.sig dist\ASH-Plugin-<버전>.zip dist\ASH-Runner-<버전>-win-x64.zip dist\ASH-Server-<버전>-win-x64.zip --title "v<버전>" --notes-file notes.txt
 ```
 
 - 정식 릴리스(초안·시험판 아님)에 `ASH.json`, `ASH.json.sig`, `ASH-Setup-<버전>.exe`가 반드시 있어야 서버가 가져간다. 서버 자동 업데이트에는 `ASH.Server.json`, `ASH.Server.json.sig`, `ASH-Server-<버전>-win-x64.zip`도 필요하다(`build-release.ps1`이 함께 만든다). 태그는 `v<버전>`(매니페스트의 version과 같게).
@@ -170,6 +170,16 @@ SYSTEM으로 실행해도 로그온한 대화형 사용자가 있고 그 사용�
 
 자동 교체는 이 조건에서만 한다(아니면 상태 페이지에 이유가 나온다): `ASH.Server.exe --install`로 등록한 Windows 서비스로 실행 중, 배포용 단일 exe(zip의 것), 서명 공개키가 내장된 빌드, `GitHub:Enabled`와 `GitHub:UpdateServer`가 true.
 
+### Runner(ash-run) 배포
+
+서버는 분석 PC의 `ash-run`이 스스로 업데이트하도록 서명된 Runner를 보관하고 내려 준다.
+
+1. GitHub 확인 때마다 최신 릴리스의 `ASH.Runner.json`을 읽는다. 서버에 있는 Runner보다 높으면 태그의 `ASH.Runner.json.sig`와 `ASH-Runner-<버전>-win-x64.zip`을 받아, 서명·크기·SHA-256을 확인한 뒤 `Releases:Dir\runner\`에 둔다(최신 2개만 보관).
+2. 분석 PC의 `ash-run`은 작업을 시작하기 전에 `/api/ash/runner`(+`.sig`)를 읽고 **자기 안의 공개키로 서명을 다시 확인**한 뒤, 새 버전이면 `/download/ASH-Runner-<버전>-win-x64.zip`을 받아 스스로 교체한다(README의 "ash-run" 절). 서버가 Runner를 못 가져와도 지금 Runner는 계속 쓸 수 있다.
+3. 서버 상태 페이지의 "Runner(ash-run)" 줄에 보관 중인 버전과 마지막 확인 결과가 나온다.
+4. 분석 PC에는 서버 주소가 필요하다: 설치 프로그램의 `/server:` 로 넣었다면 그 설정을 읽고, 아니면 `ash-run --update --server http://<서버>:8082` 또는 환경 변수 `ASH_SERVER`.
+5. 릴리스에 `ASH.Runner.json`, `ASH.Runner.json.sig`, `ASH-Runner-<버전>-win-x64.zip`이 있어야 한다(`build-release.ps1`이 만든다. `gh release create`에 같이 올린다).
+
 **0.2.0 이하 서버는 자동 업데이트 기능이 없어 한 번은 손으로 바꾼다.** 새 `ASH-Server-<버전>-win-x64.zip`을 받아:
 
 ```bat
@@ -199,6 +209,8 @@ sc start ASH.Server
 | 상태 페이지 "지난 업데이트: x.y.z이(가) 60초 안에 응답하지 않아 … 자동 되돌림" | 새 서버 exe가 서비스로 뜨지 않음. `update\apply.log`와 이벤트 로그를 보고, 고친 판을 더 높은 버전으로 릴리스한다(같은 버전은 다시 시도하지 않음). |
 | 상태 페이지 "지난 업데이트: x.y.z 파일 교체 실패" | 설치 폴더에 쓸 수 없음(LocalService 계정, 백신 잠금 등). `update\apply.log` 확인. 원인을 고친 뒤 더 높은 버전으로 릴리스하거나 수동 교체한다. |
 | 상태 페이지 "마지막 확인 — 실패: …" (이름 확인 오류, "No such host is known" 등) | 서버 PC의 DNS가 github.com을 찾지 못함. `nslookup github.com 8.8.8.8`처럼 쓸 수 있는 DNS를 찾아 `GitHub:Dns`에 적고 서비스를 재시작한다. |
+| 상태 페이지 "Runner(ash-run) … 거절" | GitHub 릴리스의 `ASH.Runner.json.sig`가 서버 내장 공개키와 다른 키로 서명됐거나 zip이 배포 정보와 다름. 올바른 키로 다시 빌드해 새 버전으로 릴리스한다. |
+| 분석 PC에서 `update skipped: …` | 서버 주소 없음/응답 없음, 폴더에 쓸 수 없음 등. 문장 그대로 원인이 나온다. 작업은 지금 버전으로 계속된다. `ash-run --update --server <주소>`로 원인을 다시 확인한다. |
 | 상태 페이지 "마지막 확인 — 실패: …" | 서버 PC에서 github.com에 닿지 않음. 브라우저로 `https://github.com/Leepy0/ASH/releases/latest/download/ASH.json`이 받아지는지 보고, 콘솔에서는 되는데 서비스에서만 실패하면 `GitHub:Proxy`를 적는다. 이벤트 로그에 같은 내용이 남는다. |
 | 상태 페이지 "마지막 확인 — 거절: 서명이 맞지 않습니다" | GitHub 릴리스의 `ASH.json.sig`가 서버 내장 공개키와 다른 키로 서명됨, 또는 `ASH.json`을 손으로 고침. 올바른 키로 다시 빌드해 새 버전으로 릴리스한다. |
 | 상태 페이지 "마지막 확인 — GitHub에 ASH.json이(가) 있는 릴리스가 없습니다" | 최신 정식 릴리스에 `ASH.json`이 빠졌거나 초안·시험판만 있음. |

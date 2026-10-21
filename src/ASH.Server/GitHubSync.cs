@@ -24,6 +24,7 @@ public sealed class GitHubSync : BackgroundService
     private readonly ILogger _log;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly ServerUpdater? _updater;
+    private readonly RunnerStore? _runner;
 
     /// <summary>Null when the pull is off (GitHub:Enabled=false).</summary>
     public string? BaseUrl { get; }
@@ -31,17 +32,19 @@ public sealed class GitHubSync : BackgroundService
     /// <summary>DNS servers used for GitHub names; empty = the PC's DNS.</summary>
     public IReadOnlyList<IPAddress> DnsServers { get; private init; } = [];
     public string LastResult { get; private set; } = "아직 확인하지 않음";
+    public string RunnerResult { get; private set; } = "아직 확인하지 않음";
     public DateTime? LastCheckUtc { get; private set; }
 
-    public GitHubSync(ReleaseStore store, ServerUpdater updater, IConfiguration cfg, ILogger<GitHubSync> log)
+    public GitHubSync(ReleaseStore store, RunnerStore runner, ServerUpdater updater, IConfiguration cfg, ILogger<GitHubSync> log)
         : this(store, cfg.GetValue("GitHub:Enabled", true) ? Url(cfg["GitHub:BaseUrl"]) : null,
-               TimeSpan.FromMinutes(Math.Max(0, cfg.GetValue("GitHub:CheckIntervalMin", 60))), new HttpClient(Handler(cfg["GitHub:Proxy"], DnsLookup.ParseServers(cfg["GitHub:Dns"]))), log, updater)
+               TimeSpan.FromMinutes(Math.Max(0, cfg.GetValue("GitHub:CheckIntervalMin", 60))), new HttpClient(Handler(cfg["GitHub:Proxy"], DnsLookup.ParseServers(cfg["GitHub:Dns"]))), log, updater, runner)
         => DnsServers = DnsLookup.ParseServers(cfg["GitHub:Dns"]);
 
-    internal GitHubSync(ReleaseStore store, string? baseUrl, TimeSpan interval, HttpClient http, ILogger log, ServerUpdater? updater = null)
+    internal GitHubSync(ReleaseStore store, string? baseUrl, TimeSpan interval, HttpClient http, ILogger log, ServerUpdater? updater = null, RunnerStore? runner = null)
     {
         _store = store;
         _updater = updater;
+        _runner = runner;
         BaseUrl = baseUrl;
         Interval = interval;
         _http = http;
@@ -120,8 +123,37 @@ public sealed class GitHubSync : BackgroundService
         }
         if (LastResult.StartsWith("거절") || LastResult.StartsWith("실패")) _log.LogWarning("GitHub 릴리스 확인 {Result}", LastResult);
         else _log.LogInformation("GitHub 릴리스 확인 {Result}", LastResult);
+        await CheckRunnerAsync(ct);
         // the server's own update last: it may stop this process
         if (_updater != null) await _updater.CheckAsync(_http, BaseUrl, ct);
+    }
+
+    private async Task CheckRunnerAsync(CancellationToken ct)
+    {
+        if (_runner == null || BaseUrl == null) return;
+        try { RunnerResult = await PullRunner(_runner, ct); }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (UploadException e) { RunnerResult = "거절: " + e.Message; }
+        catch (Exception e) { RunnerResult = "실패: " + (e is OperationCanceledException ? "응답 시간 초과" : e.Message); }
+        if (RunnerResult.StartsWith("거절") || RunnerResult.StartsWith("실패")) _log.LogWarning("Runner 가져오기 {Result}", RunnerResult);
+        else _log.LogInformation("Runner 가져오기 {Result}", RunnerResult);
+    }
+
+    // same rule as the setup: the manifest from "latest", the signature and zip from its tag; the store verifies everything before it keeps a byte
+    private async Task<string> PullRunner(RunnerStore store, CancellationToken ct)
+    {
+        var json = await GetSmall(_http, $"{BaseUrl}/releases/latest/download/{PackageManifest.RunnerManifestName}", MaxManifestBytes, ct);
+        if (json == null) return $"최신 릴리스에 {PackageManifest.RunnerManifestName} 없음";
+        var m = PackageManifest.ParseRunner(json);
+        var cur = store.Current;
+        if (cur != null && !m.IsNewerThan(cur.Version)) return $"최신({cur.Version})";
+        var tag = $"{BaseUrl}/releases/download/v{Uri.EscapeDataString(m.Version)}";
+        var sig = await GetSmall(_http, $"{tag}/{PackageManifest.RunnerSignatureName}", MaxSignatureBytes, ct);
+        using var resp = await _http.GetAsync($"{tag}/{Uri.EscapeDataString(m.File)}", HttpCompletionOption.ResponseHeadersRead, ct);
+        if (!resp.IsSuccessStatusCode) throw new HttpRequestException($"Runner zip을 받을 수 없습니다({(int)resp.StatusCode}).");
+        await using var zip = await resp.Content.ReadAsStreamAsync(ct);
+        var pub = await store.PublishAsync(json, sig, m.File, zip, ct);
+        return $"가져옴: {pub.Version}";
     }
 
     private async Task<string> Check(CancellationToken ct)

@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\ASH.Server\ASH.Server.csproj" />
+    <ProjectReference Include="..\..\src\ASH.Runner\ASH.Runner.csproj" />
   </ItemGroup>
 
 </Project>

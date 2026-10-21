@@ -42,5 +42,6 @@ ash-run C:\Projects\Plant1 --model plant1 --parallel 2 --dialog-button "Student 
 - 가동률은 AutoMod `.report`의 차량 상태 비율에서 계산하며 **warmup 구간을 포함**한다(로직에서 통계를 초기화할 방법이 없음).
 - 탐색 실행 수(묶음 하나, 그룹 k개, 범위 R = Max−Min+1, 초기 반복 1): 기준 1 + k·⌈log2 R⌉ + 이후 패스마다 k(한 대씩만 줄여 봄) + 확정 반복 + 확인. 최대 대수에서 실패한 그룹은 1패스 뒤 건너뛴다. `InitStockMode Fixed`는 시드 영향이 없어 반복 1회로 실행한다.
 - 종료 코드: 0 성공, 1 오류(인자·모델 없음, 모델 재생성 필요, 기준 실행이 모두 실패 — 이때 최근 `<Model>.message` 앞 5줄을 출력), 2 성공했으나 경고(판정 실패·실행 실패 포함).
+- **자동 업데이트:** 작업을 시작하기 전에 서버(`ASH.Server`)에 새 `ash-run`이 있는지 확인하고(3초 제한), 있으면 서명·크기·SHA-256을 확인한 뒤 `ash-run.exe`를 새 파일로 바꾸고 같은 인자로 다시 실행한다. 그래서 한 작업이 두 버전에 걸치지 않는다. 이전 파일은 `ash-run.exe.old`로 남고, 새 파일이 시작되지 않으면 이전 파일로 되돌린다. 서버 주소는 `--server <주소>`, 환경 변수 `ASH_SERVER`, 설정 파일(`%APPDATA%\ASH\ash.user.tsv` 또는 `%ProgramData%\ASH\ash.machine.tsv`의 `ServerUrl`) 순서로 찾고, 없으면 업데이트하지 않는다. `--no-update`는 확인을 건너뛰고, `ash-run --update [--server 주소]`는 지금 확인하고 바꾼 뒤 끝낸다. `ash-run --version`은 버전을 출력한다. 서버가 응답하지 않거나 폴더에 쓸 수 없으면 한 줄 알리고 지금 버전으로 계속한다. 서명 키가 없는 빌드(개발용)는 업데이트하지 않는다.
 - `--am-home <AutoMod 폴더>`를 주면 모델 실행 프로세스의 PATH 앞에 `<폴더>\bin`이 붙는다(생략하면 PATH 그대로).
 - `summary.tsv`의 `ok`/`reason`은 그 실행 하나의 한 그룹만 단일 반복으로 판정한 값이다. 탐색의 최종 판정은 반복 평균이라 다를 수 있다.
