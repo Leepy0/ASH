@@ -12,6 +12,9 @@ namespace ASH.Core.Export;
 
 public static class LayoutExporter
 {
+    /// <summary>Gap a vehicle keeps to the one ahead when it has stopped behind it (metres): the stop distance of its sensor field.</summary>
+    public const double StopGapM = 0.5;
+
     static string[] Template(string name)
     {
         using var s = typeof(LayoutExporter).Assembly.GetManifestResourceStream("ASH.Core.Export.Templates." + name)
@@ -43,7 +46,7 @@ public static class LayoutExporter
 
         var s = new AgvsSystem { Version = o.Version, UnitsTokens = new[] { o.Units, "Seconds" } };
         s.HeaderLines.AddRange(Template("agvs_header.txt").Select(x => o.ClaimBlockOnNextCp ? x.Replace("ignore ResumeSpeedWhenClaimed", "ignore OldBlockClaim ResumeSpeedWhenClaimed") : x));
-        s.PathTypeLines.Add($"GPATHTYPE name {o.PathType} one normal attach rigid color -1 nav 1 vel 1 {N(groups.Max(g => g.Speed))} {o.Units} Seconds ");
+        s.PathTypeLines.Add($"GPATHTYPE name {o.PathType} one normal attach rigid color -1 nav 1 vel 1 {N(groups.Max(g => Math.Max(g.Speed, g.SpeedEmpty)))} {o.Units} Seconds ");
 
         // GPATH names: single-segment paths keep their name, others get _s<k> skipping any name already emitted.
         var taken = new HashSet<string>(l.Paths.Select(p => p.Name));
@@ -129,6 +132,15 @@ public static class LayoutExporter
                 continue;
             }
             var speed = N(g.Speed);
+            bool emptySpeed = g.SpeedEmpty > 0 && g.SpeedEmpty != g.Speed;
+            // sensor field: a vehicle starts braking for the one ahead at v^2 / 2d and stops StopGapM short of it (AutoMod stop distance
+            // = brake distance - v^2 / 2d). The demo template's fixed 4.5 ft / 0 ft is only kept without a decel or with unknown units.
+            string? brake = null, stop = null;
+            if (g.Decel > 0 && VehicleGeometry.FeetPerUnit(o.Units) is { } fpu)
+            {
+                double v = Math.Max(g.Speed, g.SpeedEmpty), gap = StopGapM * 3.280839895 / fpu;
+                brake = N(v * v / (2 * g.Decel) + gap); stop = N(gap);
+            }
             foreach (var line in Template("agvs_veh.txt"))
             {
                 var t = line.Replace("DefVehicle", g.TypeName).Replace("numveh 10", "numveh " + g.MaxCount)
@@ -137,6 +149,13 @@ public static class LayoutExporter
                 if (g.Accel > 0) t = Regex.Replace(t, @"^(\s*accel\s+0 )1 Feet( Seconds Seconds)", "${1}" + N(g.Accel) + " " + o.Units + "${2}");
                 if (g.Decel > 0) t = Regex.Replace(t, @"^(\s*decel\s+0 )1 Feet( Seconds Seconds)", "${1}" + N(g.Decel) + " " + o.Units + "${2}");
                 t = Regex.Replace(t, @"^(\s*rotate\s+0 )2( Seconds)", "${1}" + N(g.RotateDegPerSec) + "${2}");
+                if (brake != null)
+                {
+                    t = Regex.Replace(t, @"^(\s*brakedist\s+0 )4\.5 Feet", "${1}" + brake + " " + o.Units);
+                    t = Regex.Replace(t, @"^(\s*stopdist\s+0 )0 Feet", "${1}" + stop + " " + o.Units);
+                }
+                // the Empty line (retrieving, parking) runs at SpeedEmpty instead of inheriting the loaded speed
+                if (emptySpeed) t = Regex.Replace(t, @"^(\s*(?:vel|crvvel|sprvel|rvel|rcrvvel|rsprvel|crabvel)\s+)1 0 Feet( Seconds)", "${1}0 " + N(g.SpeedEmpty) + " " + o.Units + "${2}");
                 s.VehicleLines.Add(Regex.Replace(t, @"^(\s*(?:vel|crvvel|sprvel|rvel|rcrvvel|rsprvel|crabvel)\s+0 )3 Feet( Seconds)", "${1}" + speed + " " + o.Units + "${2}"));
             }
         }

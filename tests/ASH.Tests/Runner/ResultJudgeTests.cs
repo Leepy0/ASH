@@ -98,10 +98,10 @@ public class ResultJudgeTests
         Assert.Contains("clock", Assert.Throws<InvalidDataException>(() => ResultParser.Parse(W(H + "group\tG1\tG1\t1\n"))).Message);
         Assert.False(ResultParser.Validate(W(H + "group\tG1\tG1\t1\n"), out var err)); Assert.NotNull(err);
         Assert.True(ResultParser.Validate(Fx("result.tsv"), out _));
-        var r = ResultParser.Parse(W(H + "clock\tclock\t\t0\t5\nfuture\tx\tG1\t7\nblockgroup\tB\tG1\t3\t2\n"));
-        Assert.Equal(new[] { "clock", "future", "blockgroup" }, r.Rows.Select(x => x.Kind)); // unknown kinds kept
+        var r = ResultParser.Parse(W(H + "clock\tclock\t\t0\t5\nfuture\tx\tG1\t7\nvehicle\tT1\tG1\t100\t50\t3\t3600\t1\t40\n"));
+        Assert.Equal(new[] { "clock", "future", "vehicle" }, r.Rows.Select(x => x.Kind)); // unknown kinds kept
         Assert.Equal(7, r.Rows[1].Values[0]);
-        Assert.Equal(("B", "G1", 3.0, 2.0), (r.BlockGroups[0].Block, r.BlockGroups[0].Group, r.BlockGroups[0].WaitSec, r.BlockGroups[0].WaitCount));
+        Assert.Equal(new VehicleResult("T1", "G1", 100, 50, 3, 3600, 1, 40), Assert.Single(r.Vehicles!));
     }
 
     [Fact]

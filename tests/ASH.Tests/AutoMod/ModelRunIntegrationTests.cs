@@ -35,7 +35,7 @@ public class ModelRunIntegrationTests
         var specs = input.Groups.Select(g =>
         {
             var t = input.AgvTypes.Single(x => x.Type == g.Type);
-            return new VehicleGroupSpec(g.Group, g.Type, g.MaxCount, t.SpeedLoaded, t.Length, t.Width, Accel: t.Accel, Decel: t.Decel, Kind: t.Kind);
+            return new VehicleGroupSpec(g.Group, g.Type, g.MaxCount, t.SpeedLoaded, t.Length, t.Width, Accel: t.Accel, Decel: t.Decel, Kind: t.Kind, SpeedEmpty: t.SpeedEmpty);
         }).ToArray();
         l.Blocks.Add(new ASH.Core.Layout.LayoutBlock { Name = "B_x1", Cap = 1, Rect = new Rect2(new Point2(8, -1), new Point2(11, 2)) }); // corner p1/p2
         var res = ModelBuilder.Build(new ModelBuildRequest(work, Model, input, l, new ExportOptions(Groups: specs), VehicleOverrides: vehOverrides), AmHome!, TimeSpan.FromMinutes(5));

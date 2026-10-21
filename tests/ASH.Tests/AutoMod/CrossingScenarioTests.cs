@@ -24,6 +24,9 @@ public class CrossingScenarioTests
     /// <summary>ASH_SCENARIO_VARIANT contains "mergedab": A and B become one group AB on one standby CP on the bottom line (same demand).</summary>
     static bool Merged => (Environment.GetEnvironmentVariable("ASH_SCENARIO_VARIANT") ?? "").Contains("mergedab");
 
+    static string Variant => Environment.GetEnvironmentVariable("ASH_SCENARIO_VARIANT") ?? "";
+    static bool Real => Variant.Contains("real");
+
     // Dictionary.GetValueOrDefault is not on net48
     static TV Get<TK, TV>(Dictionary<TK, TV> d, TK k) where TK : notnull => d.TryGetValue(k, out var v) ? v : default!;
 
@@ -119,7 +122,8 @@ public class CrossingScenarioTests
         var p = new ProjectInput { Settings = new ASH.Core.Input.Settings { Units = "Meters", SimLengthSec = 6 * 3600, WarmupSec = 3600, Replications = 3, InitStockMode = "Uniform", UtilMax = 0.75 } };
         var types = Merged ? new[] { ("TAB", "AB"), ("TC", "C") } : new[] { ("TA", "A"), ("TB", "B"), ("TC", "C") };
         foreach (var (t, g) in types)
-            p.AgvTypes.Add(new AgvType(t, g, 1.0, 1.0, 0.3, 0.3, 1, 20, 20, 0, 0, 1.2, 0.8, "Blue", Kind: "Standard"));
+            // "real": breakdowns (MTBF 2 h, MTTR 5 min) and a faster empty run; "cap2": two containers per trip
+            p.AgvTypes.Add(new AgvType(t, g, 1.0, Real ? 1.3 : 1.0, 0.3, 0.3, Variant.Contains("cap2") ? 2 : 1, 20, 20, Real ? 7200 : 0, Real ? 300 : 0, 1.2, 0.8, "Blue", Kind: "Standard"));
         if (Merged) p.Groups.Add(new AgvGroup("AB", "TAB", 1, 9, new List<string> { "SA" }, "Nearest"));
         else
         {
@@ -166,7 +170,7 @@ public class CrossingScenarioTests
             for (int i = 0; i < input.AgvTypes.Count; i++) input.AgvTypes[i] = input.AgvTypes[i] with { LoadTime = 2, UnloadTime = 2 };
         if ((Environment.GetEnvironmentVariable("ASH_SCENARIO_VARIANT") ?? "").Contains("amax8"))
             input.Groups[0] = input.Groups[0] with { MaxCount = 8 };
-        var specs = input.Groups.Select(g => { var t = input.AgvTypes.Single(x => x.Type == g.Type); return new VehicleGroupSpec(g.Group, g.Type, g.MaxCount, t.SpeedLoaded, t.Length, t.Width, Accel: t.Accel, Decel: t.Decel, Kind: t.Kind); }).ToList();
+        var specs = input.Groups.Select(g => { var t = input.AgvTypes.Single(x => x.Type == g.Type); return new VehicleGroupSpec(g.Group, g.Type, g.MaxCount, t.SpeedLoaded, t.Length, t.Width, Accel: t.Accel, Decel: t.Decel, Kind: t.Kind, SpeedEmpty: t.SpeedEmpty); }).ToList();
         var build = ModelBuilder.Build(new ModelBuildRequest(work, Model, input, l, new ExportOptions(Groups: specs)), AmHome!, TimeSpan.FromMinutes(10));
         Assert.True(build.Build?.Success == true, "build failed:\n" + build.Build?.MakeErrText + build.Build?.Am2ErrText + string.Join("\n", build.Findings.Select(f => f.Message)));
 
@@ -177,19 +181,18 @@ public class CrossingScenarioTests
 
         var rows = SummaryTsv.ReadAll(Path.Combine(work, "runs", "summary.tsv"));
         var sum = SearchSummaryFile.Read(Path.Combine(work, "runs", SearchSummaryFile.FileName));
-        // block waits per group at the crossings, over the confirm runs
+        // bottlenecks by zone: every block's wait and occupancy over the confirm runs (no attribution to groups)
         var crossing = l.Blocks.Where(b => new[] { new Point2(40, 0), new Point2(46, 0), new Point2(40, 20), new Point2(46, 20) }.Any(b.Rect.Contains)).Select(b => b.Name).ToHashSet();
-        var waits = new Dictionary<string, double>(); var blocks = new Dictionary<string, (double Wait, double Passes, int N)>();
+        var blocks = new Dictionary<string, (double Wait, double Passes, double Util, int N)>();
         foreach (var id in sum.ConfirmRunIds)
         {
             var tsv = Path.Combine(work, "runs", id, "result.tsv");
             if (!File.Exists(tsv)) continue;
             var rs = ResultParser.Parse(tsv);
-            foreach (var bg in rs.BlockGroups.Where(x => crossing.Contains(x.Block))) waits[bg.Group] = Get(waits, bg.Group) + bg.WaitSec / sum.ConfirmRunIds.Count;
-            foreach (var b in rs.Blocks.Where(x => crossing.Contains(x.Name)))
+            foreach (var b in rs.Blocks)
             {
-                var (w, p, n) = Get(blocks, b.Name);
-                blocks[b.Name] = (w + b.AvgWaitSec, p + b.Passes, n + 1);
+                var (w, p, u, n) = Get(blocks, b.Name);
+                blocks[b.Name] = (w + b.AvgWaitSec, p + b.Passes, u + b.Utilization, n + 1);
             }
         }
 
@@ -203,7 +206,7 @@ public class CrossingScenarioTests
             var at = rows.Where(x => x.Group == g.Group && sum.ConfirmRunIds.Contains(x.RunId)).ToList();
             rep.AppendLine($"group {g.Group}: decided {(r.Search?.Decided.TryGetValue(g.Group, out var d) == true ? d : -1)} expected {(Expected.TryGetValue(g.Group, out var ex) ? ex : -1)} range {g.MinCount}-{g.MaxCount}" +
                 $" util {(at.Count == 0 ? double.NaN : at.Average(x => x.Utilization)).ToString("0.000", inv)} minStock {(at.Count == 0 ? double.NaN : at.Min(x => x.MinStockRatio)).ToString("0.00", inv)}" +
-                $" ok {at.Count > 0 && at.All(x => x.Ok)} crossingWait/run {Get(waits, g.Group).ToString("0", inv)} s");
+                $" ok {at.Count > 0 && at.All(x => x.Ok)}");
             foreach (var c in rows.Where(x => x.Group == g.Group).GroupBy(x => x.Active).OrderBy(x => x.Key))
                 rep.AppendLine($"   {g.Group}={c.Key}: runs {c.Count()} util {c.Average(x => x.Utilization).ToString("0.000", inv)} fails {c.Count(x => !x.Ok)} {string.Join("; ", c.Where(x => !x.Ok).Select(x => x.Reason).Distinct().Take(2))}");
         }
@@ -214,14 +217,16 @@ public class CrossingScenarioTests
             var rs0 = ResultParser.Parse(first);
             rep.AppendLine("confirm run " + Path.GetFileName(Path.GetDirectoryName(first)) + ":");
             foreach (var v in rs0.Vehicles ?? new List<VehicleResult>())
-                if (v.Jobs > 0) rep.AppendLine($"   vehicle {v.Name}: util {(v.BusySec / v.WindowSec).ToString("0.000", inv)} jobs {v.Jobs} distance {v.Distance.ToString("0", inv)} m ({(v.Distance / v.Jobs).ToString("0", inv)} m/job, {(v.BusySec / v.Jobs).ToString("0", inv)} s/job)");
+                if (v.Jobs > 0) rep.AppendLine($"   vehicle {v.Name}: util {(v.BusySec / v.WindowSec).ToString("0.000", inv)} jobs {v.Jobs} distance {v.Distance.ToString("0", inv)} m ({(v.Distance / v.Jobs).ToString("0", inv)} m/job, {(v.BusySec / v.Jobs).ToString("0", inv)} s/job, repair {v.DownSec.ToString("0", inv)} s)");
             foreach (var m in rs0.MaterialStats ?? new List<MaterialStat>())
             {
                 var mr = rs0.Materials.First(x => x.Name == m.Name);
                 rep.AppendLine($"   material {m.Name}: supplies {mr.Supplies}/{mr.Expected.ToString("0", inv)} stop {mr.StopTimeSec.ToString("0", inv)} s, lead call->pickup avg {m.PickAvg.ToString("0", inv)} max {m.PickMax.ToString("0", inv)} s, call->delivered avg {m.DelivAvg.ToString("0", inv)} max {m.DelivMax.ToString("0", inv)} s, stock avg {m.StockAvg.ToString("0.00", inv)} sd {m.StockStd.ToString("0.00", inv)} min {m.StockMin.ToString("0.00", inv)} max {m.StockMax.ToString("0.00", inv)}");
             }
         }
-        foreach (var kv in blocks.OrderBy(k => k.Key)) rep.AppendLine($"block {kv.Key}: avg wait {(kv.Value.Wait / kv.Value.N).ToString("0.0", inv)} s, passes/run {(kv.Value.Passes / kv.Value.N).ToString("0", inv)}");
+        foreach (var kv in blocks.Where(k => k.Value.Passes > 0).OrderByDescending(k => k.Value.Wait / k.Value.N * k.Value.Passes / k.Value.N))
+            rep.AppendLine($"block {kv.Key}{(crossing.Contains(kv.Key) ? " (crossing)" : "")}: avg wait {(kv.Value.Wait / kv.Value.N).ToString("0.0", inv)} s, passes/run {(kv.Value.Passes / kv.Value.N).ToString("0", inv)}, " +
+                $"wait/run {(kv.Value.Wait / kv.Value.N * kv.Value.Passes / kv.Value.N).ToString("0", inv)} s, occupied {(kv.Value.Util / kv.Value.N * 100).ToString("0", inv)} %");
         foreach (var w in sum.Warnings) rep.AppendLine("warning: " + w);
         foreach (var im in r.Search?.Impact ?? new List<ImpactRow>()) rep.AppendLine($"impact {im.Group}+1 ({im.PlusOne}) -> {im.OtherGroup}: util {(im.UtilDelta * 100).ToString("+0.0;-0.0;0", inv)} %p");
         rep.AppendLine("---- log ----").Append(log);
@@ -240,9 +245,9 @@ public class CrossingScenarioTests
             foreach (var g in Expected.Keys)
                 Assert.InRange(r.Search!.Decided[g], Expected[g], Expected[g] + 1);
         if (noBlocks) { if (keep == null) Directory.Delete(work, true); return; }
-        Assert.True(blocks.Values.Sum(b => b.Passes) > 0, "nobody passed the crossing blocks:\n" + text);
-        // blockgroup rows attribute leg waits to the leg's destination block only, so the crossing waits come from the block rows
-        Assert.True(blocks.Values.Sum(b => b.Wait) > 0, "no one waited at a crossing:\n" + text);
+        var cross = blocks.Where(k => crossing.Contains(k.Key)).Select(k => k.Value).ToList();
+        Assert.True(cross.Sum(b => b.Passes) > 0, "nobody passed the crossing blocks:\n" + text);
+        Assert.True(cross.Sum(b => b.Wait) > 0, "no one waited at a crossing:\n" + text);
         if (keep == null) Directory.Delete(work, true);
     }
 }

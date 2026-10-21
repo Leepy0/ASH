@@ -13,7 +13,7 @@ public static class ExcelTemplate
         ("AGV_Types",
             new[] { "Type", "Group", "SpeedLoaded", "SpeedEmpty", "Accel", "Decel", "Capacity", "LoadTime", "UnloadTime", "MTBF", "MTTR", "Length", "Width", "Color", "Kind" },
             new[] { "타입명", "그룹명", "적재 속도(m/s)", "공차 속도(m/s)", "가속(m/s²)", "감속(m/s²)", "용기 수", "로딩(초)", "언로딩(초)", "MTBF(초, 0=없음)", "MTTR(초)", "길이(m)", "폭(m)", "색상", "형상(Standard/Conveyor/Ant/Magnet)" },
-            // SpeedEmpty/Capacity/MTBF/MTTR are not modelled yet (v2); Accel/Decel are (vehicle accel and decel lines): the example keeps their neutral values
+            // the example keeps neutral values: SpeedEmpty = SpeedLoaded, one container per trip, no breakdowns
             new[] { "T_EX", "G_EX", "1.0", "1.0", "0.3", "0.3", "1", "20", "20", "0", "0", "1.2", "0.8", "Blue", "Standard" }),
         ("AGV_Groups",
             new[] { "Group", "Type", "MinCount", "MaxCount", "StandbyCPs", "Dispatch", "FinishCP" },

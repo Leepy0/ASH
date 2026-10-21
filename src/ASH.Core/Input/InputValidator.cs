@@ -90,11 +90,9 @@ public static class InputValidator
             var t = input.AgvTypes[i];
             Blank("AGV_Types", t.Row, i, "Type", t.Type);
             if (t.Type.Length > 0 && !IsAmIdentifier(t.Type)) Err("AGV_Types", t.Row, i, $"타입 이름 '{t.Type}'은(는) AutoMod에서 쓸 수 없습니다(영문·숫자·_만, 한글 불가, 영문 또는 _로 시작).");
-            var ign = new List<string>();
-            if (t.SpeedEmpty != t.SpeedLoaded) ign.Add("SpeedEmpty≠SpeedLoaded");
-            if (t.Capacity != 1) ign.Add("Capacity≠1");
-            if (t.MTBF > 0 || t.MTTR > 0) ign.Add("MTBF/MTTR");
-            if (ign.Count > 0) Warn("AGV_Types", t.Row, i, $"타입 '{t.Type}' {string.Join(", ", ign)}: {Ignored}");
+            if (t.Capacity < 1) Err("AGV_Types", t.Row, i, $"타입 '{t.Type}'의 Capacity(용기 수)는 1 이상이어야 합니다.");
+            if (t.SpeedEmpty < 0 || t.MTBF < 0 || t.MTTR < 0) Err("AGV_Types", t.Row, i, $"타입 '{t.Type}'의 SpeedEmpty/MTBF/MTTR은 0 이상이어야 합니다(SpeedEmpty 0 = 적재 속도, MTBF 0 = 고장 없음).");
+            if ((t.MTBF > 0) != (t.MTTR > 0)) Warn("AGV_Types", t.Row, i, $"타입 '{t.Type}': MTBF와 MTTR을 둘 다 넣어야 고장이 반영됩니다(지금은 고장 없음).");
             if (t.Accel < 0 || t.Decel < 0) Err("AGV_Types", t.Row, i, $"타입 '{t.Type}'의 Accel/Decel은 0 이상이어야 합니다(0 = AutoMod 기본값).");
             if (VehicleKinds.Find(t.Kind) == null) Err("AGV_Types", t.Row, i, $"타입 '{t.Type}'의 Kind '{t.Kind}'은(는) 알 수 없습니다. ({VehicleKinds.Names})");
             var g = input.Groups.FirstOrDefault(x => x.Group == t.Group);

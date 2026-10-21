@@ -82,7 +82,7 @@ public class LogicGeneratorTests
         Assert.Contains("if ac - A_t0 > V_deadlockSec", supply);
         Assert.DoesNotContain("ac - V_legStart", supply);
         // empty container pickup at ReturnFrom (LoadTime 10) and set-down at ReturnTo (UnloadTime 10)
-        var ret = supply.Substring(supply.IndexOf("dec V_pending(1) by 1"));
+        var ret = supply.Substring(supply.IndexOf("dec V_pending(1) by A_qty"));
         Assert.Matches(@"travel to agv:U001[\s\S]*?wait for 10 sec[\s\S]*?travel to agv:L001[\s\S]*?wait for 10 sec[\s\S]*?travel to agv:S001[\s\S]*?send to die", ret);
         Assert.Contains("if V_inLeg(3) = 1 and ac - V_legStart(3) > V_deadlockSec", t);
         Assert.Contains("read V_tok, V_simLen, V_warmup, V_deadlockSec from V_fp", t);
@@ -97,15 +97,44 @@ public class LogicGeneratorTests
     }
 
     [Fact]
-    public void Render_Emits_BlockGroup_Rows_And_Debug_Gated_Prints()
+    public void Render_Has_No_Group_Block_Rows_And_Debug_Gated_Prints()
     {
-        var info = Layout with { EntryBlockByCp = new Dictionary<string, string> { ["B001"] = "BLK" } };
-        var t = LogicGenerator.Render(Sample(), info);
-        Assert.Contains("print \"blockgroup\\tBLK\\tG1\\t\"", t); // buffer leg -> entry CP B001 -> block BLK
-        Assert.Contains("print \"blockgroup\\t-\\tG1\\t\"", t);   // supply leg to U001 -> no block
+        var t = LogicGenerator.Render(Sample(), Layout);
+        Assert.DoesNotContain("blockgroup", t); // bottlenecks are compared by zone (block rows) only
+        Assert.DoesNotContain("V_bg", t);
         Assert.Contains("read V_tok, V_debug from V_fp", t);
         foreach (var line in t.Split('\n').Where(l => l.Contains("to message") && !l.Contains("does not match")))
             Assert.Contains("V_debug = 1", line);
+    }
+
+    [Fact]
+    public void Breakdowns_EmptySpeed_And_Capacity_Are_Generated_Only_When_Set()
+    {
+        var plain = LogicGenerator.Render(Sample(), Layout);
+        Assert.DoesNotContain("RS_fail", plain);
+        Assert.DoesNotContain("defined velocity", plain);
+        Assert.Contains("if A_q > 1 then set A_qty to 1", plain);
+        Assert.Empty(LogicGenerator.BuildProcessModel(Sample(), Layout, "Meters").RnStreams);
+
+        var p = Sample();
+        p.AgvTypes[0] = p.AgvTypes[0] with { SpeedEmpty = 1.5, Capacity = 2, MTBF = 3600, MTTR = 120 };
+        var t = LogicGenerator.Render(p, Layout);
+        Assert.Contains("if A_q > 2 then set A_qty to 2", t);
+        Assert.Contains("inc V_stock(1) by A_qty", t);
+        // three vehicles get a first failure time; the start skips a seed-dependent stretch of the stream
+        Assert.Equal(3, Regex.Matches(t, @"set V_vNextFail\(\d\) to rn RS_fail e 3600").Count);
+        Assert.Contains("set V_i to (V_seed % 100) * 5000", t);
+        // the repair check: after the pickup run and every leg (start = ac), and once at boarding for the idle time
+        Assert.Contains("set A_rep to rn RS_fail e 120", t);
+        Assert.Contains("if V_vNextFail(A_vid) >= V_warmup then inc V_vDown(A_vid) by A_rep", t);
+        Assert.Contains("if ac >= V_warmup then inc V_vDown(A_vid) by A_rep", t);
+        // empty to the pickup and after the unload, loaded speed in between and before the load leaves
+        Assert.Contains("set A_veh defined velocity to 1.5\n\ttravel to agv:L001", t);
+        Assert.Contains("set A_veh defined velocity to specification\n\tif ac >= V_warmup then tabulate ac - A_tCall in T_pick_1", t);
+        Assert.Contains("V_vDown(1) \"\\t0\\t0\" to V_out", t);
+        var pm = LogicGenerator.BuildProcessModel(p, Layout, "Meters");
+        Assert.Equal("RS_fail", Assert.Single(pm.RnStreams).Name);
+        Assert.Contains(pm.Vars, v => v.Name == "V_vDown");
     }
 
     [Fact]

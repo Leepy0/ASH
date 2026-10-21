@@ -28,6 +28,7 @@ begin model initialization function
 	read V_tok, V_debug from V_fp
 	close V_fp
 	set V_fp to null
+{{FAIL_INIT}}
 	if V_debug = 1 then print "ASH: params ok, groups " {{GROUP_COUNT}} " materials " {{MATERIAL_COUNT}} " sim " V_simLen " warmup " V_warmup to message
 {{CREATE_CONSUMERS}}
 	return true

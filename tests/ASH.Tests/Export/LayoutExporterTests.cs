@@ -201,6 +201,20 @@ public class LayoutExporterTests
                 .Where(x => x.StartsWith("accel\t0 ") || x.StartsWith("decel\t0 ")).ToArray());
     [Fact] public void Zero_Accel_Keeps_The_Template_Value() =>
         Assert.Contains(Lines(G), x => x.Trim() == "accel\t0 1 Feet Seconds Seconds");
+    [Fact] public void Brake_Distance_Is_Stopping_Distance_Plus_Gap_And_Empty_Line_Gets_SpeedEmpty()
+    {
+        // v = max(1.0, 1.5) m/s, decel 0.25: 1.5^2 / 0.5 = 4.5 m, + 0.5 m gap
+        var lines = Lines(new ExportOptions(Groups: new[]{ new VehicleGroupSpec("G1","Tug",1,1.0,2,1, 30, 0.3, 0.25, SpeedEmpty: 1.5) })).Select(x => x.Trim()).ToList();
+        Assert.Contains("brakedist\t0 5 Meters", lines);
+        Assert.Contains("stopdist\t0 0.5 Meters", lines);
+        Assert.Contains("vel\t0 1.5 Meters Seconds", lines);   // the Empty line
+        Assert.Contains("vel\t0 1 Meters Seconds", lines);     // the loaded line
+        Assert.Contains("brakedist\t1 0 Feet", lines);         // Empty brake/stop distances inherit
+        // no decel: the template's distances stay, and SpeedEmpty = Speed keeps the Empty line inheriting
+        var plain = Lines(G).Select(x => x.Trim()).ToList();
+        Assert.Contains("brakedist\t0 4.5 Feet", plain);
+        Assert.Contains("vel\t1 0 Feet Seconds", plain);
+    }
     [Fact] public void Empty_Load_Accel_Line_Stays_Inherit_Form() =>
         Assert.Contains(Lines(new ExportOptions(Groups: new[]{ new VehicleGroupSpec("G1","Tug",1,1.0,2,1, 30, 0.3, 0.3) })), x => x.Trim() == "accel\t1 0 Feet Seconds Seconds");
 }

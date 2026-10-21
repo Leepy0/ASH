@@ -20,7 +20,7 @@ public static class ResultParser
         var lines = File.ReadAllLines(tsvPath);
         if (lines.Length == 0 || lines[0].TrimEnd('\r').Split('\t')[0] != "kind") throw new InvalidDataException("result.tsv: empty or no header");
         var mats = new List<MaterialResult>(); var groups = new List<GroupResult>(); var blocks = new List<BlockResult>();
-        var rows = new List<ResultRow>(); var bgs = new List<BlockGroupResult>();
+        var rows = new List<ResultRow>();
         var vehicles = new List<VehicleResult>(); var mstats = new List<MaterialStat>();
         int dead = 0; double sim = 0; bool clock = false;
         for (var n = 1; n < lines.Length; n++)
@@ -42,15 +42,14 @@ public static class ResultParser
                 case "material": mats.Add(new MaterialResult(c[1], c[2], V(0), V(1), (int)V(2), V(3), V(4), V(5))); break;
                 case "group": groups.Add(new GroupResult(c[1], (int)V(0))); break;
                 case "block": blocks.Add(new BlockResult(c[1], V(0), V(1), V(2), V(3))); break;
-                case "blockgroup": bgs.Add(new BlockGroupResult(c[1], c[2], V(0), V(1))); break;
-                case "vehicle": vehicles.Add(new VehicleResult(c[1], c[2], V(0), V(1), (int)V(2), V(3), (int)V(4))); break;
+                case "vehicle": vehicles.Add(new VehicleResult(c[1], c[2], V(0), V(1), (int)V(2), V(3), (int)V(4), V(5))); break;
                 case "matstat": mstats.Add(new MaterialStat(c[1], c[2], V(0), V(1), V(2), V(3), V(4), V(5), V(6), V(7))); break;
                 case "deadlock": dead = (int)V(0); break;
                 case "clock": sim = V(1); clock = true; break;
             }
         }
         if (!clock) throw new InvalidDataException("result.tsv: no clock row (incomplete result)");
-        return new ResultSet(mats, groups, blocks, dead, sim, rows, bgs, vehicles, mstats);
+        return new ResultSet(mats, groups, blocks, dead, sim, rows, vehicles, mstats);
     }
 
     /// <summary>Parse without throwing: false + error message ("result.tsv: ...") when the file is unreadable or invalid.</summary>

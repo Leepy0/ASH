@@ -49,11 +49,9 @@ public static class ModelBuilder
         warnings.AddRange(ExportRunner.Run(l, o, arc).Warnings);
         var standby = new Dictionary<string, string>();
         foreach (var c in l.Cps.Where(c => c.Type == "standby" && c.Group.Length > 0)) { if (!standby.ContainsKey(c.Group)) standby[c.Group] = c.Name; }
-        var entryBlock = new Dictionary<string, string>();
-        foreach (var e in ASH.Core.Traffic.TrafficTable.Build(l).Entries) if (e.CpName != null && !entryBlock.ContainsKey(e.CpName)) entryBlock[e.CpName] = e.BlockName;
         // standby lanes too short for the group's vehicles to queue in (the queue would reach back into a junction or a block)
         warnings.AddRange(ASH.Core.Layout.StandbyQueueCheck.Check(l, input, o.Scale));
-        var info = new LayoutInfo(l.Cps.Select(c => c.Name).ToList(), l.Blocks.Select(b => b.Name).ToList(), standby, EntryBlockByCp: entryBlock);
+        var info = new LayoutInfo(l.Cps.Select(c => c.Name).ToList(), l.Blocks.Select(b => b.Name).ToList(), standby);
 
         var agv = Path.Combine(arc, "agv.asy");
         var sys = AsyReader.ReadFile(agv);

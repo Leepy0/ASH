@@ -8,14 +8,12 @@ using ASH.Core.Input;
 
 namespace ASH.Core.Model;
 
-/// <summary>StandbyCpByGroup is the fallback standby CP for a group whose AgvGroup.StandbyCPs is empty.
-/// EntryBlockByCp maps a traffic-entry CP (traffic.tsv entry_cp) to its block, for the blockgroup wait rows.</summary>
+/// <summary>StandbyCpByGroup is the fallback standby CP for a group whose AgvGroup.StandbyCPs is empty.</summary>
 public sealed record LayoutInfo(IReadOnlyList<string> CpNames, IReadOnlyList<string> BlockNames,
-    IReadOnlyDictionary<string, string> StandbyCpByGroup, string AgvSystemName = "agv",
-    IReadOnlyDictionary<string, string>? EntryBlockByCp = null);
+    IReadOnlyDictionary<string, string> StandbyCpByGroup, string AgvSystemName = "agv");
 
-/// <summary>Seeding: the logic draws no random numbers, so a run is fully determined by params.txt (seeded init stocks).
-/// AM-side RNSTREAM seeding is not needed until randomness (MTBF/MTTR, phase 3) exists.</summary>
+/// <summary>Seeding: params.txt seeds the init stocks; breakdowns (MTBF/MTTR) draw from RS_fail, whose seed is fixed at build time, so the
+/// logic skips (seed % 100) x 5000 samples at start and each replication gets its own stretch of the stream.</summary>
 public static class LogicGenerator
 {
     static string Res(string name)
@@ -94,17 +92,6 @@ public static class LogicGenerator
             snap.Append($"\tprint \"group\\t{Lit(g.Group)}\\t{g.Group}\\t\" V_active({gi}) \"\\t0\\t0\\t0\\t0\\t0\\t0\\t0\" to V_out\n");
         }
 
-        // blockgroup wait keys (block, group) -> 1-based slot; a leg to a traffic-entry CP counts for that CP's block, any other leg for "-".
-        // shortcut: v1 approximation, the blocks a leg merely passes through are not attributed; upgrade with per-leg route -> blocks.
-        var bgKeys = new List<(string Block, string Group)>();
-        int Bg(string cp, string group)
-        {
-            var block = layout.EntryBlockByCp != null && layout.EntryBlockByCp.TryGetValue(cp, out var b) ? b : "-";
-            var key = (block, group);
-            var ix = bgKeys.IndexOf(key);
-            if (ix < 0) { bgKeys.Add(key); ix = bgKeys.Count - 1; }
-            return ix + 1;
-        }
         int nm = input.Materials.Count;
         var matLogic = new StringBuilder();
         var create = new StringBuilder();
@@ -115,9 +102,16 @@ public static class LogicGenerator
             var r = RouteOf(input, m);
             var g = input.Groups.First(x => x.Group == m.Group);
             var t = input.AgvTypes.FirstOrDefault(x => x.Type == g.Type) ?? throw new ArgumentException($"그룹 '{g.Group}'의 Type '{g.Type}'이(가) AGV_Types에 없습니다.");
+            // breakdowns of this group's vehicles: checked at the end of every leg, and at boarding for the time the vehicle stood idle
+            bool fails = t.MTBF > 0 && t.MTTR > 0;
+            string Fail(string start) => fails ? Fill(Res("code_fail.m.txt"), ("START", start), ("MTBF", N(t.MTBF)), ("MTTR", N(t.MTTR))).TrimEnd('\n') : "";
+            // empty runs (to the pickup, after the unload, home) at SpeedEmpty; "specification" is the loaded line of the AGVS vehicle
+            bool speeds = t.SpeedEmpty > 0 && t.SpeedEmpty != t.SpeedLoaded;
+            string emptySpeed = speeds ? $"\tset A_veh defined velocity to {N(t.SpeedEmpty)}" : "";
+            string loadedSpeed = speeds ? "\tset A_veh defined velocity to specification" : "";
             // leg slot = mi for supply legs, mi + nm for return legs (a return can overlap the next supply of the same material)
             string Leg(string to, int slot) => Fill(Res("code_leg.m.txt"), ("M", mi.ToString()), ("SLOT", slot.ToString()), ("SYS", sys),
-                ("TO", Cp(layout, to)), ("BG", Bg(to, m.Group).ToString()));
+                ("TO", Cp(layout, to)), ("FAIL", Fail("ac")));
             var legs = new StringBuilder();
             if (!string.IsNullOrEmpty(r.BufferCP))
             {
@@ -132,10 +126,12 @@ public static class LogicGenerator
             if (m.EmptyReturn)
             {
                 // empty container: picked up at ReturnFrom (LoadTime), set down at ReturnTo (UnloadTime)
-                if (returnPick) ret.Append(Leg(r.ReturnFromCP!, mi + nm)).Append(extra).Append($"\twait for {N(t.LoadTime)} sec\n");
-                if (!string.IsNullOrEmpty(r.ReturnToCP)) ret.Append(Leg(r.ReturnToCP!, mi + nm)).Append($"\twait for {N(t.UnloadTime)} sec\n");
+                if (returnPick) ret.Append(Leg(r.ReturnFromCP!, mi + nm)).Append(extra).Append($"\twait for {N(t.LoadTime)} sec\n").Append(loadedSpeed + "\n");
+                if (!string.IsNullOrEmpty(r.ReturnToCP)) ret.Append(Leg(r.ReturnToCP!, mi + nm)).Append($"\twait for {N(t.UnloadTime)} sec\n").Append(emptySpeed + "\n");
             }
             if (!returnPick) ret.Insert(0, extra);
+            // without a return pickup the empty container rides on from the unload CP to ReturnTo: still loaded until there
+            bool carriesOn = m.EmptyReturn && !returnPick && !string.IsNullOrEmpty(r.ReturnToCP);
             // busy ends at the Finish CP when the group has one (put it at the entry of the standby lane: the queue behind a waiting vehicle is idle
             // time), else on arrival at the standby CP. A free-run return time was tried and under-counts badly when the way home is congested.
             var home = StandbyOf(g, layout)[0];
@@ -151,7 +147,9 @@ public static class LogicGenerator
                 ("G", GroupIndex(input, m.Group).ToString()),
                 ("FROM", Cp(layout, r.SupplyFromCP)), ("LOAD_TIME", N(t.LoadTime)), ("UNLOAD_TIME", N(t.UnloadTime)),
                 ("SUPPLY_LEGS", legs.ToString().TrimEnd('\n')), ("RETURN_LEGS", ret.ToString().TrimEnd('\n')),
-                ("FINISH", finish.TrimEnd('\n')), ("FINISH_AT_HOME", finishAtHome), ("HOME", home), ("VID_OFFSET", vidOffset.ToString())));
+                ("FINISH", finish.TrimEnd('\n')), ("FINISH_AT_HOME", finishAtHome), ("HOME", home), ("VID_OFFSET", vidOffset.ToString()),
+                ("CAPACITY", Math.Max(1, t.Capacity).ToString()), ("FAIL_IDLE", Fail("V_vNextFail(A_vid)")), ("FAIL_LEG", Fail("ac")),
+                ("EMPTY_SPEED", emptySpeed), ("LOADED_SPEED", loadedSpeed), ("AFTER_UNLOAD_SPEED", carriesOn ? "" : emptySpeed), ("SPEC_SPEED", loadedSpeed)));
             create.Append($"\tcreate 1 load of type L_ctl to P_consume_{mi}\n");
 
             // a stop still running at the end of the run counts up to the snap
@@ -165,15 +163,23 @@ public static class LogicGenerator
             foreach (var slot in new[] { mi, mi + nm })
                 snap.Append($"\tif V_inLeg({slot}) = 1 and ac - V_legStart({slot}) > V_deadlockSec then inc V_deadlock by 1\n");
         }
-        // per vehicle (every one up to MaxCount; the judge counts the active ones): busy s, distance, jobs, window s, index in group
+        // per vehicle (every one up to MaxCount; the judge counts the active ones): busy s, distance, jobs, window s, index in group, repair s
         int vid = 0;
+        var failInit = new StringBuilder();
         foreach (var g in input.Groups)
+        {
+            var gt = input.AgvTypes.FirstOrDefault(x => x.Type == g.Type);
             for (int k = 1; k <= g.MaxCount; k++)
             {
                 vid++;
                 snap.Append($"\tset V_x to V_simLen - V_warmup\n");
-                snap.Append($"\tprint \"vehicle\\t{Lit(g.Type)}{k}\\t{Lit(g.Group)}\\t\" V_vBusy({vid}) \"\\t\" V_vDist({vid}) \"\\t\" V_vJobs({vid}) \"\\t\" V_x \"\\t{k}\\t0\\t0\\t0\" to V_out\n");
+                snap.Append($"\tprint \"vehicle\\t{Lit(g.Type)}{k}\\t{Lit(g.Group)}\\t\" V_vBusy({vid}) \"\\t\" V_vDist({vid}) \"\\t\" V_vJobs({vid}) \"\\t\" V_x \"\\t{k}\\t\" V_vDown({vid}) \"\\t0\\t0\" to V_out\n");
+                if (gt != null && gt.MTBF > 0 && gt.MTTR > 0) failInit.Append($"\tset V_vNextFail({vid}) to rn RS_fail e {N(gt.MTBF)}\n");
             }
+        }
+        if (failInit.Length > 0)
+            failInit.Insert(0, "\t/* RS_fail is seeded at build time: skipping a seed-dependent stretch of it gives each replication its own breakdowns */\n" +
+                               "\tset V_i to (V_seed % 100) * 5000\n\twhile V_i > 0 do begin\n\t\tset V_x to RS_fail sample real\n\t\tdec V_i by 1\n\tend\n");
         // per material: lead times (call -> pickup, call -> delivered) and stock samples (one per takt), from AutoMod tables
         for (int i = 0; i < input.Materials.Count; i++)
         {
@@ -181,14 +187,12 @@ public static class LogicGenerator
             snap.Append($"\tprint \"matstat\\t{m.Material}\\t{Lit(m.Group)}\\t\" T_pick_{mi} average \"\\t\" T_pick_{mi} maximum \"\\t\" T_deliv_{mi} average \"\\t\" T_deliv_{mi} maximum " +
                         $"\"\\t\" T_stock_{mi} average \"\\t\" T_stock_{mi} stddev \"\\t\" T_stock_{mi} minimum \"\\t\" T_stock_{mi} maximum to V_out\n");
         }
-        for (int k = 0; k < bgKeys.Count; k++)
-            snap.Append($"\tprint \"blockgroup\\t{Lit(bgKeys[k].Block)}\\t{Lit(bgKeys[k].Group)}\\t\" V_bgWait({k + 1}) \"\\t\" V_bgCnt({k + 1}) \"\\t0\\t0\\t0\\t0\\t0\\t0\" to V_out\n");
         foreach (var b in layout.BlockNames)
             snap.Append($"\tprint \"block\\t{Lit(b)}\\t\\t\" {b} total \"\\t\" {b} average waiting time \"\\t0\\t\" {b} utilization \"\\t0\\t0\\t0\\t0\" to V_out\n");
 
         return Fill(Res("code.m.txt"), ("GROUP_COUNT", input.Groups.Count.ToString()), ("MATERIAL_COUNT", input.Materials.Count.ToString()),
             ("CREATE_CONSUMERS", create.ToString().TrimEnd('\n')), ("GROUP_LOGIC", groupLogic.ToString()), ("MATERIAL_LOGIC", matLogic.ToString()),
-            ("SNAP_ROWS", snap.ToString().TrimEnd('\n')));
+            ("SNAP_ROWS", snap.ToString().TrimEnd('\n')), ("FAIL_INIT", failInit.ToString().TrimEnd('\n')));
     }
 
     /// <summary>AM dispatch for the load-centric logic. Scheduling lists are per location, not per vehicle type, so the lists hold every
@@ -266,12 +270,13 @@ public static class LogicGenerator
             m.Vars.Add(new(v, "Real", ms));
         // leg slots: 1..nm supply legs, nm+1..2nm return legs
         m.Vars.Add(new("V_inLeg", "Integer", 2 * nm)); m.Vars.Add(new("V_legStart", "Real", 2 * nm));
-        int bgs = Math.Max(2, nm * 4); // at most 4 legs per material (buffer, supply, 2 return); slots are keyed by (block, group) in Render
-        m.Vars.Add(new("V_bgWait", "Real", bgs)); m.Vars.Add(new("V_bgCnt", "Integer", bgs));
-        foreach (var a in new[] { "A_tCall", "A_tPick", "A_ret", "A_fin", "A_rLast", "A_dLast" }) m.Atts.Add(new(a, "Real"));
-        m.Atts.Add(new("A_vid", "Integer"));
+        foreach (var a in new[] { "A_tCall", "A_tPick", "A_ret", "A_fin", "A_rLast", "A_dLast", "A_rep" }) m.Atts.Add(new(a, "Real"));
+        foreach (var a in new[] { "A_vid", "A_q", "A_qty" }) m.Atts.Add(new(a, "Integer"));
         int vs = Math.Max(2, input.Groups.Sum(g => g.MaxCount));
         m.Vars.Add(new("V_vBusy", "Real", vs)); m.Vars.Add(new("V_vDist", "Real", vs)); m.Vars.Add(new("V_vJobs", "Integer", vs));
+        m.Vars.Add(new("V_vNextFail", "Real", vs)); m.Vars.Add(new("V_vDown", "Real", vs));
+        // the seed is arbitrary: replications differ by the samples the logic skips at start (see the class summary)
+        if (input.AgvTypes.Any(t => t.MTBF > 0 && t.MTTR > 0)) m.RnStreams.Add(new("RS_fail", 12345));
         for (int i = 1; i <= nm; i++) m.Tables.AddRange(new[] { $"T_pick_{i}", $"T_deliv_{i}", $"T_stock_{i}" });
         m.Funcs.AddRange(new[] { "F_ext_on_call", "F_ext_select_vehicle", "F_ext_before_unload", "F_ext_on_snap" });
         return m;

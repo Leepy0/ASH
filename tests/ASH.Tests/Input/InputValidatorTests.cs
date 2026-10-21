@@ -53,8 +53,9 @@ public class InputValidatorTests
         p.Settings = p.Settings with { TrafficMode = "CPOnly", WorkDefinition = "CallToReturn" };
         var w = Warnings(p);
         Assert.Equal(6, w.Count);
-        Assert.All(w, x => Assert.Contains("v2 미반영", x.Message));
-        Assert.Contains("SpeedEmpty≠SpeedLoaded, Capacity≠1, MTBF/MTTR", Assert.Single(w, x => x.EntityId == "AGV_Types!3").Message);
+        // SpeedEmpty and Capacity are modelled now; MTTR without MTBF is the one AGV_Types warning
+        Assert.All(w.Where(x => x.EntityId != "AGV_Types!3"), x => Assert.Contains("v2 미반영", x.Message));
+        Assert.Contains("MTBF와 MTTR을 둘 다", Assert.Single(w, x => x.EntityId == "AGV_Types!3").Message);
     }
 
     [Theory]
