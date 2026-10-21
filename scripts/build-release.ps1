@@ -45,11 +45,12 @@ $dist = "$root\dist"
 New-Item -ItemType Directory -Force $dist | Out-Null
 # ZWCAD has no binding redirects for the plugin's private dependencies. The plugin's assembly resolver (BundledAssemblies) answers a request with the dll in the
 # plugin folder, but only if that one is the same version or newer; a dll asking for a NEWER version than the folder holds cannot work (found with System.Memory).
+# Loaded from bytes: ReflectionOnlyLoadFrom keeps the file locked for the rest of the script, which broke the plugin zip below.
 $pluginOut = "$root\src\ASH.Plugin\bin\Release\net48"
 $have = @{}
 foreach ($f in Get-ChildItem "$pluginOut\*.dll") { $n = [Reflection.AssemblyName]::GetAssemblyName($f.FullName); $have[$n.Name] = $n.Version }
 foreach ($f in Get-ChildItem "$pluginOut\*.dll") {
-    foreach ($r in [Reflection.Assembly]::ReflectionOnlyLoadFrom($f.FullName).GetReferencedAssemblies()) {
+    foreach ($r in [Reflection.Assembly]::ReflectionOnlyLoad([IO.File]::ReadAllBytes($f.FullName)).GetReferencedAssemblies()) {
         if ($have.ContainsKey($r.Name) -and $have[$r.Name] -lt $r.Version) {
             throw "$($f.Name) needs $($r.Name) $($r.Version) but the plugin folder has $($have[$r.Name]). Reference the newer package directly (see System.Memory in ASH.Core.csproj)."
         }
