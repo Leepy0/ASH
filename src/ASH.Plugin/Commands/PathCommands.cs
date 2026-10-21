@@ -475,7 +475,8 @@ public sealed class PathCommands
         }
         catch (System.Exception ex)
         {
-            doc.Editor.WriteMessage($"\n{cmd} 오류: {ex.Message}");
+            doc.Editor.WriteMessage($"\n{cmd} 오류: {ex.GetType().Name}: {ex.Message}");
+            PluginLog.Write(cmd + " failed", ex);
             Ui.PaletteStatus.Set($"{cmd} 오류: {ex.Message}");
         }
         finally

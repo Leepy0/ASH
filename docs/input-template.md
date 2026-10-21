@@ -24,9 +24,9 @@
 
 | 시트 | 열 (단위) |
 |---|---|
-| AGV_Types | Type, Group, SpeedLoaded(m/s), SpeedEmpty(m/s), Accel(m/s²), Decel(m/s²), Capacity(용기 수), LoadTime(초), UnloadTime(초), MTBF(초, 0=없음), MTTR(초), Length(m), Width(m), Color |
+| AGV_Types | Type, Group, SpeedLoaded(m/s), SpeedEmpty(m/s), Accel(m/s²), Decel(m/s²), Capacity(용기 수), LoadTime(초), UnloadTime(초), MTBF(초, 0=없음), MTTR(초), Length(m), Width(m), Color, Kind(선택: Standard / Conveyor / Ant / Magnet) |
 | AGV_Groups | Group, Type(그룹당 하나), MinCount(≥1), MaxCount(≥MinCount), StandbyCPs(쉼표 구분), Dispatch(Nearest / FIFO) |
-| Materials | Material, Station(선택·메모), Group, TaktTime(초, >0), UnitsPerCycle(원수), UnitsPerContainer(≥1), CallThreshold(용기), UnloadThreshold(용기), InitStock(용기, 선택), SafetyStock(용기, 선택), EmptyReturn(Y/N) |
+| Materials | Material, Station(선택·메모), Group, TaktTime(초, >0), UnitsPerCycle(원수), UnitsPerContainer(≥1), CallThreshold(용기), UnloadThreshold(용기), InitStock(용기, 선택), SafetyStock(용기, 선택), EmptyReturn(Y/N), Form(선택: Box / Pallet / Trolley) |
 | Routes | Material, SupplyFromCP, SupplyToCP, BufferCP(선택), ReturnFromCP(선택), ReturnToCP(선택), ExtraTime(초) |
 
 ## 도면 값으로 채운 양식
@@ -39,6 +39,14 @@
 - 도면에 해당 CP가 없으면 그 시트는 회색 예시 행이 들어간다.
 
 Stations·Ext 시트는 양식에서 뺐다(모델에 아무 영향이 없었다). 예전 파일에 남아 있어도 읽는다. 사용자 확장 훅은 `<Model>.arc/user_ext.m`의 `F_ext_on_call`, `F_ext_select_vehicle`, `F_ext_before_unload`, `F_ext_on_snap`을 직접 고친다.
+
+## 형상(Kind)과 자재 형태(Form)
+
+- AGV_Types의 Accel / Decel(m/s²)은 모델의 차량 가속·감속으로 들어간다. 양식 기본값은 0.3이고, 0이면 AutoMod 기본값을 쓴다. 예전 양식은 0이므로 고쳐야 반영된다.
+- Materials의 Form: Box, Pallet, Trolley. 비우면 Box.
+- AGV_Types의 Kind: Standard(표준, 모두 적재), Conveyor(벨트 C/V 상차형: Box, Pallet), Ant(대차 리프팅: Trolley), Magnet(전자석 견인: Trolley). 비우면 Standard.
+- 자재의 Form을 그 그룹의 AGV Kind가 싣지 못하면 경고한다. 알 수 없는 값은 오류이다.
+- 새 형상은 코드의 `VehicleKinds.All`에 한 줄(이름, 설명, 싣는 형태) 추가하면 Kind 열이 받아들인다. 현재 Kind는 검사에만 쓰이고 AutoMod 차량 그래픽이나 상·하차 시간은 AGV_Types 행의 값을 따른다.
 
 ## 검증 규칙
 

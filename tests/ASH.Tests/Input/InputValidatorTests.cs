@@ -46,7 +46,7 @@ public class InputValidatorTests
     public void Validate_Warns_Ignored_Fields_Once_Per_Row()
     {
         var p = Good();
-        p.AgvTypes[0] = p.AgvTypes[0] with { SpeedEmpty = 1.2, Accel = 0.5, Capacity = 2, MTTR = 30 };
+        p.AgvTypes[0] = p.AgvTypes[0] with { SpeedEmpty = 1.2, Capacity = 2, MTTR = 30 };
         p.Groups[0] = p.Groups[0] with { Dispatch = "FIFO" };
         p.Stations[0] = p.Stations[0] with { BufferCapacity = 4 };
         p.Ext.Add(new ExtHook("FExtOnCall", true, ""));
@@ -54,7 +54,7 @@ public class InputValidatorTests
         var w = Warnings(p);
         Assert.Equal(6, w.Count);
         Assert.All(w, x => Assert.Contains("v2 미반영", x.Message));
-        Assert.Contains("SpeedEmpty≠SpeedLoaded, Accel/Decel, Capacity≠1, MTBF/MTTR", Assert.Single(w, x => x.EntityId == "AGV_Types!3").Message);
+        Assert.Contains("SpeedEmpty≠SpeedLoaded, Capacity≠1, MTBF/MTTR", Assert.Single(w, x => x.EntityId == "AGV_Types!3").Message);
     }
 
     [Theory]

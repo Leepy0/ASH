@@ -195,4 +195,12 @@ public class LayoutExporterTests
         Assert.Contains(Lines(new ExportOptions(Groups: new[]{ new VehicleGroupSpec("G1","Tug",1,1.0,2,1, 45) })), x => x.Trim() == "rotate	1 0 Seconds");
     [Fact] public void Zero_Rotate_Rate_Throws() =>
         Assert.Throws<ArgumentException>(() => Lines(new ExportOptions(Groups: new[]{ new VehicleGroupSpec("G1","Tug",1,1.0,2,1, 0) })));
+    [Fact] public void Vehicle_Accel_And_Decel_Come_From_Spec() =>
+        Assert.Equal(new[]{ "accel\t0 0.3 Meters Seconds Seconds", "decel\t0 0.25 Meters Seconds Seconds" },
+            Lines(new ExportOptions(Groups: new[]{ new VehicleGroupSpec("G1","Tug",1,1.0,2,1, 30, 0.3, 0.25) })).Select(x => x.Trim())
+                .Where(x => x.StartsWith("accel\t0 ") || x.StartsWith("decel\t0 ")).ToArray());
+    [Fact] public void Zero_Accel_Keeps_The_Template_Value() =>
+        Assert.Contains(Lines(G), x => x.Trim() == "accel\t0 1 Feet Seconds Seconds");
+    [Fact] public void Empty_Load_Accel_Line_Stays_Inherit_Form() =>
+        Assert.Contains(Lines(new ExportOptions(Groups: new[]{ new VehicleGroupSpec("G1","Tug",1,1.0,2,1, 30, 0.3, 0.3) })), x => x.Trim() == "accel\t1 0 Feet Seconds Seconds");
 }

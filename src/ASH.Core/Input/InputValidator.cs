@@ -92,10 +92,11 @@ public static class InputValidator
             if (t.Type.Length > 0 && !IsAmIdentifier(t.Type)) Err("AGV_Types", t.Row, i, $"타입 이름 '{t.Type}'은(는) AutoMod에서 쓸 수 없습니다(영문·숫자·_만, 한글 불가, 영문 또는 _로 시작).");
             var ign = new List<string>();
             if (t.SpeedEmpty != t.SpeedLoaded) ign.Add("SpeedEmpty≠SpeedLoaded");
-            if (t.Accel != 0 || t.Decel != 0) ign.Add("Accel/Decel");
             if (t.Capacity != 1) ign.Add("Capacity≠1");
             if (t.MTBF > 0 || t.MTTR > 0) ign.Add("MTBF/MTTR");
             if (ign.Count > 0) Warn("AGV_Types", t.Row, i, $"타입 '{t.Type}' {string.Join(", ", ign)}: {Ignored}");
+            if (t.Accel < 0 || t.Decel < 0) Err("AGV_Types", t.Row, i, $"타입 '{t.Type}'의 Accel/Decel은 0 이상이어야 합니다(0 = AutoMod 기본값).");
+            if (VehicleKinds.Find(t.Kind) == null) Err("AGV_Types", t.Row, i, $"타입 '{t.Type}'의 Kind '{t.Kind}'은(는) 알 수 없습니다. ({VehicleKinds.Names})");
             var g = input.Groups.FirstOrDefault(x => x.Group == t.Group);
             if (g == null || g.Type != t.Type)
                 Add(FindingCode.InputWarning, "AGV_Types", t.Row, i, $"타입 '{t.Type}'의 Group '{t.Group}'이(가) 그 타입을 쓰는 AGV_Groups 그룹과 일치하지 않습니다.");
@@ -131,6 +132,17 @@ public static class InputValidator
             if (m.Material.Length > 0 && !IsAmText(m.Material)) Err("Materials", m.Row, i, $"자재 이름 '{m.Material}'은(는) AutoMod에서 쓸 수 없습니다(영문·숫자·기호만, 한글·공백·따옴표·역슬래시 불가).");
             if (m.Material.Length > 0 && !input.Routes.Any(r => r.Material == m.Material)) Err("Materials", m.Row, i, $"자재 '{m.Material}'의 Routes 행이 없습니다.");
             if (m.Group.Length > 0 && !groups.Contains(m.Group)) Err("Materials", m.Row, i, $"자재 '{m.Material}'의 Group '{m.Group}'이(가) AGV_Groups에 없습니다.");
+            var form = MaterialForms.Normalize(m.Form);
+            if (form == null) Err("Materials", m.Row, i, $"자재 '{m.Material}'의 Form '{m.Form}'은(는) 알 수 없습니다. ({string.Join(" / ", MaterialForms.All)})");
+            else
+            {
+                // the group's vehicle type has to be able to take this form (a trolley does not go on a belt-conveyor AGV)
+                var gr = input.Groups.FirstOrDefault(x => x.Group == m.Group);
+                var ty = gr == null ? null : input.AgvTypes.FirstOrDefault(x => x.Type == gr.Type);
+                var kind = ty == null ? null : VehicleKinds.Find(ty.Kind);
+                if (kind != null && !kind.Carries.Contains(form))
+                    Warn("Materials", m.Row, i, $"자재 '{m.Material}'의 Form {form}은(는) 그룹 '{m.Group}'의 AGV 형상 {kind.Name}({kind.Label})이(가) 싣지 못합니다. 싣는 형태: {string.Join(", ", kind.Carries)}.");
+            }
             if (!(m.TaktTime > 0)) Err("Materials", m.Row, i, $"자재 '{m.Material}'의 TaktTime은 0보다 커야 합니다.");
             if (!(m.UnitsPerContainer >= 1)) Err("Materials", m.Row, i, $"자재 '{m.Material}'의 UnitsPerContainer는 1 이상이어야 합니다.");
             else if (m.CallThreshold < m.UnitsPerCycle / m.UnitsPerContainer)

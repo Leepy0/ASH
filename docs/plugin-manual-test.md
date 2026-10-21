@@ -276,3 +276,15 @@ AutoMod 12.6이 있는 PC 필요(T16-2, T16-4). 검증·내보내기 탭 "Excel 
 | G4 `ash-run`을 암호화된 `input.xlsx`로 실행 → 경고 "마지막 모델 생성 때의 셀 스냅샷을 씁니다"와 함께 실행됨 | | | |
 | G5 Excel이 없는 PC에서 암호화된 파일로 `AGVMODEL` → "Excel이 설치되어 있지 않습니다" 오류와 파일 점검 결과 | | | |
 | G6 `AGVMODEL`이 끝난 뒤 작업 관리자에 숨은 EXCEL.EXE가 새로 남지 않음(이 PC처럼 Excel이 종료 뒤 다시 뜨는 환경은 제외) | | | |
+
+## 가속·감속, 자재 형태, AGV 형상, AutoMod 경로 (0.9.0)
+
+| 항목 | 날짜 | 결과 | 비고 |
+|---|---|---|---|
+| H1 새 `input.xlsx`의 AGV_Types에 Accel/Decel 0.3, Kind Standard가 있고 Materials에 Form Box가 있음 | | | |
+| H2 `AGVMODEL` 후 `agv.asy`의 `accel`/`decel` 줄(`load Default`)이 `0.3 Meters Seconds Seconds`. AM에서 차량이 0.3 m/s²로 출발·정지 | | | |
+| H3 Kind를 Ant로 두고 자재 Form을 Box로 → 경고 "싣지 못합니다". Trolley면 경고 없음 | | | |
+| H4 Form에 `Crate` 입력 → "Materials 시트 ... 알 수 없습니다 (Box / Pallet / Trolley)" 오류 | | | |
+| H5 ash.settings.tsv의 AmHome을 없는 폴더로 두고 `AGVMODEL` → 오류 없이 "AutoMod를 찾지 못해 빌드하지 않았습니다: ...am264.exe", `<모델>.arc`는 만들어짐 | | | |
+| H6 AmHome이 맞을 때 빌드가 끝나면 `<모델>.dir` 폴더가 AutoMod에 의해 생김 | | | |
+| H7 모델 생성 중 예상 밖 오류가 나면 명령줄에 `오류: <예외 종류>: <메시지>`가 나오고 plugin.log에 전체 내용이 남음 | | | |

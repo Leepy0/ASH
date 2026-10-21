@@ -133,6 +133,9 @@ public static class LayoutExporter
             {
                 var t = line.Replace("DefVehicle", g.TypeName).Replace("numveh 10", "numveh " + g.MaxCount)
                     .Replace("start nlwork", "start nl_" + g.Group).Replace("vehsegs item DefSegment", "vehsegs item " + seg);
+                // accel and decel of the loaded (Default) line; the Empty line inherits it. 0 keeps the template value.
+                if (g.Accel > 0) t = Regex.Replace(t, @"^(\s*accel\s+0 )1 Feet( Seconds Seconds)", "${1}" + N(g.Accel) + " " + o.Units + "${2}");
+                if (g.Decel > 0) t = Regex.Replace(t, @"^(\s*decel\s+0 )1 Feet( Seconds Seconds)", "${1}" + N(g.Decel) + " " + o.Units + "${2}");
                 t = Regex.Replace(t, @"^(\s*rotate\s+0 )2( Seconds)", "${1}" + N(g.RotateDegPerSec) + "${2}");
                 s.VehicleLines.Add(Regex.Replace(t, @"^(\s*(?:vel|crvvel|sprvel|rvel|rcrvvel|rsprvel|crabvel)\s+0 )3 Feet( Seconds)", "${1}" + speed + " " + o.Units + "${2}"));
             }

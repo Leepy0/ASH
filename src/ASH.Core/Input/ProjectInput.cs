@@ -20,12 +20,12 @@ public sealed record Settings
 }
 
 public sealed record AgvType(string Type, string Group, double SpeedLoaded, double SpeedEmpty, double Accel, double Decel,
-    int Capacity, double LoadTime, double UnloadTime, double MTBF, double MTTR, double Length, double Width, string Color, int Row = 0);
+    int Capacity, double LoadTime, double UnloadTime, double MTBF, double MTTR, double Length, double Width, string Color, int Row = 0, string Kind = "");
 
 public sealed record AgvGroup(string Group, string Type, int MinCount, int MaxCount, List<string> StandbyCPs, string Dispatch, int Row = 0);
 
 public sealed record MaterialInfo(string Material, string Station, string Group, double TaktTime, double UnitsPerCycle,
-    double UnitsPerContainer, double CallThreshold, double UnloadThreshold, double? InitStock, double? SafetyStock, bool EmptyReturn, int Row = 0);
+    double UnitsPerContainer, double CallThreshold, double UnloadThreshold, double? InitStock, double? SafetyStock, bool EmptyReturn, int Row = 0, string Form = "");
 
 public sealed record Route(string Material, string SupplyFromCP, string SupplyToCP, string? BufferCP,
     string? ReturnFromCP, string? ReturnToCP, double ExtraTime, int Row = 0);

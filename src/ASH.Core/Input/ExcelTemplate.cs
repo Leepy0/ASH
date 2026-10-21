@@ -11,18 +11,18 @@ public static class ExcelTemplate
     {
         ("Settings", new[] { "Key", "Value", "Description" }, new[] { "키", "값", "설명" }, new string[0]),
         ("AGV_Types",
-            new[] { "Type", "Group", "SpeedLoaded", "SpeedEmpty", "Accel", "Decel", "Capacity", "LoadTime", "UnloadTime", "MTBF", "MTTR", "Length", "Width", "Color" },
-            new[] { "타입명", "그룹명", "적재 속도(m/s)", "공차 속도(m/s)", "가속(m/s²)", "감속(m/s²)", "용기 수", "로딩(초)", "언로딩(초)", "MTBF(초, 0=없음)", "MTTR(초)", "길이(m)", "폭(m)", "색상" },
-            // SpeedEmpty/Accel/Decel/Capacity/MTBF/MTTR are not modelled yet (v2): the example keeps their neutral values
-            new[] { "T_EX", "G_EX", "1.0", "1.0", "0", "0", "1", "20", "20", "0", "0", "1.2", "0.8", "Blue" }),
+            new[] { "Type", "Group", "SpeedLoaded", "SpeedEmpty", "Accel", "Decel", "Capacity", "LoadTime", "UnloadTime", "MTBF", "MTTR", "Length", "Width", "Color", "Kind" },
+            new[] { "타입명", "그룹명", "적재 속도(m/s)", "공차 속도(m/s)", "가속(m/s²)", "감속(m/s²)", "용기 수", "로딩(초)", "언로딩(초)", "MTBF(초, 0=없음)", "MTTR(초)", "길이(m)", "폭(m)", "색상", "형상(Standard/Conveyor/Ant/Magnet)" },
+            // SpeedEmpty/Capacity/MTBF/MTTR are not modelled yet (v2); Accel/Decel are (vehicle accel and decel lines): the example keeps their neutral values
+            new[] { "T_EX", "G_EX", "1.0", "1.0", "0.3", "0.3", "1", "20", "20", "0", "0", "1.2", "0.8", "Blue", "Standard" }),
         ("AGV_Groups",
             new[] { "Group", "Type", "MinCount", "MaxCount", "StandbyCPs", "Dispatch" },
             new[] { "그룹명", "AGV 타입(하나)", "최소 대수", "최대 대수", "대기 CP(쉼표 구분)", "Nearest / FIFO" },
             new[] { "G_EX", "T_EX", "1", "3", "CP_STBY", "Nearest" }),
         ("Materials",
-            new[] { "Material", "Station", "Group", "TaktTime", "UnitsPerCycle", "UnitsPerContainer", "CallThreshold", "UnloadThreshold", "InitStock", "SafetyStock", "EmptyReturn" },
-            new[] { "자재명", "공정명(선택·메모)", "그룹명", "T/T(초)", "T/T당 소비 원수", "용기당 원수", "호출 임계(용기)", "언로딩 임계(용기)", "초기재고(용기, 비우면 Settings)", "안전재고(용기, 비우면 Settings)", "빈 용기 회수 Y/N" },
-            new[] { "M001", "", "G_EX", "60", "1", "10", "4", "1", "", "", "Y" }), // Call 4 > Settings SafetyStock 2
+            new[] { "Material", "Station", "Group", "TaktTime", "UnitsPerCycle", "UnitsPerContainer", "CallThreshold", "UnloadThreshold", "InitStock", "SafetyStock", "EmptyReturn", "Form" },
+            new[] { "자재명", "공정명(선택·메모)", "그룹명", "T/T(초)", "T/T당 소비 원수", "용기당 원수", "호출 임계(용기)", "언로딩 임계(용기)", "초기재고(용기, 비우면 Settings)", "안전재고(용기, 비우면 Settings)", "빈 용기 회수 Y/N", "형태(Box/Pallet/Trolley)" },
+            new[] { "M001", "", "G_EX", "60", "1", "10", "4", "1", "", "", "Y", "Box" }), // Call 4 > Settings SafetyStock 2
         ("Routes",
             new[] { "Material", "SupplyFromCP", "SupplyToCP", "BufferCP", "ReturnFromCP", "ReturnToCP", "ExtraTime" },
             new[] { "자재명", "load CP", "unload CP", "buffer CP(선택)", "rtnload CP(선택)", "rtnunload CP(선택)", "추가 시간(초)" },
