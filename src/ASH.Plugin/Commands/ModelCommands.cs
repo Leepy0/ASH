@@ -73,12 +73,10 @@ public sealed class ModelCommands
             catch (System.Exception ex) when (!(ex is OperationCanceledException))
             {
                 // a bad value names its sheet, row and column; anything else is a damaged or locked file, so look into the file and say what is wrong with it
-                ed.WriteMessage($"
-Excel 읽기 오류: {ex.Message}");
+                ed.WriteMessage($"\nExcel 읽기 오류: {ex.Message}");
                 if (!(ex is ExcelDataException))
                 {
-                    foreach (var line in ExcelDiagnosis.Explain(xlsx, ex)) ed.WriteMessage("
-  " + line);
+                    foreach (var line in ExcelDiagnosis.Explain(xlsx, ex)) ed.WriteMessage("\n  " + line);
                     PluginLog.Write("AGVMODEL Excel read failed", ex);
                     foreach (var line in ExcelDiagnosis.Inspect(xlsx)) PluginLog.Write("  " + line);
                 }
