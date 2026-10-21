@@ -108,7 +108,7 @@ public class GeometryTests
     {
         var std = VehicleGeometry.Build(Demo(), "Standard", 1.4, 0.9, "Meters"); var mag = VehicleGeometry.Build(Demo(), "Magnet", 1.4, 0.9, "Meters");
         Assert.Contains(std, x => x.EndsWith(" BumperF")); Assert.Contains(std, x => x.EndsWith(" BumperR"));
-        Assert.Contains(mag, x => x.EndsWith(" MagnetF")); Assert.Contains(mag, x => x.EndsWith(" MagnetR"));
+        Assert.DoesNotContain(mag, x => x.EndsWith(" MagnetF")); Assert.Contains(mag, x => x.EndsWith(" MagnetR")); // magnet module at the rear only
         foreach (var (a, b) in new[] { ("BumperF", "BumperR"), ("WheelFR", "WheelRR"), ("WheelFL", "WheelRL") })
             Assert.Equal(ZOf(std, a), ZOf(std, b), 6);
     }

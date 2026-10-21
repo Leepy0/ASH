@@ -9,7 +9,8 @@ namespace ASH.Core.Export;
 /// The AutoMod picture of a vehicle, built from its real Length and Width instead of stretching a fixed picture: the demo vehicle's chassis, top plate and lift
 /// plate are replaced by boxes of the asked size, so wheels, rollers and the lamps keep their own absolute size whatever the vehicle size is. The bumper
 /// zones (Bump1, Bump2) and the lift joint are taken over from the template, because the traffic and load handling hang on them.
-/// The vehicle drives both ways, so the picture is symmetric front to back, with a three-colour status lamp (red, yellow, green) on each end face.
+/// The vehicle drives both ways, so the picture is symmetric front to back (except the Magnet's rear-only magnet module), with a three-colour status lamp
+/// (red, yellow, green) on each end face.
 /// Heights (metres): Standard, Conveyor and Magnet 0.6; Ant 0.15, with its wheels under the lower plate (ground clearance 0.06) and a top plate on which the
 /// trolley stands. The load attach point is the load surface (the top) for Standard, Conveyor and Ant. The Magnet tows: its trolley stands on the floor, behind
 /// the vehicle with its casters on the same floor line as the vehicle's wheels, coupled to the rear magnet (the distance assumes a 1 m long trolley).
@@ -113,8 +114,7 @@ public static class VehicleGeometry
         {
             parts.Add(B("Base2", DkGray, 0, 0, clr, W, L, H - clr));
             double mw = Math.Max(0.1, Math.Min(W - 0.2, 0.4));
-            foreach (var s in new[] { 1, -1 })                                            // a magnet on each end
-                parts.Add(B(s > 0 ? "MagnetF" : "MagnetR", Red, 0, s * (L / 2 + 0.04), 0.03, mw, 0.12, 0.08));
+            parts.Add(B("MagnetR", Red, 0, -(L / 2 + 0.04), 0.03, mw, 0.12, 0.08));       // the magnet module is at the rear only
         }
 
         // wheels: on the floor line, outside the chassis sides near the ends
