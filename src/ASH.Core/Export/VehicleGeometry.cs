@@ -10,9 +10,9 @@ namespace ASH.Core.Export;
 /// plate are replaced by boxes of the asked size, so wheels, rollers and the lamps keep their own absolute size whatever the vehicle size is. The bumper
 /// zones (Bump1, Bump2) and the lift joint are taken over from the template, because the traffic and load handling hang on them.
 /// The vehicle drives both ways, so the picture is symmetric front to back, with a three-colour status lamp (red, yellow, green) on each end face.
-/// Heights (metres): Standard and Conveyor 0.6 to the load surface; Ant 0.07 body + 0.03 lift plate (low enough to go under a trolley); Magnet 0.15.
-/// The load attach point is the load surface for Standard and Conveyor and the floor for Ant and Magnet: a trolley then stands on its casters on the same floor
-/// line as the vehicle's wheels.
+/// Heights (metres): Standard, Conveyor and Magnet 0.6; Ant 0.15, with its wheels under the lower plate (ground clearance 0.06) and a top plate on which the
+/// trolley stands. The load attach point is the load surface (the top) for Standard, Conveyor and Ant. The Magnet tows: its trolley stands on the floor, behind
+/// the vehicle with its casters on the same floor line as the vehicle's wheels, coupled to the rear magnet (the distance assumes a 1 m long trolley).
 /// The picture's local frame is the demo's: x across, y along the travel direction (the template's AGVset assembly turns it to travel along +x).
 /// All numbers in the template are feet; <see cref="FeetPerUnit"/> converts from the model units.
 /// </summary>
@@ -40,7 +40,7 @@ public static class VehicleGeometry
     const double MinBodyM = 0.25;      // below this the chassis insets do not leave a box
 
     /// <summary>Height of the load surface (metres) a kind has; also the vehicle height for Standard and Conveyor.</summary>
-    public static double TopHeightM(string kind) => kind == "Conveyor" || kind == "Standard" ? 0.6 : kind == "Magnet" ? 0.15 : 0.07;
+    public static double TopHeightM(string kind) => kind == "Ant" ? 0.15 : 0.6;
 
     static string F(double v) => v.ToString("0.######", CultureInfo.InvariantCulture);
 
@@ -74,7 +74,7 @@ public static class VehicleGeometry
         int iGeom = Index("Geom1"), iBump1 = Index("Bump1"), iBase3 = Index("Base3_Blue"), iLift = Index("Lift_Joint"), iTop = Index("Top"), iLink = Index("Link1");
 
         double H = TopHeightM(k.Name);
-        double clr = k.Name == "Ant" ? 0.01 : k.Name == "Magnet" ? 0.02 : 0.04;      // ground clearance
+        double clr = k.Name == "Ant" ? 0.06 : k.Name == "Magnet" ? 0.04 : 0.04;      // ground clearance (the Ant's wheels hang below its lower plate)
         double Z(double m) => FloorRel + m * FtPerM;                                   // metres above the floor -> picture z in feet
         // one box: metres in, feet out. x, y = centre, z0 = bottom
         IEnumerable<string> B(string name, int color, double x, double y, double z0, double dx, double dy, double h, double tdx = -1, double tdy = -1, string flag = "21") =>
@@ -103,25 +103,29 @@ public static class VehicleGeometry
             for (int i = 0; i < n; i++)
                 parts.Add(B("CV_Roller" + (i + 1), DkGray, 0, -((n - 1) * pitch) / 2 + i * pitch, chassisTop + deckT, rx, rollerT, rollerH));
         }
+        else if (k.Name == "Ant")
+        {
+            double plateT = 0.03;
+            parts.Add(B("Base2", DkGray, 0, 0, clr, W, L, H - plateT - clr));                                     // lower plate and body
+            parts.Add(B("TopPlate", LtGray, 0, 0, H - plateT, Math.Max(0.1, W - 0.06), Math.Max(0.1, L - 0.06), plateT)); // the plate the trolley stands on
+        }
         else
         {
             parts.Add(B("Base2", DkGray, 0, 0, clr, W, L, H - clr));
-            if (k.Name == "Magnet")
-            {
-                double mw = Math.Max(0.1, Math.Min(W - 0.2, 0.4));
-                foreach (var s in new[] { 1, -1 })                                        // a magnet on each end
-                    parts.Add(B(s > 0 ? "MagnetF" : "MagnetR", Red, 0, s * (L / 2 + 0.04), 0.03, mw, 0.12, 0.08));
-            }
+            double mw = Math.Max(0.1, Math.Min(W - 0.2, 0.4));
+            foreach (var s in new[] { 1, -1 })                                            // a magnet on each end
+                parts.Add(B(s > 0 ? "MagnetF" : "MagnetR", Red, 0, s * (L / 2 + 0.04), 0.03, mw, 0.12, 0.08));
         }
 
         // wheels: on the floor line, outside the chassis sides near the ends
-        double wh = Math.Min(0.12, Math.Max(0.03, H - 0.01)), wx = W / 2, wy = Math.Max(0.05, L / 2 - 0.15);
+        double wh = Math.Min(0.12, k.Name == "Ant" ? clr : H - 0.01), wx = W / 2, wy = Math.Max(0.05, L / 2 - 0.15);
         var wheels = new[] { (1, 1, "WheelFR"), (-1, 1, "WheelFL"), (1, -1, "WheelRR"), (-1, -1, "WheelRL") };
-        foreach (var w in wheels) parts.Add(B(w.Item3, Black, w.Item1 * (wx - 0.01), w.Item2 * wy, 0, 0.04, wh, wh));
+        foreach (var w in wheels)
+            parts.Add(B(w.Item3, Black, w.Item1 * (k.Name == "Ant" ? wx - 0.06 : wx - 0.01), w.Item2 * wy, 0, 0.04, wh, wh)); // the Ant's wheels sit inside, under the lower plate
 
         // three-colour status lamp on each end face: red, yellow, green side by side, mirrored so each face reads the same from outside
         double lampW = 0.05, lampD = 0.02, lampH = 0.04;
-        double lz = k.Name == "Standard" || k.Name == "Conveyor" ? H / 2 : Math.Max(clr, H - lampH - 0.01);
+        double lz = k.Name == "Ant" ? clr + 0.01 : H / 2;
         var lampColors = new[] { Red, Yellow, Green };
         foreach (var s in new[] { 1, -1 })
             for (int c = 0; c < 3; c++)
@@ -140,16 +144,16 @@ public static class VehicleGeometry
         int jointStart = res.Count;
         res.AddRange(tl.Skip(iLift).Take(iTop - iLift));
         res[jointStart + 4] = "0  0  " + F(Z(top));                                    // the joint's own position line
-        double plate = k.Name == "Ant" ? Math.Max(0.1, Math.Min(0.5, Math.Min(W, L) - 0.2)) : 0.01;
-        double plateH = k.Name == "Ant" ? 0.03 : 0.003;
+        double plate = 0.01, plateH = 0.003;                                            // token plate: the joint is kept for the load link, nothing is lifted
         res.Add("310 17");
         res.Add(tl[iTop + 1]);
         res.Add(F(plate * FtPerM) + " " + F(plate * FtPerM) + " " + F(plate * FtPerM) + " " + F(plate * FtPerM) + " " + F(plateH * FtPerM) + " 0 0");
 
-        // the load attach point: the load surface for Standard and Conveyor, the floor for Ant and Magnet
-        double attach = k.Name == "Standard" || k.Name == "Conveyor" ? Z(H) : Z(0);
+        // the load attach point: the load surface for Standard, Conveyor and Ant; for the Magnet the floor, behind the rear magnet (trolley length 1 m assumed)
+        double attachY = k.Name == "Magnet" ? -(L / 2 + 0.10 + 0.5) * FtPerM : 0;
+        double attachZ = k.Name == "Magnet" ? Z(0) : Z(H);
         for (int i = iLink; i < tl.Count; i++)
-            res.Add(tl[i].Trim() == "0  0  0.349999994039536" ? "0  0  " + F(attach) : tl[i]);
+            res.Add(tl[i].Trim() == "0  0  0.349999994039536" ? "0  " + F(attachY) + "  " + F(attachZ) : tl[i]);
         return res;
     }
 }

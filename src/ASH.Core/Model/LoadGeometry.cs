@@ -8,7 +8,7 @@ namespace ASH.Core.Model;
 /// <summary>
 /// The AutoMod picture of a load (box, empty box, pallet, trolley), built from its own length, width and height in the model units. Each part has an absolute
 /// size (board width, wall thickness, caster size), only the outer measures follow the material's size, so a bigger load is a bigger load and not a stretched one.
-/// Length runs along x, width along y, the parts stand on z = 0.
+/// Length runs along y, width along x (the vehicle picture's frame: y is the travel direction, so a load rides lengthwise), the parts stand on z = 0.
 /// </summary>
 public static class LoadGeometry
 {
@@ -61,7 +61,8 @@ public static class LoadGeometry
         double u = upm.Value;
         double L = Math.Max(0.05, lengthM), W = Math.Max(0.05, widthM), H = Math.Max(0.02, heightM);
         var parts = new List<IEnumerable<string>>();
-        IEnumerable<string> P(string name, int color, double x, double y, double z, double bx, double by, double h) => Prim(name, color, x * u, y * u, z * u, bx * u, by * u, h * u);
+        // the shapes below are written with length along x; the swap of x and y turns them to run along y
+        IEnumerable<string> P(string name, int color, double x, double y, double z, double bx, double by, double h) => Prim(name, color, y * u, x * u, z * u, by * u, bx * u, h * u);
         switch (form)
         {
             case MaterialForms.Pallet:

@@ -62,12 +62,13 @@ public class GeometryTests
     }
 
     [Fact]
-    public void Only_The_Ant_Gets_A_Lift_Plate()
+    public void Only_The_Ant_Has_A_Top_Plate_For_The_Trolley()
     {
-        var ant = VehicleGeometry.Build(Demo(), "Ant", 1.2, 0.8, "Meters").ToList();
-        var std = VehicleGeometry.Build(Demo(), "Standard", 1.2, 0.8, "Meters").ToList();
-        double Top(System.Collections.Generic.List<string> g) { int i = g.FindIndex(x => x.EndsWith(" Top")); return double.Parse(g[i + 1].Split(' ')[0], CultureInfo.InvariantCulture); }
-        Assert.True(Top(ant) > 1.0); Assert.True(Top(std) < 0.2);
+        var ant = VehicleGeometry.Build(Demo(), "Ant", 1.2, 0.8, "Meters");
+        Assert.Contains(ant, x => x.EndsWith(" TopPlate"));
+        Assert.DoesNotContain(VehicleGeometry.Build(Demo(), "Standard", 1.2, 0.8, "Meters"), x => x.EndsWith(" TopPlate"));
+        double plateTop = ZOf(ant, "TopPlate") + Num(ant[ant.ToList().FindIndex(x => x.EndsWith(" TopPlate")) + 4], 4);
+        Assert.Equal(-2.5 + 0.15 * FtPerM, plateTop, 5);                          // 150 mm body height
     }
 
     [Fact]
@@ -128,15 +129,28 @@ public class GeometryTests
         Assert.Contains(g, x => x.Trim() == "0  0  " + (floor + 0.6 * FtPerM).ToString("0.######", CultureInfo.InvariantCulture));
     }
 
-    [Theory]
-    [InlineData("Ant")] [InlineData("Magnet")]
-    public void Ant_And_Magnet_Attach_Loads_At_The_Floor_So_Trolley_Casters_Share_The_Wheel_Line(string kind)
+    [Fact]
+    public void Ant_Wheels_Hang_Below_The_Lower_Plate_And_The_Trolley_Stands_On_The_Top_Plate()
     {
-        var g = VehicleGeometry.Build(Demo(), kind, 1.0, 0.7, "Meters").ToList();
-        Assert.Contains(g, x => x.Trim() == "0  0  -2.5");
-        Assert.Equal(-2.5, ZOf(g, "WheelFR"), 6);                                // the wheels stand on the floor line (z = -2.5)
+        var g = VehicleGeometry.Build(Demo(), "Ant", 1.0, 0.7, "Meters");
+        int w = g.ToList().FindIndex(x => x.EndsWith(" WheelFR")), b = g.ToList().FindIndex(x => x.EndsWith(" Base2"));
+        Assert.Equal(-2.5, ZOf(g, "WheelFR"), 6);                                              // the wheels stand on the floor line
+        double wheelTop = ZOf(g, "WheelFR") + Num(g[w + 4], 4), plateBottom = ZOf(g, "Base2");
+        Assert.True(wheelTop <= plateBottom + 1e-6, "wheels below the lower plate");
+        string attach = "0  0  " + (-2.5 + 0.15 * FtPerM).ToString("0.######", CultureInfo.InvariantCulture);
+        Assert.Contains(g, x => x.Trim() == attach);                                           // the trolley's origin (its casters) on the top plate
         var trolley = Load("Trolley", false, 1.0, 0.7, 0.25);
-        Assert.Equal(0, Num(trolley[trolley.ToList().FindIndex(x => x.EndsWith(" Caster1")) + 1], 2), 6); // casters at the load origin = the attach point
+        Assert.Equal(0, Num(trolley[trolley.ToList().FindIndex(x => x.EndsWith(" Caster1")) + 1], 2), 6);
+    }
+
+    [Fact]
+    public void Magnet_Body_Is_600_Mm_And_Its_Trolley_Stands_On_The_Floor_Behind_The_Rear_Magnet()
+    {
+        var g = VehicleGeometry.Build(Demo(), "Magnet", 1.2, 0.8, "Meters");
+        double top = ZOf(g, "Base2") + Num(g[g.ToList().FindIndex(x => x.EndsWith(" Base2")) + 4], 4);
+        Assert.Equal(-2.5 + 0.6 * FtPerM, top, 5);
+        string attach = "0  " + (-(1.2 / 2 + 0.10 + 0.5) * FtPerM).ToString("0.######", CultureInfo.InvariantCulture) + "  -2.5";
+        Assert.Contains(g, x => x.Trim() == attach);
     }
 
     static System.Collections.Generic.IReadOnlyList<string> Load(string form, bool empty, double l, double w, double h, string units = "Meters") =>
@@ -156,16 +170,16 @@ public class GeometryTests
     {
         var full = Load("Box", false, 0.9, 0.5, 0.4); var empty = Load("Box", true, 0.9, 0.5, 0.4);
         Assert.NotEqual(full.Count, empty.Count);
-        Assert.Contains("0.9 0.5 0.9 0.5 0.4 0 0", full);
+        Assert.Contains("0.5 0.9 0.5 0.9 0.4 0 0", full); // width across (x), length along travel (y)
     }
 
     [Fact]
     public void Load_Sizes_Convert_To_The_Model_Unit_And_Parts_Keep_Their_Own_Size()
     {
         var m = Load("Pallet", false, 1.1, 1.1, 0.15, "Meters"); var mm = Load("Pallet", false, 1.1, 1.1, 0.15, "Millimeters");
-        Assert.Contains("1100 100 1100 100 120 0 0", mm);
+        Assert.Contains("100 1100 100 1100 120 0 0", mm);
         var big = Load("Pallet", false, 2.2, 1.1, 0.15);
-        Assert.Contains("2.2 0.1 2.2 0.1 0.12 0 0", big);          // stringers longer, not thicker
+        Assert.Contains("0.1 2.2 0.1 2.2 0.12 0 0", big);          // stringers longer, not thicker
         Assert.Equal(m.Count, big.Count);
         Assert.Null(LoadGeometry.Build("Box", false, 1, 1, 1, "Furlongs"));
     }
