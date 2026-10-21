@@ -1,0 +1,76 @@
+# v* 태그를 push하면 Windows 러너에서 빌드·테스트·서명 후 정식 릴리스를 만든다.
+# 서명 키: 저장소 Secret ASH_SIGNING_KEY_PEM (ash-signing.pem 파일 내용 전체)
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '릴리스할 태그 (예: v0.14.1) — 이미 push된 태그'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: 태그와 버전 일치 확인
+        shell: pwsh
+        run: |
+          $v = ([xml](Get-Content Directory.Build.props -Raw)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
+          if ("v$v" -ne $env:TAG) { throw "태그 $env:TAG 와 Directory.Build.props 버전 v$v 가 다릅니다" }
+          "VERSION=$v" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: 서명 키 준비
+        shell: pwsh
+        env:
+          PEM: ${{ secrets.ASH_SIGNING_KEY_PEM }}
+        run: |
+          if (-not $env:PEM) { throw "Secret ASH_SIGNING_KEY_PEM 이 없습니다" }
+          $key = Join-Path $env:RUNNER_TEMP 'ash-signing.pem'
+          [IO.File]::WriteAllText($key, $env:PEM)
+          "ASH_SIGNING_KEY=$key" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: 릴리스 노트
+        shell: pwsh
+        run: |
+          # 직전 태그 이후 커밋 제목 (chore 제외)
+          $prev = git describe --tags --abbrev=0 "$env:TAG^" 2>$null
+          $range = if ($prev) { "$prev..$env:TAG" } else { $env:TAG }
+          $msg = (git log --no-merges --format='- %s' $range | Where-Object { $_ -notmatch '^- chore' }) -join "`n"
+          if (-not $msg) { $msg = "- $env:TAG" }
+          [IO.File]::WriteAllText("$env:RUNNER_TEMP\notes.txt", $msg)
+
+      - name: 빌드·테스트·서명
+        shell: pwsh
+        run: scripts\build-release.ps1 -Notes "$env:RUNNER_TEMP\notes.txt"
+
+      - name: 서명 키 삭제
+        if: always()
+        shell: pwsh
+        run: Remove-Item "$env:RUNNER_TEMP\ash-signing.pem" -Force -ErrorAction SilentlyContinue
+
+      - name: 릴리스 생성
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $v = $env:VERSION
+          $files = "ASH-Setup-$v.exe","ASH.json","ASH.json.sig","ASH.Server.json","ASH.Server.json.sig","ASH.Runner.json","ASH.Runner.json.sig","ASH-Plugin-$v.zip","ASH-Runner-$v-win-x64.zip","ASH-Server-$v-win-x64.zip" | ForEach-Object { "dist\$_" }
+          foreach ($f in $files) { if (-not (Test-Path $f)) { throw "$f 없음" } }
+          gh release create $env:TAG @files --title $env:TAG --notes-file "$env:RUNNER_TEMP\notes.txt"

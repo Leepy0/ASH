@@ -98,7 +98,16 @@ git add update-key.pub; git commit -m "chore: update signing public key"
 - **잃어버리면 모든 PC를 손으로 다시 설치해야 한다.** 사용자 PC의 플러그인은 자기 안에 내장된 공개키로만 업데이트를 믿는다. 새 키를 넣은 판을 자동 업데이트로 보내려면 그 판을 **옛 키로 서명**해야 하는데(4절), 옛 개인키가 없으면 그럴 수 없다. 남은 방법은 새 키가 든 `ASH-Setup`을 PC마다 직접 실행하는 것뿐이다.
 - 유출이 의심되면 4절의 키 교체 절차(옛 키로 서명할 수 있을 때)를 즉시 진행한다.
 
-### 빌드와 게시
+### GitHub Actions로 릴리스 (기본)
+
+`.github/workflows/release.yml`이 `v*` 태그 push 때 Windows 러너에서 `build-release.ps1`(빌드·테스트·서명)을 돌리고 정식 릴리스를 만든다.
+
+- 준비(한 번): 저장소 Settings → Secrets and variables → Actions → New repository secret, 이름 `ASH_SIGNING_KEY_PEM`, 값은 `ash-signing.pem` 파일 내용 전체.
+- 릴리스: `Directory.Build.props`의 `<Version>`을 올려 push한 뒤 같은 버전으로 태그를 push한다(`git tag v0.14.1 && git push origin v0.14.1`). 태그와 버전이 다르면 실패한다.
+- 릴리스 노트는 직전 태그 이후 커밋 제목(chore 제외)이다. 이미 있는 태그로 다시 돌리려면 Actions → release → Run workflow에 태그를 넣는다.
+- 개인키는 GitHub Secret에도 들어가므로 오프라인 사본 보관 원칙은 그대로 지킨다(Secret은 다시 읽어 낼 수 없다).
+
+### 빌드와 게시 (릴리스 PC에서 수동)
 
 ```powershell
 $env:ASH_SIGNING_KEY = 'D:\secure\ash-keys\ash-signing.pem'
