@@ -14,6 +14,28 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace ASH.Server.Tests;
 
+/// <summary>A result.tsv in the row layout the model prints: G1 with 3 vehicles (2 active), TAB1 with downtime, and one matstat per material.</summary>
+public static class FakeResult
+{
+    public const double Window = 10000;
+
+    public static string Tsv(IEnumerable<string> materials)
+    {
+        var sb = new System.Text.StringBuilder("kind\tname\tgroup\tv1\tv2\tv3\tv4\tv5\tv6\tv7\tv8\n");
+        sb.Append("group\tG1\tG1\t2\t0\t0\t0\t0\t0\t0\t0\n");
+        sb.Append($"vehicle\tTAB1\tG1\t6000\t1200\t20\t{Window}\t1\t30\t0\t0\n");
+        sb.Append($"vehicle\tTAB2\tG1\t4000\t800\t10\t{Window}\t2\t0\t0\t0\n");
+        sb.Append($"vehicle\tTAB3\tG1\t9999\t9999\t99\t{Window}\t3\t0\t0\t0\n"); // not active: must not count
+        foreach (var m in materials)
+        {
+            sb.Append($"material\t{m}\tG1\t3\t4.5\t12\t15\t45\t12\t0\t0\n");
+            sb.Append($"matstat\t{m}\tG1\t20.5\t60\t100.5\t200\t3\t1.5\t1\t6\n");
+        }
+        sb.Append("clock\t-\t-\t0\t28800\n");
+        return sb.ToString();
+    }
+}
+
 /// <summary>A runner that writes a believable summary instead of running AutoMod.</summary>
 public sealed class FakeRunner : IJobRunner
 {
@@ -29,6 +51,9 @@ public sealed class FakeRunner : IJobRunner
             SummaryTsv.Append(Path.Combine(runs, "summary.tsv"), new SummaryRow(id, "G1", n, 1, util < 0.75, util < 0.75 ? "" : "가동률 초과", util, 2, 10, 10, 0, 0, 5, "G1=" + n));
             progress.Report(new RunOutcome(id, true, Path.Combine(runs, id), TimeSpan.FromSeconds(5), null));
         }
+        var input = SearchJob.ReadInput(projectDir, TextWriter.Null, new List<string>(), out _)!;
+        Directory.CreateDirectory(Path.Combine(runs, "n2_s1"));
+        File.WriteAllText(Path.Combine(runs, "n2_s1", "result.tsv"), FakeResult.Tsv(input.Materials.Select(m => m.Material)));
         log.WriteLine("fake done");
         return new JobOutcome(0, null, new Dictionary<string, int> { ["G1"] = 2 }, new[] { new[] { "G1" } }, new[] { "n2_s1" }, new[] { "샘플 경고" }, Array.Empty<string>());
     }
@@ -181,6 +206,21 @@ public class JobTests
         var detail = await env.Http.GetStringAsync($"/jobs/{id}?tab=detail");
         Assert.Contains("권장 2", detail);         // the decided marker on the curve
         Assert.Contains("n1_s1", detail);          // run list
+
+        // the new statistics, from the fake confirm run (FakeResult): TAB1 60 % / TAB2 40 % busy, TAB3 is not active
+        var mats = JobView.For(env.Store, j).Materials;
+        Assert.NotEmpty(mats);
+        Assert.Contains("<h2>차량</h2>", summary);
+        Assert.Contains("<tr><td>G1</td><td class=\"num\">2</td><td class=\"num\">50.0%</td><td class=\"num\">15</td><td class=\"num\">1000</td><td class=\"num\">66.7</td><td class=\"num\">333.3</td></tr>", summary);
+        Assert.Contains("<h2>자재별 리드타임·재고</h2>", summary);
+        Assert.Contains($"<td>{mats[0].Name}</td><td>G1</td><td class=\"num\">12 / 15</td><td class=\"num\">45</td><td class=\"num\">20.5 / 60.0</td><td class=\"num\">100.5 / 200.0</td>" +
+            "<td class=\"num\">3.0</td><td class=\"num\">1.5</td><td class=\"num\">1</td><td class=\"num\">6</td>", summary);
+        Assert.True(mats[0].Warn);                  // 3 - 2*1.5 = 0 < the safety stock
+        Assert.Contains("<b>주의</b>", summary);
+        Assert.Contains("<tr><td>TAB1</td><td>G1</td><td class=\"num\">60.0%</td><td class=\"num\">20</td><td class=\"num\">1200</td><td class=\"num\">60</td><td class=\"num\">300</td><td class=\"num\">30</td></tr>", detail);
+        Assert.Contains("<th>고장 시간(초)</th>", detail);
+        Assert.Contains("<td>TAB2</td><td>G1</td><td class=\"num\">40.0%</td>", detail);
+        Assert.DoesNotContain("TAB3", detail);
         var input = await env.Http.GetStringAsync($"/jobs/{id}?tab=input");
         Assert.Contains("m.arc/agv.asy", input);
         var files = await env.Http.GetStringAsync($"/jobs/{id}?tab=files");

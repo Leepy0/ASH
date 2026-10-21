@@ -5,11 +5,12 @@ namespace ASH.Server;
 /// <summary>
 /// Frees disk: Jobs:KeepRunsDays (default 30, 0 = keep forever) after a job finished, its raw run folders (runs\&lt;RunId&gt;\, AutoMod output), the build
 /// output (&lt;Model&gt;.dir, &lt;Model&gt;.exe), the work slots and runs.zip are deleted. What the result pages need stays: job.json, job.log, upload.zip, the
-/// model folder, runs\summary.tsv, impact.tsv, search.tsv, and the block numbers, which are saved to blocks.tsv first. Checked hourly.
+/// model folder, runs\summary.tsv, impact.tsv, search.tsv, and the block numbers and vehicle/material statistics, which are saved to blocks.tsv and stats.tsv first. Checked hourly.
 /// </summary>
 public sealed class JobRetention(JobStore store, IConfiguration cfg, ILogger<JobRetention> log) : BackgroundService
 {
     public const string BlocksFile = "blocks.tsv";
+    public const string StatsFile = "stats.tsv";
 
     int KeepDays => Math.Max(0, cfg.GetValue("Jobs:KeepRunsDays", 30));
 
@@ -51,6 +52,7 @@ public sealed class JobRetention(JobStore store, IConfiguration cfg, ILogger<Job
                 new[] { "name\tutilization\tavgWaitSec\tpasses" }.Concat(view.Blocks.Select(b =>
                     string.Join("\t", b.Name, b.Utilization.ToString("R", inv), b.AvgWaitSec.ToString("R", inv), b.Passes.ToString("R", inv)))));
         }
+        if (view.Vehicles.Count > 0 || view.Materials.Count > 0) File.WriteAllLines(Path.Combine(store.JobDir(j.Id), StatsFile), JobView.StatsLines(view));
         long freed = 0;
         void Del(string path)
         {

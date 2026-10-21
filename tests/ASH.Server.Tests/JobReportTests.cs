@@ -23,7 +23,28 @@ public class JobReportTests
             JobReport.Write(job, view, path);
             Assert.False(File.Exists(path + ".tmp"));
             using var wb = new XLWorkbook(path);
-            Assert.Equal(new[] { "요약", "대수별 가동률", "실행 목록", "영향표", "block", "입력" }, wb.Worksheets.Select(w => w.Name).ToArray());
+            Assert.Equal(new[] { "요약", "대수별 가동률", "실행 목록", "영향표", "block", "차량", "자재 통계", "입력" }, wb.Worksheets.Select(w => w.Name).ToArray());
+
+            var veh = wb.Worksheet("차량");
+            var gr = veh.Search("그룹별 요약").First().Address.RowNumber + 2;
+            Assert.Equal("G1", veh.Cell(gr, 1).GetString());
+            Assert.Equal(2, veh.Cell(gr, 2).GetDouble());
+            Assert.Equal(0.5, veh.Cell(gr, 3).GetDouble(), 6);
+            Assert.Equal("0.0%", veh.Cell(gr, 3).Style.NumberFormat.Format);
+            var t1 = veh.Search("TAB1").First().Address.RowNumber;
+            Assert.Equal(0.6, veh.Cell(t1, 3).GetDouble(), 6);
+            Assert.Equal("0.0%", veh.Cell(t1, 3).Style.NumberFormat.Format);
+            Assert.Equal(60, veh.Cell(t1, 6).GetDouble(), 6);
+            Assert.Equal(30, veh.Cell(t1, 8).GetDouble(), 6);
+            Assert.Empty(veh.Search("TAB3"));
+
+            var mat = wb.Worksheet("자재 통계");
+            var mn = view.Materials[0].Name;
+            Assert.Equal(mn, mat.Cell(2, 1).GetString());
+            Assert.Equal(12, mat.Cell(2, 3).GetDouble());
+            Assert.Equal(100.5, mat.Cell(2, 8).GetDouble(), 6);
+            Assert.Equal(1.5, mat.Cell(2, 11).GetDouble(), 6);
+            Assert.Equal("주의", mat.Cell(2, 15).GetString());
 
             var sum = wb.Worksheet("요약");
             var total = sum.Search("권장 총 대수").First().Address.RowNumber;
@@ -62,7 +83,7 @@ public class JobReportTests
         {
             JobReport.Write(job, JobView.For(env.Store, job), path);
             using var wb = new XLWorkbook(path);
-            Assert.Equal(6, wb.Worksheets.Count);
+            Assert.Equal(8, wb.Worksheets.Count);
             Assert.Contains(wb.Worksheet("요약").CellsUsed(), c => c.GetString().Contains("결과"));
             Assert.Contains(wb.Worksheet("영향표").CellsUsed(), c => c.GetString().Contains("없습니다"));
         }

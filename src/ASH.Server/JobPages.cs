@@ -114,6 +114,26 @@ button{padding:6px 14px}";
                 $"<td class=\"num\">{F(g.MinStockRatio)}</td><td class=\"{(g.AllOk ? "ok" : "bad")}\">{(g.AllOk ? "통과" : "실패: " + H(g.Reason))}</td></tr>");
         }
         sb.Append("</table><p class=\"muted\">빨간 세로선은 가동률 상한(Settings의 UtilMax)입니다.</p>");
+        if (v.VehicleGroups.Count > 0)
+        {
+            sb.Append("<h2>차량</h2><table><tr><th>그룹</th><th>대수</th><th>평균 가동률</th><th>작업/대</th><th>주행 거리/대(m)</th><th>m/작업</th><th>초/작업</th></tr>");
+            foreach (var g in v.VehicleGroups)
+                sb.Append($"<tr><td>{H(g.Group)}</td><td class=\"num\">{g.Count}</td><td class=\"num\">{Pct(g.Util)}</td><td class=\"num\">{F(g.Jobs, "0.#")}</td>" +
+                    $"<td class=\"num\">{F(g.Distance, "0")}</td><td class=\"num\">{F(g.DistPerJob, "0.#")}</td><td class=\"num\">{F(g.BusyPerJob, "0.#")}</td></tr>");
+            sb.Append("</table><p class=\"muted\">확인 실행 평균, 워밍업 이후, 권장 대수만큼 움직인 차량만 셉니다. 가동률은 작업 중 시간(호출 차량의 이동 + 작업)을 측정 시간으로 나눈 값입니다.</p>");
+        }
+        if (v.Materials.Count > 0)
+        {
+            sb.Append("<h2>자재별 리드타임·재고</h2><table><tr><th>자재</th><th>그룹</th><th>공급/기대</th><th>결품(초)</th><th>호출→상차 평균/최대(초)</th><th>호출→하차 평균/최대(초)</th>" +
+                "<th>재고 평균</th><th>표준편차</th><th>최소</th><th>최대</th><th>주의</th></tr>");
+            foreach (var m in v.Materials)
+                sb.Append($"<tr><td>{H(m.Name)}</td><td>{H(m.Group)}</td><td class=\"num\">{F(m.Supplies, "0.#")} / {F(m.Expected, "0.#")}</td><td class=\"num\">{F(m.StopSec, "0")}</td>" +
+                    $"<td class=\"num\">{F(m.PickAvg, "0.0")} / {F(m.PickMax, "0.0")}</td><td class=\"num\">{F(m.DelivAvg, "0.0")} / {F(m.DelivMax, "0.0")}</td>" +
+                    $"<td class=\"num\">{F(m.StockAvg, "0.0")}</td><td class=\"num\">{F(m.StockStd, "0.0")}</td><td class=\"num\">{F(m.StockMin, "0.#")}</td><td class=\"num\">{F(m.StockMax, "0.#")}</td>" +
+                    (m.Warn ? $"<td class=\"bad\" title=\"재고 평균 − 2σ {F(m.StockAvg - 2 * m.StockStd, "0.0")} &lt; 안전재고 {F(m.Safety)}\"><b>주의</b></td></tr>" : "<td></td></tr>"));
+            sb.Append("</table><p class=\"muted\">호출→상차는 호출부터 상차 CP 도착까지, 호출→하차는 호출부터 하차 완료까지입니다. 재고는 takt마다 한 번 잰 값(용기)이고 최대·최소는 확인 실행 전체의 극값입니다. " +
+                "주의는 재고 평균 − 2σ가 안전재고보다 낮은 자재로, 경고일 뿐 판정에는 쓰이지 않습니다.</p>");
+        }
         if (j.Warnings.Count > 0)
         {
             sb.Append("<h2>경고</h2><ul>");
@@ -216,6 +236,16 @@ button{padding:6px 14px}";
                 }
                 sb.Append("</tr>");
             }
+            sb.Append("</table>");
+        }
+        if (v.Vehicles.Count > 0)
+        {
+            bool down = v.Vehicles.Any(x => x.Down > 0);
+            sb.Append("<h2>차량별</h2><p class=\"muted\">권장 대수만큼 움직인 차량의 확인 실행 평균입니다.</p><table><tr><th>차량</th><th>그룹</th><th>가동률</th><th>작업 수</th><th>주행 거리 m</th><th>m/작업</th><th>초/작업</th>" +
+                (down ? "<th>고장 시간(초)</th>" : "") + "</tr>");
+            foreach (var x in v.Vehicles)
+                sb.Append($"<tr><td>{H(x.Name)}</td><td>{H(x.Group)}</td><td class=\"num\">{Pct(x.Util)}</td><td class=\"num\">{F(x.Jobs, "0.#")}</td><td class=\"num\">{F(x.Distance, "0")}</td>" +
+                    $"<td class=\"num\">{F(x.DistPerJob, "0.#")}</td><td class=\"num\">{F(x.BusyPerJob, "0.#")}</td>" + (down ? $"<td class=\"num\">{F(x.Down, "0")}</td>" : "") + "</tr>");
             sb.Append("</table>");
         }
         sb.Append("<h2>실행 목록</h2><table><tr><th>실행</th><th>그룹</th><th>대수</th><th>시드</th><th>판정</th><th>가동률</th><th>최소재고비</th><th>공급</th><th>기대</th><th>결품 시간(초)</th><th>교착</th><th>시간(초)</th></tr>");

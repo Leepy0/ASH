@@ -20,7 +20,8 @@ public class JobLocalAndRetentionTests
         foreach (var (n, util) in new[] { (3, 0.4), (2, 0.6) })
             SummaryTsv.Append(Path.Combine(runs, "summary.tsv"), new SummaryRow($"n{n}_s1", "G1", n, 1, true, "", util, 2, 10, 10, 0, 0, 5, "G1=" + n));
         Directory.CreateDirectory(Path.Combine(runs, "n2_s1"));
-        File.WriteAllText(Path.Combine(runs, "n2_s1", "result.tsv"), "kind\tname\tgroup\tv1\tv2\tv3\tv4\nblock\tB_x1\t-\t12\t3.5\t9\t0.4\nclock\t-\t-\t0\t28800\n");
+        File.WriteAllText(Path.Combine(runs, "n2_s1", "result.tsv"), "kind\tname\tgroup\tv1\tv2\tv3\tv4\nblock\tB_x1\t-\t12\t3.5\t9\t0.4\nclock\t-\t-\t0\t28800\n"
+            + FakeResult.Tsv(new[] { "M_loc" }).Split('\n', 2)[1]);
         SearchSummaryFile.Write(Path.Combine(runs, SearchSummaryFile.FileName), new SearchSummary(0, null, new Dictionary<string, int> { ["G1"] = 2 },
             new[] { new[] { "G1" } }, new[] { "n2_s1" }, new[] { "로컬 경고" }, Array.Empty<string>(), 2, 0, 120));
         var zip = Path.Combine(root, "localpkg-" + Guid.NewGuid().ToString("N") + ".zip");
@@ -90,5 +91,21 @@ public class JobLocalAndRetentionTests
         var files = await env.Http.GetStringAsync($"/jobs/{id}?tab=files");
         Assert.Contains("정리되었습니다", files);
         Assert.True(File.Exists(Path.Combine(env.Store.JobDir(id), JobRetention.BlocksFile)));
+        Assert.True(File.Exists(Path.Combine(env.Store.JobDir(id), JobRetention.StatsFile)));
+
+        // a new FinishedUtc drops the cached view, so the next load has no run folders and reads stats.tsv
+        env.Store.Update(id, x => x.FinishedUtc = x.FinishedUtc!.Value.AddSeconds(1));
+        var view = JobView.For(env.Store, env.Store.Get(id)!);
+        Assert.Equal(2, view.Vehicles.Count);
+        Assert.Equal(0.6, view.Vehicles[0].Util, 6);
+        Assert.Equal(30, view.Vehicles[0].Down);
+        Assert.Equal(0, view.Vehicles[1].Down);
+        var m = Assert.Single(view.Materials);
+        Assert.Equal("M_loc", m.Name);
+        Assert.Equal(100.5, m.DelivAvg, 6);
+        Assert.Equal(50.0, view.VehicleGroups.Single().Util * 100, 6);
+        var page = await env.Http.GetStringAsync("/jobs/" + id);
+        Assert.Contains("M_loc", page);
+        Assert.Contains("<td>G1</td><td class=\"num\">2</td><td class=\"num\">50.0%</td>", page);
     }
 }
