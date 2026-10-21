@@ -16,9 +16,9 @@ public static class ExcelTemplate
             // SpeedEmpty/Capacity/MTBF/MTTR are not modelled yet (v2); Accel/Decel are (vehicle accel and decel lines): the example keeps their neutral values
             new[] { "T_EX", "G_EX", "1.0", "1.0", "0.3", "0.3", "1", "20", "20", "0", "0", "1.2", "0.8", "Blue", "Standard" }),
         ("AGV_Groups",
-            new[] { "Group", "Type", "MinCount", "MaxCount", "StandbyCPs", "Dispatch" },
-            new[] { "그룹명", "AGV 타입(하나)", "최소 대수", "최대 대수", "대기 CP(쉼표 구분)", "Nearest / FIFO" },
-            new[] { "G_EX", "T_EX", "1", "3", "CP_STBY", "Nearest" }),
+            new[] { "Group", "Type", "MinCount", "MaxCount", "StandbyCPs", "Dispatch", "FinishCP" },
+            new[] { "그룹명", "AGV 타입(하나)", "최소 대수", "최대 대수", "대기 CP(쉼표 구분)", "Nearest / FIFO", "작업 완료 CP(선택: 도착하면 대기로 봄)" },
+            new[] { "G_EX", "T_EX", "1", "3", "CP_STBY", "Nearest", "" }),
         ("Materials",
             new[] { "Material", "Station", "Group", "TaktTime", "UnitsPerCycle", "UnitsPerContainer", "CallThreshold", "UnloadThreshold", "InitStock", "SafetyStock", "EmptyReturn", "Form", "LoadLength", "LoadWidth", "LoadHeight" },
             new[] { "자재명", "공정명(선택·메모)", "그룹명", "T/T(초)", "T/T당 소비 원수", "용기당 원수", "호출 임계(용기)", "언로딩 임계(용기)", "초기재고(용기, 비우면 Settings)", "안전재고(용기, 비우면 Settings)", "빈 용기 회수 Y/N", "형태(Box/Pallet/Trolley)", "적재물 길이(m, 비우면 형태별 기본값)", "적재물 폭(m)", "적재물 높이(m)" },

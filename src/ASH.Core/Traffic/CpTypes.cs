@@ -6,7 +6,7 @@ namespace ASH.Core.Traffic;
 /// <summary>CP types with their default capacity and display colour, and the CAP text rules ("INF" = unlimited).</summary>
 public static class CpTypes
 {
-    public static readonly string[] All = { "traffic", "load", "unload", "rtnload", "rtnunload", "standby", "buffer" };
+    public static readonly string[] All = { "traffic", "load", "unload", "rtnload", "rtnunload", "standby", "buffer", "finish" };
 
     /// <summary>AutoMod's "infinite" capacity (2147483647 in .asy files).</summary>
     public const int Infinity = int.MaxValue;
@@ -26,6 +26,7 @@ public static class CpTypes
             case "rtnunload": return 6;
             case "standby": return 2;
             case "buffer": return 4;
+            case "finish": return 8;
             default: return 7;
         }
     }

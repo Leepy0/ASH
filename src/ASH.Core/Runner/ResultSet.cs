@@ -8,6 +8,14 @@ public sealed record MaterialResult(string Name, string Group, double MinStock, 
 public sealed record GroupResult(string Group, int ActiveCount);
 public sealed record BlockResult(string Name, double Passes, double AvgWaitSec, double MaxWaitSec, double Utilization);
 
+/// <summary>vehicle row: busy seconds (pickup run + job until the Finish CP / free-run return), distance, jobs, the measured window, index within the group.
+/// All after warmup, as the logic keeps them (AutoMod's own vehicle states mean nothing once the load rides along the whole job).</summary>
+public sealed record VehicleResult(string Name, string Group, double BusySec, double Distance, int Jobs, double WindowSec, int Index);
+
+/// <summary>matstat row (AutoMod tables, after warmup): lead time call -> pickup and call -> delivered (average, maximum), stock samples one per takt.</summary>
+public sealed record MaterialStat(string Name, string Group, double PickAvg, double PickMax, double DelivAvg, double DelivMax,
+    double StockAvg, double StockStd, double StockMin, double StockMax);
+
 /// <summary>blockgroup row: how long vehicles of Group waited (WaitSec total, WaitCount events) at traffic block Block ("-" = not a block entry).</summary>
 public sealed record BlockGroupResult(string Block, string Group, double WaitSec, double WaitCount);
 
@@ -18,7 +26,8 @@ public sealed record ResultRow(string Kind, string Name, string Group, double[] 
 /// Rows keeps every data row in file order, including kinds not typed here.</summary>
 public sealed record ResultSet(IReadOnlyList<MaterialResult> Materials, IReadOnlyList<GroupResult> Groups,
     IReadOnlyList<BlockResult> Blocks, int Deadlocks, double SimSec,
-    IReadOnlyList<ResultRow> Rows, IReadOnlyList<BlockGroupResult> BlockGroups);
+    IReadOnlyList<ResultRow> Rows, IReadOnlyList<BlockGroupResult> BlockGroups,
+    IReadOnlyList<VehicleResult>? Vehicles = null, IReadOnlyList<MaterialStat>? MaterialStats = null);
 
 /// <summary>One data row of "Vehicle Statistics" in the .report: percent of total time and trips per state.</summary>
 public sealed record VehicleRow(double DeliveringPct, int DeliveringTrips, double RetrievingPct, int RetrievingTrips,

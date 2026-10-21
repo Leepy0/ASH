@@ -32,6 +32,7 @@ public static class AutoNamer
             case "rtnunload": return "RU";
             case "standby": return "S";
             case "buffer": return "B";
+            case "finish": return "F";
             default: return cpType != null && cpType.Length > 0 ? cpType.Substring(0, 1).ToUpperInvariant() : "X";
         }
     }

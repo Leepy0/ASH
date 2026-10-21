@@ -12,7 +12,7 @@ namespace ASH.Core.Model;
 /// EntryBlockByCp maps a traffic-entry CP (traffic.tsv entry_cp) to its block, for the blockgroup wait rows.</summary>
 public sealed record LayoutInfo(IReadOnlyList<string> CpNames, IReadOnlyList<string> BlockNames,
     IReadOnlyDictionary<string, string> StandbyCpByGroup, string AgvSystemName = "agv",
-    IReadOnlyDictionary<string, string>? EntryBlockByCp = null);
+    IReadOnlyDictionary<string, string>? EntryBlockByCp = null, IReadOnlyDictionary<string, double>? ReturnSecByMaterial = null);
 
 /// <summary>Seeding: the logic draws no random numbers, so a run is fully determined by params.txt (seeded init stocks).
 /// AM-side RNSTREAM seeding is not needed until randomness (MTBF/MTTR, phase 3) exists.</summary>
@@ -126,14 +126,25 @@ public static class LogicGenerator
             }
             legs.Append(Leg(r.SupplyToCP, mi));
             var ret = new StringBuilder();
+            // Route.ExtraTime: once per supply cycle with the vehicle held; at the return pickup when there is one (before its load time), else after the unload
+            var extra = r.ExtraTime > 0 ? $"\twait for {N(r.ExtraTime)} sec\n" : "";
+            bool returnPick = m.EmptyReturn && !string.IsNullOrEmpty(r.ReturnFromCP);
             if (m.EmptyReturn)
             {
                 // empty container: picked up at ReturnFrom (LoadTime), set down at ReturnTo (UnloadTime)
-                if (!string.IsNullOrEmpty(r.ReturnFromCP)) ret.Append(Leg(r.ReturnFromCP!, mi + nm)).Append($"\twait for {N(t.LoadTime)} sec\n");
+                if (returnPick) ret.Append(Leg(r.ReturnFromCP!, mi + nm)).Append(extra).Append($"\twait for {N(t.LoadTime)} sec\n");
                 if (!string.IsNullOrEmpty(r.ReturnToCP)) ret.Append(Leg(r.ReturnToCP!, mi + nm)).Append($"\twait for {N(t.UnloadTime)} sec\n");
             }
-            // Route.ExtraTime: once per supply cycle, after the unload, with the vehicle still held
-            var extra = r.ExtraTime > 0 ? $"\twait for {N(r.ExtraTime)} sec" : "";
+            if (!returnPick) ret.Insert(0, extra);
+            // busy ends at the Finish CP when the group has one; else after the free-run return time to the standby CP (so neither a long way home
+            // nor a queue at a full standby CP distorts it); with no known return time, at the standby CP
+            var home = StandbyOf(g, layout)[0];
+            string finish, finishAtHome = "";
+            if (!string.IsNullOrEmpty(g.FinishCP)) finish = Leg(g.FinishCP!, mi + nm) + "\tset A_fin to ac";
+            else if (layout.ReturnSecByMaterial != null && layout.ReturnSecByMaterial.TryGetValue(m.Material, out var retSec) && !double.IsNaN(retSec))
+                finish = $"\tset A_fin to ac + {N(retSec)}";
+            else { finish = ""; finishAtHome = "\tset A_fin to ac"; }
+            int vidOffset = input.Groups.TakeWhile(x => x.Group != g.Group).Sum(x => x.MaxCount);
             // the supply load shows as the material's own picture; a box goes back empty (other forms are the same picture on the way back)
             var form = MaterialForms.Normalize(m.Form) ?? MaterialForms.Box;
             var emptyType = m.EmptyReturn && form == MaterialForms.Box && ret.Length > 0 ? $"\tset load type to L_m{mi}e" : "";
@@ -141,7 +152,8 @@ public static class LogicGenerator
                 ("SET_TYPE", $"\tset load type to L_m{mi}"), ("EMPTY_TYPE", emptyType),
                 ("G", GroupIndex(input, m.Group).ToString()),
                 ("FROM", Cp(layout, r.SupplyFromCP)), ("LOAD_TIME", N(t.LoadTime)), ("UNLOAD_TIME", N(t.UnloadTime)),
-                ("SUPPLY_LEGS", legs.ToString().TrimEnd('\n')), ("EXTRA_TIME", extra), ("RETURN_LEGS", ret.ToString().TrimEnd('\n'))));
+                ("SUPPLY_LEGS", legs.ToString().TrimEnd('\n')), ("RETURN_LEGS", ret.ToString().TrimEnd('\n')),
+                ("FINISH", finish.TrimEnd('\n')), ("FINISH_AT_HOME", finishAtHome), ("HOME", home), ("VID_OFFSET", vidOffset.ToString())));
             create.Append($"\tcreate 1 load of type L_ctl to P_consume_{mi}\n");
 
             // a stop still running at the end of the run counts up to the snap
@@ -154,6 +166,22 @@ public static class LogicGenerator
             // a leg still running at the end counts as stuck once it is over the limit
             foreach (var slot in new[] { mi, mi + nm })
                 snap.Append($"\tif V_inLeg({slot}) = 1 and ac - V_legStart({slot}) > V_deadlockSec then inc V_deadlock by 1\n");
+        }
+        // per vehicle (every one up to MaxCount; the judge counts the active ones): busy s, distance, jobs, window s, index in group
+        int vid = 0;
+        foreach (var g in input.Groups)
+            for (int k = 1; k <= g.MaxCount; k++)
+            {
+                vid++;
+                snap.Append($"\tset V_x to V_simLen - V_warmup\n");
+                snap.Append($"\tprint \"vehicle\\t{Lit(g.Type)}{k}\\t{Lit(g.Group)}\\t\" V_vBusy({vid}) \"\\t\" V_vDist({vid}) \"\\t\" V_vJobs({vid}) \"\\t\" V_x \"\\t{k}\\t0\\t0\\t0\" to V_out\n");
+            }
+        // per material: lead times (call -> pickup, call -> delivered) and stock samples (one per takt), from AutoMod tables
+        for (int i = 0; i < input.Materials.Count; i++)
+        {
+            var m = input.Materials[i]; int mi = i + 1;
+            snap.Append($"\tprint \"matstat\\t{m.Material}\\t{Lit(m.Group)}\\t\" T_pick_{mi} average \"\\t\" T_pick_{mi} maximum \"\\t\" T_deliv_{mi} average \"\\t\" T_deliv_{mi} maximum " +
+                        $"\"\\t\" T_stock_{mi} average \"\\t\" T_stock_{mi} stddev \"\\t\" T_stock_{mi} minimum \"\\t\" T_stock_{mi} maximum to V_out\n");
         }
         for (int k = 0; k < bgKeys.Count; k++)
             snap.Append($"\tprint \"blockgroup\\t{Lit(bgKeys[k].Block)}\\t{Lit(bgKeys[k].Group)}\\t\" V_bgWait({k + 1}) \"\\t\" V_bgCnt({k + 1}) \"\\t0\\t0\\t0\\t0\\t0\\t0\" to V_out\n");
@@ -248,6 +276,11 @@ public static class LogicGenerator
         m.Vars.Add(new("V_inLeg", "Integer", 2 * nm)); m.Vars.Add(new("V_legStart", "Real", 2 * nm));
         int bgs = Math.Max(2, nm * 4); // at most 4 legs per material (buffer, supply, 2 return); slots are keyed by (block, group) in Render
         m.Vars.Add(new("V_bgWait", "Real", bgs)); m.Vars.Add(new("V_bgCnt", "Integer", bgs));
+        foreach (var a in new[] { "A_tCall", "A_tPick", "A_ret", "A_fin", "A_rLast", "A_dLast" }) m.Atts.Add(new(a, "Real"));
+        m.Atts.Add(new("A_vid", "Integer"));
+        int vs = Math.Max(2, input.Groups.Sum(g => g.MaxCount));
+        m.Vars.Add(new("V_vBusy", "Real", vs)); m.Vars.Add(new("V_vDist", "Real", vs)); m.Vars.Add(new("V_vJobs", "Integer", vs));
+        for (int i = 1; i <= nm; i++) m.Tables.AddRange(new[] { $"T_pick_{i}", $"T_deliv_{i}", $"T_stock_{i}" });
         m.Funcs.AddRange(new[] { "F_ext_on_call", "F_ext_select_vehicle", "F_ext_before_unload", "F_ext_on_snap" });
         return m;
     }

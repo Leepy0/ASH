@@ -26,6 +26,7 @@ begin P_consume_{{M}} arriving procedure
 		end
 		if ac >= V_warmup then begin
 			inc V_samples({{M}}) by 1
+			tabulate V_stock({{M}}) in T_stock_{{M}}
 			inc V_stockSum({{M}}) by V_stock({{M}})
 			if V_stock({{M}}) < V_minStock({{M}}) then set V_minStock({{M}}) to V_stock({{M}})
 		end
@@ -33,23 +34,48 @@ begin P_consume_{{M}} arriving procedure
 	end
 end
 
+/* One supply job, start to end, driven by the load: it enters the system at the pickup CP (an idle vehicle is called through the work list),
+   rides along every leg with travel to, and brings the vehicle home before it dies, so the park list never decides where a vehicle goes.
+   AutoMod's vehicle states no longer mean anything (the load is on board the whole job), so busy time, distance and lead times are kept here. */
 begin P_supply_{{M}} arriving procedure
 	set A_grp to {{G}}
 {{SET_TYPE}}
+	set A_tCall to ac
 	set V_extMat to {{M}}
 	set V_tmp to F_ext_select_vehicle()
 	move into {{SYS}}:{{FROM}}
+	set A_veh to this load vehicle
+	set A_vid to A_veh A_index + {{VID_OFFSET}}
+	set A_tPick to ac
+	/* the empty run to this pickup: AutoMod counts it as retrieving; the share since this vehicle's last pickup is this job's */
+	set V_x to (A_veh percent time retrieving) / 100 * ac
+	set A_ret to V_x - A_veh A_rLast
+	set A_veh A_rLast to V_x
+	if ac >= V_warmup then tabulate ac - A_tCall in T_pick_{{M}}
 	wait for {{LOAD_TIME}} sec
 {{SUPPLY_LEGS}}
 	set V_extMat to {{M}}
 	set V_tmp to F_ext_before_unload()
 	wait for {{UNLOAD_TIME}} sec
 	inc V_stock({{M}}) by 1
-	if ac >= V_warmup then inc V_supplies({{M}}) by 1
+	if ac >= V_warmup then begin
+		inc V_supplies({{M}}) by 1
+		tabulate ac - A_tCall in T_deliv_{{M}}
+	end
 	set V_pending({{M}}) to 0
-{{EXTRA_TIME}}
 {{EMPTY_TYPE}}
 {{RETURN_LEGS}}
+{{FINISH}}
+	/* home first, always: the next job starts from the standby CP */
+	travel to {{SYS}}:{{HOME}}
+{{FINISH_AT_HOME}}
+	if A_tPick >= V_warmup then begin
+		inc V_vBusy(A_vid) by A_ret + A_fin - A_tPick
+		inc V_vJobs(A_vid) by 1
+		set V_x to A_veh total distance traveled
+		inc V_vDist(A_vid) by V_x - A_veh A_dLast
+	end
+	set A_veh A_dLast to A_veh total distance traveled
 	send to die
 end
 

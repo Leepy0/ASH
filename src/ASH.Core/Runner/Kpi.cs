@@ -28,7 +28,10 @@ public static class Kpi
             var notes = new List<string>();
             var active = rs.Groups.FirstOrDefault(x => x.Group == g.Group)?.ActiveCount ?? 0;
             double util = double.NaN;
+            // the logic's own busy time (pickup run + job until Finish CP / free-run return) for the active vehicles; the AutoMod report only for older models
+            var veh = rs.Vehicles?.Where(v => v.Group == g.Group && v.Index <= active).ToList();
             if (active == 0) util = 0;
+            else if (veh != null && veh.Count > 0 && veh[0].WindowSec > 0) util = Math.Min(1.0, veh.Sum(v => v.BusySec) / (active * veh[0].WindowSec));
             else if (report == null) notes.Add("보고서 없음: 가동률 미산출");
             else if (!report.Types.TryGetValue(g.Type, out var ts)) notes.Add($"보고서에 {g.Type} 통계 없음: 가동률 미산출");
             else util = Math.Min(1.0, ts.Vehicles.Sum(v => v.DeliveringPct + v.RetrievingPct) / active);
@@ -42,6 +45,10 @@ public static class Kpi
                 var rr = safety > 0 ? m.MinStock / safety : (m.MinStock >= 0 && m.StopTimeSec == 0 ? Pass : 0);
                 ratio = Math.Min(ratio, rr);
                 supplies += m.Supplies; consumed += m.Consumed; expected += m.Expected; stop += m.StopTimeSec;
+                // a stock that only just stays above the safety level on average is a warning, not a failure
+                var st = rs.MaterialStats?.FirstOrDefault(x => x.Name == mi.Material && x.Group == g.Group);
+                if (st != null && st.StockStd > 0 && st.StockAvg - 2 * st.StockStd < safety)
+                    notes.Add($"자재 {mi.Material} 재고 변동 큼(평균 {st.StockAvg:0.##} - 2σ {2 * st.StockStd:0.##} < 안전재고 {safety:0.##})");
             }
             list.Add(new RunKpi(g.Group, active, util, ratio, (int)supplies, consumed, expected, stop, rs.Deadlocks,
                 notes.Count == 0 ? null : string.Join("; ", notes)));

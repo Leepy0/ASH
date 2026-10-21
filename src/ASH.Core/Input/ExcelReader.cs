@@ -128,7 +128,8 @@ public static class ExcelReader
                 r.Int("Capacity"), r.Num("LoadTime", 0), r.Num("UnloadTime", 0), r.Num("MTBF", 0), r.Num("MTTR", 0), r.Num("Length"), r.Num("Width"), r.Str("Color"), r.RowNum, r.StrIfColumn("Kind")));
         foreach (var r in Rows(wb, "AGV_Groups"))
             p.Groups.Add(new AgvGroup(r.Str("Group"), r.Str("Type"), r.Int("MinCount"), r.Int("MaxCount"),
-                r.Str("StandbyCPs").Split(',').Select(s => s.Trim()).Where(s => s.Length > 0).ToList(), r.Str("Dispatch"), r.RowNum));
+                r.Str("StandbyCPs").Split(',').Select(s => s.Trim()).Where(s => s.Length > 0).ToList(), r.Str("Dispatch"), r.RowNum,
+                r.StrIfColumn("FinishCP") is { Length: > 0 } fin ? fin : null));
         foreach (var r in Rows(wb, "Materials"))
             p.Materials.Add(new MaterialInfo(r.Str("Material"), r.Str("Station"), r.Str("Group"), r.Num("TaktTime"), r.Num("UnitsPerCycle"),
                 r.Num("UnitsPerContainer"), r.Num("CallThreshold"), r.Num("UnloadThreshold"), r.OptNum("InitStock"), r.OptNum("SafetyStock"), r.Bool("EmptyReturn"), r.RowNum, r.StrIfColumn("Form"), r.OptNumIfColumn("LoadLength"), r.OptNumIfColumn("LoadWidth"), r.OptNumIfColumn("LoadHeight")));

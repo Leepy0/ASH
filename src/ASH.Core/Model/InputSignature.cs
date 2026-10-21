@@ -22,7 +22,8 @@ public static class InputSignature
         void L(params object?[] xs) => sb.Append(string.Join("\t", xs.Select(x => x is double d ? N(d) : x?.ToString() ?? ""))).Append('\n');
         L("settings", p.Settings.Units, p.Settings.SimLengthSec);
         foreach (var t in p.AgvTypes) L("type", t.Type, t.SpeedLoaded, t.LoadTime, t.UnloadTime, t.Length, t.Width);
-        foreach (var g in p.Groups) L("group", g.Group, g.Type, g.MaxCount, string.Join(",", g.StandbyCPs));
+        // FinishCP only when set: models made before it existed keep their signature
+        foreach (var g in p.Groups) { if (string.IsNullOrEmpty(g.FinishCP)) L("group", g.Group, g.Type, g.MaxCount, string.Join(",", g.StandbyCPs)); else L("group", g.Group, g.Type, g.MaxCount, string.Join(",", g.StandbyCPs), g.FinishCP); }
         foreach (var m in p.Materials) L("material", m.Material, m.Group, m.EmptyReturn);
         foreach (var r in p.Routes) L("route", r.Material, r.SupplyFromCP, r.SupplyToCP, r.BufferCP, r.ReturnFromCP, r.ReturnToCP, r.ExtraTime);
         using var sha = SHA256.Create();

@@ -17,6 +17,9 @@ public sealed class GroupClusters
     /// <summary>Shortest loaded route length per material, SupplyFrom -> [Buffer] -> SupplyTo, in layout units; a material with an
     /// unroutable leg is absent. Feeds InputValidator.SupplyCapacity.</summary>
     public IReadOnlyDictionary<string, double> SupplyLength { get; private set; } = new Dictionary<string, double>();
+    /// <summary>Shortest route length per material from its last drop (ReturnTo, else SupplyTo) home to the group's first standby CP, in layout units;
+    /// the logic counts the vehicle busy for this long after the drop when the group has no Finish CP. Unroutable = absent.</summary>
+    public IReadOnlyDictionary<string, double> ReturnLength { get; private set; } = new Dictionary<string, double>();
 
     /// <summary>A cluster per group, no sharing assumed (for callers without a layout).</summary>
     public static GroupClusters Singletons(ProjectInput input) => new GroupClusters
@@ -53,6 +56,7 @@ public sealed class GroupClusters
                         .Where(s => !string.IsNullOrEmpty(s)).Select(s => s!).ToList();
                     for (int i = 0; i + 1 < cps.Count; i++) legs.Add((cps[i], cps[i + 1]));
                     var last = cps[cps.Count - 1];   // ReturnTo ?? ... ?? SupplyTo
+                    if (!string.IsNullOrEmpty(g.FinishCP)) { legs.Add((last, g.FinishCP!)); last = g.FinishCP!; }
                     foreach (var sb in g.StandbyCPs) { legs.Add((sb, rt.SupplyFromCP)); legs.Add((last, sb)); }
                     if (g.StandbyCPs.Count == 0) legs.Add((last, rt.SupplyFromCP));
                 }
@@ -92,8 +96,26 @@ public sealed class GroupClusters
             if (!double.IsNaN(total) && !supply.ContainsKey(rt.Material)) supply[rt.Material] = total;
         }
 
+        double Between(string a, string b)
+        {
+            if (!cpPos.TryGetValue(a, out var pa) || !cpPos.TryGetValue(b, out var pb)) return double.NaN;
+            if (pa.Path == pb.Path && pb.Dist >= pa.Dist) return pb.Dist - pa.Dist;
+            if (pa.Path == pb.Path) return double.NaN; // behind on the same path: the loop length is not worked out here
+            return Route(graph, nodeOf, sssp, pa.Path, pb.Path, out var mid) == null ? double.NaN : pa.Path.Length - pa.Dist + mid + pb.Dist;
+        }
+        var back = new Dictionary<string, double>();
+        foreach (var m in input.Materials)
+        {
+            var g = input.Groups.FirstOrDefault(x => x.Group == m.Group);
+            var rt = input.Routes.FirstOrDefault(x => x.Material == m.Material);
+            if (g == null || rt == null || g.StandbyCPs.Count == 0) continue;
+            var last = m.EmptyReturn && !string.IsNullOrEmpty(rt.ReturnToCP) ? rt.ReturnToCP! : rt.SupplyToCP;
+            var d = Between(last, g.StandbyCPs[0]);
+            if (!double.IsNaN(d)) back[m.Material] = d;
+        }
+
         var r = new GroupClusters { Clusters = gs.GroupBy(Find).Select(x => (IReadOnlyList<string>)x.ToList()).ToList() };
-        r.UsedPaths = paths; r.UsedBlocks = blocks; r.SupplyLength = supply; r.Warnings.AddRange(warnings);
+        r.UsedPaths = paths; r.UsedBlocks = blocks; r.SupplyLength = supply; r.ReturnLength = back; r.Warnings.AddRange(warnings);
         return r;
     }
 

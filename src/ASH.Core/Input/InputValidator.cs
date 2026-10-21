@@ -108,6 +108,7 @@ public static class InputValidator
             Blank("AGV_Groups", g.Row, i, "Type", g.Type);
             if (g.Group.Length > 0 && !IsAmIdentifier(g.Group)) Err("AGV_Groups", g.Row, i, $"그룹 이름 '{g.Group}'은(는) AutoMod에서 쓸 수 없습니다(영문·숫자·_만, 한글 불가, 영문 또는 _로 시작).");
             if (string.Equals(g.Dispatch, "FIFO", StringComparison.OrdinalIgnoreCase)) Warn("AGV_Groups", g.Row, i, $"그룹 '{g.Group}' Dispatch {g.Dispatch}: {Ignored}");
+            if (cps != null && !string.IsNullOrEmpty(g.FinishCP) && !cps.Contains(g.FinishCP!)) Err("AGV_Groups", g.Row, i, $"그룹 '{g.Group}'의 FinishCP '{g.FinishCP}'이(가) 레이아웃에 없습니다.");
             if (g.Type.Length > 0 && !types.Contains(g.Type)) Err("AGV_Groups", g.Row, i, $"그룹 '{g.Group}'의 Type '{g.Type}'이(가) AGV_Types에 없습니다.");
             if (g.MinCount < 1) Err("AGV_Groups", g.Row, i, $"그룹 '{g.Group}'의 MinCount는 1 이상이어야 합니다.");
             if (g.MaxCount < g.MinCount) Err("AGV_Groups", g.Row, i, $"그룹 '{g.Group}'의 MaxCount가 MinCount보다 작습니다.");

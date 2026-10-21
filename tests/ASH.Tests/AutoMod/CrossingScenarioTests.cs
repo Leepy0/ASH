@@ -32,7 +32,7 @@ public class CrossingScenarioTests
     }
 
     /// <summary>
-    /// Shared loop (A, B), clockwise in metres: bottom y=0 x 0→80, right x=80 y 0→20, top y=20 x 80→0, left x=0 y 20→0.
+    /// Shared loop (A, B), one-way counter-clockwise in metres: bottom y=0 x 0→80, right x=80 y 0→20, top y=20 x 80→0, left x=0 y 20→0.
     /// C loop: down x=40 y 35→-15, east y=-15 x 40→46, up x=46 y -15→35, west y=35 x 46→40; it crosses the shared loop at (40,0), (46,0), (40,20), (46,20).
     /// A and B unload on the top between x=46 and 80 and load on the bottom left, so a C path is never a shortcut for them (both are one-way the wrong way).
     /// Standby CPs sit on small one-way parking loops beside the through paths (a dead-end spur cannot be driven out of: no route back).
