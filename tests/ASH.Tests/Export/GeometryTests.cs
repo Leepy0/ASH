@@ -80,6 +80,65 @@ public class GeometryTests
         Assert.Same(demo, VehicleGeometry.Build(demo, "Hover", 1.2, 0.8, "Meters"));
     }
 
+    const double FtPerM = 3.280839895;
+
+    static double Num(string line, int field = 0) => double.Parse(line.Split(new[] { ' ' }, System.StringSplitOptions.RemoveEmptyEntries)[field], CultureInfo.InvariantCulture);
+    static double ZOf(System.Collections.Generic.IReadOnlyList<string> g, string name) { int i = g.ToList().FindIndex(x => x.EndsWith(" " + name)); Assert.True(i > 0, name); return Num(g[i + 1], 2); }
+
+    [Theory]
+    [InlineData("Standard")] [InlineData("Conveyor")] [InlineData("Ant")] [InlineData("Magnet")]
+    public void Every_Kind_Has_A_Tri_Colour_Lamp_On_Both_End_Faces(string kind)
+    {
+        var g = VehicleGeometry.Build(Demo(), kind, 1.4, 0.9, "Meters");
+        foreach (var end in new[] { "F", "R" })
+        {
+            Assert.Contains(g, x => x.EndsWith(" Lamp" + end + "R")); Assert.Contains(g, x => x.EndsWith(" Lamp" + end + "Y")); Assert.Contains(g, x => x.EndsWith(" Lamp" + end + "G"));
+        }
+        // red 1, yellow 3, green 2
+        Assert.Contains("1 1 0 1 0 LampFR", g); Assert.Contains("3 3 0 1 0 LampFY", g); Assert.Contains("2 2 0 1 0 LampFG", g);
+        // the two faces are mirror images: same height, opposite sides along the travel axis
+        double yF = Num(g[g.ToList().FindIndex(x => x.EndsWith(" LampFY")) + 1], 1), yR = Num(g[g.ToList().FindIndex(x => x.EndsWith(" LampRY")) + 1], 1);
+        Assert.Equal(-yF, yR, 6); Assert.True(yF > 0);
+        Assert.Equal(ZOf(g, "LampFY"), ZOf(g, "LampRY"), 6);
+    }
+
+    [Fact]
+    public void The_Vehicle_Is_Symmetric_Front_To_Back()
+    {
+        var std = VehicleGeometry.Build(Demo(), "Standard", 1.4, 0.9, "Meters"); var mag = VehicleGeometry.Build(Demo(), "Magnet", 1.4, 0.9, "Meters");
+        Assert.Contains(std, x => x.EndsWith(" BumperF")); Assert.Contains(std, x => x.EndsWith(" BumperR"));
+        Assert.Contains(mag, x => x.EndsWith(" MagnetF")); Assert.Contains(mag, x => x.EndsWith(" MagnetR"));
+        foreach (var (a, b) in new[] { ("BumperF", "BumperR"), ("WheelFR", "WheelRR"), ("WheelFL", "WheelRL") })
+            Assert.Equal(ZOf(std, a), ZOf(std, b), 6);
+    }
+
+    [Theory]
+    [InlineData("Standard")] [InlineData("Conveyor")]
+    public void Standard_And_Conveyor_Are_600_Mm_High(string kind)
+    {
+        var g = VehicleGeometry.Build(Demo(), kind, 1.2, 0.8, "Meters").ToList();
+        double floor = -2.5, topZ = floor + 0.6 * FtPerM;
+        // the highest surface of any part is the load surface at 600 mm
+        double high = double.NegativeInfinity;
+        for (int i = 0; i < g.Count - 5; i++)
+            if ((g[i] == "310 21") && g[i + 1].Contains(" 0 1 0 ") && !g[i + 1].Contains("Lamp") && !g[i + 1].Contains("Bump") && !g[i + 1].Contains("one") && !g[i + 1].Contains("two") && !g[i + 1].Contains("three") && !g[i + 1].Contains("four"))
+                high = System.Math.Max(high, Num(g[i + 2], 2) + Num(g[i + 5], 4));
+        Assert.Equal(topZ, high, 4);
+        // loads are attached on that surface
+        Assert.Contains(g, x => x.Trim() == "0  0  " + (floor + 0.6 * FtPerM).ToString("0.######", CultureInfo.InvariantCulture));
+    }
+
+    [Theory]
+    [InlineData("Ant")] [InlineData("Magnet")]
+    public void Ant_And_Magnet_Attach_Loads_At_The_Floor_So_Trolley_Casters_Share_The_Wheel_Line(string kind)
+    {
+        var g = VehicleGeometry.Build(Demo(), kind, 1.0, 0.7, "Meters").ToList();
+        Assert.Contains(g, x => x.Trim() == "0  0  -2.5");
+        Assert.Equal(-2.5, ZOf(g, "WheelFR"), 6);                                // the wheels stand on the floor line (z = -2.5)
+        var trolley = Load("Trolley", false, 1.0, 0.7, 0.25);
+        Assert.Equal(0, Num(trolley[trolley.ToList().FindIndex(x => x.EndsWith(" Caster1")) + 1], 2), 6); // casters at the load origin = the attach point
+    }
+
     static System.Collections.Generic.IReadOnlyList<string> Load(string form, bool empty, double l, double w, double h, string units = "Meters") =>
         LoadGeometry.Build(form, empty, l, w, h, units)!;
 
