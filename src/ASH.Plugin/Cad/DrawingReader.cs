@@ -29,7 +29,7 @@ public static class DrawingReader
             else if (e is BlockReference br)
             {
                 string name = BlockName(br, tr);
-                if (Eq(layer, Conventions.LayerCp) && Eq(name, Conventions.CpBlockName))
+                if (Conventions.IsCpLayer(layer) && Eq(name, Conventions.CpBlockName))
                 {
                     var a = Attributes(br, tr);
                     layout.Cps.Add(new LayoutCp
@@ -132,5 +132,5 @@ public static class DrawingReader
     internal static Point2 Xy(ZwSoft.ZwCAD.Geometry.Point3d p) => new Point2(p.X, p.Y);
     internal static bool Eq(string a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
     private static string Get(Dictionary<string, string> a, string tag) => a.TryGetValue(tag, out var v) ? v.Trim() : "";
-    private static int ParseCap(string s) => int.TryParse(s, out var c) && c > 0 ? c : 1;
+    private static int ParseCap(string s) => ASH.Core.Traffic.CpTypes.TryParseCap(s, out var c) ? c : 1;
 }

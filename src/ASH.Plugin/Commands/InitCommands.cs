@@ -47,12 +47,14 @@ public sealed class InitCommands
     {
         int made = 0;
         var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
-        foreach (var (name, color) in new[]
+        var layers = new List<(string Name, short Color)>
         {
             (Conventions.LayerPath, (short)3), (Conventions.LayerPathSpur, (short)2), (Conventions.LayerPathTwo, (short)4), (Conventions.LayerPathCrab, (short)30),
             (Conventions.LayerDir, (short)8),
             (Conventions.LayerCp, (short)1), (Conventions.LayerBlock, (short)5), (Conventions.LayerStation, (short)6),
-        })
+        };
+        foreach (var t in ASH.Core.Traffic.CpTypes.All) layers.Add((Conventions.LayerCpFor(t), ASH.Core.Traffic.CpTypes.ColorIndex(t)));
+        foreach (var (name, color) in layers)
         {
             if (lt.Has(name)) continue;
             if (!lt.IsWriteEnabled) lt.UpgradeOpen();

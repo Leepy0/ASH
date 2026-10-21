@@ -133,6 +133,7 @@ ASH.Runner      (.NET 10 콘솔/트레이 앱, ZWCAD 밖에서 독립 실행)
 | 레이어 | 내용 | AM 대응 |
 |---|---|---|
 | `AGV_PATH` | 폴리라인/선/원호 = 주행 경로. 방향은 XData | `GPATH … piece` |
+| `AGV_CP_<TYPE>` | CP 종류별 레이어(TRAFFIC 빨강, LOAD 초록, UNLOAD 파랑, RTNLOAD 주황, RTNUNLOAD 자홍, STANDBY 노랑, BUFFER 청록). 종류를 알 수 없는 CP와 예전 도면은 `AGV_CP`. 종류의 기준은 TYPE 속성이고 레이어는 색 표시용 | `CPOINT` |
 | `AGV_PATH_TWO` | 양방향 경로(색 4) | `GPATH … two piece` |
 | `AGV_PATH_SPUR` | 지선(spur) 경로(색 2) | `GPATH … spur piece` |
 | `AGV_PATH_CRAB` | 크랩(crab) 경로(색 30) | `GPATH … crab piece` |
@@ -393,3 +394,16 @@ Process `.asy`의 `code.m`에 들어간다. 사용자는 이 파일을 편집하
 - **재현성**: `arc\input.sig`에 ASH 버전과 공용 로직 버전을 함께 기록한다(현재 입력 지문만 기록 → 3차에서 추가). 서버는 작업마다 Core 버전을 기록한다.
 - **공용 로직 동기화**: 로컬 실행 전 서버에서 고정 버전(없으면 최신)의 공용 로직 템플릿을 받아 쓴다. 접속 불가면 Core 내장 템플릿을 쓰고 "공용 로직: 내장"을 기록한다. `LogicGenerator`가 외부 템플릿 텍스트를 받는 `LogicTemplateOverride`를 지원해야 한다(`MaterialOverrides`/`VehicleOverrides`와 같은 방식) → 3차.
 - **에셋 동기화**: 고정된 차량 에셋 버전을 서버에서 받아 `VehicleOverrides`로 넘기고 로컬 캐시(`%LOCALAPPDATA%\ASH\assets\<ver>\`)에 둔다 → 3차.
+
+### 15. CP 속성과 설정 파일 기본값 (명령 정리)
+
+- **CP 종류**: traffic, load, unload, rtnload, rtnunload, standby, buffer. 종류마다 이름 접두어(T, L, U, RL, RU, S, B)와 레이어 색이 정해져 있고 팔레트 TYPE 목록에 색 견본과 이름 규칙(`L###`)이 보인다.
+- **CAP**: traffic은 1, 나머지 종류는 무제한(`INF`, AutoMod 2147483647). 종류를 바꾸면 접두어와 CAP이 그 종류의 기본값으로 돌아간다. 내보낼 때 용량마다 `CPOINTTYPE`을 만들고 무제한은 `<이름>_capinf`.
+- **STATION**: 공정 이름을 적는 메모 속성이다. 내보내기와 모델 생성은 쓰지 않는다. 공정과 CP의 연결은 Excel `Stations` 시트의 `CPName`이 정한다.
+- **traffic CP 자동 생성**: 교통제어 자동 생성(`AGVTRAFFIC` = block + traffic CP)과 겹쳐서 CP 탭과 리본 CP 패널에서 뺐다. 명령 `AGVCPAUTO`는 남아 있다.
+- **ash.settings.tsv `Scale`**: 새 파일은 도면 `INSUNITS`로 정한다(mm 0.001, cm 0.01, m 1, inch 0.0254, ft 0.3048, 단위 없음 0.001). 파일에 `Scale`이 없으면 0.001.
+- **방향표**: `AGVARROW`가 길이(`ArrowSize`, m)를 묻고 설정 파일에 저장한 뒤 모든 방향표를 바로 다시 그린다. Enter만 누르면 길이를 그대로 두고 다시 그리기만 한다(설정 파일을 직접 고친 뒤 쓴다). 경로를 편집하는 다른 명령도 끝날 때 다시 그린다.
+- **미리 선택(PICKFIRST)**: `AGVREVERSE`, `AGVPTYPE`, `AGVSPLIT`, `AGVJOIN`, `AGVFILLET`, `AGVOFFSET`, `AGVARRAY`는 경로를 먼저 선택하고 실행하면 그 선택을 바로 쓴다(선택 질문을 건너뜀). 경로 두 개를 고르는 `AGVJOIN`·`AGVFILLET`은 맞닿은 순서를 스스로 찾는다.
+- **AGVPATH**: `PLINE`을 명령 안에서 실행한다. 그래서 끝난 뒤 Enter는 `AGVPATH`(종류 질문부터)를 반복한다. 연속으로 그린 선은 폴리선 하나가 되고 필렛은 폴리선 안의 모서리를 둥글린다.
+- **AGVFILLET**: 경로 하나를 선택하면 안의 모든 모서리, 경로 둘을 선택하면 둘이 만나는 모서리, 선택 없이 경로를 클릭하면 클릭 지점에서 가장 가까운 모서리(한 구간짜리 경로면 이어지는 경로를 더 묻는다). 반경은 마지막 값이 기본.
+- **AGVOFFSET**: 기준점 → 변위(점을 찍거나 값 입력) → 새 경로 방향 뒤집기(기본 예). 쪽은 찍은 점(값을 입력했으면 기준점)이 경로 진행 방향의 왼쪽인지 오른쪽인지로 정한다.

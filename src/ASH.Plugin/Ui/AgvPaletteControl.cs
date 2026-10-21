@@ -1,4 +1,5 @@
 using System;
+using ASH.Core.Traffic;
 using System.Drawing;
 using System.Globalization;
 using System.Windows.Forms;
@@ -24,37 +25,56 @@ public sealed class AgvPaletteControl : UserControl
             Theme.Make("경로 그리기", GlyphKind.Path, "AGVPATH"), Theme.Make("방향 반전", GlyphKind.Reverse, "AGVREVERSE"), Theme.Make("경로 종류 변경", GlyphKind.PathType, "AGVPTYPE"),
             Theme.Make("평행 복제", GlyphKind.Offset, "AGVOFFSET"), Theme.Make("배열 복제", GlyphKind.Array, "AGVARRAY"),
             Theme.Section("연결"),
-            Theme.Make("교차 분할", GlyphKind.Split, "AGVSPLIT"), Theme.Make("경로 잇기", GlyphKind.Join, "AGVJOIN"), Theme.Make("필렛", GlyphKind.Fillet, "AGVFILLET")));
+            Theme.Make("교차 분할", GlyphKind.Split, "AGVSPLIT"), Theme.Make("경로 잇기", GlyphKind.Join, "AGVJOIN"), Theme.Make("필렛", GlyphKind.Fillet, "AGVFILLET"),
+            Theme.Section("방향표"), Theme.Make("방향표 크기·갱신", GlyphKind.ArrowSize, "AGVARROW")));
 
         var s = CpSettings.Current;
         var detailed = new CheckBox { Text = "상세 모드", Checked = s.DetailedMode, AutoSize = true, Margin = new Padding(2, 4, 0, 4) };
         detailed.CheckedChanged += (o, e) => s.DetailedMode = detailed.Checked;
-        var type = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat };
-        type.Items.AddRange(CpSettings.CpTypes);
+        var type = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, DrawMode = DrawMode.OwnerDrawFixed, ItemHeight = 22 };
+        type.Items.AddRange(CpTypes.All);
         type.SelectedItem = s.Type;
+        type.DrawItem += DrawCpType;
         var prefix = Box(s.Prefix);
-        type.TextChanged += (o, e) => { s.Type = type.Text.Trim(); prefix.Text = s.Prefix; };
-        prefix.TextChanged += (o, e) => s.Prefix = prefix.Text.Trim();
+        var hint = new Label { Font = Theme.Small, ForeColor = Theme.Muted, AutoSize = true, Margin = new Padding(2, 2, 0, 0) };
         var group = Field(s.Group, v => s.Group = v);
         var station = Field(s.Station, v => s.Station = v);
-        var cap = Field(s.Cap.ToString(CultureInfo.InvariantCulture),
-            v => s.Cap = int.TryParse(v, NumberStyles.Integer, CultureInfo.InvariantCulture, out var c) && c > 0 ? c : 1);
-        cap.Leave += (o, e) => cap.Text = s.Cap.ToString(CultureInfo.InvariantCulture); // show the value AGVCP will actually use
+        var cap = Field(CpTypes.FormatCap(s.Cap), v => { if (CpTypes.TryParseCap(v, out var c)) s.Cap = c; });
+        void ShowType()
+        {
+            hint.Text = $"이름 {AutoNamer.PatternFor(s.Type)} · CAP {CpTypes.FormatCap(s.Cap)} · 레이어 {Conventions.LayerCpFor(s.Type)}";
+            hint.ForeColor = Theme.CpColor(s.Type);
+        }
+        // SelectedIndexChanged, not TextChanged: Text can still hold the previous item when TextChanged fires on a drop-down list
+        type.SelectedIndexChanged += (o, e) =>
+        {
+            if (!(type.SelectedItem is string t)) return;
+            s.Type = t; // also resets Prefix and Cap to the type's defaults
+            prefix.Text = s.Prefix;
+            cap.Text = CpTypes.FormatCap(s.Cap);
+            ShowType();
+        };
+        prefix.TextChanged += (o, e) => { s.Prefix = prefix.Text.Trim(); ShowType(); };
+        cap.Leave += (o, e) => { cap.Text = CpTypes.FormatCap(s.Cap); ShowType(); }; // show the value AGVCP will actually use
+        ShowType();
         tabs.TabPages.Add(Page("CP", Theme.Section("CP 속성"), detailed,
-            Theme.Caption("TYPE"), type, Theme.Caption("GROUP"), group, Theme.Caption("STATION"), station,
-            Theme.Caption("접두어"), prefix, Theme.Caption("CAP"), cap,
-            Theme.Section("배치"), Theme.Make("CP 배치", GlyphKind.Cp, "AGVCP"), Theme.Make("traffic CP 자동 생성", GlyphKind.Cp, "AGVCPAUTO")));
+            Theme.Caption("TYPE  (색 · 이름 규칙)"), type, hint,
+            Theme.Caption("GROUP"), group, Theme.Caption("STATION  (공정 이름 메모, 내보내기에 쓰이지 않음)"), station,
+            Theme.Caption("접두어"), prefix, Theme.Caption("CAP  (숫자 또는 INF = 무제한)"), cap,
+            Theme.Section("배치"), Theme.Make("CP 배치", GlyphKind.Cp, "AGVCP"),
+            Theme.Caption("traffic CP는 교통제어 탭에서 block과 함께 자동 생성")));
+
+        tabs.TabPages.Add(Page("교통제어", Theme.Section("자동 생성"),
+            Theme.Make("block 자동 생성", GlyphKind.Block, "AGVBLOCKAUTO"), Theme.Make("교통제어 자동 생성", GlyphKind.Traffic, "AGVTRAFFIC")));
 
         var settings = Theme.Make("Settings 열기", GlyphKind.Settings, "");
         settings.Click += (o, e) => Commands.ExportCommands.OpenSettings();
-        tabs.TabPages.Add(Page("교통제어", Theme.Section("자동 생성"),
-            Theme.Make("block 자동 생성", GlyphKind.Block, "AGVBLOCKAUTO"), Theme.Make("교통제어 자동 생성", GlyphKind.Traffic, "AGVTRAFFIC"),
-            Theme.Section("설정"), settings));
 
         var checkResult = Theme.Caption("마지막 검사 결과: -");
         tabs.TabPages.Add(Page("검증·내보내기", Theme.Section("검증"), Theme.Make("검증", GlyphKind.Check, "AGVCHECK"), checkResult,
             Theme.Section("내보내기"), Theme.Make("내보내기", GlyphKind.Export, "AGVEXPORT"),
-            Theme.Section("모델"), Theme.Make("Excel 양식", GlyphKind.Excel, "AGVEXCEL"), Theme.Make("모델 생성·빌드", GlyphKind.Model, "AGVMODEL")));
+            Theme.Section("모델"), Theme.Make("Excel 양식", GlyphKind.Excel, "AGVEXCEL"), Theme.Make("모델 생성·빌드", GlyphKind.Model, "AGVMODEL"),
+            Theme.Section("설정"), settings));
 
         var header = new Panel { Dock = DockStyle.Top, Height = 50, BackColor = Theme.Panel, Padding = new Padding(10, 6, 6, 6) };
         var init = Theme.Make("양식 초기화", GlyphKind.Init, "AGVINIT");
@@ -83,6 +103,20 @@ public sealed class AgvPaletteControl : UserControl
         Controls.Add(tabs); // Fill first: later Top/Bottom controls dock before it
         Controls.Add(header);
         Controls.Add(status);
+    }
+
+    // a colour swatch, the type, and its name pattern on the right
+    private static void DrawCpType(object sender, DrawItemEventArgs e)
+    {
+        if (e.Index < 0) return;
+        var t = (string)((ComboBox)sender).Items[e.Index];
+        e.DrawBackground();
+        using (var b = new SolidBrush(Theme.CpColor(t))) e.Graphics.FillRectangle(b, e.Bounds.Left + 5, e.Bounds.Top + 5, 12, 12);
+        TextRenderer.DrawText(e.Graphics, t, Theme.Base, new Point(e.Bounds.Left + 24, e.Bounds.Top + 2), e.ForeColor);
+        var pattern = AutoNamer.PatternFor(t);
+        var size = TextRenderer.MeasureText(pattern, Theme.Small);
+        TextRenderer.DrawText(e.Graphics, pattern, Theme.Small, new Point(e.Bounds.Right - size.Width - 8, e.Bounds.Top + 4), Theme.Muted);
+        e.DrawFocusRectangle();
     }
 
     private static void DrawTab(object sender, DrawItemEventArgs e)

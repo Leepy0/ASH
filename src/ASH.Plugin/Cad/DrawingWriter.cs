@@ -12,10 +12,10 @@ namespace ASH.Plugin.Cad;
 public static class DrawingWriter
 {
     public static ObjectId AddCp(Database db, Transaction tr, LayoutCp cp) =>
-        InsertBlock(db, tr, Conventions.CpBlockName, Conventions.LayerCp, cp.Position, 0, new Dictionary<string, string>
+        InsertBlock(db, tr, Conventions.CpBlockName, Conventions.LayerCpFor(cp.Type), cp.Position, 0, new Dictionary<string, string>
         {
             ["NAME"] = cp.Name, ["TYPE"] = cp.Type, ["GROUP"] = cp.Group, ["STATION"] = cp.Station,
-            ["CAP"] = (cp.Cap > 0 ? cp.Cap : 1).ToString(CultureInfo.InvariantCulture),
+            ["CAP"] = ASH.Core.Traffic.CpTypes.FormatCap(cp.Cap),
         });
 
     /// <summary>Adds the closed rectangle (returned id) plus an AGV_BLOCK attribute tag at its centre.</summary>

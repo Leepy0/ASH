@@ -70,7 +70,7 @@ public static class LayoutExporter
         string CpTypeOf(int cap)
         {
             if (cap <= 0) cap = 1; // shortcut: Cap unset (0) exports as cap 1, change if a layout needs AM's cap 0
-            if (!cpType.TryGetValue(cap, out var t)) cpType[cap] = t = cap == 1 ? o.CpType : o.CpType + "_cap" + cap;
+            if (!cpType.TryGetValue(cap, out var t)) cpType[cap] = t = cap == 1 ? o.CpType : o.CpType + (cap == int.MaxValue ? "_capinf" : "_cap" + cap);
             return t;
         }
         CpTypeOf(1); // header AGVSDEF references the base type

@@ -10,6 +10,7 @@ public static class Conventions
     public const string LayerPathCrab = "AGV_PATH_CRAB";
     public const string LayerDir = "AGV_DIR";
     public const string LayerCp = "AGV_CP";
+    public const string LayerCpPrefix = "AGV_CP_";
     public const string LayerBlock = "AGV_BLOCK";
     public const string LayerStation = "AGV_STATION";
     public const string LayerResultPrefix = "AGV_RESULT_";
@@ -20,6 +21,16 @@ public static class Conventions
     public const string DirTwoBlockName = "AGV_DIR2";
     /// <summary>Length of the arrow block definitions (meters); the inserted size is ArrowSize / this.</summary>
     public const double ArrowDefMeters = 0.6;
+    /// <summary>One layer per CP type (AGV_CP_LOAD, ...) so each type has its own colour and can be switched off; unknown types and old drawings use AGV_CP.</summary>
+    public static string LayerCpFor(string? type)
+    {
+        var t = (type ?? "").Trim().ToLowerInvariant();
+        return System.Array.IndexOf(ASH.Core.Traffic.CpTypes.All, t) >= 0 ? LayerCpPrefix + t.ToUpperInvariant() : LayerCp;
+    }
+
+    public static bool IsCpLayer(string layer) =>
+        string.Equals(layer, LayerCp, System.StringComparison.OrdinalIgnoreCase) || layer.StartsWith(LayerCpPrefix, System.StringComparison.OrdinalIgnoreCase);
+
     public static readonly string[] PathLayers = { LayerPath, LayerPathTwo, LayerPathSpur, LayerPathCrab };
 
     /// <summary>Layer (= colour) of a path type; the XData holds the exact flags. Spur wins over two-way, which wins over crab.</summary>

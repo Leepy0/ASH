@@ -9,18 +9,16 @@ public sealed class CpSettings
 
     private string _type = "traffic";
 
-    /// <summary>Setting Type also resets Prefix to the type's default.</summary>
+    /// <summary>Setting Type also resets Prefix and Cap to the type's defaults (traffic: 1, every other type: unlimited).</summary>
     public string Type
     {
         get => _type;
-        set { _type = value ?? ""; Prefix = AutoNamer.PrefixFor(_type); }
+        set { _type = value ?? ""; Prefix = AutoNamer.PrefixFor(_type); Cap = CpTypes.DefaultCap(_type); }
     }
-
-    public static readonly string[] CpTypes = { "traffic", "load", "unload", "rtnload", "rtnunload", "standby", "buffer" };
 
     public string Group { get; set; } = "G1"; // matches the default ProjectSettings.Groups
     public string Station { get; set; } = "";
     public string Prefix { get; set; } = "T";
-    public int Cap { get; set; } = 1;
+    public int Cap { get; set; } = CpTypes.DefaultCap("traffic");
     public bool DetailedMode { get; set; }
 }

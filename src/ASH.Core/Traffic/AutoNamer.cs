@@ -18,6 +18,9 @@ public static class AutoNamer
         return prefix + (max + 1).ToString("D3");
     }
 
+    /// <summary>Name pattern shown to the user, e.g. "L###" for load.</summary>
+    public static string PatternFor(string cpType) => PrefixFor(cpType) + "###";
+
     public static string PrefixFor(string cpType)
     {
         switch ((cpType ?? "").ToLowerInvariant())

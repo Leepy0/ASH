@@ -79,6 +79,79 @@ public static class PathOps
                 Copy(a, a.Name + "_f", new Segment[] { arc }, keepId: false));
     }
 
+    /// <summary>+1 when the point is left of the direction of travel at the nearest point of the path, -1 when right, 0 when on the path (within tol).</summary>
+    public static int SideOf(LayoutPath p, Point2 pt, double tol)
+    {
+        double best = double.MaxValue, bd = 0;
+        Segment? bs = null;
+        foreach (var s in p.Segments)
+        {
+            double d = s.DistanceAlong(pt), dist = s.PointAt(d).DistanceTo(pt);
+            if (dist < best) { best = dist; bs = s; bd = d; }
+        }
+        if (bs == null || best <= tol) return 0;
+        double e = Math.Max(bs.Length * 1e-3, 1e-9);
+        var a = bs.PointAt(Math.Max(0, bd - e));
+        var b = bs.PointAt(Math.Min(bs.Length, bd + e));
+        var q = bs.PointAt(bd);
+        double cross = (b.X - a.X) * (pt.Y - q.Y) - (b.Y - a.Y) * (pt.X - q.X);
+        return cross >= 0 ? 1 : -1;
+    }
+
+    /// <summary>
+    /// Rounds the corners where two straight segments of ONE path meet (a polyline drawn with PLINE). With <paramref name="near"/> only the corner closest to it,
+    /// otherwise every corner. The path keeps its name and type. Corners that do not fit the radius are skipped and listed.
+    /// Null when the path has no corner of two non-parallel lines.
+    /// </summary>
+    public static (LayoutPath Path, int Rounded, List<string> Skipped)? FilletCorners(LayoutPath p, double radius, double tol, Point2? near = null)
+    {
+        int n = p.Segments.Count;
+        if (radius <= 0 || n < 2) return null;
+        var corners = new List<int>();
+        for (int i = 0; i + 1 < n; i++)
+            if (p.Segments[i] is LineSeg a && p.Segments[i + 1] is LineSeg b && a.Length > tol && b.Length > tol
+                && Math.Abs(Unit(a).X * Unit(b).Y - Unit(a).Y * Unit(b).X) >= 1e-9) corners.Add(i);
+        if (corners.Count == 0) return null;
+        if (near is Point2 q) corners = new List<int> { corners.OrderBy(i => p.Segments[i].End.DistanceTo(q)).First() };
+
+        var starts = p.Segments.Select(s => s.Start).ToArray();
+        var ends = p.Segments.Select(s => s.End).ToArray();
+        var arcs = new Dictionary<int, ArcSeg>();
+        var skipped = new List<string>();
+        foreach (int i in corners)
+        {
+            var la = (LineSeg)p.Segments[i];
+            var lb = (LineSeg)p.Segments[i + 1];
+            var u1 = Unit(la);
+            var u2 = Unit(lb);
+            double cross = u1.X * u2.Y - u1.Y * u2.X, dot = u1.X * u2.X + u1.Y * u2.Y;
+            double theta = Math.Atan2(cross, dot);
+            double t = radius * Math.Tan(Math.Abs(theta) / 2);
+            double remainA = starts[i].DistanceTo(ends[i]), remainB = starts[i + 1].DistanceTo(ends[i + 1]);
+            var corner = la.End;
+            if (t >= remainA - tol || t >= remainB - tol)
+            {
+                skipped.Add(string.Format(CultureInfo.InvariantCulture, "({0:0.###}, {1:0.###})", corner.X, corner.Y));
+                continue;
+            }
+            var aEnd = new Point2(corner.X - u1.X * t, corner.Y - u1.Y * t);
+            var bStart = new Point2(corner.X + u2.X * t, corner.Y + u2.Y * t);
+            double side = Math.Sign(theta) * radius;
+            var center = new Point2(aEnd.X - u1.Y * side, aEnd.Y + u1.X * side);
+            ends[i] = aEnd;
+            starts[i + 1] = bStart;
+            arcs[i] = new ArcSeg(center, aEnd, theta * 180 / Math.PI);
+        }
+        if (arcs.Count == 0) return (p, 0, skipped);
+        var segs = new List<Segment>();
+        for (int i = 0; i < n; i++)
+        {
+            segs.Add(p.Segments[i] is LineSeg ? new LineSeg(starts[i], ends[i]) : p.Segments[i]);
+            if (arcs.TryGetValue(i, out var arc)) segs.Add(arc);
+        }
+        return (Copy(p, p.Name, segs, keepId: false), arcs.Count, skipped);
+    }
+
     private static Segment OffsetSeg(Segment s, double d)
     {
         if (s is ArcSeg a)

@@ -33,6 +33,22 @@ public static class Theme
         return b;
     }
 
+    /// <summary>Screen colour of a CP type, matching the AutoCAD colour of its layer: red traffic, green load, blue unload, orange rtnload, magenta rtnunload, gold standby, teal buffer.</summary>
+    public static Color CpColor(string type)
+    {
+        switch ((type ?? "").ToLowerInvariant())
+        {
+            case "traffic": return Color.FromArgb(220, 38, 38);
+            case "load": return Color.FromArgb(22, 163, 74);
+            case "unload": return Color.FromArgb(37, 99, 235);
+            case "rtnload": return Color.FromArgb(234, 88, 12);
+            case "rtnunload": return Color.FromArgb(192, 38, 211);
+            case "standby": return Color.FromArgb(202, 138, 4);
+            case "buffer": return Color.FromArgb(8, 145, 178);
+            default: return Muted;
+        }
+    }
+
     public static Label Section(string text) =>
         new Label { Text = text, Font = Small, ForeColor = Muted, AutoSize = true, Margin = new Padding(2, 12, 0, 4) };
 

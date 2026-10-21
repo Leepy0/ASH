@@ -96,13 +96,17 @@ public sealed class ExportCommands
         }
     }
 
+    // A new settings file takes its Scale from the drawing units (INSUNITS: mm 0.001, cm 0.01, m 1; no unit set: mm), so nobody has to edit it.
+    private static ProjectSettings NewSettings() => new ProjectSettings(Scale: UnitScale.FromInsUnits(Convert.ToInt32(Application.GetSystemVariable("INSUNITS"))));
+
     // Writes the default template when missing (prints the path once: next time the file exists) and warns on a mm drawing with Scale 1.
     private static ProjectSettings LoadOrCreate(Editor ed, string path)
     {
         if (!File.Exists(path))
         {
-            SettingsFile.Save(new ProjectSettings(), path);
-            ed.WriteMessage($"\n설정 파일이 없어 기본값으로 만들었습니다: {path}");
+            var created = NewSettings();
+            SettingsFile.Save(created, path);
+            ed.WriteMessage($"\n설정 파일이 없어 기본값으로 만들었습니다 (Scale {created.Scale}: 도면 단위 기준): {path}");
         }
         var s = SettingsFile.Load(path);
         if (Convert.ToInt32(Application.GetSystemVariable("INSUNITS")) == 4 && s.Scale == 1.0)
@@ -119,7 +123,7 @@ public sealed class ExportCommands
         {
             if (Convert.ToInt32(Application.GetSystemVariable("DWGTITLED")) == 0) { doc.Editor.WriteMessage("\n도면을 먼저 저장하세요. 설정 파일(" + SettingsFileName + ")은 도면 폴더에 둡니다."); return; }
             var path = Path.Combine((string)Application.GetSystemVariable("DWGPREFIX"), SettingsFileName);
-            if (!File.Exists(path)) SettingsFile.Save(new ProjectSettings(), path);
+            if (!File.Exists(path)) SettingsFile.Save(NewSettings(), path);
             Process.Start("notepad.exe", "\"" + path + "\"");
         }
         catch (System.Exception ex)

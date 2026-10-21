@@ -31,7 +31,7 @@ public sealed class CpCommands
             while (true)
             {
                 var s = CpSettings.Current;
-                var pr = ed.GetPoint(new PromptPointOptions($"\nCP 위치 ({(s.DetailedMode ? "상세" : "연속")} 모드, Enter 종료)") { AllowNone = true });
+                var pr = ed.GetPoint(new PromptPointOptions($"\nCP 위치 [{s.Type} · {AutoNamer.PatternFor(s.Type)}] ({(s.DetailedMode ? "상세" : "연속")} 모드, Enter 종료)") { AllowNone = true });
                 if (pr.Status != PromptStatus.OK) break;
                 var hit = LayoutChecker.Project(layout, new Point2(pr.Value.X, pr.Value.Y));
                 if (hit == null || hit.Value.Offset > maxOffset)
@@ -54,9 +54,9 @@ public sealed class CpCommands
                         name = Ask(ed, "NAME", AutoNamer.Next(prefix, names));
                     }
                     var type = name == null ? null : Ask(ed, "TYPE", s.Type)?.ToLowerInvariant();
-                    while (type != null && !CpSettings.CpTypes.Contains(type))
+                    while (type != null && !CpTypes.All.Contains(type))
                     {
-                        ed.WriteMessage($"\nTYPE은 {string.Join(", ", CpSettings.CpTypes)} 중 하나입니다.");
+                        ed.WriteMessage($"\nTYPE은 {string.Join(", ", CpTypes.All)} 중 하나입니다.");
                         type = Ask(ed, "TYPE", s.Type)?.ToLowerInvariant();
                     }
                     var group = type == null ? null : Ask(ed, "GROUP", s.Group);
@@ -65,11 +65,11 @@ public sealed class CpCommands
                         ed.WriteMessage("\nGROUP 이름에 공백·예약어·'?'로 시작하는 이름은 쓸 수 없습니다.");
                         group = Ask(ed, "GROUP", s.Group);
                     }
-                    var station = group == null ? null : Ask(ed, "STATION", s.Station);
-                    var cap = station == null ? null : Ask(ed, "CAP", s.Cap.ToString(CultureInfo.InvariantCulture));
+                    var station = group == null ? null : Ask(ed, "STATION (공정 이름 메모)", s.Station);
+                    var cap = station == null ? null : Ask(ed, "CAP (숫자 또는 INF=무제한)", CpTypes.FormatCap(type == s.Type ? s.Cap : CpTypes.DefaultCap(type)));
                     if (cap == null) break;
                     cp.Name = name!; cp.Type = type!; cp.Group = group!; cp.Station = station!;
-                    cp.Cap = int.TryParse(cap, NumberStyles.Integer, CultureInfo.InvariantCulture, out var c) && c > 0 ? c : 1;
+                    cp.Cap = CpTypes.TryParseCap(cap, out var c) ? c : CpTypes.DefaultCap(type);
                     names.Add(cp.Name);
                     naming = new CpNaming(names); // typed names must not be handed out again
                 }
@@ -77,7 +77,7 @@ public sealed class CpCommands
                 DrawingWriter.AddCp(db, tr, cp);
                 tr.TransactionManager.QueueForGraphicsFlush();
                 doc.TransactionManager.FlushGraphics();
-                ed.WriteMessage($"\nCP {cp.Name} ({cp.Type}) 삽입, 경로 {hit.Value.Path.Name}.");
+                ed.WriteMessage($"\nCP {cp.Name} ({cp.Type}, CAP {CpTypes.FormatCap(cp.Cap)}) 삽입, 경로 {hit.Value.Path.Name}.");
                 added++;
             }
             return added > 0;
