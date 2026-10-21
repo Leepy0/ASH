@@ -157,4 +157,13 @@ public class ResultJudgeTests
         Assert.Equal(RuleCode.NoResult, Judge.Evaluate(new[] { K(util: double.NaN) }, S).Rule);
         Assert.Equal(RuleCode.NoResult, Judge.Evaluate(new[] { K(stock: double.NaN) }, S).Rule);
     }
+
+    [Fact]
+    public void Min_Stock_Under_Safety_Without_A_Stop_Is_A_Warning()
+    {
+        var v = Judge.Evaluate(new[] { K(stock: 0.8) }, new ASH.Core.Input.Settings());
+        Assert.True(v.Ok);
+        Assert.Contains("주의", v.Reason);
+        Assert.False(Judge.Evaluate(new[] { K(stock: 0.8, stop: 60) }, new ASH.Core.Input.Settings()).Ok); // a process stop still fails
+    }
 }
