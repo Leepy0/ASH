@@ -78,7 +78,7 @@ public class StepExecutorTests
         var ops = new FakeOps();
         Assert.True(new StepExecutor(ops, ops, _ => { }).Install(I, @"D:\src", true, WithProfile(), @"C:\ProgramData\ASH\2026").Ok);
         bool File(string l) => l.StartsWith("copy ") || l.StartsWith("unblock ");
-        Assert.Equal(4, ops.Log.Count(File));
+        Assert.Equal(2 * InstallPlanner.Files.Length, ops.Log.Count(File)); // a copy and an unblock per file
         Assert.Equal(8, ops.Log.Count(l => l.StartsWith("sz ") || l.StartsWith("dw ")));
         Assert.True(ops.Log.FindIndex(l => !File(l)) > ops.Log.FindLastIndex(File), string.Join(" | ", ops.Log));
     }

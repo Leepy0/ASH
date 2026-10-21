@@ -1,6 +1,6 @@
 ﻿# Release build -> dist/ASH-Setup-<Version>.exe (single exe, plugin DLLs embedded), dist/ASH-Plugin-<Version>.zip (manual NETLOAD)
 # and dist/ASH-Runner-<Version>-win-x64.zip (ash-run.exe, self-contained single file: no .NET install needed)
-# and dist/ASH-Server-<Version>-win-x64.zip (ASH.Server.exe self-contained single file + appsettings.json + README-server.txt).
+# and dist/ASH-Server-<Version>-win-x64.zip (ASH.Server.exe self-contained single file + appsettings.json + README-server.txt + install-service.bat/uninstall-service.bat).
 # Version comes from <Version> in Directory.Build.props.
 # Also dist/ASH.json (release manifest: version, minSupported, SHA-256/size of the Setup exe)
 # and dist/ASH.json.sig, signed with the private-key PEM at $env:ASH_SIGNING_KEY (AshRelease keygen) and verified against update-key.pub.
@@ -43,6 +43,11 @@ if ($LASTEXITCODE) { throw "dotnet test failed (exit $LASTEXITCODE); release not
 $dist = "$root\dist"
 New-Item -ItemType Directory -Force $dist | Out-Null
 $exe = "$dist\ASH-Setup-$version.exe"
+# the Setup must embed every dll the plugin output holds (a new dependency would otherwise ship missing and break the commands that use it)
+foreach ($f in Get-ChildItem "$root\src\ASH.Plugin\bin\Release\net48\*.dll") {
+    dotnet $ashRelease check-resource --dll "$root\src\ASH.Installer\bin\Release\net48\ASH.Installer.exe" --name $f.Name
+    if ($LASTEXITCODE) { throw "ASH.Installer.exe does not embed $($f.Name): add it to InstallPlanner.Files and ASH.Installer.csproj" }
+}
 Copy-Item "$root\src\ASH.Installer\bin\Release\net48\ASH.Installer.exe" $exe -Force
 $manifest = "$dist\ASH.json"
 Remove-Item $manifest, "$manifest.sig" -Force -ErrorAction SilentlyContinue
@@ -58,7 +63,8 @@ if ($sign) {
 }
 $plugin = "$root\src\ASH.Plugin\bin\Release\net48"
 $zip = "$dist\ASH-Plugin-$version.zip"
-Compress-Archive -Path "$plugin\ASH.Plugin.dll", "$plugin\ASH.Core.dll" -DestinationPath $zip -Force
+# every dll of the plugin output (ASH.Plugin, ASH.Core, ClosedXML and its dependencies): the plugin needs them next to it
+Compress-Archive -Path (Get-ChildItem "$plugin\*.dll").FullName -DestinationPath $zip -Force
 # dotnet publish has no --no-incremental: delete the RID-specific intermediates so the publish below compiles from scratch
 $rid = "obj\Release\net10.0\win-x64"
 $pub = "$root\src\ASH.Runner\bin\Release\publish"
@@ -78,7 +84,7 @@ if ($havePub) { # the single-file exe bundles this assembly; the published one i
     if ($LASTEXITCODE) { throw "published ASH.Server does not embed update-key.pub" }
 }
 $serverZip = "$dist\ASH-Server-$version-win-x64.zip"
-Compress-Archive -Path "$serverPub\ASH.Server.exe", "$serverPub\appsettings.json", "$root\src\ASH.Server\README-server.txt" -DestinationPath $serverZip -Force
+Compress-Archive -Path "$serverPub\ASH.Server.exe", "$serverPub\appsettings.json", "$root\src\ASH.Server\README-server.txt", "$root\src\ASH.Server\install-service.bat", "$root\src\ASH.Server\uninstall-service.bat" -DestinationPath $serverZip -Force
 # ASH.Server.json(.sig): what a running server checks before it replaces itself (same key as ASH.json)
 $serverManifest = "$dist\ASH.Server.json"
 Remove-Item $serverManifest, "$serverManifest.sig" -Force -ErrorAction SilentlyContinue

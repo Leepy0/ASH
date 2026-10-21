@@ -4,7 +4,10 @@ ASH.Server - ASH 배포 서버 (최소판)
 !! 보안: 처음 시험 배포부터 서명해야 한다. 서명 키 없이 빌드한 서버는 업로드를 모두 거절한다
    (Update:AllowUnsigned=true 인 개발 PC만 예외). 서명 없는 빌드는 개발용이다.
 
-아래 명령은 관리자 명령 프롬프트(cmd) 기준이다.
+가장 쉬운 방법: 이 폴더를 C:\Program Files\ASH.Server 에 풀고 install-service.bat 을 더블클릭한다(관리자 권한을 묻는다).
+  폴더 권한 잠금, 서비스 등록(자동 시작, 죽으면 재시작), 방화벽 규칙(appsettings.json 의 포트), 시작, 응답 확인까지 한 번에 한다.
+  제거는 uninstall-service.bat (배포 파일과 appsettings.json 은 남긴다). 서비스 등록 후에는 새 버전을 GitHub 에서 가져오고 서버도 스스로 업데이트한다.
+  아래는 같은 일을 손으로 하는 방법이다. 명령은 관리자 명령 프롬프트(cmd) 기준이다.
 
 1. 이 폴더(ASH.Server.exe, appsettings.json)를 C:\Program Files\ASH.Server 에 푼다. .NET 설치는 필요 없다.
 2. appsettings.json 에서

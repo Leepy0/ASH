@@ -23,6 +23,15 @@ public class InstallPlannerTests
         Assert.True(s.FindLastIndex(x => x.Kind == "Unblock") < s.FindIndex(x => x.Kind.StartsWith("Reg")));
     }
 
+    [Fact] public void Plan_Copies_Plugin_Core_And_Their_Dependencies()
+    {
+        var s = InstallPlanner.Plan(new[] { I }, @"D:\src", elevated: true, uninstall: false);
+        foreach (var f in new[] { "ASH.Plugin.dll", "ASH.Core.dll", "ClosedXML.dll", "DocumentFormat.OpenXml.dll", "System.Memory.dll" })
+            Assert.Contains(s, x => x.Kind == "CopyFile" && x.Target == @"C:\ZWCAD2026\ASH\" + f && x.Value == @"D:\src\" + f);
+        Assert.Equal(InstallPlanner.Files.Length, s.Count(x => x.Kind == "CopyFile"));
+        Assert.Equal(InstallPlanner.Files.Length, s.Count(x => x.Kind == "Unblock"));
+    }
+
     [Fact] public void Plan_Skips_Unsupported_Version()
     {
         var old = new ZwcadInstall("2024", "ko_KR", @"C:\ZWCAD2024", @"Software\ZWSoft\ZWCAD\2024\ko_KR");

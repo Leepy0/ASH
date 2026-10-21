@@ -11,7 +11,9 @@
 
 `ASH.Server`는 .NET 설치가 필요 없는 단일 exe다(`dist/ASH-Server-<버전>-win-x64.zip`). 아래 명령은 **관리자 명령 프롬프트(cmd)** 기준이다(PowerShell이면 `%ProgramData%`를 `$env:ProgramData`로, `sc`를 `sc.exe`로 바꾼다).
 
-1. zip을 **`C:\Program Files\ASH.Server`** 에 푼다. `ASH.Server.exe`, `appsettings.json`, `README-server.txt`가 나온다.
+**가장 쉬운 방법:** zip을 `C:\Program Files\ASH.Server`에 풀고 `install-service.bat`을 더블클릭한다(관리자 권한을 묻는다). 아래 3~5번(폴더 권한 잠금, 서비스 등록과 복구 설정, 방화벽 규칙)과 시작, 응답 확인을 한 번에 한다. 포트는 `appsettings.json`의 `Urls`에서 읽는다. `Releases:Dir`을 기본값에서 바꿨다면 그 폴더의 권한은 직접 잠근다. 제거는 `uninstall-service.bat`(배포 파일과 설정은 남긴다). 아래는 같은 일을 손으로 하는 방법이다.
+
+1. zip을 **`C:\Program Files\ASH.Server`** 에 푼다. `ASH.Server.exe`, `appsettings.json`, `README-server.txt`, `install-service.bat`, `uninstall-service.bat`이 나온다.
 2. `appsettings.json`을 고친다.
    - `GitHub` — 새 릴리스 자동 가져오기(AGV_FOTA_GATEWAY와 같은 방식). 기본값 그대로 두면 된다.
      - `BaseUrl` 기본 `https://github.com/Leepy0/ASH`. 서버는 `<BaseUrl>/releases/latest/download/ASH.json`만 본다(api.github.com은 쓰지 않음). https만 받는다.

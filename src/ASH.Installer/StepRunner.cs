@@ -182,13 +182,13 @@ sealed class StepRunner : IDisposable
                  + string.Join(", ", r.Failures.Select(f => f.Step.Target)) + " ===");
     }
 
-    // %TEMP%\ASH-install\<guid>\ASH.Plugin.dll + ASH.Core.dll
+    // %TEMP%\ASH-install\<guid>\<every file of InstallPlanner.Files>
     string Extract()
     {
         if (_src != null) return _src;
         var dir = Path.Combine(Path.GetTempPath(), "ASH-install", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
-        foreach (var name in new[] { "ASH.Plugin.dll", "ASH.Core.dll" })
+        foreach (var name in ASH.Core.Install.InstallPlanner.Files)
         {
             using var s = Assembly.GetExecutingAssembly().GetManifestResourceStream(name) ?? throw new InvalidOperationException("내장 리소스 없음: " + name);
             using var f = File.Create(Path.Combine(dir, name));

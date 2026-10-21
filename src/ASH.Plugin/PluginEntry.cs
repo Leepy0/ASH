@@ -14,8 +14,9 @@ public sealed class PluginEntry : IExtensionApplication
     // Initialize only hooks events: on demand-load the ribbon may not exist yet, ItemInitialized retries later.
     public void Initialize()
     {
+        PluginLog.Write("Initialize " + typeof(PluginEntry).Assembly.Location);
         try { HookRibbon(); }
-        catch (System.Exception ex) { Debug.WriteLine("ASH ribbon: " + ex); } // never throw from Initialize
+        catch (System.Exception ex) { Debug.WriteLine("ASH ribbon: " + ex); PluginLog.Write("ribbon hook failed", ex); } // never throw from Initialize
         try { StartUpdateCheck(); }
         catch (System.Exception ex) { Debug.WriteLine("ASH update: " + ex); }
     }

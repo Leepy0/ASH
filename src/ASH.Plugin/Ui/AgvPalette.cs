@@ -15,12 +15,23 @@ public sealed class AgvPalette
     [CommandMethod("AGVPALETTE")]
     public void Show()
     {
-        if (_set == null)
+        try
         {
-            _set = new PaletteSet("ASH", new Guid("6f1a6c2e-5b7d-4e7a-9c3b-a5b000000001")) { MinimumSize = new Size(260, 400) };
-            _set.Add("ASH", new AgvPaletteControl());
+            if (_set == null)
+            {
+                // assigned only after Add succeeded: a failed build is retried by the next call instead of leaving an empty palette
+                var set = new PaletteSet("ASH", new Guid("6f1a6c2e-5b7d-4e7a-9c3b-a5b000000001")) { MinimumSize = new Size(260, 400) };
+                set.Add("ASH", new AgvPaletteControl());
+                _set = set;
+                PluginLog.Write("palette created");
+            }
+            _set.Visible = true;
         }
-        _set.Visible = true;
+        catch (System.Exception ex)
+        {
+            PluginLog.Write("AGVPALETTE failed", ex);
+            Application.DocumentManager.MdiActiveDocument?.Editor.WriteMessage("\nASH 팔레트를 열지 못했습니다: " + ex.Message + "\n로그: " + PluginLog.Path);
+        }
     }
 
     /// <summary>Manual recovery: rebuilds the ASH ribbon tab if it is missing and brings it to front.</summary>
@@ -35,13 +46,15 @@ public sealed class AgvPalette
     internal static void Send(string cmd)
     {
         var doc = Application.DocumentManager.MdiActiveDocument;
-        if (doc == null) return;
+        if (doc == null) { PluginLog.Write("send " + cmd + ": no active drawing"); return; }
         try
         {
             // a command waiting for input would take the command name as its answer
-            if (!string.IsNullOrEmpty(Application.GetSystemVariable("CMDNAMES") as string)) { doc.Editor.WriteMessage("\n실행 중인 명령을 먼저 끝내세요."); return; }
+            var running = Application.GetSystemVariable("CMDNAMES") as string;
+            if (!string.IsNullOrEmpty(running)) { PluginLog.Write("send " + cmd + ": blocked by running command " + running); doc.Editor.WriteMessage("\n실행 중인 명령을 먼저 끝내세요."); return; }
             doc.SendStringToExecute(cmd + " ", true, false, true);
+            PluginLog.Write("sent " + cmd);
         }
-        catch (System.Exception ex) { doc.Editor.WriteMessage("\nASH: " + ex.Message); } // never let it reach the WinForms/WPF click handler
+        catch (System.Exception ex) { PluginLog.Write("send " + cmd + " failed", ex); doc.Editor.WriteMessage("\nASH: " + ex.Message); } // never let it reach the WinForms/WPF click handler
     }
 }

@@ -100,6 +100,12 @@ public static class AgvRibbon
         public static readonly RibbonCmd Instance = new RibbonCmd();
         public event EventHandler? CanExecuteChanged { add { } remove { } }
         public bool CanExecute(object? parameter) => true;
-        public void Execute(object? parameter) { if (parameter is string cmd) AgvPalette.Send(cmd); } // CMDNAMES guard lives in Send
+        // The ribbon passes the clicked button (RibbonCommandItem) to Execute, not its CommandParameter; a plain string is accepted too.
+        public void Execute(object? parameter)
+        {
+            var cmd = parameter as string ?? (parameter as RibbonCommandItem)?.CommandParameter as string;
+            PluginLog.Write("ribbon click: " + (cmd ?? "(no command, parameter " + (parameter?.GetType().FullName ?? "null") + ")"));
+            if (!string.IsNullOrEmpty(cmd)) AgvPalette.Send(cmd!); // CMDNAMES guard lives in Send
+        }
     }
 }

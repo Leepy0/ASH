@@ -26,9 +26,20 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- both from the Plugin output so the installed Core matches the Plugin it was built with -->
+    <!-- the whole Plugin output (InstallPlanner.Files), so the installed Core and its dependencies match the Plugin they were built with -->
     <EmbeddedResource Include="..\ASH.Plugin\bin\$(Configuration)\net48\ASH.Plugin.dll" LogicalName="ASH.Plugin.dll" />
     <EmbeddedResource Include="..\ASH.Plugin\bin\$(Configuration)\net48\ASH.Core.dll" LogicalName="ASH.Core.dll" />
+    <EmbeddedResource Include="..\ASH.Plugin\bin\$(Configuration)\net48\ClosedXML.dll" LogicalName="ClosedXML.dll" />
+    <EmbeddedResource Include="..\ASH.Plugin\bin\$(Configuration)\net48\DocumentFormat.OpenXml.dll" LogicalName="DocumentFormat.OpenXml.dll" />
+    <EmbeddedResource Include="..\ASH.Plugin\bin\$(Configuration)\net48\ExcelNumberFormat.dll" LogicalName="ExcelNumberFormat.dll" />
+    <EmbeddedResource Include="..\ASH.Plugin\bin\$(Configuration)\net48\Irony.dll" LogicalName="Irony.dll" />
+    <EmbeddedResource Include="..\ASH.Plugin\bin\$(Configuration)\net48\SixLabors.Fonts.dll" LogicalName="SixLabors.Fonts.dll" />
+    <EmbeddedResource Include="..\ASH.Plugin\bin\$(Configuration)\net48\System.Buffers.dll" LogicalName="System.Buffers.dll" />
+    <EmbeddedResource Include="..\ASH.Plugin\bin\$(Configuration)\net48\System.IO.Packaging.dll" LogicalName="System.IO.Packaging.dll" />
+    <EmbeddedResource Include="..\ASH.Plugin\bin\$(Configuration)\net48\System.Memory.dll" LogicalName="System.Memory.dll" />
+    <EmbeddedResource Include="..\ASH.Plugin\bin\$(Configuration)\net48\System.Numerics.Vectors.dll" LogicalName="System.Numerics.Vectors.dll" />
+    <EmbeddedResource Include="..\ASH.Plugin\bin\$(Configuration)\net48\System.Runtime.CompilerServices.Unsafe.dll" LogicalName="System.Runtime.CompilerServices.Unsafe.dll" />
+    <EmbeddedResource Include="..\ASH.Plugin\bin\$(Configuration)\net48\XLParser.dll" LogicalName="XLParser.dll" />
   </ItemGroup>
 
 </Project>

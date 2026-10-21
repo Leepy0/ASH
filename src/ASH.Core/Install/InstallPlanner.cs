@@ -9,7 +9,17 @@ public sealed record InstallStep(string Kind, string Target, string? Value);
 
 public static class InstallPlanner
 {
-    static readonly string[] Files = { "ASH.Plugin.dll", "ASH.Core.dll" };
+    /// <summary>
+    /// Everything the plugin needs at run time, copied side by side (ZWCAD loads ASH.Plugin.dll from there and resolves the rest from the same folder).
+    /// Must equal the net48 output of ASH.Plugin: the Setup embeds exactly these (ASH.Installer.csproj) and build-release.ps1 fails when one is missing.
+    /// ClosedXML and its dependencies are needed by AGVEXCEL / AGVMODEL.
+    /// </summary>
+    public static readonly string[] Files =
+    {
+        "ASH.Plugin.dll", "ASH.Core.dll", "ClosedXML.dll", "DocumentFormat.OpenXml.dll", "ExcelNumberFormat.dll", "Irony.dll",
+        "SixLabors.Fonts.dll", "System.Buffers.dll", "System.IO.Packaging.dll", "System.Memory.dll", "System.Numerics.Vectors.dll",
+        "System.Runtime.CompilerServices.Unsafe.dll", "XLParser.dll",
+    };
     const string Description = "ASH - AGV Simul Helper";
 
     /// <param name="reg">
