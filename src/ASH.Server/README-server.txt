@@ -8,11 +8,16 @@ ASH.Server - ASH 배포 서버 (최소판)
 
 1. 이 폴더(ASH.Server.exe, appsettings.json)를 C:\Program Files\ASH.Server 에 푼다. .NET 설치는 필요 없다.
 2. appsettings.json 에서
-   - Admin:Token  업로드용 토큰. 16자 이상의 길고 무작위인 문자열. 비어 있거나 16자 미만이면 업로드가 꺼진다.
+   - GitHub       새 릴리스 자동 가져오기(AGV_FOTA_GATEWAY 와 같은 방식). 기본값 그대로 두면 된다.
+                    BaseUrl https://github.com/Leepy0/ASH 의 releases/latest/download/ASH.json 을 CheckIntervalMin(기본 60분)마다 확인.
+                    Proxy 비우면 PC 설정, none 이면 직접 연결, 또는 http://proxy.corp:8080 (서비스는 사용자 프록시 설정을 안 씀).
+                    가져온 릴리스도 서명·크기·SHA-256 을 확인한다. 토큰은 필요 없다.
+   - Admin:Token  선택. 수동 업로드(publish-release.ps1)를 쓸 때만. 16자 이상의 길고 무작위인 문자열.
+                    비워 두면 수동 업로드만 꺼지고 GitHub 가져오기는 동작한다.
    - Urls         기본 http://0.0.0.0:8082
    - Releases:Dir 배포 파일 보관 폴더(기본 %ProgramData%/ASH.Server/releases)
    를 확인한다. 환경 변수 Admin__Token 으로 토큰을 줄 수도 있다.
-   appsettings.json 에는 토큰이 들어 있으므로 설치 폴더 권한을 관리자로 제한한다:
+   설치 폴더 권한을 관리자로 제한한다(토큰을 넣었다면 토큰 보호):
      icacls "C:\Program Files\ASH.Server" /inheritance:r /grant:r "Administrators:(OI)(CI)F" "SYSTEM:(OI)(CI)F"
 3. 배포 폴더(Releases:Dir)를 먼저 만들고 권한을 잠근 다음에 서비스를 등록한다(순서 필수. 서비스가 먼저 만들면
    %ProgramData% 의 상속 권한이 붙어 로컬 사용자가 배포 파일을 바꿀 수 있다):
@@ -39,9 +44,12 @@ ASH.Server - ASH 배포 서버 (최소판)
    함정: 서버 PC 의 네트워크가 Public 으로 분류돼 있으면 위 규칙이 적용되지 않아 다른 PC 에서 접속이 안 된다
    (서버 자신에서는 열린다). Get-NetConnectionProfile 로 확인하고 Set-NetConnectionProfile ... -NetworkCategory Private 로 바꾼다.
    규칙에 Public 을 그냥 추가하지 말 것.
-   토큰은 평문 HTTP 로 전달된다. 신뢰할 수 있는 사내망에서만 업로드하거나, 앞단에 HTTPS 프록시를 둔다.
-6. 브라우저로 http://서버:8082/ 를 열어 상태 페이지를 확인한다(서명 키 ID 와 업로드 가능 여부가 보인다).
-7. 릴리스 PC에서:  $env:ASH_ADMIN_TOKEN='<토큰>'; scripts\publish-release.ps1 -Server http://서버:8082
+   수동 업로드의 토큰은 평문 HTTP 로 전달된다. 신뢰할 수 있는 사내망에서만 업로드하거나, 앞단에 HTTPS 프록시를 둔다.
+6. 브라우저로 http://서버:8082/ 를 열어 상태 페이지를 확인한다. 시작 10초쯤 뒤 "마지막 확인 — 가져옴: x.y.z" 와
+   현재 버전이 보이면 끝이다. "실패: …" 면 서버 PC 의 github.com 접속과 GitHub:Proxy 를 확인한다.
+7. 새 버전 배포: GitHub 에 정식 릴리스(ASH.json, ASH.json.sig, ASH-Setup-x.y.z.exe 포함)를 만들면 서버가 60분 안에 가져간다.
+   바로 반영하려면 sc stop ASH.Server && sc start ASH.Server.
+   서버가 GitHub 에 닿지 않을 때만 수동 업로드:  $env:ASH_ADMIN_TOKEN='<토큰>'; scripts\publish-release.ps1 -Server http://서버:8082
 
 로그
 - 이벤트 뷰어 > Windows 로그 > 응용 프로그램, 원본(Source) ASH.Server. (appsettings.json 의 Logging:EventLog 로 수준 조정)

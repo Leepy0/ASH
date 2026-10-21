@@ -138,6 +138,15 @@ public sealed class ReleaseStore
 
     public async Task<ReleaseManifest> PublishAsync(IFormFile manifestPart, IFormFile? signaturePart, IFormFile setupPart, bool force, CancellationToken ct)
     {
+        var json = await ReadSmall(manifestPart, MaxManifestBytes, "manifest");
+        var sig = signaturePart == null ? null : await ReadSmall(signaturePart, MaxSignatureBytes, "signature");
+        await using var setup = setupPart.OpenReadStream();
+        return await PublishAsync(json, sig, Path.GetFileName(setupPart.FileName), setup, force, ct);
+    }
+
+    /// <summary>Same checks as an upload; the setup stream is read only after the manifest and signature pass (used by the GitHub pull too).</summary>
+    public async Task<ReleaseManifest> PublishAsync(byte[] json, byte[]? sig, string setupName, Stream setup, bool force, CancellationToken ct)
+    {
         await _gate.WaitAsync(ct);
         var incoming = Path.Combine(Dir, "incoming", Guid.NewGuid().ToString("N"));
         string? movedNew = null; // setup file we put into files\ and must remove again if the upload fails later
@@ -146,7 +155,8 @@ public sealed class ReleaseStore
         {
             if (Key == null && !AllowUnsigned) throw new UploadException(400, "서명 키 없음 — Update:AllowUnsigned=true로만 허용");
             Directory.CreateDirectory(incoming);
-            var json = await ReadSmall(manifestPart, MaxManifestBytes, "manifest");
+            if (json.Length > MaxManifestBytes) throw new UploadException(400, "manifest이(가) 너무 큽니다.");
+            if (sig != null && sig.Length > MaxSignatureBytes) throw new UploadException(400, "signature이(가) 너무 큽니다.");
             ReleaseManifest m;
             try { m = ReleaseManifest.Parse(json); }
             catch (InvalidDataException e) { throw new UploadException(400, e.Message); }
@@ -155,7 +165,6 @@ public sealed class ReleaseStore
             if (SemVersion.TryParse(m.MinSupported, out var minVer) && minVer!.CompareTo(newVer) > 0)
                 throw new UploadException(400, $"minSupported({m.MinSupported})가 version({m.Version})보다 높습니다.");
 
-            var sig = signaturePart == null ? null : await ReadSmall(signaturePart, MaxSignatureBytes, "signature");
             if (Key != null)
             {
                 if (sig == null) throw new UploadException(400, "이 서버는 서명된 배포만 받습니다(signature 없음).");
@@ -163,10 +172,10 @@ public sealed class ReleaseStore
             }
             else _log.LogWarning("서명 확인 없이 {Version} 업로드를 받습니다(공개키 없음).", m.Version);
 
-            if (Path.GetFileName(setupPart.FileName) != m.File)
-                throw new UploadException(400, $"설치 파일 이름({setupPart.FileName})이 배포 정보의 file({m.File})과 다릅니다.");
+            if (setupName != m.File)
+                throw new UploadException(400, $"설치 파일 이름({setupName})이 배포 정보의 file({m.File})과 다릅니다.");
             var staged = Path.Combine(incoming, m.File);
-            var (size, hash) = await CopyAndHash(setupPart, staged, ct);
+            var (size, hash) = await CopyAndHash(setup, staged, m.Size, ct);
             if (size != m.Size) throw new UploadException(400, $"설치 파일 크기가 다릅니다(받은 {size}, 배포 정보 {m.Size}).");
             if (hash != m.Sha256) throw new UploadException(400, "설치 파일 SHA-256이 배포 정보와 다릅니다.");
 
@@ -239,12 +248,12 @@ public sealed class ReleaseStore
         return ms.ToArray();
     }
 
-    private static async Task<(long Size, string Hash)> CopyAndHash(IFormFile f, string path, CancellationToken ct)
+    // stops one byte past the expected size, so a wrong or endless source cannot fill the disk
+    private static async Task<(long Size, string Hash)> CopyAndHash(Stream src, string path, long expected, CancellationToken ct)
     {
         using var sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
         long size = 0;
         var buf = new byte[81920];
-        await using var src = f.OpenReadStream();
         await using var dst = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, buf.Length, useAsync: true);
         int n;
         while ((n = await src.ReadAsync(buf, ct)) > 0)
@@ -252,6 +261,7 @@ public sealed class ReleaseStore
             sha.AppendData(buf, 0, n);
             await dst.WriteAsync(buf.AsMemory(0, n), ct);
             size += n;
+            if (size > expected) break;
         }
         return (size, Convert.ToHexString(sha.GetHashAndReset()).ToLowerInvariant());
     }

@@ -5,7 +5,7 @@
 > - `build-release.ps1`는 서명 키(`ASH_SIGNING_KEY`)나 `update-key.pub`가 없으면 기본적으로 **중단**합니다. 서버도 공개키가 없으면 업로드를 거절합니다(`Update:AllowUnsigned=true`일 때만 예외).
 > - 이미 키 없이 배포한 PC는 새 설치 파일을 한 번 직접 실행해야 키가 들어갑니다(키 없는 판의 자동 업데이트로는 키를 신뢰할 수 없음).
 
-구성: **서버 PC**(`ASH.Server`, 배포 파일 보관·제공) / **릴리스 PC**(빌드·서명·업로드) / **사용자 PC**(ZWCAD + ASH 플러그인, 시작할 때 서버에 새 버전 확인).
+구성: **서버 PC**(`ASH.Server`, GitHub 릴리스를 스스로 가져와 보관·제공) / **릴리스 PC**(빌드·서명·GitHub 릴리스 생성) / **사용자 PC**(ZWCAD + ASH 플러그인, 시작할 때 서버에 새 버전 확인).
 
 ## 1. 서버 PC 설치
 
@@ -13,10 +13,16 @@
 
 1. zip을 **`C:\Program Files\ASH.Server`** 에 푼다. `ASH.Server.exe`, `appsettings.json`, `README-server.txt`가 나온다.
 2. `appsettings.json`을 고친다.
-   - `Admin:Token` — 업로드용 토큰. **16자 이상**의 긴 무작위 문자열(비어 있거나 짧으면 업로드가 꺼짐).
+   - `GitHub` — 새 릴리스 자동 가져오기(AGV_FOTA_GATEWAY와 같은 방식). 기본값 그대로 두면 된다.
+     - `BaseUrl` 기본 `https://github.com/Leepy0/ASH`. 서버는 `<BaseUrl>/releases/latest/download/ASH.json`만 본다(api.github.com은 쓰지 않음). https만 받는다.
+     - `CheckIntervalMin` 기본 60(분). 0이면 서비스 시작 때 한 번만 확인. 시작 10초 뒤 첫 확인.
+     - `Proxy` 비우면 PC 프록시 설정, `none`이면 직접 연결, 또는 `http://proxy.corp:8080`. 서비스(LocalSystem)는 로그인 사용자의 프록시 설정을 쓰지 않으므로, 콘솔 실행으로는 되는데 서비스로는 실패하면 여기에 적는다.
+     - `Enabled` false면 끈다(수동 업로드만 사용).
+     - 가져온 릴리스도 업로드와 똑같이 서명·크기·SHA-256을 확인하고, 서버 버전보다 높을 때만 게시한다.
+   - `Admin:Token` — **선택.** 수동 업로드(`publish-release.ps1`)를 쓸 때만 넣는다. 16자 이상의 긴 무작위 문자열. 비워 두면 수동 업로드만 꺼지고 GitHub 가져오기는 그대로 동작한다.
    - `Urls` — 기본 `http://0.0.0.0:8082`. 포트를 바꾸면 아래 방화벽·`/server:` 주소도 같이 바꾼다.
    - `Releases:Dir` — 배포 파일 보관 폴더(기본 `%ProgramData%/ASH.Server/releases`). **3번에서 권한을 먼저 잠근 폴더**여야 한다.
-   - 토큰이 들어 있으므로 설치 폴더 권한도 관리자로 제한한다(`Program Files` 기본값은 일반 사용자 읽기 가능).
+   - 설정 파일(토큰을 넣었다면 토큰 포함)을 보호하도록 설치 폴더 권한도 관리자로 제한한다(`Program Files` 기본값은 일반 사용자 읽기 가능).
      ```bat
      icacls "C:\Program Files\ASH.Server" /inheritance:r /grant:r "Administrators:(OI)(CI)F" "SYSTEM:(OI)(CI)F"
      ```
@@ -48,9 +54,9 @@
    New-NetFirewallRule -DisplayName "ASH.Server" -Direction Inbound -Protocol TCP -LocalPort 8082 -Action Allow -Profile Domain,Private
    ```
    **함정:** 서버 PC의 네트워크가 도메인에 연결되지 않으면 윈도우가 그 NIC를 **Public**으로 분류하기도 한다. 그러면 위 규칙은 적용되지 않아 다른 PC에서 접속이 안 된다(서버 PC 자신에서는 열린다). `Get-NetConnectionProfile`로 `NetworkCategory`를 확인하고, Public이면 NIC를 Private로 바꾼다(`Set-NetConnectionProfile -InterfaceAlias <이름> -NetworkCategory Private`). 규칙에 `-Profile Public`을 그냥 추가하지 말 것 — 카페·공유기 같은 신뢰할 수 없는 네트워크에도 포트가 열린다. 꼭 필요하면 `-RemoteAddress 10.0.0.0/8`처럼 사내 대역으로 제한한다.
-6. 다른 PC의 브라우저로 `http://<서버>:8082/` 를 열어 상태 페이지를 확인한다. 처음에는 "게시된 버전이 없습니다."가 정상이다. "서명 키" 줄에 키 ID가 아니라 "서명 키 없음"이 보이면 서버 exe가 `update-key.pub` 없이 빌드된 것이다(업로드는 거절된다). 2절의 키를 만들고 서버를 다시 빌드·교체한다.
+6. 다른 PC의 브라우저로 `http://<서버>:8082/` 를 열어 상태 페이지를 확인한다. 서비스 시작 직후에는 "게시된 버전이 없습니다."가 정상이고, 10초쯤 뒤 새로 고치면 "마지막 확인 … 가져옴: x.y.z"와 현재 버전이 보인다. "실패: …"가 보이면 서버 PC에서 github.com 접속과 `GitHub:Proxy`를 확인한다. "서명 키" 줄에 키 ID가 아니라 "서명 키 없음"이 보이면 서버 exe가 `update-key.pub` 없이 빌드된 것이다(업로드는 거절된다). 2절의 키를 만들고 서버를 다시 빌드·교체한다.
 
-토큰은 평문 HTTP로 전달된다. 신뢰할 수 있는 사내망에서만 업로드하거나 앞단에 HTTPS 프록시를 둔다.
+수동 업로드의 토큰은 평문 HTTP로 전달된다. 수동 업로드는 신뢰할 수 있는 사내망에서만 하거나 앞단에 HTTPS 프록시를 둔다.
 
 ### 로그 위치
 
@@ -88,20 +94,27 @@ git add update-key.pub; git commit -m "chore: update signing public key"
 - **잃어버리면 모든 PC를 손으로 다시 설치해야 한다.** 사용자 PC의 플러그인은 자기 안에 내장된 공개키로만 업데이트를 믿는다. 새 키를 넣은 판을 자동 업데이트로 보내려면 그 판을 **옛 키로 서명**해야 하는데(4절), 옛 개인키가 없으면 그럴 수 없다. 남은 방법은 새 키가 든 `ASH-Setup`을 PC마다 직접 실행하는 것뿐이다.
 - 유출이 의심되면 4절의 키 교체 절차(옛 키로 서명할 수 있을 때)를 즉시 진행한다.
 
-### 빌드와 업로드
+### 빌드와 게시
 
 ```powershell
 $env:ASH_SIGNING_KEY = 'D:\secure\ash-keys\ash-signing.pem'
 scripts\build-release.ps1 -MinSupported 0.1.0 -Notes notes.txt     # dist\ 에 Setup, Plugin, Runner, Server zip, ASH.json, ASH.json.sig
-$env:ASH_ADMIN_TOKEN = '<서버 appsettings.json 의 Admin:Token>'      # 명령줄·기록에 남기지 않으려고 환경 변수로
-scripts\publish-release.ps1 -Server http://<서버>:8082
+gh release create v<버전> dist\ASH-Setup-<버전>.exe dist\ASH.json dist\ASH.json.sig dist\ASH-Plugin-<버전>.zip dist\ASH-Runner-<버전>-win-x64.zip dist\ASH-Server-<버전>-win-x64.zip --title "v<버전>" --notes-file notes.txt
 ```
+
+- 정식 릴리스(초안·시험판 아님)에 `ASH.json`, `ASH.json.sig`, `ASH-Setup-<버전>.exe`가 반드시 있어야 서버가 가져간다. 태그는 `v<버전>`(매니페스트의 version과 같게).
+- 서버는 `CheckIntervalMin`(기본 60분) 안에 가져간다. 바로 반영하려면 서버에서 `sc stop ASH.Server && sc start ASH.Server`.
+- 서버가 GitHub에 닿지 않는 곳이면 수동 업로드를 쓴다(서버 `Admin:Token` 필요):
+  ```powershell
+  $env:ASH_ADMIN_TOKEN = '<서버 appsettings.json 의 Admin:Token>'      # 명령줄·기록에 남기지 않으려고 환경 변수로
+  scripts\publish-release.ps1 -Server http://<서버>:8082
+  ```
 
 - 버전은 `Directory.Build.props`의 `<Version>`이다(올리지 않으면 서버가 같은/낮은 버전을 거절한다).
 - 서명은 **기본으로 필수**다. `ASH_SIGNING_KEY`(개인키 PEM 경로)나 저장소 루트 `update-key.pub`가 없으면 빌드가 중단된다. 개발 중에만 `-AllowUnsigned`로 서명 없이 빌드한다. `update-key.pub`가 있는데 서명 키가 없으면 `-AllowUnsigned`를 줘도 중단한다(키가 든 플러그인은 서명 없는 매니페스트로 업데이트할 수 없다). `-RequireSignature`는 더 이상 필요 없는 옵션으로, 남겨 두었지만 경고만 낸다.
 - 빌드는 항상 처음부터 다시 컴파일하고(`--no-incremental`) `dotnet test ASH.sln`(서버 테스트 포함)을 통과해야 패키징한다.
 - `-MinSupported <버전>`(없으면 `ASH_MIN_SUPPORTED`, 그것도 없으면 `0.0.0`)은 그 버전 **미만** PC에 "최소 지원 미만" 안내를 띄운다. 기본값은 "아무도 미만이 아님"이다 — 이번 버전으로 자동 설정하지 않는다. 이번 버전보다 높게는 줄 수 없다(서버도 거절).
-- 업로드 뒤 상태 페이지(`http://<서버>:8082/`)에서 버전과 서명 키 ID를 확인한다.
+- 게시 뒤 상태 페이지(`http://<서버>:8082/`)에서 버전, 서명 키 ID, "마지막 확인" 결과를 확인한다.
 
 ### 되돌리기(롤백)의 뜻
 
@@ -167,6 +180,9 @@ sc start ASH.Server
 | `AGVUPDATE`에 "경고: 서명 키 미설정 — SHA-256만 확인" | 플러그인을 `update-key.pub` 없이 빌드함(`-AllowUnsigned` 개발 빌드). 2절의 키를 만들고 커밋한 뒤 다시 빌드·설치. |
 | 업로드가 400 "서명 키 없음 — Update:AllowUnsigned=true로만 허용" | 서버 exe를 `update-key.pub` 없이 빌드함. 키 커밋 후 서버 zip을 다시 빌드해 교체(개발 PC만 `Update:AllowUnsigned=true`). |
 | 업로드가 400 "minSupported(…)가 version(…)보다 높습니다" | `-MinSupported`/`ASH_MIN_SUPPORTED`가 이번 버전보다 높음. |
+| 상태 페이지 "마지막 확인 — 실패: …" | 서버 PC에서 github.com에 닿지 않음. 브라우저로 `https://github.com/Leepy0/ASH/releases/latest/download/ASH.json`이 받아지는지 보고, 콘솔에서는 되는데 서비스에서만 실패하면 `GitHub:Proxy`를 적는다. 이벤트 로그에 같은 내용이 남는다. |
+| 상태 페이지 "마지막 확인 — 거절: 서명이 맞지 않습니다" | GitHub 릴리스의 `ASH.json.sig`가 서버 내장 공개키와 다른 키로 서명됨, 또는 `ASH.json`을 손으로 고침. 올바른 키로 다시 빌드해 새 버전으로 릴리스한다. |
+| 상태 페이지 "마지막 확인 — GitHub에 ASH.json이(가) 있는 릴리스가 없습니다" | 최신 정식 릴리스에 `ASH.json`이 빠졌거나 초안·시험판만 있음. |
 | 업로드가 403 "업로드가 꺼져 있습니다" | `Admin:Token`이 비었거나 16자 미만. 서비스 재시작 필요. |
 | 업로드가 401 | 토큰이 다름(`$env:ASH_ADMIN_TOKEN` 확인). |
 | 업로드가 거절됨(서명) | `ASH_SIGNING_KEY`의 키가 서버 내장 공개키와 다름. 올바른 키로 `build-release.ps1`를 다시 실행. |

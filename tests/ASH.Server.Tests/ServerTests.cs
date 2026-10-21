@@ -28,6 +28,7 @@ public sealed class Env : IDisposable
             b.UseSetting("Admin:Token", token);
             b.UseSetting("Update:PublicKeyPem", pem);
             b.UseSetting("Update:AllowUnsigned", allowUnsigned ? "true" : "false");
+            b.UseSetting("GitHub:Enabled", "false");
         });
         Http = Factory.CreateClient();
     }

@@ -196,8 +196,8 @@ AutoMod 12.6이 있는 PC 필요(T16-2, T16-4). 검증·내보내기 탭 "Excel 
 
 | 항목 | 결과 | 날짜 | ZWCAD 버전 | 메모 |
 |---|---|---|---|---|
-| S1 서버 PC에서 zip을 풀고 `appsettings.json`에 `Admin:Token`(16자 이상)을 넣은 뒤 관리자 PowerShell에서 `ASH.Server.exe --install` → 출력에 "[SC] CreateService 성공", `sc.exe qc ASH.Server`의 `BINARY_PATH_NAME`이 `"…\ASH.Server.exe"`처럼 따옴표로 감싸짐(경로에 공백이 있어도). `sc.exe start ASH.Server` → `RUNNING`, 서버 PC 재부팅 뒤에도 자동 시작 | | | | |
+| S1 서버 PC에서 zip을 풀고(`appsettings.json`은 그대로) 관리자 PowerShell에서 `ASH.Server.exe --install` → 출력에 "[SC] CreateService 성공", `sc.exe qc ASH.Server`의 `BINARY_PATH_NAME`이 `"…\ASH.Server.exe"`처럼 따옴표로 감싸짐(경로에 공백이 있어도). `sc.exe start ASH.Server` → `RUNNING`, 서버 PC 재부팅 뒤에도 자동 시작 | | | | |
 | S2 방화벽 TCP 8082 허용 후 **다른 PC**의 브라우저로 `http://<서버>:8082/` → 상태 페이지("게시된 버전이 없습니다."), `curl http://<서버>:8082/healthz` → `ok`. 허용 전에는 접속 실패, 허용 뒤 성공 | | | | |
-| S3 릴리스 PC에서 `$env:ASH_ADMIN_TOKEN` 설정 → `scripts\publish-release.ps1 -Server http://<서버>:8082` → "200 OK / 게시됨: ASH x.y.z". 상태 페이지에 버전·게시 시각·서명 키 ID 표시(키 내장 빌드면 "서명 키 없음" 문구가 없음). 토큰을 틀리게 주면 401, `appsettings.json` 토큰이 16자 미만이면 403 | | | | |
+| S3 서비스 시작 10초쯤 뒤 상태 페이지 → "마지막 확인 — 가져옴: x.y.z"와 현재 버전·게시 시각·서명 키 ID 표시(키 내장 빌드면 "서명 키 없음" 문구가 없음). GitHub에 더 높은 버전을 릴리스한 뒤 서비스를 재시작하면 그 버전으로 바뀜. (수동 업로드 확인 시) `Admin:Token`을 넣고 `publish-release.ps1` → "200 OK", 토큰이 틀리면 401, 비었거나 16자 미만이면 403 | | | | |
 | S4 사용자 PC에서 `ASH-Setup-<현재보다 낮은 버전>.exe /server:http://<서버>:8082` 설치 → ZWCAD 시작 후 3초 안에 "ASH <새 버전> 사용 가능 — AGVUPDATE로 받기"(릴리스를 `-MinSupported`/`ASH_MIN_SUPPORTED` 없이 빌드했다면 기본값이 `0.0.0`이라 "최소 지원 미만" 안내는 **뜨지 않는 것이 정상**. 그 안내를 보려면 PC 버전보다 높은 `-MinSupported <버전>`으로 빌드·게시해 U5와 맞춰 확인) → `AGVUPDATE` → 다운로드 완료·탐색기 열림. 서명 키 내장 빌드에서는 "서명 키 미설정" 경고가 없음. 서버 서비스를 중지(`sc.exe stop ASH.Server`)한 뒤 ZWCAD 시작 → "업데이트 확인 실패(서버 응답 없음)" 한 줄(멈춤 없음) | | | | |
 | S5 서버 업데이트(수동): 서비스 중지 → `ASH.Server.exe` 교체(`appsettings.json`·`Releases:Dir` 유지) → 시작 후 상태 페이지의 현재 버전·이전 버전 목록이 그대로이고 S4 업데이트 확인이 계속 동작. 서버 PC 재부팅 뒤에도 게시된 버전 유지 | | | | |

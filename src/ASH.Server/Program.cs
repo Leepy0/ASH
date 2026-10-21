@@ -14,9 +14,12 @@ builder.Host.UseWindowsService(o => o.ServiceName = ServiceCommand.ServiceName);
 builder.Services.Configure<FormOptions>(o => o.MultipartBodyLengthLimit = UploadLimit);
 builder.Services.AddSingleton(sp => ReleaseStore.Create(sp.GetRequiredService<IConfiguration>(), sp.GetRequiredService<IHostEnvironment>(),
     sp.GetRequiredService<ILoggerFactory>().CreateLogger<ReleaseStore>()));
+builder.Services.AddSingleton<GitHubSync>();
+builder.Services.AddHostedService(sp => sp.GetRequiredService<GitHubSync>());
 
 var app = builder.Build();
-app.Services.GetRequiredService<ReleaseStore>(); // bad key/folder fails at start, not at the first request
+app.Services.GetRequiredService<ReleaseStore>(); // bad key/folder/GitHub URL fails at start, not at the first request
+app.Services.GetRequiredService<GitHubSync>();
 
 static IResult Msg(int status, string text) => Results.Text(text, "text/plain; charset=utf-8", Encoding.UTF8, status);
 
@@ -63,7 +66,7 @@ app.MapPost("/api/admin/releases", async (HttpContext ctx, ReleaseStore s, Cance
     catch (InvalidDataException e) { return Msg(400, e.Message); } // malformed multipart
 });
 
-app.MapGet("/", (ReleaseStore s) =>
+app.MapGet("/", (ReleaseStore s, GitHubSync g) =>
 {
     static string H(string? t) => WebUtility.HtmlEncode(t ?? "");
     var cur = s.GetCurrent()?.Manifest;
@@ -74,7 +77,9 @@ app.MapGet("/", (ReleaseStore s) =>
     sb.Append("<p>서명 키: ").Append(s.Key == null
         ? (s.AllowUnsigned ? "<b>서명 키 없음(서명 확인 안 함) — Update:AllowUnsigned=true, 개발용</b>" : "<b>서명 키 없음 — 업로드 거절(Update:AllowUnsigned=true로만 허용)</b>")
         : H(s.Key.KeyId)).Append("</p>");
-    sb.Append("<p>업로드: ").Append(s.UploadsEnabled ? "가능" : "꺼짐(Admin:Token 미설정 또는 짧음)").Append("</p><h2>이전 버전</h2><ul>");
+    sb.Append("<p>GitHub 가져오기: ").Append(g.BaseUrl == null ? "꺼짐" : H(g.BaseUrl) + $" ({g.Interval.TotalMinutes:0}분마다)")
+      .Append("<br>마지막 확인: ").Append(g.LastCheckUtc is { } t ? H(t.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")) + " — " + H(g.LastResult) : H(g.LastResult)).Append("</p>");
+    sb.Append("<p>수동 업로드: ").Append(s.UploadsEnabled ? "가능" : "꺼짐(Admin:Token 미설정 또는 짧음, GitHub 가져오기만 사용)").Append("</p><h2>이전 버전</h2><ul>");
     foreach (var h in s.History()) sb.Append($"<li>{H(h.Version)} ({H(h.Published)})</li>");
     sb.Append("</ul></body></html>");
     return Results.Content(sb.ToString(), "text/html; charset=utf-8");
