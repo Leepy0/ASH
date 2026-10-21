@@ -65,9 +65,9 @@ public sealed class JobEnv : IDisposable
         var l = new ASH.Core.Layout.Layout();
         void Line(string n, double x0, double y0, double x1, double y1) { var p = new LayoutPath(n); p.Segments.Add(new LineSeg(new Point2(x0, y0), new Point2(x1, y1))); l.Paths.Add(p); }
         Line("p1", 0, 0, 10, 0); Line("p2", 10, 0, 10, 10); Line("p3", 10, 10, 0, 10); Line("p4", 0, 10, 0, 0);
-        l.Cps.Add(new LayoutCp { Name = "S001", Type = "standby", Group = "G1", Position = new Point2(5, 0), Cap = 1 });
-        l.Cps.Add(new LayoutCp { Name = "L001", Type = "load", Group = "G1", Position = new Point2(10, 5), Cap = 1 });
-        l.Cps.Add(new LayoutCp { Name = "U001", Type = "unload", Group = "G1", Position = new Point2(2, 10), Cap = 1 });
+        l.Cps.Add(new LayoutCp { Name = "S001", Type = "standby", Group = "G1", Position = new Point2(5, 0), Cap = ASH.Core.Traffic.CpTypes.DefaultCap("standby") });
+        l.Cps.Add(new LayoutCp { Name = "L001", Type = "load", Group = "G1", Position = new Point2(10, 5), Cap = ASH.Core.Traffic.CpTypes.DefaultCap("load") });
+        l.Cps.Add(new LayoutCp { Name = "U001", Type = "unload", Group = "G1", Position = new Point2(2, 10), Cap = ASH.Core.Traffic.CpTypes.DefaultCap("unload") });
         l.Blocks.Add(new LayoutBlock { Name = "B_x1", Cap = 1, Rect = new Rect2(new Point2(8, -1), new Point2(11, 2)) });
         var xlsx = Path.Combine(proj, "input.xlsx");
         ExcelTemplate.Write(xlsx, l);

@@ -24,7 +24,9 @@ public static class BlockGenerator
             names.Add(name);
             blocks.Add(new LayoutBlock { Name = name, Cap = 1, Rect = Bbox(pts).Expand(expand), Id = Guid.NewGuid().ToString("N") });
         }
-        return new BlockProposal(blocks, OverlapGroups(blocks), new List<string>());
+        // blocks closer than one vehicle plus clearance leave no room to wait between them: a vehicle waiting for the next one still holds the first,
+        // and a ring of such blocks (two paths crossing twice, close together) locks up. Those are offered for merging like overlapping ones.
+        return new BlockProposal(blocks, OverlapGroups(blocks, p.VehicleLength + 2 * p.SafetyGap), new List<string>());
     }
 
     public static LayoutBlock Merge(IEnumerable<LayoutBlock> blocks, string name)
@@ -87,13 +89,13 @@ public static class BlockGenerator
         return new Rect2(new Point2(a.Min(q => q.X), a.Min(q => q.Y)), new Point2(a.Max(q => q.X), a.Max(q => q.Y)));
     }
 
-    private static List<List<string>> OverlapGroups(List<LayoutBlock> bs)
+    private static List<List<string>> OverlapGroups(List<LayoutBlock> bs, double minGap)
     {
         var parent = Enumerable.Range(0, bs.Count).ToArray();
         int Find(int x) { while (parent[x] != x) x = parent[x] = parent[parent[x]]; return x; }
         for (int i = 0; i < bs.Count; i++)
             for (int j = i + 1; j < bs.Count; j++)
-                if (bs[i].Rect.Intersects(bs[j].Rect)) parent[Find(i)] = Find(j);
+                if (bs[i].Rect.Expand(minGap / 2).Intersects(bs[j].Rect.Expand(minGap / 2))) parent[Find(i)] = Find(j);
         return Enumerable.Range(0, bs.Count).GroupBy(Find).Where(g => g.Count() >= 2)
             .Select(g => g.Select(i => bs[i].Name).OrderBy(n => n, StringComparer.Ordinal).ToList())
             .OrderBy(g => g[0], StringComparer.Ordinal).ToList();

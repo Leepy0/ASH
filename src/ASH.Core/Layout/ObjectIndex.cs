@@ -84,6 +84,7 @@ public static class FindingText
             case FindingCode.DuplicateBlockName: return "block 이름 중복";
             case FindingCode.InputError: return "입력 오류";
             case FindingCode.InputWarning: return "입력 경고";
+            case FindingCode.StopCpInBlock: return "정차 CP가 block 안에 있음";
             default: return code.ToString();
         }
     }

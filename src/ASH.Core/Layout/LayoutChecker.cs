@@ -62,6 +62,11 @@ public static class LayoutChecker
             if (!l.Paths.Any(p => p.Segments.Any(s => Touches(b.Rect, s, l.Tolerance))))
                 res.Add(new Finding(FindingCode.BlockTouchesNoPath, $"Block {b.Name} touches no path", b.Rect.Min, b.Name));
 
+        // a vehicle that stops in a block (loading, parking) holds it the whole time; a parked one holds it until called, which locks the area
+        foreach (var b in l.Blocks)
+            foreach (var c in l.Cps.Where(c => c.Type != "traffic" && b.Rect.Contains(c.Position)))
+                res.Add(new Finding(FindingCode.StopCpInBlock, $"CP {c.Name} ({c.Type}) is inside block {b.Name}: a vehicle stopping there holds the block", c.Position, c.Name));
+
         foreach (var pt in PathSplitter.FindUnsplitIntersections(l.Paths, l.Tolerance))
             res.Add(new Finding(FindingCode.UnsplitIntersection, "Paths cross without a split", pt, null));
 
