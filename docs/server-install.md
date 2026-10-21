@@ -17,6 +17,7 @@
      - `BaseUrl` 기본 `https://github.com/Leepy0/ASH`. 서버는 `<BaseUrl>/releases/latest/download/ASH.json`만 본다(api.github.com은 쓰지 않음). https만 받는다.
      - `CheckIntervalMin` 기본 60(분). 0이면 서비스 시작 때 한 번만 확인. 시작 10초 뒤 첫 확인.
      - `Proxy` 비우면 PC 프록시 설정, `none`이면 직접 연결, 또는 `http://proxy.corp:8080`. 서비스(LocalSystem)는 로그인 사용자의 프록시 설정을 쓰지 않으므로, 콘솔 실행으로는 되는데 서비스로는 실패하면 여기에 적는다.
+     - `Dns` 비우면 PC의 DNS를 쓴다. 사내 DNS가 github.com을 못 찾으면 쓸 수 있는 DNS 서버 IP를 적는다(예: `"8.8.8.8, 1.1.1.1"` 또는 사내 외부용 DNS). GitHub 주소(다운로드가 넘겨지는 release-assets.githubusercontent.com 포함)를 그 DNS에서 먼저 찾고, 답이 없으면 PC의 DNS로 다시 찾는다. UDP 53번 포트로 나간다. 프록시를 쓰면 프록시 이름도 같은 순서로 찾는다.
      - `UpdateServer` 기본 true. 서버 프로그램 자신도 자동으로 새 버전으로 바꾼다(5절 "서버 자동 업데이트"). false면 서버 exe는 수동 교체.
      - `Enabled` false면 끈다(수동 업로드만 사용, 서버 자동 업데이트도 꺼짐).
      - 가져온 릴리스도 업로드와 똑같이 서명·크기·SHA-256을 확인하고, 서버 버전보다 높을 때만 게시한다.
@@ -195,6 +196,7 @@ sc start ASH.Server
 | 업로드가 400 "minSupported(…)가 version(…)보다 높습니다" | `-MinSupported`/`ASH_MIN_SUPPORTED`가 이번 버전보다 높음. |
 | 상태 페이지 "지난 업데이트: x.y.z이(가) 60초 안에 응답하지 않아 … 자동 되돌림" | 새 서버 exe가 서비스로 뜨지 않음. `update\apply.log`와 이벤트 로그를 보고, 고친 판을 더 높은 버전으로 릴리스한다(같은 버전은 다시 시도하지 않음). |
 | 상태 페이지 "지난 업데이트: x.y.z 파일 교체 실패" | 설치 폴더에 쓸 수 없음(LocalService 계정, 백신 잠금 등). `update\apply.log` 확인. 원인을 고친 뒤 더 높은 버전으로 릴리스하거나 수동 교체한다. |
+| 상태 페이지 "마지막 확인 — 실패: …" (이름 확인 오류, "No such host is known" 등) | 서버 PC의 DNS가 github.com을 찾지 못함. `nslookup github.com 8.8.8.8`처럼 쓸 수 있는 DNS를 찾아 `GitHub:Dns`에 적고 서비스를 재시작한다. |
 | 상태 페이지 "마지막 확인 — 실패: …" | 서버 PC에서 github.com에 닿지 않음. 브라우저로 `https://github.com/Leepy0/ASH/releases/latest/download/ASH.json`이 받아지는지 보고, 콘솔에서는 되는데 서비스에서만 실패하면 `GitHub:Proxy`를 적는다. 이벤트 로그에 같은 내용이 남는다. |
 | 상태 페이지 "마지막 확인 — 거절: 서명이 맞지 않습니다" | GitHub 릴리스의 `ASH.json.sig`가 서버 내장 공개키와 다른 키로 서명됨, 또는 `ASH.json`을 손으로 고침. 올바른 키로 다시 빌드해 새 버전으로 릴리스한다. |
 | 상태 페이지 "마지막 확인 — GitHub에 ASH.json이(가) 있는 릴리스가 없습니다" | 최신 정식 릴리스에 `ASH.json`이 빠졌거나 초안·시험판만 있음. |

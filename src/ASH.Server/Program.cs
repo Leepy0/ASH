@@ -80,7 +80,7 @@ app.MapGet("/", (ReleaseStore s, GitHubSync g, ServerUpdater u) =>
     sb.Append("<p>서명 키: ").Append(s.Key == null
         ? (s.AllowUnsigned ? "<b>서명 키 없음(서명 확인 안 함) — Update:AllowUnsigned=true, 개발용</b>" : "<b>서명 키 없음 — 업로드 거절(Update:AllowUnsigned=true로만 허용)</b>")
         : H(s.Key.KeyId)).Append("</p>");
-    sb.Append("<p>GitHub 가져오기: ").Append(g.BaseUrl == null ? "꺼짐" : H(g.BaseUrl) + $" ({g.Interval.TotalMinutes:0}분마다)")
+    sb.Append("<p>GitHub 가져오기: ").Append(g.BaseUrl == null ? "꺼짐" : H(g.BaseUrl) + $" ({g.Interval.TotalMinutes:0}분마다, DNS {(g.DnsServers.Count == 0 ? "PC 기본" : string.Join(", ", g.DnsServers))})")
       .Append("<br>마지막 확인: ").Append(g.LastCheckUtc is { } t ? H(t.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")) + " — " + H(g.LastResult) : H(g.LastResult)).Append("</p>");
     sb.Append("<p>서버 프로그램: ").Append(H(u.Current)).Append(" — 자동 업데이트: ").Append(H(u.LastResult));
     if (u.PreviousRun != null) sb.Append("<br>지난 업데이트: ").Append(H(u.PreviousRun));

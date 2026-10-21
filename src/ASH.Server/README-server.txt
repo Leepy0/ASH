@@ -12,6 +12,8 @@ ASH.Server - ASH 배포 서버 (최소판)
                     BaseUrl https://github.com/Leepy0/ASH 의 releases/latest/download/ASH.json 을 CheckIntervalMin(기본 60분)마다 확인.
                     Proxy 비우면 PC 설정, none 이면 직접 연결, 또는 http://proxy.corp:8080 (서비스는 사용자 프록시 설정을 안 씀).
                     가져온 릴리스도 서명·크기·SHA-256 을 확인한다. 토큰은 필요 없다.
+                    Dns 비우면 PC 의 DNS. 사내 DNS 가 github.com 을 못 찾으면 DNS 서버 IP 를 적는다(예: "8.8.8.8, 1.1.1.1").
+                    GitHub 주소를 그 DNS 에서 먼저 찾고, 답이 없으면 PC 의 DNS 로 다시 찾는다(UDP 53).
                     UpdateServer true(기본) 면 서버 프로그램 자신도 새 버전으로 자동 교체한다(아래 "서버 자동 업데이트").
    - Admin:Token  선택. 수동 업로드(publish-release.ps1)를 쓸 때만. 16자 이상의 길고 무작위인 문자열.
                     비워 두면 수동 업로드만 꺼지고 GitHub 가져오기는 동작한다.

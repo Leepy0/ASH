@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Sockets;
 using System.Reflection;
 using ASH.Core.Update;
 
@@ -9,7 +10,8 @@ namespace ASH.Server;
 /// so only the fixed release URLs are used: {BaseUrl}/releases/latest/download/ASH.json(.sig), then {BaseUrl}/releases/download/v{version}/{file}.
 /// Everything goes through <see cref="ReleaseStore.PublishAsync(byte[], byte[], string, Stream, bool, CancellationToken)"/>,
 /// so a pulled release passes exactly the upload checks (signature, size, SHA-256, no downgrade). No admin token is needed.
-/// Settings (section "GitHub"): Enabled (true), BaseUrl, CheckIntervalMin (60, 0 = at start only), Proxy ("" = system, "none" = direct, or a URL).
+/// Settings (section "GitHub"): Enabled (true), BaseUrl, CheckIntervalMin (60, 0 = at start only), Proxy ("" = system, "none" = direct, or a URL),
+/// Dns ("" = the PC's DNS, or DNS server IPs such as "8.8.8.8, 1.1.1.1": GitHub names are looked up there first, then with the PC's DNS).
 /// </summary>
 public sealed class GitHubSync : BackgroundService
 {
@@ -26,12 +28,15 @@ public sealed class GitHubSync : BackgroundService
     /// <summary>Null when the pull is off (GitHub:Enabled=false).</summary>
     public string? BaseUrl { get; }
     public TimeSpan Interval { get; }
+    /// <summary>DNS servers used for GitHub names; empty = the PC's DNS.</summary>
+    public IReadOnlyList<IPAddress> DnsServers { get; private init; } = [];
     public string LastResult { get; private set; } = "아직 확인하지 않음";
     public DateTime? LastCheckUtc { get; private set; }
 
     public GitHubSync(ReleaseStore store, ServerUpdater updater, IConfiguration cfg, ILogger<GitHubSync> log)
         : this(store, cfg.GetValue("GitHub:Enabled", true) ? Url(cfg["GitHub:BaseUrl"]) : null,
-               TimeSpan.FromMinutes(Math.Max(0, cfg.GetValue("GitHub:CheckIntervalMin", 60))), new HttpClient(Handler(cfg["GitHub:Proxy"])), log, updater) { }
+               TimeSpan.FromMinutes(Math.Max(0, cfg.GetValue("GitHub:CheckIntervalMin", 60))), new HttpClient(Handler(cfg["GitHub:Proxy"], DnsLookup.ParseServers(cfg["GitHub:Dns"]))), log, updater)
+        => DnsServers = DnsLookup.ParseServers(cfg["GitHub:Dns"]);
 
     internal GitHubSync(ReleaseStore store, string? baseUrl, TimeSpan interval, HttpClient http, ILogger log, ServerUpdater? updater = null)
     {
@@ -57,18 +62,32 @@ public sealed class GitHubSync : BackgroundService
     }
 
     // a service runs as LocalSystem: it has no user proxy settings, so the machine's (or an explicit) proxy is used with the computer account
-    private static HttpMessageHandler Handler(string? proxy)
+    private static HttpMessageHandler Handler(string? proxy, IPAddress[] dns)
     {
         var h = new SocketsHttpHandler { AllowAutoRedirect = true, DefaultProxyCredentials = CredentialCache.DefaultCredentials };
         if (string.Equals(proxy?.Trim(), "none", StringComparison.OrdinalIgnoreCase)) h.UseProxy = false;
         else if (!string.IsNullOrWhiteSpace(proxy)) h.Proxy = new WebProxy(proxy.Trim()) { UseDefaultCredentials = true };
+        // every connection (github.com, the release-assets redirect host, or the proxy) is looked up with GitHub:Dns first, then the PC's DNS
+        if (dns.Length > 0) h.ConnectCallback = async (ctx, ct) =>
+        {
+            var host = ctx.DnsEndPoint.Host;
+            var addrs = IPAddress.TryParse(host, out var ip) ? [ip] : await DnsLookup.ResolveAsync(host, dns, ct);
+            if (addrs.Length == 0) addrs = await Dns.GetHostAddressesAsync(host, ct);
+            var s = new Socket(SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
+            try
+            {
+                await s.ConnectAsync(addrs, ctx.DnsEndPoint.Port, ct);
+                return new NetworkStream(s, ownsSocket: true);
+            }
+            catch { s.Dispose(); throw; }
+        };
         return h;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stop)
     {
         if (BaseUrl == null) return;
-        _log.LogInformation("GitHub 릴리스 확인: {Url} ({Min}분마다)", BaseUrl, Interval.TotalMinutes);
+        _log.LogInformation("GitHub 릴리스 확인: {Url} ({Min}분마다, DNS {Dns})", BaseUrl, Interval.TotalMinutes, DnsServers.Count == 0 ? "PC 기본" : string.Join(", ", DnsServers));
         try
         {
             await Task.Delay(FirstDelay, stop);
