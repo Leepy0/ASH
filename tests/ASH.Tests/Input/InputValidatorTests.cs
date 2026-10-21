@@ -152,13 +152,11 @@ public class InputValidatorTests
         var p = Good();
         p.Routes[0] = p.Routes[0] with { SupplyFromCP = "", SupplyToCP = " " };
         p.Stations[0] = p.Stations[0] with { CPName = "" };
-        p.Materials[0] = p.Materials[0] with { Station = "" };
         foreach (var cps in new IReadOnlyCollection<string>?[] { Cps, null })
         {
             var f = InputValidator.Validate(p, cps);
             Assert.Equal(2, f.Count(x => x.EntityId == "Routes!3"));
             Assert.Contains(f, x => x.EntityId == "Stations!3");
-            Assert.Contains(f, x => x.EntityId == "Materials!3");
         }
     }
 
@@ -174,13 +172,13 @@ public class InputValidatorTests
     }
 
     [Fact]
-    public void Validate_Warns_On_Type_Group_Mismatch_And_Unknown_Station()
+    public void Validate_Warns_On_Type_Group_Mismatch_And_Ignores_Station_Name()
     {
         var p = Good();
         p.AgvTypes[0] = p.AgvTypes[0] with { Group = "OTHER" };
         p.Materials[0] = p.Materials[0] with { Station = "NOSUCH" };
         var f = InputValidator.Validate(p, Cps);
         Assert.Contains(f, x => x.Code == FindingCode.InputWarning && x.EntityId == "AGV_Types!3");
-        Assert.Contains(f, x => x.Code == FindingCode.InputError && x.EntityId == "Materials!3");
+        Assert.DoesNotContain(f, x => x.Code == FindingCode.InputError); // Station is a memo: no Stations row needed
     }
 }

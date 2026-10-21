@@ -47,9 +47,9 @@ public static class ExcelReader
     }
 
     // Data rows (row 3+), fully blank rows skipped.
-    static List<Row> Rows(XLWorkbook wb, string sheet)
+    static List<Row> Rows(XLWorkbook wb, string sheet, bool optional = false)
     {
-        if (!wb.TryGetWorksheet(sheet, out var ws)) throw new FormatException($"'{sheet}' 시트가 없습니다.");
+        if (!wb.TryGetWorksheet(sheet, out var ws)) return optional ? new List<Row>() : throw new FormatException($"'{sheet}' 시트가 없습니다.");
         var cols = new Dictionary<string, int>(StringComparer.Ordinal);
         int lastCol = ws.LastColumnUsed()?.ColumnNumber() ?? 0;
         for (int c = 1; c <= lastCol; c++) { var h = ws.Cell(1, c).GetString().Trim(); if (h.Length > 0) cols[h] = c; }
@@ -113,9 +113,9 @@ public static class ExcelReader
         foreach (var r in Rows(wb, "Routes"))
             p.Routes.Add(new Route(r.Str("Material"), r.Str("SupplyFromCP"), r.Str("SupplyToCP"), r.OptStr("BufferCP"),
                 r.OptStr("ReturnFromCP"), r.OptStr("ReturnToCP"), r.Num("ExtraTime", 0), r.RowNum));
-        foreach (var r in Rows(wb, "Stations"))
+        foreach (var r in Rows(wb, "Stations", optional: true))
             p.Stations.Add(new StationInfo(r.Str("Station"), r.Str("CPName"), r.Num("BufferCapacity", 0), r.RowNum));
-        foreach (var r in Rows(wb, "Ext"))
+        foreach (var r in Rows(wb, "Ext", optional: true))
             p.Ext.Add(new ExtHook(r.Str("Name"), r.Bool("Enabled"), r.Str("Description"), r.RowNum));
         return p;
     }

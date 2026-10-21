@@ -78,7 +78,6 @@ public static class InputValidator
         var types = new HashSet<string>(input.AgvTypes.Select(t => t.Type));
         var groups = new HashSet<string>(input.Groups.Select(g => g.Group));
         var mats = new HashSet<string>(input.Materials.Select(m => m.Material));
-        var stations = new HashSet<string>(input.Stations.Select(x => x.Station));
         var cps = layoutCpNames == null ? null : new HashSet<string>(layoutCpNames);
 
         Dups("AGV_Types", input.AgvTypes, t => t.Type, t => t.Row, "AGV 타입");
@@ -128,12 +127,10 @@ public static class InputValidator
         {
             var m = input.Materials[i];
             Blank("Materials", m.Row, i, "Material", m.Material);
-            Blank("Materials", m.Row, i, "Station", m.Station);
             Blank("Materials", m.Row, i, "Group", m.Group);
             if (m.Material.Length > 0 && !IsAmText(m.Material)) Err("Materials", m.Row, i, $"자재 이름 '{m.Material}'은(는) AutoMod에서 쓸 수 없습니다(영문·숫자·기호만, 한글·공백·따옴표·역슬래시 불가).");
             if (m.Material.Length > 0 && !input.Routes.Any(r => r.Material == m.Material)) Err("Materials", m.Row, i, $"자재 '{m.Material}'의 Routes 행이 없습니다.");
             if (m.Group.Length > 0 && !groups.Contains(m.Group)) Err("Materials", m.Row, i, $"자재 '{m.Material}'의 Group '{m.Group}'이(가) AGV_Groups에 없습니다.");
-            if (m.Station.Length > 0 && !stations.Contains(m.Station)) Err("Materials", m.Row, i, $"자재 '{m.Material}'의 Station '{m.Station}'이(가) Stations에 없습니다.");
             if (!(m.TaktTime > 0)) Err("Materials", m.Row, i, $"자재 '{m.Material}'의 TaktTime은 0보다 커야 합니다.");
             if (!(m.UnitsPerContainer >= 1)) Err("Materials", m.Row, i, $"자재 '{m.Material}'의 UnitsPerContainer는 1 이상이어야 합니다.");
             else if (m.CallThreshold < m.UnitsPerCycle / m.UnitsPerContainer)

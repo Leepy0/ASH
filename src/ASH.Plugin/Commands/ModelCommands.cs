@@ -35,7 +35,13 @@ public sealed class ModelCommands
             if (!ExportCommands.TryLoadSettings(ed, out _, out var dir)) return;
             var path = Path.Combine(dir, ExcelFileName);
             bool made = !File.Exists(path);
-            if (made) ExcelTemplate.Write(path);
+            if (made) // a new file starts from what the drawing has now: group names, standby CPs, one route per load CP
+            {
+                var doc = Application.DocumentManager.MdiActiveDocument;
+                ASH.Core.Layout.Layout? layout = null;
+                PathCommands.Run(doc, "AGVEXCEL", (db, tr) => { layout = DrawingReader.Read(db, tr); return false; }, refreshArrows: false);
+                ExcelTemplate.Write(path, layout);
+            }
             ed.WriteMessage(made ? $"\nExcel 양식을 만들었습니다: {path}" : $"\n기존 Excel 입력을 엽니다: {path}");
             try { Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }); }
             catch (System.ComponentModel.Win32Exception ex) { ed.WriteMessage($"\nExcel 파일을 열지 못했습니다(연결 프로그램 없음?): {ex.Message}"); }

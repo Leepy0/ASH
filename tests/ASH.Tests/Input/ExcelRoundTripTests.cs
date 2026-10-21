@@ -17,7 +17,7 @@ public class ExcelRoundTripTests
             ExcelTemplate.Write(path);
             using (var wb = new XLWorkbook(path))
             {
-                Assert.Equal(7, wb.Worksheets.Count);
+                Assert.Equal(5, wb.Worksheets.Count);
                 foreach (var (sheet, cols, _, _) in ExcelTemplate.Sheets)
                     for (int c = 0; c < cols.Length; c++)
                         Assert.Equal(cols[c], wb.Worksheet(sheet).Cell(1, c + 1).GetString());
@@ -121,13 +121,13 @@ public class ExcelRoundTripTests
             ExcelTemplate.Write(path);
             using (var wb = new XLWorkbook(path))
             {
-                var ws = wb.Worksheet("Stations");
-                ws.Cell(5, 1).Value = "S2"; ws.Cell(5, 2).Value = "CP2"; ws.Cell(5, 3).Value = 1; // row 4 blank
+                var ws = wb.Worksheet("Routes");
+                ws.Cell(5, 1).Value = "M002"; ws.Cell(5, 2).Value = "CP2"; ws.Cell(5, 3).Value = "CP3"; // row 4 blank
                 wb.Save();
             }
             var p = ExcelReader.Read(path);
-            Assert.Equal(2, p.Stations.Count);
-            Assert.Equal(new[] { 3, 5 }, p.Stations.Select(s => s.Row));
+            Assert.Equal(2, p.Routes.Count);
+            Assert.Equal(new[] { 3, 5 }, p.Routes.Select(s => s.Row));
         }
         finally { File.Delete(path); }
     }

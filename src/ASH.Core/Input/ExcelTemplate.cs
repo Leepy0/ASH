@@ -21,20 +21,12 @@ public static class ExcelTemplate
             new[] { "G_EX", "T_EX", "1", "3", "CP_STBY", "Nearest" }),
         ("Materials",
             new[] { "Material", "Station", "Group", "TaktTime", "UnitsPerCycle", "UnitsPerContainer", "CallThreshold", "UnloadThreshold", "InitStock", "SafetyStock", "EmptyReturn" },
-            new[] { "자재명", "공정명", "그룹명", "T/T(초)", "T/T당 소비 원수", "용기당 원수", "호출 임계(용기)", "언로딩 임계(용기)", "초기재고(용기, 비우면 Settings)", "안전재고(용기, 비우면 Settings)", "빈 용기 회수 Y/N" },
-            new[] { "M001", "S_EX", "G_EX", "60", "1", "10", "4", "1", "", "", "Y" }), // Call 4 > Settings SafetyStock 2
+            new[] { "자재명", "공정명(선택·메모)", "그룹명", "T/T(초)", "T/T당 소비 원수", "용기당 원수", "호출 임계(용기)", "언로딩 임계(용기)", "초기재고(용기, 비우면 Settings)", "안전재고(용기, 비우면 Settings)", "빈 용기 회수 Y/N" },
+            new[] { "M001", "", "G_EX", "60", "1", "10", "4", "1", "", "", "Y" }), // Call 4 > Settings SafetyStock 2
         ("Routes",
             new[] { "Material", "SupplyFromCP", "SupplyToCP", "BufferCP", "ReturnFromCP", "ReturnToCP", "ExtraTime" },
             new[] { "자재명", "load CP", "unload CP", "buffer CP(선택)", "rtnload CP(선택)", "rtnunload CP(선택)", "추가 시간(초)" },
             new[] { "M001", "CP_LOAD", "CP_UNLOAD", "", "", "", "0" }),
-        ("Stations",
-            new[] { "Station", "CPName", "BufferCapacity" },
-            new[] { "공정명", "CP 이름", "적치 용기 수" },
-            new[] { "S_EX", "CP_UNLOAD", "0" }),
-        ("Ext",
-            new[] { "Name", "Enabled", "Description" },
-            new[] { "훅 이름", "사용 Y/N", "설명" },
-            new[] { "FExtOnCall", "N", "호출 조건 변경" }),
     };
 
     public static readonly (string Key, string Value, string Desc)[] SettingsDefaults =
@@ -72,8 +64,62 @@ public static class ExcelTemplate
         return Math.Min(40, Math.Max(8, widest * 1.1 + 2));
     }
 
-    public static void Write(string path)
+    /// <summary>Rows that replace the example rows when the drawing has something to offer, by sheet name. Names come from the CPs: the groups on their
+    /// GROUP attribute, the standby CPs of each group, and one route per load CP paired in drawing order with the unload / buffer / return CPs.
+    /// Numbers stay at the example's values: the drawing knows nothing about takt times or speeds.</summary>
+    internal static Dictionary<string, List<string[]>> Seed(ASH.Core.Layout.Layout l)
     {
+        var seed = new Dictionary<string, List<string[]>>();
+        var groups = new List<string>();
+        foreach (var c in l.Cps) if (c.Group.Length > 0 && !groups.Contains(c.Group)) groups.Add(c.Group);
+        string[] Ex(string sheet) { foreach (var x in Sheets) if (x.Sheet == sheet) return x.Example; return new string[0]; }
+        List<string> Names(string type, string? group = null)
+        {
+            var r = new List<string>();
+            foreach (var c in l.Cps) if (c.Type == type && (group == null || c.Group == group)) r.Add(c.Name);
+            return r;
+        }
+        if (groups.Count > 0)
+        {
+            var types = new List<string[]>(); var gs = new List<string[]>();
+            foreach (var g in groups)
+            {
+                var t = (string[])Ex("AGV_Types").Clone(); t[0] = "T_" + g; t[1] = g; types.Add(t);
+                var r = (string[])Ex("AGV_Groups").Clone(); r[0] = g; r[1] = "T_" + g; r[4] = string.Join(",", Names("standby", g)); gs.Add(r);
+            }
+            seed["AGV_Types"] = types; seed["AGV_Groups"] = gs;
+        }
+        var loads = new List<LayoutCpRef>();
+        foreach (var c in l.Cps) if (c.Type == "load") loads.Add(new LayoutCpRef(c.Name, c.Group));
+        if (loads.Count > 0)
+        {
+            var unload = Names("unload"); var buffer = Names("buffer"); var rl = Names("rtnload"); var ru = Names("rtnunload");
+            string At(List<string> list, int i) => i < list.Count ? list[i] : "";
+            var mats = new List<string[]>(); var routes = new List<string[]>();
+            for (int i = 0; i < loads.Count; i++)
+            {
+                var name = "M" + (i + 1).ToString("000");
+                var m = (string[])Ex("Materials").Clone(); m[0] = name; m[2] = loads[i].Group.Length > 0 ? loads[i].Group : (groups.Count > 0 ? groups[0] : m[2]); mats.Add(m);
+                routes.Add(new[] { name, loads[i].Name, At(unload, i), At(buffer, i), At(rl, i), At(ru, i), "0" });
+            }
+            seed["Materials"] = mats; seed["Routes"] = routes;
+        }
+        return seed;
+    }
+
+    private readonly struct LayoutCpRef
+    {
+        public LayoutCpRef(string name, string group) { Name = name; Group = group; }
+        public string Name { get; }
+        public string Group { get; }
+    }
+
+    public static void Write(string path) => Write(path, null);
+
+    /// <summary>The template; with a layout, its CP names and groups fill the rows that would otherwise hold the example.</summary>
+    public static void Write(string path, ASH.Core.Layout.Layout? layout)
+    {
+        var seed = layout == null ? new Dictionary<string, List<string[]>>() : Seed(layout);
         FontFreeGraphicEngine.Install(); // before the workbook: it creates the default (font parsing) engine right away
         using var wb = new XLWorkbook();
         foreach (var (sheet, cols, desc, example) in Sheets)
@@ -97,12 +143,17 @@ public static class ExcelTemplate
             }
             else
             {
-                for (int c = 0; c < example.Length; c++)
-                    if (example[c].Length > 0) Put(ws.Cell(3, c + 1), example[c]);
-                var ex = ws.Range(3, 1, 3, cols.Length); // example row: replace or delete
-                ex.Style.Font.Italic = true;
-                ex.Style.Fill.BackgroundColor = XLColor.LightGray;
-                lastRow = 3;
+                var rows = seed.TryGetValue(sheet, out var made) ? made : new List<string[]> { example };
+                for (int i = 0; i < rows.Count; i++)
+                    for (int c = 0; c < rows[i].Length; c++)
+                        if (rows[i][c].Length > 0) Put(ws.Cell(3 + i, c + 1), rows[i][c]);
+                lastRow = 2 + rows.Count;
+                if (!seed.ContainsKey(sheet)) // example row: replace or delete
+                {
+                    var ex = ws.Range(3, 1, 3, cols.Length);
+                    ex.Style.Font.Italic = true;
+                    ex.Style.Fill.BackgroundColor = XLColor.LightGray;
+                }
             }
             var head = ws.Range(1, 1, 1, cols.Length);
             head.Style.Font.Bold = true;
