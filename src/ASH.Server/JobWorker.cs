@@ -27,8 +27,8 @@ public sealed class AutoModJobRunner(IConfiguration cfg) : IJobRunner
     public JobOutcome Run(JobInfo job, string projectDir, TextWriter log, Action<string> phase, IProgress<RunOutcome> progress, CancellationToken ct)
     {
         static JobOutcome Fail(string e) => new(1, e, null, null, Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>());
-        var am = Path.Combine(AmHome, "bin", "am264.exe");
-        if (!File.Exists(am)) return Fail($"서버에 AutoMod가 없습니다: {am} (appsettings.json의 Jobs:AmHome)");
+        var am = AmBuilder.FindBuildExe(AmHome);
+        if (am == null) return Fail($"서버에 AutoMod가 없습니다: {AmBuilder.BuildExeCandidates(AmHome)} (appsettings.json의 Jobs:AmHome)");
 
         phase("빌드");
         log.WriteLine($"build: {am} -bq {job.Model}");

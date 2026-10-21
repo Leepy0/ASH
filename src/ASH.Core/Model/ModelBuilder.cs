@@ -79,10 +79,10 @@ public static class ModelBuilder
         AmBuildResult? build = null;
         if (amHome != null)
         {
-            var am = Path.Combine(amHome, "bin", "am264.exe");
-            if (!File.Exists(am))
+            var am = AmBuilder.FindBuildExe(amHome);
+            if (am == null)
                 // not an exception: the model files are written and the user can fix AmHome and build again; <Model>.dir is made by AutoMod's build, so it is missing too
-                warnings.Add($"AutoMod를 찾지 못해 빌드하지 않았습니다: {am} 이(가) 없습니다. 프로젝트 폴더의 ash.settings.tsv에서 AmHome을 AutoMod 설치 폴더로 고치세요. 모델 파일은 {arc}에 만들었습니다(<모델>.dir 폴더는 AutoMod가 빌드할 때 만듭니다).");
+                warnings.Add($"AutoMod를 찾지 못해 빌드하지 않았습니다: {AmBuilder.BuildExeCandidates(amHome)} 이(가) 없습니다. 프로젝트 폴더의 ash.settings.tsv에서 AmHome을 AutoMod 설치 폴더로 고치세요. 모델 파일은 {arc}에 만들었습니다(<모델>.dir 폴더는 AutoMod가 빌드할 때 만듭니다).");
             else
             {
                 PrepareBuildDir(r.ProjectDir, r.ModelName);
