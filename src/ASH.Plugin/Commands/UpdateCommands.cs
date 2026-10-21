@@ -109,7 +109,7 @@ public sealed class UpdateCommands
     /// <summary>Null on cancel, empty input (keep) or an invalid address.</summary>
     private static string? PromptUrl(Editor ed, string current)
     {
-        var msg = "\n서버 주소(예: http://server:5080)" + (current.Length > 0 ? $" <{current}, Enter=유지>" : "");
+        var msg = "\n서버 주소(예: http://server:8082)" + (current.Length > 0 ? $" <{current}, Enter=유지>" : "");
         var r = ed.GetString(new PromptStringOptions(msg) { AllowSpaces = false });
         if (r.Status != PromptStatus.OK || r.StringResult.Trim().Length == 0) return null;
         if (UserSettings.TryNormalizeUrl(r.StringResult, out var u)) return u;

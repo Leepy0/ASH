@@ -86,7 +86,7 @@ sealed class MainForm : Form
         root.Controls.Add(Section("찾은 ZWCAD"));
         root.Controls.Add(Framed(_list));
         root.Controls.Add(_notice);
-        root.Controls.Add(Section("서버 주소 (선택) — 업데이트 확인용, 예: http://server:5080. 비워 두면 기존 설정 유지"));
+        root.Controls.Add(Section("서버 주소 (선택) — 업데이트 확인용, 예: http://server:8082. 비워 두면 기존 설정 유지"));
         root.Controls.Add(_server);
         root.Controls.Add(bar);
         root.Controls.Add(Section("로그"));
@@ -163,7 +163,7 @@ sealed class MainForm : Form
         string? server = null;
         if (!uninstall && _server.Text.Trim().Length > 0)
         {
-            if (!UserSettings.TryNormalizeUrl(_server.Text, out server)) { MessageBox.Show(this, "서버 주소는 http:// 또는 https://로 시작해야 합니다. 예: http://server:5080", Text, MessageBoxButtons.OK, MessageBoxIcon.Warning); _server.Focus(); return; }
+            if (!UserSettings.TryNormalizeUrl(_server.Text, out server)) { MessageBox.Show(this, "서버 주소는 http:// 또는 https://로 시작해야 합니다. 예: http://server:8082", Text, MessageBoxButtons.OK, MessageBoxIcon.Warning); _server.Focus(); return; }
         }
         if (uninstall && MessageBox.Show(this, "선택한 ZWCAD에서 ASH를 제거할까요?", Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
         UseWaitCursor = true;

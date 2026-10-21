@@ -28,7 +28,7 @@ internal static class ServiceCommand
         {
             Console.WriteLine("서비스 등록 완료. 아래 BINARY_PATH_NAME 이 따옴표로 감싸져 있는지 확인하세요.");
             Sc(new[] { "qc", ServiceName });
-            Console.WriteLine($"시작: sc start {ServiceName}  (방화벽 TCP 5080 허용, appsettings.json의 Admin:Token 16자 이상 설정 필요)");
+            Console.WriteLine($"시작: sc start {ServiceName}  (방화벽 TCP 8082 허용, appsettings.json의 Admin:Token 16자 이상 설정 필요)");
         }
         else if (code == 0) Console.WriteLine("서비스를 제거했습니다.");
         return code;

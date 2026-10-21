@@ -9,7 +9,7 @@ ASH.Server - ASH 배포 서버 (최소판)
 1. 이 폴더(ASH.Server.exe, appsettings.json)를 C:\Program Files\ASH.Server 에 푼다. .NET 설치는 필요 없다.
 2. appsettings.json 에서
    - Admin:Token  업로드용 토큰. 16자 이상의 길고 무작위인 문자열. 비어 있거나 16자 미만이면 업로드가 꺼진다.
-   - Urls         기본 http://0.0.0.0:5080
+   - Urls         기본 http://0.0.0.0:8082
    - Releases:Dir 배포 파일 보관 폴더(기본 %ProgramData%/ASH.Server/releases)
    를 확인한다. 환경 변수 Admin__Token 으로 토큰을 줄 수도 있다.
    appsettings.json 에는 토큰이 들어 있으므로 설치 폴더 권한을 관리자로 제한한다:
@@ -34,14 +34,14 @@ ASH.Server - ASH 배포 서버 (최소판)
    (Releases:Dir 를 바꿨다면 그 폴더에도 LocalService 수정 권한을 준다.)
 4. 서비스 복구(죽으면 60초 뒤 자동 재시작):
      sc failure ASH.Server reset= 86400 actions= restart/60000
-5. 방화벽에서 TCP 5080 을 허용한다. 사내망에서만 열 것.
-     New-NetFirewallRule -DisplayName "ASH.Server" -Direction Inbound -Protocol TCP -LocalPort 5080 -Action Allow -Profile Domain,Private   (PowerShell)
+5. 방화벽에서 TCP 8082 을 허용한다. 사내망에서만 열 것.
+     New-NetFirewallRule -DisplayName "ASH.Server" -Direction Inbound -Protocol TCP -LocalPort 8082 -Action Allow -Profile Domain,Private   (PowerShell)
    함정: 서버 PC 의 네트워크가 Public 으로 분류돼 있으면 위 규칙이 적용되지 않아 다른 PC 에서 접속이 안 된다
    (서버 자신에서는 열린다). Get-NetConnectionProfile 로 확인하고 Set-NetConnectionProfile ... -NetworkCategory Private 로 바꾼다.
    규칙에 Public 을 그냥 추가하지 말 것.
    토큰은 평문 HTTP 로 전달된다. 신뢰할 수 있는 사내망에서만 업로드하거나, 앞단에 HTTPS 프록시를 둔다.
-6. 브라우저로 http://서버:5080/ 를 열어 상태 페이지를 확인한다(서명 키 ID 와 업로드 가능 여부가 보인다).
-7. 릴리스 PC에서:  $env:ASH_ADMIN_TOKEN='<토큰>'; scripts\publish-release.ps1 -Server http://서버:5080
+6. 브라우저로 http://서버:8082/ 를 열어 상태 페이지를 확인한다(서명 키 ID 와 업로드 가능 여부가 보인다).
+7. 릴리스 PC에서:  $env:ASH_ADMIN_TOKEN='<토큰>'; scripts\publish-release.ps1 -Server http://서버:8082
 
 로그
 - 이벤트 뷰어 > Windows 로그 > 응용 프로그램, 원본(Source) ASH.Server. (appsettings.json 의 Logging:EventLog 로 수준 조정)
@@ -66,4 +66,4 @@ ASH.Server - ASH 배포 서버 (최소판)
 - 롤백: publish-release.ps1 -Force 로 낮은 버전을 올려도 이미 새 버전을 쓰는 PC 는 내려가지 않는다(서버 버전이 더 낮다는 안내만 나온다).
   되돌리려면 옛 코드를 더 높은 버전 번호로 다시 빌드해 게시한다.
 - files\ 폴더는 업로드마다 커진다. 지울 때는 현재 버전과 롤백 대상 설치 파일을 남긴다.
-- 로컬 관리자 권한이 없는 사용자 PC 는 IT 가 배포한다:  ASH-Setup-x.y.z.exe /silent /server:http://서버:5080
+- 로컬 관리자 권한이 없는 사용자 PC 는 IT 가 배포한다:  ASH-Setup-x.y.z.exe /silent /server:http://서버:8082
