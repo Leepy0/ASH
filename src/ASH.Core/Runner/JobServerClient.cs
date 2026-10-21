@@ -65,6 +65,8 @@ public sealed class JobServerClient : IDisposable
         using var form = new MultipartFormDataContent();
         void Field(string name, string value) => form.Add(new StringContent(value, Encoding.UTF8), name);
         Field("project", job.Project); Field("plan", job.Plan); Field("model", job.Model); Field("submitter", job.Submitter); Field("impact", job.Impact);
+        // A seekable file keeps the multipart length known, so on net48 HttpClientHandler sends it with Content-Length and no buffering; a non-seekable stream or a
+        // buffered content here would copy the whole package into the ZWCAD process (see Submit_streams_a_big_package_without_buffering_it).
         using var fs = new FileStream(zipPath, FileMode.Open, FileAccess.Read, FileShare.Read);
         var file = new StreamContent(fs);
         file.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/zip");
