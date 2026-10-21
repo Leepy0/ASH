@@ -107,11 +107,28 @@ public class ModelRunIntegrationTests
         Assert.True(V(blk, 1) > 0, "block passes"); // first real check of the 1x1 block template geometry
         Assert.Equal(3600, V(run.Rows.Single(x => x[0] == "clock"), 2), 3);
         Assert.Equal(0, V(run.Rows.Single(x => x[0] == "deadlock"), 1));
-        var bg = run.Rows.Where(x => x[0] == "blockgroup" && x[2] == "G1").ToList();
-        Assert.NotEmpty(bg);
-        Assert.All(bg, x => { Assert.Equal(11, x.Length); Assert.True(V(x, 1) >= 0 && V(x, 2) >= 0, "waitSec/waitCount"); });
+        Assert.DoesNotContain(run.Rows, x => x[0] == "blockgroup");
+        var veh = run.Rows.Where(x => x[0] == "vehicle").ToList();
+        Assert.Equal(3, veh.Count);
+        Assert.All(veh, x => { Assert.Equal(11, x.Length); Assert.Equal(0, V(x, 6)); }); // no MTBF: no repair time
         Assert.DoesNotContain("ASH:", File.ReadAllText(Path.Combine(run.Result.RunDir, Model + ".message"))); // Debug=0: no logic prints
         Cleanup(run.Work); // kept on failure for inspection
+    }
+
+    [SkippableFact]
+    public void Breakdowns_EmptySpeed_And_Capacity_Run_And_Differ_By_Seed()
+    {
+        Skip.If(AmHome is null, "ASH_AM_HOME not set");
+        var p = LogicGeneratorTests.Sample();
+        p.AgvTypes[0] = p.AgvTypes[0] with { SpeedEmpty = 1.5, Decel = 0.3, Capacity = 2, MTBF = 600, MTTR = 60 };
+        double Down(Run r) => r.Rows.Where(x => x[0] == "vehicle").Sum(x => V(x, 6));
+        var a = BuildAndRun(p, new Dictionary<string, int> { ["G1"] = 2 }, seed: 1);
+        var b = BuildAndRun(p, new Dictionary<string, int> { ["G1"] = 2 }, seed: 2);
+        Assert.True(Down(a) > 0, "repair time with MTBF 600 s:\n" + a.Tsv);
+        Assert.NotEqual(Down(a), Down(b));                                      // each seed gets its own breakdowns
+        Assert.All(a.Rows.Where(x => x[0] == "material"), x => Assert.True(V(x, 3) > 0, "supplies"));
+        Assert.Equal(0, V(a.Rows.Single(x => x[0] == "deadlock"), 1));
+        Cleanup(a.Work); Cleanup(b.Work);
     }
 
     [SkippableFact]
