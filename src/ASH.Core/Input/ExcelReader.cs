@@ -22,6 +22,7 @@ public static class ExcelReader
         IXLCell Cell(string col) => _cols.TryGetValue(col, out var c) ? _ws.Cell(_row, c) : throw new FormatException($"{_ws.Name} 시트에 '{col}' 열이 없습니다.");
         public string Str(string col) => Cell(col).GetString().Trim();
         /// <summary>A column added in a later version: a workbook without it reads as empty instead of failing.</summary>
+        public double? OptNumIfColumn(string col) => _cols.ContainsKey(col) ? OptNum(col) : null;
         public string StrIfColumn(string col) => _cols.ContainsKey(col) ? Str(col) : "";
         public string? OptStr(string col) { var s = Str(col); return s.Length == 0 ? null : s; }
 
@@ -130,7 +131,7 @@ public static class ExcelReader
                 r.Str("StandbyCPs").Split(',').Select(s => s.Trim()).Where(s => s.Length > 0).ToList(), r.Str("Dispatch"), r.RowNum));
         foreach (var r in Rows(wb, "Materials"))
             p.Materials.Add(new MaterialInfo(r.Str("Material"), r.Str("Station"), r.Str("Group"), r.Num("TaktTime"), r.Num("UnitsPerCycle"),
-                r.Num("UnitsPerContainer"), r.Num("CallThreshold"), r.Num("UnloadThreshold"), r.OptNum("InitStock"), r.OptNum("SafetyStock"), r.Bool("EmptyReturn"), r.RowNum, r.StrIfColumn("Form")));
+                r.Num("UnitsPerContainer"), r.Num("CallThreshold"), r.Num("UnloadThreshold"), r.OptNum("InitStock"), r.OptNum("SafetyStock"), r.Bool("EmptyReturn"), r.RowNum, r.StrIfColumn("Form"), r.OptNumIfColumn("LoadLength"), r.OptNumIfColumn("LoadWidth"), r.OptNumIfColumn("LoadHeight")));
         foreach (var r in Rows(wb, "Routes"))
             p.Routes.Add(new Route(r.Str("Material"), r.Str("SupplyFromCP"), r.Str("SupplyToCP"), r.OptStr("BufferCP"),
                 r.OptStr("ReturnFromCP"), r.OptStr("ReturnToCP"), r.Num("ExtraTime", 0), r.RowNum));

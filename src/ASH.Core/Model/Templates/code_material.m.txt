@@ -35,6 +35,7 @@ end
 
 begin P_supply_{{M}} arriving procedure
 	set A_grp to {{G}}
+{{SET_TYPE}}
 	set V_extMat to {{M}}
 	set V_tmp to F_ext_select_vehicle()
 	move into {{SYS}}:{{FROM}}
@@ -47,6 +48,7 @@ begin P_supply_{{M}} arriving procedure
 	if ac >= V_warmup then inc V_supplies({{M}}) by 1
 	set V_pending({{M}}) to 0
 {{EXTRA_TIME}}
+{{EMPTY_TYPE}}
 {{RETURN_LEGS}}
 	send to die
 end

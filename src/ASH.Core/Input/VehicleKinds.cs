@@ -20,8 +20,8 @@ public static class MaterialForms
 
 /// <summary>
 /// AGV shapes. A type's Kind says how it takes a load, and with that what it can carry. To add a shape, add a line to <see cref="All"/>: name, label and the forms it
-/// carries; AGV_Types.Kind then accepts it and the check against the materials' Form follows. Nothing in the AutoMod model depends on the Kind yet (the vehicle graphic
-/// and its load/unload time come from the AGV_Types row).
+/// carries; AGV_Types.Kind then accepts it and the check against the materials' Form follows. The Kind also picks the vehicle picture (VehicleGeometry): a new
+/// kind needs a case there too, or it is drawn like Standard.
 /// </summary>
 public static class VehicleKinds
 {

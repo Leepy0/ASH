@@ -134,7 +134,11 @@ public static class LogicGenerator
             }
             // Route.ExtraTime: once per supply cycle, after the unload, with the vehicle still held
             var extra = r.ExtraTime > 0 ? $"\twait for {N(r.ExtraTime)} sec" : "";
+            // the supply load shows as the material's own picture; a box goes back empty (other forms are the same picture on the way back)
+            var form = MaterialForms.Normalize(m.Form) ?? MaterialForms.Box;
+            var emptyType = m.EmptyReturn && form == MaterialForms.Box && ret.Length > 0 ? $"\tset load type to L_m{mi}e" : "";
             matLogic.Append(Fill(Res("code_material.m.txt"), ("M", mi.ToString()), ("NAME", Lit(m.Material)), ("SYS", sys),
+                ("SET_TYPE", $"\tset load type to L_m{mi}"), ("EMPTY_TYPE", emptyType),
                 ("G", GroupIndex(input, m.Group).ToString()),
                 ("FROM", Cp(layout, r.SupplyFromCP)), ("LOAD_TIME", N(t.LoadTime)), ("UNLOAD_TIME", N(t.UnloadTime)),
                 ("SUPPLY_LEGS", legs.ToString().TrimEnd('\n')), ("EXTRA_TIME", extra), ("RETURN_LEGS", ret.ToString().TrimEnd('\n'))));
@@ -210,6 +214,22 @@ public static class LogicGenerator
         // arrays get at least 2 elements: AM mishandles 1-element arrays (seen with BLOCK n 1)
         int gs = Math.Max(2, input.Groups.Count), ms = Math.Max(2, nm);
         m.LoadTypes.Add("L_ctl");
+        for (int i = 1; i <= nm; i++)
+        {
+            var mat = input.Materials[i - 1];
+            var form = MaterialForms.Normalize(mat.Form) ?? MaterialForms.Box;
+            var d = LoadGeometry.DefaultSize(form);
+            double len = mat.LoadLength ?? d.L, wid = mat.LoadWidth ?? d.W, hei = mat.LoadHeight ?? d.H;
+            m.LoadTypes.Add($"L_m{i}");
+            var full = LoadGeometry.Build(form, false, len, wid, hei, units);
+            if (full != null) m.LoadGraphics[$"L_m{i}"] = full;
+            if (form == MaterialForms.Box && mat.EmptyReturn)
+            {
+                m.LoadTypes.Add($"L_m{i}e");
+                var empty = LoadGeometry.Build(form, true, len, wid, hei, units);
+                if (empty != null) m.LoadGraphics[$"L_m{i}e"] = empty;
+            }
+        }
         for (int i = 1; i <= nm; i++) { m.Procs.Add(new($"P_consume_{i}")); m.Procs.Add(new($"P_supply_{i}")); }
         m.Queues.Add(new("Q_park"));
         m.Orders.Add("OL_forever");

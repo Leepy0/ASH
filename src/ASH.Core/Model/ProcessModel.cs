@@ -15,6 +15,8 @@ public sealed class ProcessModel
 {
     public List<ProcEntity> Procs { get; } = new List<ProcEntity>();
     public List<string> LoadTypes { get; } = new List<string>();
+    /// <summary>Geometry lines (from the assembly line to the last part) for a load type; a type without an entry gets the plain cube.</summary>
+    public Dictionary<string, IReadOnlyList<string>> LoadGraphics { get; } = new Dictionary<string, IReadOnlyList<string>>();
     public List<QueueEntity> Queues { get; } = new List<QueueEntity>();
     public List<string> Labels { get; } = new List<string>();
     public List<BlockEntity> Blocks { get; } = new List<BlockEntity>();

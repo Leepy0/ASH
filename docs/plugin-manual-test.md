@@ -288,3 +288,15 @@ AutoMod 12.6이 있는 PC 필요(T16-2, T16-4). 검증·내보내기 탭 "Excel 
 | H5 ash.settings.tsv의 AmHome을 없는 폴더로 두고 `AGVMODEL` → 오류 없이 "AutoMod를 찾지 못해 빌드하지 않았습니다: ...am264.exe", `<모델>.arc`는 만들어짐 | | | |
 | H6 AmHome이 맞을 때 빌드가 끝나면 `<모델>.dir` 폴더가 AutoMod에 의해 생김 | | | |
 | H7 모델 생성 중 예상 밖 오류가 나면 명령줄에 `오류: <예외 종류>: <메시지>`가 나오고 plugin.log에 전체 내용이 남음 | | | |
+
+## 차량·적재물 그림 (0.10.0)
+
+| 항목 | 날짜 | 결과 | 비고 |
+|---|---|---|---|
+| I1 `AGVMODEL` 후 AutoMod에서 모델을 열면 차량이 Kind별 모양(Standard 범퍼, Conveyor 롤러 데크, Ant 리프트판, Magnet 뒤쪽 전자석)으로 보임 | | | |
+| I2 차량이 진행하는 방향(앞)이 그림의 앞(Standard의 범퍼 쪽, Magnet은 반대쪽이 뒤)과 같음. 반대로 보이면 알려 주세요 | | | |
+| I3 AGV_Types의 Length를 1.2에서 2.4로 바꾸고 다시 `AGVMODEL` → 차량이 진행 방향으로 길어지고 롤러 수만 늘며 일그러지지 않음. Width도 같음 | | | |
+| I4 Materials의 Form을 Box / Pallet / Trolley로 바꿔 보면 AGV 위 적재물 그림이 상자 / 파레트 / 대차로 달라짐 | | | |
+| I5 LoadLength를 0.9로 바꾸면 그 자재의 적재물만 길어지고 모양이 일그러지지 않음 | | | |
+| I6 Form Box, EmptyReturn Y, Routes에 ReturnFromCP / ReturnToCP가 있는 자재: 공급 때 꽉 찬 상자, 돌아올 때 윗면이 열린 빈 상자 | | | |
+| I7 적재물이 AGV 위에 놓이는 높이가 어색하지 않음(너무 뜨거나 파묻히지 않음). 어색하면 높이를 알려 주세요 | | | |

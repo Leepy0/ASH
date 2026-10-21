@@ -20,9 +20,9 @@ public static class ExcelTemplate
             new[] { "그룹명", "AGV 타입(하나)", "최소 대수", "최대 대수", "대기 CP(쉼표 구분)", "Nearest / FIFO" },
             new[] { "G_EX", "T_EX", "1", "3", "CP_STBY", "Nearest" }),
         ("Materials",
-            new[] { "Material", "Station", "Group", "TaktTime", "UnitsPerCycle", "UnitsPerContainer", "CallThreshold", "UnloadThreshold", "InitStock", "SafetyStock", "EmptyReturn", "Form" },
-            new[] { "자재명", "공정명(선택·메모)", "그룹명", "T/T(초)", "T/T당 소비 원수", "용기당 원수", "호출 임계(용기)", "언로딩 임계(용기)", "초기재고(용기, 비우면 Settings)", "안전재고(용기, 비우면 Settings)", "빈 용기 회수 Y/N", "형태(Box/Pallet/Trolley)" },
-            new[] { "M001", "", "G_EX", "60", "1", "10", "4", "1", "", "", "Y", "Box" }), // Call 4 > Settings SafetyStock 2
+            new[] { "Material", "Station", "Group", "TaktTime", "UnitsPerCycle", "UnitsPerContainer", "CallThreshold", "UnloadThreshold", "InitStock", "SafetyStock", "EmptyReturn", "Form", "LoadLength", "LoadWidth", "LoadHeight" },
+            new[] { "자재명", "공정명(선택·메모)", "그룹명", "T/T(초)", "T/T당 소비 원수", "용기당 원수", "호출 임계(용기)", "언로딩 임계(용기)", "초기재고(용기, 비우면 Settings)", "안전재고(용기, 비우면 Settings)", "빈 용기 회수 Y/N", "형태(Box/Pallet/Trolley)", "적재물 길이(m, 비우면 형태별 기본값)", "적재물 폭(m)", "적재물 높이(m)" },
+            new[] { "M001", "", "G_EX", "60", "1", "10", "4", "1", "", "", "Y", "Box", "", "", "" }), // Call 4 > Settings SafetyStock 2
         ("Routes",
             new[] { "Material", "SupplyFromCP", "SupplyToCP", "BufferCP", "ReturnFromCP", "ReturnToCP", "ExtraTime" },
             new[] { "자재명", "load CP", "unload CP", "buffer CP(선택)", "rtnload CP(선택)", "rtnunload CP(선택)", "추가 시간(초)" },

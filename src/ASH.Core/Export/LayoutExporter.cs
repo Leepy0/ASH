@@ -117,12 +117,12 @@ public static class LayoutExporter
 
         foreach (var g in groups)
         {
-            // shortcut: vehicle graphics use demo template size, Length/Width only feed traffic params; upgrade when Module C defines AGVVEHSEG geometry
+            // with a Kind the picture is built from Length x Width (VehicleGeometry); without one it is the demo picture
             var seg = "Seg_" + g.TypeName;
             VehicleTemplateOverride? ov = null; o.VehicleOverrides?.TryGetValue(g.TypeName, out ov);
             if (ov?.VehSegText != null)
                 s.VehicleSegmentLines.AddRange(VehicleOverrideApplier.VehSeg(ov.VehSegText, seg));
-            else s.VehicleSegmentLines.AddRange(Template("agvs_vehseg.txt").Select(x => x.Replace("DefSegment", seg)));
+            else s.VehicleSegmentLines.AddRange(VehicleGeometry.Build(Template("agvs_vehseg.txt"), g.Kind, g.Length, g.Width, o.Units).Select(x => x.Replace("DefSegment", seg)));
             if (ov?.VehicleBlockText != null)
             {
                 s.VehicleLines.AddRange(VehicleOverrideApplier.Vehicle(ov.VehicleBlockText, g.TypeName, g.MaxCount, seg, "nl_" + g.Group));

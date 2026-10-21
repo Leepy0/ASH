@@ -26,7 +26,7 @@
 |---|---|
 | AGV_Types | Type, Group, SpeedLoaded(m/s), SpeedEmpty(m/s), Accel(m/s²), Decel(m/s²), Capacity(용기 수), LoadTime(초), UnloadTime(초), MTBF(초, 0=없음), MTTR(초), Length(m), Width(m), Color, Kind(선택: Standard / Conveyor / Ant / Magnet) |
 | AGV_Groups | Group, Type(그룹당 하나), MinCount(≥1), MaxCount(≥MinCount), StandbyCPs(쉼표 구분), Dispatch(Nearest / FIFO) |
-| Materials | Material, Station(선택·메모), Group, TaktTime(초, >0), UnitsPerCycle(원수), UnitsPerContainer(≥1), CallThreshold(용기), UnloadThreshold(용기), InitStock(용기, 선택), SafetyStock(용기, 선택), EmptyReturn(Y/N), Form(선택: Box / Pallet / Trolley) |
+| Materials | Material, Station(선택·메모), Group, TaktTime(초, >0), UnitsPerCycle(원수), UnitsPerContainer(≥1), CallThreshold(용기), UnloadThreshold(용기), InitStock(용기, 선택), SafetyStock(용기, 선택), EmptyReturn(Y/N), Form(선택: Box / Pallet / Trolley), LoadLength / LoadWidth / LoadHeight(m, 선택) |
 | Routes | Material, SupplyFromCP, SupplyToCP, BufferCP(선택), ReturnFromCP(선택), ReturnToCP(선택), ExtraTime(초) |
 
 ## 도면 값으로 채운 양식
@@ -46,7 +46,10 @@ Stations·Ext 시트는 양식에서 뺐다(모델에 아무 영향이 없었다
 - Materials의 Form: Box, Pallet, Trolley. 비우면 Box.
 - AGV_Types의 Kind: Standard(표준, 모두 적재), Conveyor(벨트 C/V 상차형: Box, Pallet), Ant(대차 리프팅: Trolley), Magnet(전자석 견인: Trolley). 비우면 Standard.
 - 자재의 Form을 그 그룹의 AGV Kind가 싣지 못하면 경고한다. 알 수 없는 값은 오류이다.
-- 새 형상은 코드의 `VehicleKinds.All`에 한 줄(이름, 설명, 싣는 형태) 추가하면 Kind 열이 받아들인다. 현재 Kind는 검사에만 쓰이고 AutoMod 차량 그래픽이나 상·하차 시간은 AGV_Types 행의 값을 따른다.
+- Kind는 AutoMod의 차량 그림도 고른다. 차량은 AGV_Types의 Length(진행 방향)와 Width(가로)로 크기가 정해진 상자들로 만들어지며, 그림 전체를 늘리지 않는다. 바퀴·롤러·리프트판 같은 부품은 차량이 커져도 같은 크기이고 롤러는 개수만 늘어난다. 범퍼 감지 구역과 적재 연결부는 데모 그림 그대로이다.
+- Standard: 섀시 + 앞 범퍼. Conveyor: 섀시 + 롤러 데크(롤러는 0.35 ft 간격). Ant: 섀시 + 리프트판(약 0.5 m). Magnet: 섀시 + 뒤쪽 전자석.
+- 새 형상은 `VehicleKinds.All`에 한 줄 추가하고 `VehicleGeometry.Build`에 그 형상의 부품을 추가한다(없으면 Standard처럼 그려진다).
+- 적재물: 자재마다 Form에 따라 상자, 빈 상자, 파레트, 대차 그림이 만들어지고 크기는 LoadLength(길이) / LoadWidth(폭) / LoadHeight(높이)로 정한다. 비우면 형태별 기본값(Box 0.6×0.4×0.3, Pallet 1.1×1.1×0.15, Trolley 1.0×0.7×0.25 m). 상자는 공급할 때 꽉 찬 상자, 빈 용기 회수(EmptyReturn=Y) 구간에서는 빈 상자로 바뀐다. 파레트와 대차는 돌아올 때도 같은 그림이다.
 
 ## 검증 규칙
 

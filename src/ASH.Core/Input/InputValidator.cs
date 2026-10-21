@@ -132,6 +132,8 @@ public static class InputValidator
             if (m.Material.Length > 0 && !IsAmText(m.Material)) Err("Materials", m.Row, i, $"자재 이름 '{m.Material}'은(는) AutoMod에서 쓸 수 없습니다(영문·숫자·기호만, 한글·공백·따옴표·역슬래시 불가).");
             if (m.Material.Length > 0 && !input.Routes.Any(r => r.Material == m.Material)) Err("Materials", m.Row, i, $"자재 '{m.Material}'의 Routes 행이 없습니다.");
             if (m.Group.Length > 0 && !groups.Contains(m.Group)) Err("Materials", m.Row, i, $"자재 '{m.Material}'의 Group '{m.Group}'이(가) AGV_Groups에 없습니다.");
+            foreach (var (col, v) in new[] { ("LoadLength", m.LoadLength), ("LoadWidth", m.LoadWidth), ("LoadHeight", m.LoadHeight) })
+                if (v.HasValue && !(v.Value > 0)) Err("Materials", m.Row, i, $"자재 '{m.Material}'의 {col}은(는) 0보다 커야 합니다(비우면 형태별 기본값).");
             var form = MaterialForms.Normalize(m.Form);
             if (form == null) Err("Materials", m.Row, i, $"자재 '{m.Material}'의 Form '{m.Form}'은(는) 알 수 없습니다. ({string.Join(" / ", MaterialForms.All)})");
             else

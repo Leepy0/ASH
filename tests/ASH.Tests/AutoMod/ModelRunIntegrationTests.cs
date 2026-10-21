@@ -35,7 +35,7 @@ public class ModelRunIntegrationTests
         var specs = input.Groups.Select(g =>
         {
             var t = input.AgvTypes.Single(x => x.Type == g.Type);
-            return new VehicleGroupSpec(g.Group, g.Type, g.MaxCount, t.SpeedLoaded, t.Length, t.Width);
+            return new VehicleGroupSpec(g.Group, g.Type, g.MaxCount, t.SpeedLoaded, t.Length, t.Width, Accel: t.Accel, Decel: t.Decel, Kind: t.Kind);
         }).ToArray();
         l.Blocks.Add(new ASH.Core.Layout.LayoutBlock { Name = "B_x1", Cap = 1, Rect = new Rect2(new Point2(8, -1), new Point2(11, 2)) }); // corner p1/p2
         var res = ModelBuilder.Build(new ModelBuildRequest(work, Model, input, l, new ExportOptions(Groups: specs), VehicleOverrides: vehOverrides), AmHome!, TimeSpan.FromMinutes(5));
@@ -57,6 +57,27 @@ public class ModelRunIntegrationTests
 
     static double V(string[] row, int i) => double.Parse(row[2 + i], CultureInfo.InvariantCulture);
     static string[] Mat(Run r, string name) => r.Rows.Single(x => x[0] == "material" && x[1] == name);
+
+    // every vehicle kind and every material form must be accepted by AutoMod's build (geometry syntax, `set load type`) and run to the end
+    [SkippableTheory]
+    [InlineData("Standard", "Box", true, 1.2, 0.8)]
+    [InlineData("Conveyor", "Pallet", false, 1.6, 1.0)]
+    [InlineData("Ant", "Trolley", true, 1.0, 0.7)]
+    [InlineData("Magnet", "Trolley", false, 2.0, 0.9)]
+    public void Kinds_And_Forms_Build_And_Run(string kind, string form, bool emptyReturn, double length, double width)
+    {
+        Skip.If(AmHome is null, "ASH_AM_HOME not set");
+        var input = LogicGeneratorTests.Sample();
+        input.AgvTypes[0] = input.AgvTypes[0] with { Kind = kind, Length = length, Width = width, Accel = 0.3, Decel = 0.3 };
+        for (int i = 0; i < input.Materials.Count; i++)
+            input.Materials[i] = input.Materials[i] with { Form = form, EmptyReturn = emptyReturn, LoadLength = i == 0 ? 0.9 : null };
+        if (emptyReturn) for (int i = 0; i < input.Routes.Count; i++) input.Routes[i] = input.Routes[i] with { ReturnFromCP = "U001", ReturnToCP = "L001" };
+        var run = BuildAndRun(input, new Dictionary<string, int> { ["G1"] = 1 });
+        var asy = File.ReadAllText(Path.Combine(run.Work, Model + ".arc", "agv.asy"));
+        Assert.Contains("Base3_Blue", asy);
+        Assert.Contains("set load type to L_m1", File.ReadAllText(Path.Combine(run.Work, Model + ".arc", Model + "~.asy")));
+        Cleanup(run.Work);
+    }
 
     [SkippableFact]
     public void Run_With_VehSeg_Override_From_Demo_Block()

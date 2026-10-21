@@ -43,7 +43,18 @@ public static class ProcessAsyWriter
         w.Write(Res("process_header.txt", m.Units));
         w.WriteLine("PROCDEF");
         foreach (var p in m.Procs) w.WriteLine($"PROC name {p.Name} 0 traf Infinite nextproc die");
-        foreach (var l in m.LoadTypes) { w.WriteLine($"LDTYPE name {l} 0"); w.Write(Res("ldtype_template.txt", m.Units)); }
+        foreach (var l in m.LoadTypes)
+        {
+            w.WriteLine($"LDTYPE name {l} 0");
+            if (m.LoadGraphics.TryGetValue(l, out var geo))
+            {
+                w.WriteLine("picpos endx 1");
+                w.WriteLine(" template " + m.Units);
+                foreach (var line in geo) w.WriteLine(line);
+                w.WriteLine("end");
+            }
+            else w.Write(Res("ldtype_template.txt", m.Units));
+        }
         foreach (var q in m.Queues) { w.WriteLine($"QUEUE name {q.Name} {q.Count} cap {q.Cap}"); w.WriteLine(); w.WriteLine("\tUserDef"); w.WriteLine(); }
         int li = 0;
         foreach (var l in m.Labels)
