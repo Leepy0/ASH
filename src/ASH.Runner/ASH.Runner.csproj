@@ -10,6 +10,8 @@
     <SelfContained Condition="'$(RuntimeIdentifier)' != ''">true</SelfContained>
     <PublishSingleFile Condition="'$(RuntimeIdentifier)' != ''">true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract Condition="'$(RuntimeIdentifier)' != ''">true</IncludeNativeLibrariesForSelfExtract>
+    <!-- unpack everything at start: a running ash-run must not need its own exe file afterwards, because a self-update renames that file while jobs may still run -->
+    <IncludeAllContentForSelfExtract Condition="'$(RuntimeIdentifier)' != ''">true</IncludeAllContentForSelfExtract>
     <EnableCompressionInSingleFile Condition="'$(RuntimeIdentifier)' != ''">true</EnableCompressionInSingleFile>
     <DebugType Condition="'$(RuntimeIdentifier)' != ''">none</DebugType>
   </PropertyGroup>

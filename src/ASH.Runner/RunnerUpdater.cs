@@ -128,7 +128,7 @@ public static class RunnerUpdater
             return await UpdateAsync(ctx, args, relaunch: true, o, verbose: false, ct);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
-        catch (Exception e) { o.WriteLine("update skipped: " + e.Message); return null; }
+        catch (Exception e) { o.WriteLine("update skipped: " + Describe(e)); return null; }
     }
 
     /// <summary><c>ash-run --update [--server url]</c>: check and apply now, then stop. Exit codes: 0 up to date or updated, 1 could not update.</summary>
@@ -148,8 +148,12 @@ public static class RunnerUpdater
             return code ?? 0;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { return 1; }
-        catch (Exception e) { o.WriteLine("update failed: " + e.Message); return 1; }
+        catch (Exception e) { o.WriteLine("update failed: " + Describe(e)); return 1; }
     }
+
+    // some exceptions carry no message; the type name is then the only clue
+    private static string Describe(Exception e) =>
+        Environment.GetEnvironmentVariable("ASH_RUNNER_DEBUG") != null ? e.ToString() : string.IsNullOrWhiteSpace(e.Message) ? e.GetType().Name : e.Message;
 
     private sealed record Ctx(Uri Server, ManifestSignature Key, string ExePath);
 
@@ -185,14 +189,17 @@ public static class RunnerUpdater
 
     private static async Task<int?> UpdateAsync(Ctx c, string[] args, bool relaunch, TextWriter o, bool verbose, CancellationToken ct)
     {
-        CleanLeftovers(c.ExePath);
         // one updater at a time: a second ash-run started together waits, then finds the new exe already in place.
         // A file lock, not a Mutex: this code awaits, and a Mutex must be released by the thread that took it.
+        Debug(o, $"{DateTime.Now:HH:mm:ss.fff} pid {Environment.ProcessId} waits for {c.ExePath}.lock");
         using var gate = await TakeLockAsync(c.ExePath + ".lock", TimeSpan.FromSeconds(120), ct);
+        Debug(o, $"{DateTime.Now:HH:mm:ss.fff} pid {Environment.ProcessId} got the lock: {gate != null}");
         if (gate == null) { o.WriteLine("update skipped: another update is taking too long"); return null; }
         {
+            CleanLeftovers(c.ExePath); // inside the lock: another updater's .new must not be deleted under it
             // another process may have swapped the file after this one started
-            var onDisk = DiskVersion(c.ExePath);
+            var onDisk = ReplacedVersion(c.ExePath);
+            Debug(o, $"lock taken, replaced by {onDisk ?? "nobody"}, this process {CurrentVersion}");
             if (onDisk != null && SemVersion.TryParse(onDisk, out var disk) && SemVersion.TryParse(CurrentVersion, out var mine) && disk!.CompareTo(mine) > 0)
                 return Finish(c, args, onDisk, relaunch, o);
 
@@ -209,13 +216,16 @@ public static class RunnerUpdater
             if (p == null) { if (verbose) o.WriteLine($"ash-run {CurrentVersion} is up to date."); return null; }
 
             o.WriteLine($"update: ash-run {CurrentVersion} -> {p.Version}");
-            Apply(c.ExePath, p.NewExePath);
-            var said = SmokeTest(c.ExePath);
+            // Prove the new file starts BEFORE the swap, through the very method that relaunches after it. A single-file exe loads its
+            // assemblies from its own file on demand, and once this running exe is renamed any assembly not loaded yet cannot be found:
+            // this dry run loads everything the post-swap code needs.
+            var (_, said) = RunProcess(p.NewExePath, new[] { "--version" }, capture: true, SmokeTimeout);
             if (said != p.Version)
             {
-                Revert(c.ExePath);
+                TryDelete(p.NewExePath);
                 throw new InvalidOperationException($"the new ash-run did not start correctly (said '{said}'), kept {CurrentVersion}");
             }
+            Apply(c.ExePath, p.NewExePath);
             return Finish(c, args, p.Version, relaunch, o);
         }
     }
@@ -238,37 +248,50 @@ public static class RunnerUpdater
         return Relaunch(c.ExePath, args);
     }
 
-    /// <summary>Runs the exe in this console with the same arguments and returns its exit code.</summary>
-    private static int Relaunch(string exe, string[] args)
-    {
-        var psi = new ProcessStartInfo(exe) { UseShellExecute = false };
-        foreach (var a in args) psi.ArgumentList.Add(a);
-        psi.Environment[GuardEnv] = "1";
-        using var p = Process.Start(psi) ?? throw new InvalidOperationException("could not start the updated ash-run");
-        p.WaitForExit();
-        return p.ExitCode;
-    }
+    private static int Relaunch(string exe, string[] args) => RunProcess(exe, args, capture: false, null).Exit;
 
-    /// <summary>What the new exe prints for --version, or "" when it does not start in time.</summary>
-    private static string SmokeTest(string exe)
+    /// <summary>
+    /// Runs exe with args and waits. capture: false = in this console (the job), true = stdout is captured and the wait is limited (the smoke test).
+    /// One method for both on purpose, see the comment in UpdateAsync.
+    /// </summary>
+    private static (int Exit, string Output) RunProcess(string exe, string[] args, bool capture, TimeSpan? limit)
     {
-        var psi = new ProcessStartInfo(exe, "--version") { UseShellExecute = false, RedirectStandardOutput = true, CreateNoWindow = true };
+        var psi = new ProcessStartInfo(exe) { UseShellExecute = false, RedirectStandardOutput = capture, CreateNoWindow = capture };
+        foreach (var a in args) psi.ArgumentList.Add(a);
         psi.Environment[GuardEnv] = "1";
         try
         {
-            using var p = Process.Start(psi);
-            if (p == null) return "";
-            var read = p.StandardOutput.ReadToEndAsync();
-            if (!p.WaitForExit(SmokeTimeout)) { try { p.Kill(); } catch (InvalidOperationException) { } return ""; }
-            return read.Result.Trim();
+            using var p = Process.Start(psi) ?? throw new InvalidOperationException("could not start " + exe);
+            var read = capture ? p.StandardOutput.ReadToEndAsync() : null;
+            if (limit is { } t)
+            {
+                if (!p.WaitForExit((int)t.TotalMilliseconds)) { try { p.Kill(); } catch (InvalidOperationException) { } return (-1, ""); }
+            }
+            else p.WaitForExit();
+            return (p.ExitCode, read == null ? "" : read.GetAwaiter().GetResult().Trim());
         }
-        catch (System.ComponentModel.Win32Exception) { return ""; }
+        catch (System.ComponentModel.Win32Exception) when (capture) { return (-1, ""); }
     }
 
-    private static string? DiskVersion(string exe)
+    private static void Debug(TextWriter o, string text)
     {
-        try { return FileVersionInfo.GetVersionInfo(exe).ProductVersion?.Split('+')[0]; }
-        catch (IOException) { return null; }
+        if (Environment.GetEnvironmentVariable("ASH_RUNNER_DEBUG") != null) o.WriteLine("update[debug]: " + text);
+    }
+
+    /// <summary>
+    /// Version of the exe now at <paramref name="exe"/> when another updater replaced it after this process started; otherwise null.
+    /// FileVersionInfo is no use here: asked about the path of the running image it keeps answering with the running version.
+    /// </summary>
+    private static string? ReplacedVersion(string exe)
+    {
+        try
+        {
+            var started = Process.GetCurrentProcess().StartTime.ToUniversalTime();
+            if (File.GetLastWriteTimeUtc(exe) <= started) return null; // untouched since this process started: it is this version
+            var (_, said) = RunProcess(exe, new[] { "--version" }, capture: true, SmokeTimeout);
+            return said.Length > 0 ? said : null;
+        }
+        catch (Exception e) when (e is IOException || e is InvalidOperationException) { return null; }
     }
 
     private static void CleanLeftovers(string exe)
