@@ -1,4 +1,7 @@
 using System;
+using ASH.Core.Layout;
+using System.Collections.Generic;
+using System.Linq;
 using ASH.Core.Traffic;
 using System.Drawing;
 using System.Globalization;
@@ -18,7 +21,7 @@ public sealed class AgvPaletteControl : UserControl
         ForeColor = Theme.Text;
         MinimumSize = new Size(260, 0);
 
-        var tabs = new TabControl { Dock = DockStyle.Fill, DrawMode = TabDrawMode.OwnerDrawFixed, Appearance = TabAppearance.Normal, Padding = new Point(2, 6), Font = Theme.Base };
+        var tabs = new TabControl { Dock = DockStyle.Fill, DrawMode = TabDrawMode.OwnerDrawFixed, Appearance = TabAppearance.Normal, Padding = new Point(2, 6), Font = Theme.Base, Multiline = true };
         tabs.DrawItem += DrawTab;
 
         tabs.TabPages.Add(Page("경로", Theme.Section("경로 그리기·편집"),
@@ -70,10 +73,28 @@ public sealed class AgvPaletteControl : UserControl
         settings.Click += (o, e) => Commands.ExportCommands.OpenSettings();
 
         var checkResult = Theme.Caption("마지막 검사 결과: -");
+        var problems = Grid(("문제", 120), ("대상", 64), ("내용", 160));
+        problems.Height = 190;
+        problems.DoubleClick += (o, e) =>
+        {
+            if (problems.SelectedItems.Count > 0 && problems.SelectedItems[0].Tag is FindingRow r && r.HasLocation) Navigator.Go(r.X, r.Y, null);
+        };
+        PaletteStatus.Findings = rows =>
+        {
+            problems.BeginUpdate();
+            problems.Items.Clear();
+            foreach (var r in rows)
+                problems.Items.Add(new ListViewItem(new[] { r.Kind, r.Target, r.Message }) { Tag = r, ForeColor = Theme.CpColor("traffic"), ToolTipText = r.Message });
+            problems.EndUpdate();
+        };
         tabs.TabPages.Add(Page("검증·내보내기", Theme.Section("검증"), Theme.Make("검증", GlyphKind.Check, "AGVCHECK"), checkResult,
+            Theme.Caption("문제 목록 — 더블클릭하면 그 위치로 이동"), problems,
             Theme.Section("내보내기"), Theme.Make("내보내기", GlyphKind.Export, "AGVEXPORT"),
             Theme.Section("모델"), Theme.Make("Excel 양식", GlyphKind.Excel, "AGVEXCEL"), Theme.Make("모델 생성·빌드", GlyphKind.Model, "AGVMODEL"),
             Theme.Section("설정"), settings));
+
+        var finder = FinderPage(tabs);
+        tabs.TabPages.Add(finder);
 
         var header = new Panel { Dock = DockStyle.Top, Height = 50, BackColor = Theme.Panel, Padding = new Padding(10, 6, 6, 6) };
         var init = Theme.Make("양식 초기화", GlyphKind.Init, "AGVINIT");
@@ -97,11 +118,75 @@ public sealed class AgvPaletteControl : UserControl
 
         var status = new Label { Dock = DockStyle.Bottom, Height = 24, ForeColor = Theme.Muted, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(8, 0, 4, 0), Text = "준비" };
         PaletteStatus.Line = t => status.Text = t;
-        PaletteStatus.Check = n => checkResult.Text = $"마지막 검사 결과 {n}건";
+        PaletteStatus.Check = n => checkResult.Text = n == 0 ? "마지막 검사 결과: 문제 없음" : $"마지막 검사 결과: {n}건";
 
         Controls.Add(tabs); // Fill first: later Top/Bottom controls dock before it
         Controls.Add(header);
         Controls.Add(status);
+    }
+
+    // A table with fixed columns; the last one takes the rest of the width.
+    private static ListView Grid(params (string Title, int Width)[] columns)
+    {
+        var lv = new ListView
+        {
+            View = View.Details, FullRowSelect = true, HideSelection = false, MultiSelect = false, HeaderStyle = ColumnHeaderStyle.Nonclickable,
+            BorderStyle = BorderStyle.FixedSingle, Font = Theme.Base, BackColor = Color.White, Margin = new Padding(0, 2, 0, 4), ShowItemToolTips = true,
+        };
+        foreach (var (t, w) in columns) lv.Columns.Add(t, w);
+        lv.Resize += (o, e) =>
+        {
+            int others = 0;
+            for (int i = 0; i + 1 < lv.Columns.Count; i++) others += lv.Columns[i].Width;
+            lv.Columns[lv.Columns.Count - 1].Width = Math.Max(60, lv.ClientSize.Width - others);
+        };
+        return lv;
+    }
+
+    // Finder: pick a category (path type, CP type, block ...), narrow with text, double-click a row to centre the drawing on it (zoom unchanged).
+    private static TabPage FinderPage(TabControl tabs)
+    {
+        var all = new List<FoundObject>();
+        var loaded = false;
+        var category = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat };
+        category.Items.AddRange(ObjectIndex.Categories);
+        category.SelectedIndex = 0;
+        var text = Box("");
+        var count = new Label { Font = Theme.Small, ForeColor = Theme.Muted, AutoSize = true, Margin = new Padding(2, 2, 0, 4), Text = "목록 새로고침을 누르세요" };
+        var list = Grid(("종류", 54), ("이름", 84), ("정보", 140));
+        list.Dock = DockStyle.Fill;
+
+        void Apply()
+        {
+            list.BeginUpdate();
+            list.Items.Clear();
+            var cat = category.SelectedItem as string ?? ObjectIndex.All;
+            foreach (var o in all.Where(o => ObjectIndex.Matches(o, cat, text.Text)))
+                list.Items.Add(new ListViewItem(new[] { o.Kind, o.Name, o.Info }) { Tag = o, ToolTipText = o.Name + "  " + o.Info });
+            list.EndUpdate();
+            count.Text = loaded ? $"{list.Items.Count}개 표시 / 전체 {all.Count}개 — 더블클릭하면 그 위치로 이동" : "목록 새로고침을 누르세요";
+        }
+        category.SelectedIndexChanged += (o, e) => Apply();
+        text.TextChanged += (o, e) => Apply();
+        list.DoubleClick += (o, e) =>
+        {
+            if (list.SelectedItems.Count > 0 && list.SelectedItems[0].Tag is FoundObject f) Navigator.Go(f.At.X, f.At.Y, f.Handle);
+        };
+        PaletteStatus.Objects = items => { all = items.ToList(); loaded = true; Apply(); };
+
+        var top = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, BackColor = Theme.Panel, Padding = Padding.Empty };
+        top.Controls.AddRange(new Control[] { Theme.Caption("범주"), category, Theme.Caption("이름·정보로 거르기"), text, Theme.Make("목록 새로고침", GlyphKind.Search, "AGVFIND"), count });
+        top.Layout += (o, e) =>
+        {
+            int w = top.ClientSize.Width;
+            foreach (Control c in top.Controls) if (!(c is Label)) c.Width = Math.Max(120, w - c.Margin.Horizontal);
+        };
+        var page = new TabPage("찾기") { BackColor = Theme.Panel, Padding = new Padding(8, 4, 8, 8) };
+        page.Controls.Add(list); // Fill first: the Top panel then docks before it
+        page.Controls.Add(top);
+        // the first visit fills the list by itself
+        tabs.SelectedIndexChanged += (o, e) => { if (tabs.SelectedTab == page && !loaded) AgvPalette.Send("AGVFIND"); };
+        return page;
     }
 
     // a colour swatch, the type, and its name pattern on the right

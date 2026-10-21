@@ -64,6 +64,7 @@ public static class ExcelReader
 
     public static ProjectInput Read(string path, out List<Finding> warnings)
     {
+        FontFreeGraphicEngine.Install();
         using var wb = new XLWorkbook(path);
         var p = new ProjectInput();
 

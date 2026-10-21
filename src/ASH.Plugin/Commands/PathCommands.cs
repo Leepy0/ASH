@@ -82,17 +82,29 @@ public sealed class PathCommands
         Run(doc, "AGVPATH", (d, tr) =>
         {
             var names = DrawingReader.Read(d, tr).Paths.Select(p => p.Name).ToList();
-            var live = added.Where(i => !i.IsErased).ToList();
-            foreach (var id in live)
+            int made = 0;
+            foreach (var id in added.Where(i => !i.IsErased).ToList())
             {
                 var pl = (Polyline)tr.GetObject(id, OpenMode.ForWrite);
-                pl.Layer = Conventions.LayerFor(kind.Spur, kind.Two, kind.Crab);
-                var name = AutoNamer.Next("P", names);
-                names.Add(name);
-                XData.WritePath(pl, name, false, kind, tr);
-                ed.WriteMessage($"\n경로 {name} 추가 ({label}).");
+                var drawn = DrawingReader.ReadPath(pl, kind); // its straight lines and arcs, in the order drawn
+                if (drawn == null) continue;
+                // PLINE joins consecutive segments into one polyline; each line (or arc) becomes a path of its own so fillet, join and split work on them
+                var pieces = new List<LayoutPath>();
+                foreach (var seg in drawn.Segments)
+                {
+                    var name = AutoNamer.Next("P", names);
+                    names.Add(name);
+                    var piece = new LayoutPath(name) { IsSpur = kind.Spur, IsTwoWay = kind.Two, IsCrab = kind.Crab };
+                    piece.Segments.Add(seg);
+                    pieces.Add(piece);
+                }
+                DrawingWriter.ReplacePaths(d, tr, new[] { pl.Handle.ToString() }, pieces);
+                made += pieces.Count;
+                ed.WriteMessage(pieces.Count == 1
+                    ? $"\n경로 {pieces[0].Name} 추가 ({label})."
+                    : $"\n경로 {pieces[0].Name} ~ {pieces[pieces.Count - 1].Name} {pieces.Count}개 추가 ({label}).");
             }
-            return live.Count > 0;
+            return made > 0;
         });
     }
 
@@ -389,7 +401,7 @@ public sealed class PathCommands
         else { Ed.WriteMessage("\n경로를 1개(안의 모든 모서리) 또는 2개(맞닿은 두 경로)만 선택하세요."); return false; }
 
         double def = SavedFillet();
-        var rr = Ed.GetDistance(new PromptDistanceOptions($"\n반경 <{def:0.###}>") { AllowNegative = false, AllowZero = false, DefaultValue = def, UseDefaultValue = true });
+        var rr = Ed.GetDistance(new PromptDistanceOptions("\n반경") { AllowNegative = false, AllowZero = false, DefaultValue = def, UseDefaultValue = true });
         if (rr.Status != PromptStatus.OK) return false;
         SaveFillet(rr.Value);
 
@@ -398,9 +410,9 @@ public sealed class PathCommands
             var r = PathOps.FilletCorners(a!, rr.Value, layout.Tolerance, near);
             if (r == null) { Ed.WriteMessage("\n둥글릴 모서리가 없습니다 (직선 두 개가 꺾여 만나는 곳이어야 합니다)."); return false; }
             var (path, rounded, skipped) = r.Value;
-            if (rounded == 0) { Ed.WriteMessage($"\n반경 {rr.Value:0.###}에 비해 모서리 앞뒤 직선이 짧아 둥글리지 못했습니다: {string.Join(", ", skipped)}"); return false; }
+            if (rounded == 0) { Ed.WriteMessage($"\n반경 {rr.Value:0.###}에 비해 모서리 앞뒤 직선이 짧아 필렛할 수 없습니다: {string.Join(", ", skipped)}"); return false; }
             DrawingWriter.ReplacePaths(db, tr, new[] { a!.Id }, new[] { path });
-            Ed.WriteMessage($"\n경로 {a.Name}: 모서리 {rounded}개를 둥글렸습니다" + (skipped.Count > 0 ? $" (반경에 비해 짧아 건너뜀 {skipped.Count}개: {string.Join(", ", skipped)})." : "."));
+            Ed.WriteMessage($"\n경로 {a.Name}: 작업 완료 (모서리 {rounded}개)" + (skipped.Count > 0 ? $", 반경에 비해 짧아 건너뜀 {skipped.Count}개: {string.Join(", ", skipped)}." : "."));
             return true;
         }
 
@@ -410,7 +422,7 @@ public sealed class PathCommands
         string baseName = f.Value.Fillet.Name;
         for (int k = 1; names.Contains(f.Value.Fillet.Name); k++) f.Value.Fillet.Name = baseName + "_" + k;
         DrawingWriter.ReplacePaths(db, tr, new[] { a!.Id, b.Id }, new[] { f.Value.A, f.Value.Fillet, f.Value.B });
-        Ed.WriteMessage($"\n원호 경로 {f.Value.Fillet.Name} 삽입.");
+        Ed.WriteMessage($"\n작업 완료 (원호 경로 {f.Value.Fillet.Name}).");
         return true;
     });
 
@@ -422,7 +434,7 @@ public sealed class PathCommands
     {
         var doc = Doc;
         if (!ExportCommands.TryLoadSettings(doc.Editor, out var s, out var dir)) return;
-        var r = doc.Editor.GetDouble(new PromptDoubleOptions($"\n방향표 길이 (m) <{s.ArrowSize:0.###}>") { DefaultValue = s.ArrowSize, UseDefaultValue = true, AllowNegative = false, AllowZero = false });
+        var r = doc.Editor.GetDouble(new PromptDoubleOptions("\n방향표 길이 (m)") { DefaultValue = s.ArrowSize, UseDefaultValue = true, AllowNegative = false, AllowZero = false });
         if (r.Status != PromptStatus.OK) return;
         if (Math.Abs(r.Value - s.ArrowSize) > 1e-12) SettingsFile.Save(s with { ArrowSize = r.Value }, Path.Combine(dir, ExportCommands.SettingsFileName));
         // Run reads the length back from the file, so the redraw below uses the new value

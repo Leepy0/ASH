@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using ClosedXML.Excel;
 
 namespace ASH.Core.Input;
@@ -58,8 +59,22 @@ public static class ExcelTemplate
         else cell.Value = v;
     }
 
+    /// <summary>Excel column width (in digits) for the widest text: Korean and other wide characters count double, 8..40.</summary>
+    internal static double ColumnWidth(IEnumerable<string> texts)
+    {
+        double widest = 0;
+        foreach (var t in texts)
+        {
+            double w = 0;
+            foreach (var ch in t ?? "") w += ch >= 0x1100 ? 2 : 1;
+            widest = Math.Max(widest, w);
+        }
+        return Math.Min(40, Math.Max(8, widest * 1.1 + 2));
+    }
+
     public static void Write(string path)
     {
+        FontFreeGraphicEngine.Install(); // before the workbook: it creates the default (font parsing) engine right away
         using var wb = new XLWorkbook();
         foreach (var (sheet, cols, desc, example) in Sheets)
         {
@@ -93,11 +108,13 @@ public static class ExcelTemplate
             head.Style.Font.Bold = true;
             head.Style.Fill.BackgroundColor = XLColor.LightBlue;
             ws.SheetView.FreezeRows(2);
+            // Widths are worked out from the text, not with AdjustToContents: that measures with the SixLabors font engine, which throws a
+            // TypeInitializationException (TableLoader) inside ZWCAD's process.
             for (int c = 1; c <= cols.Length; c++)
             {
-                var col = ws.Column(c);
-                col.AdjustToContents(1, lastRow);
-                col.Width = Math.Min(40, Math.Max(8, col.Width));
+                var texts = new List<string>();
+                for (int r = 1; r <= lastRow; r++) texts.Add(ws.Cell(r, c).GetString());
+                ws.Column(c).Width = ColumnWidth(texts);
             }
         }
         wb.SaveAs(path);

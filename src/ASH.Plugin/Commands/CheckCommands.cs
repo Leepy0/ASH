@@ -55,6 +55,9 @@ public sealed class CheckCommands
             }
             ed.WriteMessage($"\n검사 결과 {findings.Count}건");
             Ui.PaletteStatus.SetCheck(findings.Count);
+            // only problems exist in this list; the palette shows them in a table and a double-click goes to the spot
+            Ui.PaletteStatus.SetFindings(findings.Select(f => new Ui.FindingRow(FindingText.Label(f.Code), f.EntityId ?? "", f.Message,
+                f.Where.X, f.Where.Y, !(f.Where.X == 0 && f.Where.Y == 0))).ToList());
             return changed;
         }, refreshArrows: false);
     }

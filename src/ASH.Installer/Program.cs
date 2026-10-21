@@ -92,6 +92,26 @@ static class Program
     }
 
     /// <summary>A folder holding ZWCAD.exe; version from the folder name ("ZWCAD 2026" → 2026), "" when absent.</summary>
+    /// <summary>
+    /// Starts the first of the installed ZWCADs (ZWCAD.exe, or ZWCADM.exe for MFG). Done through explorer.exe so it runs with the user's normal rights:
+    /// started from this installer (an administrator process) ZWCAD itself would run elevated. False when nothing could be started.
+    /// </summary>
+    public static bool LaunchZwcad(IEnumerable<ZwcadInstall> targets)
+    {
+        foreach (var t in targets)
+        {
+            var exe = new[] { "ZWCAD.exe", "ZWCADM.exe" }.Select(n => Path.Combine(t.InstallDir, n)).FirstOrDefault(File.Exists);
+            if (exe == null) continue;
+            try
+            {
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", "\"" + exe + "\"") { UseShellExecute = false });
+                return true;
+            }
+            catch (Exception) { /* try the next one */ }
+        }
+        return false;
+    }
+
     public static ZwcadInstall? Manual(string dir)
     {
         dir = dir.Trim().Trim('"').TrimEnd('\\');

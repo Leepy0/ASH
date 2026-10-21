@@ -30,6 +30,7 @@ sealed class MainForm : Form
     readonly TextBox _log = new() { Dock = DockStyle.Fill, Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, BorderStyle = BorderStyle.None, Font = new Font("Consolas", 9f) };
     readonly Button _install, _uninstall;
     readonly TextBox _server = new() { Dock = DockStyle.Fill, Margin = new Padding(0) };
+    readonly CheckBox _launch = new() { Text = "설치가 끝나면 ZWCAD 자동 실행", Checked = true, AutoSize = true, Margin = new Padding(0, 8, 0, 0) };
 
     /// <summary>Exit code of the last 설치/제거 (0 ok, 1 failure, 2 warnings), same as /silent.</summary>
     public int ExitCode { get; private set; }
@@ -79,7 +80,7 @@ sealed class MainForm : Form
 
         var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(20, 16, 20, 16), ColumnCount = 1 };
         _server.Text = serverUrl;
-        foreach (var h in new float[] { -1, -1, -1, 55, -1, -1, -1, -1, -1, 45 })
+        foreach (var h in new float[] { -1, -1, -1, 55, -1, -1, -1, -1, -1, -1, 45 })
             root.RowStyles.Add(h < 0 ? new RowStyle(SizeType.AutoSize) : new RowStyle(SizeType.Percent, h));
         root.Controls.Add(title);
         root.Controls.Add(sub);
@@ -88,6 +89,7 @@ sealed class MainForm : Form
         root.Controls.Add(_notice);
         root.Controls.Add(Section("서버 주소 (선택) — 업데이트 확인용, 예: http://server:8082. 비워 두면 기존 설정 유지"));
         root.Controls.Add(_server);
+        root.Controls.Add(_launch);
         root.Controls.Add(bar);
         root.Controls.Add(Section("로그"));
         root.Controls.Add(Framed(_log));
@@ -193,7 +195,10 @@ sealed class MainForm : Form
             notes.Add("경고:" + Environment.NewLine + string.Join(Environment.NewLine, r.AutoloadWarnings));
         notes.AddRange(r.SessionWarnings);
         notes.AddRange(r.FallbackDirs.Select(d => "ZWCAD 폴더에 쓸 수 없어 DLL을 " + d + "에 설치했습니다."));
-        var done = uninstall ? "제거 완료. ZWCAD를 다시 시작하세요." : "완료. ZWCAD를 다시 시작하면 ASH 탭과 AGV* 명령을 쓸 수 있습니다.";
+        var launched = !uninstall && _launch.Checked && Program.LaunchZwcad(targets);
+        var done = uninstall ? "제거 완료. ZWCAD를 다시 시작하세요."
+            : launched ? "완료. ZWCAD를 실행했습니다. 잠시 뒤 ASH 탭과 AGV* 명령을 쓸 수 있습니다."
+            : "완료. ZWCAD를 다시 시작하면 ASH 탭과 AGV* 명령을 쓸 수 있습니다.";
         var text = notes.Count == 0 ? done : string.Join(Environment.NewLine + Environment.NewLine, notes);
         if (!uninstall) text += Environment.NewLine + Environment.NewLine + string.Join(Environment.NewLine, NextSteps);
         MessageBox.Show(this, text, Text, MessageBoxButtons.OK, notes.Count == 0 ? MessageBoxIcon.Information : MessageBoxIcon.Warning);

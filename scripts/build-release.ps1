@@ -43,6 +43,18 @@ dotnet test "$root\ASH.sln" -c Release --no-build -nologo -v q
 if ($LASTEXITCODE) { throw "dotnet test failed (exit $LASTEXITCODE); release not packaged" }
 $dist = "$root\dist"
 New-Item -ItemType Directory -Force $dist | Out-Null
+# ZWCAD has no binding redirects for the plugin's private dependencies. The plugin's assembly resolver (BundledAssemblies) answers a request with the dll in the
+# plugin folder, but only if that one is the same version or newer; a dll asking for a NEWER version than the folder holds cannot work (found with System.Memory).
+$pluginOut = "$root\src\ASH.Plugin\bin\Release\net48"
+$have = @{}
+foreach ($f in Get-ChildItem "$pluginOut\*.dll") { $n = [Reflection.AssemblyName]::GetAssemblyName($f.FullName); $have[$n.Name] = $n.Version }
+foreach ($f in Get-ChildItem "$pluginOut\*.dll") {
+    foreach ($r in [Reflection.Assembly]::ReflectionOnlyLoadFrom($f.FullName).GetReferencedAssemblies()) {
+        if ($have.ContainsKey($r.Name) -and $have[$r.Name] -lt $r.Version) {
+            throw "$($f.Name) needs $($r.Name) $($r.Version) but the plugin folder has $($have[$r.Name]). Reference the newer package directly (see System.Memory in ASH.Core.csproj)."
+        }
+    }
+}
 $exe = "$dist\ASH-Setup-$version.exe"
 # the Setup must embed every dll the plugin output holds (a new dependency would otherwise ship missing and break the commands that use it)
 foreach ($f in Get-ChildItem "$root\src\ASH.Plugin\bin\Release\net48\*.dll") {

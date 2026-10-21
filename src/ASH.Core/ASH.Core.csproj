@@ -7,6 +7,9 @@
   <ItemGroup>
     <PackageReference Include="ClosedXML" Version="0.102.3" />
     <PackageReference Include="System.IO.Packaging" Version="8.0.1" />
+    <!-- direct and at the highest version any package asks for: the plugin folder holds exactly one System.Memory, and a dll that was compiled against a newer one than the
+         folder has cannot be satisfied by the plugin's assembly resolver (it only answers with equal or newer versions) -->
+    <PackageReference Include="System.Memory" Version="4.5.5" />
   </ItemGroup>
 
   <ItemGroup>
