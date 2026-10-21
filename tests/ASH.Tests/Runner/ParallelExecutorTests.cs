@@ -15,6 +15,8 @@ public class ParallelExecutorTests
         var ex = new ParallelExecutor(3, (slot, s) =>
         {
             lock (inUse) { Assert.True(inUse.Add(slot), "slot used twice at once"); peak = Math.Max(peak, ++now); }
+            // the thread pool may add the third worker late when other tests keep it busy: hold until 3 runs overlapped once (not timing-dependent)
+            SpinWait.SpinUntil(() => Volatile.Read(ref peak) >= 3, 10_000);
             Thread.Sleep(30 + (s.Seed % 3) * 20);                    // finish out of order
             lock (inUse) { now--; inUse.Remove(slot); }
             return new[] { new RunKpi("G1", 1, s.Seed / 100.0, 2, s.Seed, 0, 0, 0, 0) };
