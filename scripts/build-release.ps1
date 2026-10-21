@@ -4,6 +4,7 @@
 # Version comes from <Version> in Directory.Build.props.
 # Also dist/ASH.json (release manifest: version, minSupported, SHA-256/size of the Setup exe)
 # and dist/ASH.json.sig, signed with the private-key PEM at $env:ASH_SIGNING_KEY (AshRelease keygen) and verified against update-key.pub.
+# and dist/ASH.Server.json(.sig): version/SHA-256/size of the server zip, signed with the same key (running servers replace themselves from it).
 #   -MinSupported <ver>  PCs below this version are told to update (default: $env:ASH_MIN_SUPPORTED, else 0.0.0 = nobody is "below minimum").
 #                        It never defaults to the current version. Must not exceed the version being built.
 #   -AllowUnsigned       DEV ONLY: build without signing (no ASH_SIGNING_KEY / no update-key.pub). Without it the build throws when either is missing.
@@ -78,4 +79,16 @@ if ($havePub) { # the single-file exe bundles this assembly; the published one i
 }
 $serverZip = "$dist\ASH-Server-$version-win-x64.zip"
 Compress-Archive -Path "$serverPub\ASH.Server.exe", "$serverPub\appsettings.json", "$root\src\ASH.Server\README-server.txt" -DestinationPath $serverZip -Force
-Get-Item $exe, $zip, $runnerZip, $serverZip, $manifest, "$manifest.sig" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ("{0}  {1:N0} bytes" -f $_.FullName, $_.Length) }
+# ASH.Server.json(.sig): what a running server checks before it replaces itself (same key as ASH.json)
+$serverManifest = "$dist\ASH.Server.json"
+Remove-Item $serverManifest, "$serverManifest.sig" -Force -ErrorAction SilentlyContinue
+$serverJson = [ordered]@{ product = 'ASH.Server'; version = $version; file = (Split-Path $serverZip -Leaf)
+    sha256 = (Get-FileHash $serverZip -Algorithm SHA256).Hash.ToLowerInvariant(); size = (Get-Item $serverZip).Length } | ConvertTo-Json -Compress
+[IO.File]::WriteAllText($serverManifest, $serverJson, (New-Object Text.UTF8Encoding $false))
+if ($sign) {
+    dotnet $ashRelease sign --key $signKey --in $serverManifest
+    if ($LASTEXITCODE) { throw "AshRelease sign ASH.Server.json failed (exit $LASTEXITCODE)" }
+    dotnet $ashRelease verify --pub $pubKey --in $serverManifest
+    if ($LASTEXITCODE) { throw "ASH.Server.json signature does not verify against $pubKey" }
+}
+Get-Item $exe, $zip, $runnerZip, $serverZip, $manifest, "$manifest.sig", $serverManifest, "$serverManifest.sig" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ("{0}  {1:N0} bytes" -f $_.FullName, $_.Length) }

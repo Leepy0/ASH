@@ -14,6 +14,7 @@ builder.Host.UseWindowsService(o => o.ServiceName = ServiceCommand.ServiceName);
 builder.Services.Configure<FormOptions>(o => o.MultipartBodyLengthLimit = UploadLimit);
 builder.Services.AddSingleton(sp => ReleaseStore.Create(sp.GetRequiredService<IConfiguration>(), sp.GetRequiredService<IHostEnvironment>(),
     sp.GetRequiredService<ILoggerFactory>().CreateLogger<ReleaseStore>()));
+builder.Services.AddSingleton<ServerUpdater>();
 builder.Services.AddSingleton<GitHubSync>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<GitHubSync>());
 
@@ -24,6 +25,8 @@ app.Services.GetRequiredService<GitHubSync>();
 static IResult Msg(int status, string text) => Results.Text(text, "text/plain; charset=utf-8", Encoding.UTF8, status);
 
 app.MapGet("/healthz", () => Results.Text("ok"));
+// the self-update batch waits for this to answer the new version before it keeps the new exe
+app.MapGet("/healthz/version", (ServerUpdater u) => Results.Text(u.Current));
 
 // no-store: a proxy or browser cache must never keep serving an old manifest after a new release
 app.MapGet("/api/ash/version", (HttpContext ctx, ReleaseStore s) =>
@@ -66,7 +69,7 @@ app.MapPost("/api/admin/releases", async (HttpContext ctx, ReleaseStore s, Cance
     catch (InvalidDataException e) { return Msg(400, e.Message); } // malformed multipart
 });
 
-app.MapGet("/", (ReleaseStore s, GitHubSync g) =>
+app.MapGet("/", (ReleaseStore s, GitHubSync g, ServerUpdater u) =>
 {
     static string H(string? t) => WebUtility.HtmlEncode(t ?? "");
     var cur = s.GetCurrent()?.Manifest;
@@ -79,6 +82,9 @@ app.MapGet("/", (ReleaseStore s, GitHubSync g) =>
         : H(s.Key.KeyId)).Append("</p>");
     sb.Append("<p>GitHub 가져오기: ").Append(g.BaseUrl == null ? "꺼짐" : H(g.BaseUrl) + $" ({g.Interval.TotalMinutes:0}분마다)")
       .Append("<br>마지막 확인: ").Append(g.LastCheckUtc is { } t ? H(t.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")) + " — " + H(g.LastResult) : H(g.LastResult)).Append("</p>");
+    sb.Append("<p>서버 프로그램: ").Append(H(u.Current)).Append(" — 자동 업데이트: ").Append(H(u.LastResult));
+    if (u.PreviousRun != null) sb.Append("<br>지난 업데이트: ").Append(H(u.PreviousRun));
+    sb.Append("</p>");
     sb.Append("<p>수동 업로드: ").Append(s.UploadsEnabled ? "가능" : "꺼짐(Admin:Token 미설정 또는 짧음, GitHub 가져오기만 사용)").Append("</p><h2>이전 버전</h2><ul>");
     foreach (var h in s.History()) sb.Append($"<li>{H(h.Version)} ({H(h.Published)})</li>");
     sb.Append("</ul></body></html>");

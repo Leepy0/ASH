@@ -17,7 +17,8 @@
      - `BaseUrl` 기본 `https://github.com/Leepy0/ASH`. 서버는 `<BaseUrl>/releases/latest/download/ASH.json`만 본다(api.github.com은 쓰지 않음). https만 받는다.
      - `CheckIntervalMin` 기본 60(분). 0이면 서비스 시작 때 한 번만 확인. 시작 10초 뒤 첫 확인.
      - `Proxy` 비우면 PC 프록시 설정, `none`이면 직접 연결, 또는 `http://proxy.corp:8080`. 서비스(LocalSystem)는 로그인 사용자의 프록시 설정을 쓰지 않으므로, 콘솔 실행으로는 되는데 서비스로는 실패하면 여기에 적는다.
-     - `Enabled` false면 끈다(수동 업로드만 사용).
+     - `UpdateServer` 기본 true. 서버 프로그램 자신도 자동으로 새 버전으로 바꾼다(5절 "서버 자동 업데이트"). false면 서버 exe는 수동 교체.
+     - `Enabled` false면 끈다(수동 업로드만 사용, 서버 자동 업데이트도 꺼짐).
      - 가져온 릴리스도 업로드와 똑같이 서명·크기·SHA-256을 확인하고, 서버 버전보다 높을 때만 게시한다.
    - `Admin:Token` — **선택.** 수동 업로드(`publish-release.ps1`)를 쓸 때만 넣는다. 16자 이상의 긴 무작위 문자열. 비워 두면 수동 업로드만 꺼지고 GitHub 가져오기는 그대로 동작한다.
    - `Urls` — 기본 `http://0.0.0.0:8082`. 포트를 바꾸면 아래 방화벽·`/server:` 주소도 같이 바꾼다.
@@ -38,7 +39,7 @@
    - 윈도우 표시 언어가 한국어 등이라 `Administrators`/`SYSTEM` 이름이 통하지 않으면 SID로 준다: `icacls "%ProgramData%\ASH.Server" /inheritance:r /grant:r "*S-1-5-32-544:(OI)(CI)F" "*S-1-5-18:(OI)(CI)F"` (`*S-1-5-32-544` = Administrators, `*S-1-5-18` = SYSTEM). 설치 폴더 명령도 같다.
    - `sc qc`의 `BINARY_PATH_NAME`이 `"C:\Program Files\ASH.Server\ASH.Server.exe"`처럼 따옴표로 감싸졌는지 확인한다(경로에 공백이 있다).
    - `Releases:Dir`을 다른 곳으로 바꿨다면 그 폴더에 같은 `mkdir`/`icacls`를 한다.
-   - 서비스는 기본적으로 LocalSystem으로 돈다. 권한을 줄이려고 LocalService로 바꾼다면 `sc config ASH.Server obj= "NT AUTHORITY\LocalService"` 뒤에 배포 폴더에 수정 권한, 설치 폴더에 읽기 권한을 준다.
+   - 서비스는 기본적으로 LocalSystem으로 돈다. LocalService로 바꾸면 설치 폴더에 쓸 수 없어 **서버 자동 업데이트가 교체 단계에서 실패한다**(이전 버전 유지, `update\apply.log`에 기록). 그래도 권한을 줄이려고 LocalService로 바꾼다면 `sc config ASH.Server obj= "NT AUTHORITY\LocalService"` 뒤에 배포 폴더에 수정 권한, 설치 폴더에 읽기 권한을 준다.
      ```bat
      icacls "%ProgramData%\ASH.Server" /grant "NT AUTHORITY\LocalService:(OI)(CI)M"
      icacls "C:\Program Files\ASH.Server" /grant "NT AUTHORITY\LocalService:(OI)(CI)RX"
@@ -99,10 +100,10 @@ git add update-key.pub; git commit -m "chore: update signing public key"
 ```powershell
 $env:ASH_SIGNING_KEY = 'D:\secure\ash-keys\ash-signing.pem'
 scripts\build-release.ps1 -MinSupported 0.1.0 -Notes notes.txt     # dist\ 에 Setup, Plugin, Runner, Server zip, ASH.json, ASH.json.sig
-gh release create v<버전> dist\ASH-Setup-<버전>.exe dist\ASH.json dist\ASH.json.sig dist\ASH-Plugin-<버전>.zip dist\ASH-Runner-<버전>-win-x64.zip dist\ASH-Server-<버전>-win-x64.zip --title "v<버전>" --notes-file notes.txt
+gh release create v<버전> dist\ASH-Setup-<버전>.exe dist\ASH.json dist\ASH.json.sig dist\ASH.Server.json dist\ASH.Server.json.sig dist\ASH-Plugin-<버전>.zip dist\ASH-Runner-<버전>-win-x64.zip dist\ASH-Server-<버전>-win-x64.zip --title "v<버전>" --notes-file notes.txt
 ```
 
-- 정식 릴리스(초안·시험판 아님)에 `ASH.json`, `ASH.json.sig`, `ASH-Setup-<버전>.exe`가 반드시 있어야 서버가 가져간다. 태그는 `v<버전>`(매니페스트의 version과 같게).
+- 정식 릴리스(초안·시험판 아님)에 `ASH.json`, `ASH.json.sig`, `ASH-Setup-<버전>.exe`가 반드시 있어야 서버가 가져간다. 서버 자동 업데이트에는 `ASH.Server.json`, `ASH.Server.json.sig`, `ASH-Server-<버전>-win-x64.zip`도 필요하다(`build-release.ps1`이 함께 만든다). 태그는 `v<버전>`(매니페스트의 version과 같게).
 - 서버는 `CheckIntervalMin`(기본 60분) 안에 가져간다. 바로 반영하려면 서버에서 `sc stop ASH.Server && sc start ASH.Server`.
 - 서버가 GitHub에 닿지 않는 곳이면 수동 업로드를 쓴다(서버 `Admin:Token` 필요):
   ```powershell
@@ -152,9 +153,21 @@ SYSTEM으로 실행해도 로그온한 대화형 사용자가 있고 그 사용�
 
 ## 5. 서버 운영
 
-### 서버 업데이트 (지금은 수동)
+### 서버 자동 업데이트 (AGV_FOTA_GATEWAY와 같은 방식)
 
-서버 자기 업데이트는 아직 없다. 새 `ASH-Server-<버전>-win-x64.zip`을 받아:
+서버는 GitHub 확인 때마다(`CheckIntervalMin`) 자기 버전도 확인해 새 버전이면 스스로 바꾼다.
+
+1. 최신 릴리스의 `ASH.Server.json`을 읽고, 태그의 `ASH.Server.json.sig`를 서버에 내장된 공개키로 확인한다(서명이 없거나 틀리면 거절).
+2. `ASH-Server-<버전>-win-x64.zip`을 받아 크기·SHA-256을 서명된 값과 대조하고, 설치 폴더의 `update\v<버전>\`에 푼다.
+3. `update\apply-update.bat`이 서비스를 멈추고, 지금 exe를 `ASH.Server.exe.prev`로 바꾼 뒤 새 파일을 복사한다. **`appsettings.json`은 덮어쓰지 않는다.** `Releases:Dir`의 배포 파일도 그대로다.
+4. 서비스를 다시 시작하고 60초 안에 `http://127.0.0.1:<포트>/healthz/version`이 새 버전을 돌려주면 끝. 이전 exe는 `ASH.Server.exe.old`로 남는다.
+5. 응답이 없으면 이전 exe로 **자동 되돌리고**(실패한 exe는 `ASH.Server.exe.bad`) 다시 시작한다. 그 버전은 `update\skip-auto.txt`에 적혀 다시 시도하지 않는다. 더 높은 버전을 릴리스하면 다시 시도한다.
+
+결과는 상태 페이지의 "서버 프로그램 … 자동 업데이트"와 "지난 업데이트" 줄, `update\apply.log`, 이벤트 로그에 남는다.
+
+자동 교체는 이 조건에서만 한다(아니면 상태 페이지에 이유가 나온다): `ASH.Server.exe --install`로 등록한 Windows 서비스로 실행 중, 배포용 단일 exe(zip의 것), 서명 공개키가 내장된 빌드, `GitHub:Enabled`와 `GitHub:UpdateServer`가 true.
+
+**0.2.0 이하 서버는 자동 업데이트 기능이 없어 한 번은 손으로 바꾼다.** 새 `ASH-Server-<버전>-win-x64.zip`을 받아:
 
 ```bat
 sc stop ASH.Server
@@ -162,7 +175,7 @@ rem ASH.Server.exe 만 교체한다(appsettings.json 과 Releases:Dir 의 배포
 sc start ASH.Server
 ```
 
-교체한 뒤 상태 페이지의 **서명 키 ID가 교체 전과 같은지** 확인한다. 다르면 새 exe가 다른 `update-key.pub`로 빌드된 것이다(옛 키로 서명한 배포가 거절되니 되돌린다).
+교체한 뒤(자동이든 수동이든) 상태 페이지의 **서명 키 ID가 교체 전과 같은지** 확인한다. 다르면 새 exe가 다른 `update-key.pub`로 빌드된 것이다(옛 키로 서명한 배포가 거절되니 되돌린다). 손으로 되돌릴 때는 서비스를 멈추고 `ASH.Server.exe.old`를 `ASH.Server.exe`로 바꾼 뒤 시작한다.
 
 ### 백업과 복원
 
@@ -180,6 +193,8 @@ sc start ASH.Server
 | `AGVUPDATE`에 "경고: 서명 키 미설정 — SHA-256만 확인" | 플러그인을 `update-key.pub` 없이 빌드함(`-AllowUnsigned` 개발 빌드). 2절의 키를 만들고 커밋한 뒤 다시 빌드·설치. |
 | 업로드가 400 "서명 키 없음 — Update:AllowUnsigned=true로만 허용" | 서버 exe를 `update-key.pub` 없이 빌드함. 키 커밋 후 서버 zip을 다시 빌드해 교체(개발 PC만 `Update:AllowUnsigned=true`). |
 | 업로드가 400 "minSupported(…)가 version(…)보다 높습니다" | `-MinSupported`/`ASH_MIN_SUPPORTED`가 이번 버전보다 높음. |
+| 상태 페이지 "지난 업데이트: x.y.z이(가) 60초 안에 응답하지 않아 … 자동 되돌림" | 새 서버 exe가 서비스로 뜨지 않음. `update\apply.log`와 이벤트 로그를 보고, 고친 판을 더 높은 버전으로 릴리스한다(같은 버전은 다시 시도하지 않음). |
+| 상태 페이지 "지난 업데이트: x.y.z 파일 교체 실패" | 설치 폴더에 쓸 수 없음(LocalService 계정, 백신 잠금 등). `update\apply.log` 확인. 원인을 고친 뒤 더 높은 버전으로 릴리스하거나 수동 교체한다. |
 | 상태 페이지 "마지막 확인 — 실패: …" | 서버 PC에서 github.com에 닿지 않음. 브라우저로 `https://github.com/Leepy0/ASH/releases/latest/download/ASH.json`이 받아지는지 보고, 콘솔에서는 되는데 서비스에서만 실패하면 `GitHub:Proxy`를 적는다. 이벤트 로그에 같은 내용이 남는다. |
 | 상태 페이지 "마지막 확인 — 거절: 서명이 맞지 않습니다" | GitHub 릴리스의 `ASH.json.sig`가 서버 내장 공개키와 다른 키로 서명됨, 또는 `ASH.json`을 손으로 고침. 올바른 키로 다시 빌드해 새 버전으로 릴리스한다. |
 | 상태 페이지 "마지막 확인 — GitHub에 ASH.json이(가) 있는 릴리스가 없습니다" | 최신 정식 릴리스에 `ASH.json`이 빠졌거나 초안·시험판만 있음. |

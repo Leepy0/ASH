@@ -12,6 +12,7 @@ ASH.Server - ASH 배포 서버 (최소판)
                     BaseUrl https://github.com/Leepy0/ASH 의 releases/latest/download/ASH.json 을 CheckIntervalMin(기본 60분)마다 확인.
                     Proxy 비우면 PC 설정, none 이면 직접 연결, 또는 http://proxy.corp:8080 (서비스는 사용자 프록시 설정을 안 씀).
                     가져온 릴리스도 서명·크기·SHA-256 을 확인한다. 토큰은 필요 없다.
+                    UpdateServer true(기본) 면 서버 프로그램 자신도 새 버전으로 자동 교체한다(아래 "서버 자동 업데이트").
    - Admin:Token  선택. 수동 업로드(publish-release.ps1)를 쓸 때만. 16자 이상의 길고 무작위인 문자열.
                     비워 두면 수동 업로드만 꺼지고 GitHub 가져오기는 동작한다.
    - Urls         기본 http://0.0.0.0:8082
@@ -70,6 +71,12 @@ ASH.Server - ASH 배포 서버 (최소판)
 
 운영
 - 백업: Releases:Dir 폴더 전체와 appsettings.json. 복원: 서비스를 멈추고 복사해 넣은 뒤(폴더 권한 확인) sc start ASH.Server.
+- 서버 자동 업데이트(FOTA Gateway 와 같은 방식): 서명된 ASH.Server.json 과 서버 zip 을 GitHub 에서 받아 확인한 뒤
+  update\apply-update.bat 이 서비스를 멈추고 exe 를 바꿔 다시 시작한다. appsettings.json 과 배포 파일은 그대로 둔다.
+  60초 안에 새 버전이 응답하지 않으면 이전 exe 로 자동 되돌리고(실패한 exe 는 ASH.Server.exe.bad) 그 버전은 다시 시도하지 않는다.
+  결과: 상태 페이지 "지난 업데이트" 줄, update\apply.log. 이전 exe 는 ASH.Server.exe.old 로 남는다.
+  LocalService 계정으로 바꾸면 설치 폴더에 쓸 수 없어 자동 교체가 실패한다(이전 버전 유지).
+  0.2.0 이하 서버는 이 기능이 없어 한 번은 손으로 바꾼다: sc stop ASH.Server, ASH.Server.exe 교체, sc start ASH.Server.
 - 서버 exe 를 교체한 뒤에는 상태 페이지의 서명 키 ID 가 교체 전과 같은지 확인한다.
 - 롤백: publish-release.ps1 -Force 로 낮은 버전을 올려도 이미 새 버전을 쓰는 PC 는 내려가지 않는다(서버 버전이 더 낮다는 안내만 나온다).
   되돌리려면 옛 코드를 더 높은 버전 번호로 다시 빌드해 게시한다.
