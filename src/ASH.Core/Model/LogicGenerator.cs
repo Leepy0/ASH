@@ -271,7 +271,7 @@ public static class LogicGenerator
         // leg slots: 1..nm supply legs, nm+1..2nm return legs
         m.Vars.Add(new("V_inLeg", "Integer", 2 * nm)); m.Vars.Add(new("V_legStart", "Real", 2 * nm));
         foreach (var a in new[] { "A_tCall", "A_tPick", "A_ret", "A_fin", "A_rLast", "A_dLast", "A_rep" }) m.Atts.Add(new(a, "Real"));
-        foreach (var a in new[] { "A_vid", "A_q", "A_qty" }) m.Atts.Add(new(a, "Integer"));
+        foreach (var a in new[] { "A_vid", "A_qty" }) m.Atts.Add(new(a, "Integer"));
         int vs = Math.Max(2, input.Groups.Sum(g => g.MaxCount));
         m.Vars.Add(new("V_vBusy", "Real", vs)); m.Vars.Add(new("V_vDist", "Real", vs)); m.Vars.Add(new("V_vJobs", "Integer", vs));
         m.Vars.Add(new("V_vNextFail", "Real", vs)); m.Vars.Add(new("V_vDown", "Real", vs));

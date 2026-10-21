@@ -113,13 +113,13 @@ public class LogicGeneratorTests
         var plain = LogicGenerator.Render(Sample(), Layout);
         Assert.DoesNotContain("RS_fail", plain);
         Assert.DoesNotContain("defined velocity", plain);
-        Assert.Contains("if A_q > 1 then set A_qty to 1", plain);
+        Assert.Contains("set A_qty to 1", plain);
         Assert.Empty(LogicGenerator.BuildProcessModel(Sample(), Layout, "Meters").RnStreams);
 
         var p = Sample();
         p.AgvTypes[0] = p.AgvTypes[0] with { SpeedEmpty = 1.5, Capacity = 2, MTBF = 3600, MTTR = 120 };
         var t = LogicGenerator.Render(p, Layout);
-        Assert.Contains("if A_q > 2 then set A_qty to 2", t);
+        Assert.Contains("set A_qty to 2", t);
         Assert.Contains("inc V_stock(1) by A_qty", t);
         // three vehicles get a first failure time; the start skips a seed-dependent stretch of the stream
         Assert.Equal(3, Regex.Matches(t, @"set V_vNextFail\(\d\) to rn RS_fail e 3600").Count);

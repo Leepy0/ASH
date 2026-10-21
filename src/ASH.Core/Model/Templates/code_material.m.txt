@@ -2,17 +2,11 @@
 /* one consumer cycle per takt: call check, then consume or stay stopped; a stopped cycle re-checks every takt */
 begin P_consume_{{M}} arriving procedure
 	while 1 = 1 do begin
-		/* reorder on the stock position (on hand + containers already called): count the containers short, as many as needed at once;
-		   also call when the position cannot cover one cycle, or a call threshold below the per-cycle need would stop forever */
-		set A_q to 0
-		while V_stock({{M}}) + V_pending({{M}}) + A_q <= V_call({{M}}) + 0.000001 or V_stock({{M}}) + V_pending({{M}}) + A_q < V_need({{M}}) - 0.000001 do begin
-			inc A_q by 1
-		end
-		/* one call per trip: a vehicle carries up to its Capacity containers (the clone keeps A_qty) */
-		while A_q > 0 do begin
-			if A_q > {{CAPACITY}} then set A_qty to {{CAPACITY}}
-			else set A_qty to A_q
-			dec A_q by A_qty
+		/* reorder on the stock position (on hand + containers already called), as many calls as needed at once; one call is one trip and
+		   brings a full vehicle, Capacity containers (the clone keeps A_qty). Also call when the position cannot cover one cycle, or a call
+		   threshold below the per-cycle need would stop forever */
+		while V_stock({{M}}) + V_pending({{M}}) <= V_call({{M}}) + 0.000001 or V_stock({{M}}) + V_pending({{M}}) < V_need({{M}}) - 0.000001 do begin
+			set A_qty to {{CAPACITY}}
 			inc V_pending({{M}}) by A_qty
 			set V_extMat to {{M}}
 			set V_tmp to F_ext_on_call()
