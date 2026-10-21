@@ -38,7 +38,6 @@ public sealed class AgvPaletteControl : UserControl
         var prefix = Box(s.Prefix);
         var hint = new Label { Font = Theme.Small, ForeColor = Theme.Muted, AutoSize = true, Margin = new Padding(2, 2, 0, 0) };
         var group = Field(s.Group, v => s.Group = v);
-        var station = Field(s.Station, v => s.Station = v);
         var cap = Field(CpTypes.FormatCap(s.Cap), v => { if (CpTypes.TryParseCap(v, out var c)) s.Cap = c; });
         void ShowType()
         {
@@ -59,7 +58,7 @@ public sealed class AgvPaletteControl : UserControl
         ShowType();
         tabs.TabPages.Add(Page("CP", Theme.Section("CP 속성"), detailed,
             Theme.Caption("TYPE  (색 · 이름 규칙)"), type, hint,
-            Theme.Caption("GROUP"), group, Theme.Caption("STATION  (공정 이름 메모, 내보내기에 쓰이지 않음)"), station,
+            Theme.Caption("GROUP"), group,
             Theme.Caption("접두어"), prefix, Theme.Caption("CAP  (숫자 또는 INF = 무제한)"), cap,
             Theme.Section("배치"), Theme.Make("CP 배치", GlyphKind.Cp, "AGVCP"),
             Theme.Caption("traffic CP는 교통제어 탭에서 block과 함께 자동 생성")));

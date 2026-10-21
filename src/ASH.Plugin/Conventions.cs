@@ -41,6 +41,6 @@ public static class Conventions
         (string.Equals(layer, LayerPathSpur, System.StringComparison.OrdinalIgnoreCase),
          string.Equals(layer, LayerPathTwo, System.StringComparison.OrdinalIgnoreCase),
          string.Equals(layer, LayerPathCrab, System.StringComparison.OrdinalIgnoreCase));
-    public static readonly string[] CpAttributes = { "NAME", "TYPE", "GROUP", "STATION", "CAP" };
+    public static readonly string[] CpAttributes = { "NAME", "TYPE", "GROUP", "CAP" };
     public static readonly string[] BlockAttributes = { "NAME", "CAP" };
 }

@@ -157,7 +157,7 @@ sealed class StepRunner : IDisposable
 
     public void Log(string line)
     {
-        try { File.AppendAllText(LogPath, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss ") + line + Environment.NewLine, Encoding.UTF8); }
+        try { File.AppendAllText(LogPath, ASH.Core.SeoulTime.Now.ToString("yyyy-MM-dd HH:mm:ss ") + line + Environment.NewLine, Encoding.UTF8); }
         catch { /* log file is best effort */ }
         _ui(line);
     }

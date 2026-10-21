@@ -20,7 +20,7 @@ internal static class PluginLog
                 Directory.CreateDirectory(System.IO.Path.GetDirectoryName(Path)!);
                 var fi = new FileInfo(Path);
                 if (fi.Exists && fi.Length > MaxBytes) File.Delete(Path);
-                File.AppendAllText(Path, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") + "  " + text + Environment.NewLine);
+                File.AppendAllText(Path, ASH.Core.SeoulTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") + "  " + text + Environment.NewLine);
             }
         }
         catch (Exception) { /* logging must never break the plugin */ }

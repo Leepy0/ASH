@@ -382,4 +382,19 @@ public class UnitTests
     {
         Assert.Equal(expected, ReleaseStore.ResolveKeyPem(over, embedded, dev, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance));
     }
+
+    [Fact]
+    public async Task Status_page_shows_seoul_time()
+    {
+        using var e = new Env();
+        var r = e.MakeRelease("0.2.0", published: "2026-10-21T00:57:15Z");
+        await e.Published(r);
+
+        var html = Encoding.UTF8.GetString(await e.Get("/"));
+
+        Assert.Contains("2026-10-21 09:57:15", html);           // published, converted from UTC to Seoul
+        Assert.DoesNotContain("2026-10-21T00:57:15Z", html);
+        Assert.Contains("서버 시각(서울)", html);                 // the clock behind the page, to spot a wrong PC clock
+        Assert.Matches(@"서버 시각\(서울\): \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", html);
+    }
 }

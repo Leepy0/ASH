@@ -243,7 +243,7 @@ public sealed class PathCommands
                 cpNames.Add(name);
                 DrawingWriter.AddCp(db, tr, new LayoutCp
                 {
-                    Name = name, Type = cp.Type, Group = cp.Group, Station = cp.Station, Cap = cp.Cap,
+                    Name = name, Type = cp.Type, Group = cp.Group, Cap = cp.Cap,
                     Position = new Point2(cp.Position.X + dx * k, cp.Position.Y + dy * k),
                 });
                 cps++;
@@ -342,7 +342,22 @@ public sealed class PathCommands
     private static (LayoutPath, LayoutPath) InOrder(LayoutPath x, LayoutPath y, double tol) =>
         x.End.DistanceTo(y.Start) <= tol ? (x, y) : y.End.DistanceTo(x.Start) <= tol ? (y, x) : (x, y);
 
-    private static double _filletRadius; // last radius (drawing units); 0 = not asked yet, 1 m is offered
+    private const double DefaultFilletM = 1.2; // offered when no radius was ever entered: 1200 in a millimetre drawing
+
+    // The last radius is kept per PC in ash.user.tsv, in meters so it means the same in drawings with other units.
+    private static double SavedFillet()
+    {
+        try { var m = UserSettings.Load(UserSettings.DefaultPath).FilletRadiusM; return (m > 0 ? m : DefaultFilletM) * DrawingUnits.PerMeter; }
+        catch (IOException) { return DefaultFilletM * DrawingUnits.PerMeter; }
+        catch (UnauthorizedAccessException) { return DefaultFilletM * DrawingUnits.PerMeter; }
+    }
+
+    private static void SaveFillet(double radius)
+    {
+        try { var path = UserSettings.DefaultPath; (UserSettings.Load(path) with { FilletRadiusM = radius / DrawingUnits.PerMeter }).Save(path); }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
 
     // What is rounded depends on what is selected: one path = every corner inside it, two paths = the corner where they meet.
     // Nothing selected: click a path near the corner (a one-segment path then asks for the path that continues it).
@@ -373,10 +388,10 @@ public sealed class PathCommands
         }
         else { Ed.WriteMessage("\n경로를 1개(안의 모든 모서리) 또는 2개(맞닿은 두 경로)만 선택하세요."); return false; }
 
-        double def = _filletRadius > 0 ? _filletRadius : DrawingUnits.PerMeter; // 1 m
+        double def = SavedFillet();
         var rr = Ed.GetDistance(new PromptDistanceOptions($"\n반경 <{def:0.###}>") { AllowNegative = false, AllowZero = false, DefaultValue = def, UseDefaultValue = true });
         if (rr.Status != PromptStatus.OK) return false;
-        _filletRadius = rr.Value;
+        SaveFillet(rr.Value);
 
         if (b == null) // corners inside one path (a polyline drawn with AGVPATH)
         {

@@ -35,7 +35,7 @@ public static class DrawingReader
                     layout.Cps.Add(new LayoutCp
                     {
                         Name = Get(a, "NAME"), Type = Get(a, "TYPE").ToLowerInvariant(), Group = Get(a, "GROUP"),
-                        Station = Get(a, "STATION"), Cap = ParseCap(Get(a, "CAP")),
+                        Cap = ParseCap(Get(a, "CAP")),
                         Position = Xy(br.Position), Id = br.Handle.ToString(),
                     });
                 }

@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text;
+using ASH.Core;
 using ASH.Core.Update;
 using ASH.Server;
 using Microsoft.AspNetCore.Http.Features;
@@ -95,18 +96,20 @@ app.MapGet("/", (ReleaseStore s, GitHubSync g, ServerUpdater u, RunnerStore r) =
     var sb = new StringBuilder("<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\"><title>ASH Server</title></head><body><h1>ASH 배포 서버</h1>");
     if (cur == null) sb.Append("<p>게시된 버전이 없습니다.</p>");
     else sb.Append($"<table border=\"1\" cellpadding=\"4\"><tr><th>현재 버전</th><td>{H(cur.Version)}</td></tr><tr><th>최소 지원</th><td>{H(cur.MinSupported)}</td></tr>" +
-        $"<tr><th>게시 시각</th><td>{H(cur.Published)}</td></tr><tr><th>설치 파일</th><td>{H(cur.File)} ({cur.Size:N0} bytes)</td></tr></table>");
+        $"<tr><th>게시 시각(서울)</th><td>{H(SeoulTime.FromIso(cur.Published))}</td></tr><tr><th>설치 파일</th><td>{H(cur.File)} ({cur.Size:N0} bytes)</td></tr></table>");
     sb.Append("<p>서명 키: ").Append(s.Key == null
         ? (s.AllowUnsigned ? "<b>서명 키 없음(서명 확인 안 함) — Update:AllowUnsigned=true, 개발용</b>" : "<b>서명 키 없음 — 업로드 거절(Update:AllowUnsigned=true로만 허용)</b>")
         : H(s.Key.KeyId)).Append("</p>");
     sb.Append("<p>GitHub 가져오기: ").Append(g.BaseUrl == null ? "꺼짐" : H(g.BaseUrl) + $" ({g.Interval.TotalMinutes:0}분마다, DNS {(g.DnsServers.Count == 0 ? "PC 기본" : string.Join(", ", g.DnsServers))})")
-      .Append("<br>마지막 확인: ").Append(g.LastCheckUtc is { } t ? H(t.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")) + " — " + H(g.LastResult) : H(g.LastResult)).Append("</p>");
+      .Append("<br>마지막 확인(서울): ").Append(g.LastCheckUtc is { } t ? H(SeoulTime.Text(t)) + " — " + H(g.LastResult) : H(g.LastResult)).Append("</p>");
     sb.Append("<p>Runner(ash-run): ").Append(r.Current is { } rc ? H(rc.Version) + $" ({rc.Size:N0} bytes)" : "게시된 버전 없음").Append(" — 마지막 확인: ").Append(H(g.RunnerResult)).Append("</p>");
     sb.Append("<p>서버 프로그램: ").Append(H(u.Current)).Append(" — 자동 업데이트: ").Append(H(u.LastResult));
     if (u.PreviousRun != null) sb.Append("<br>지난 업데이트: ").Append(H(u.PreviousRun));
     sb.Append("</p>");
+    // the clock behind every time on this page: if it differs from the wall clock the PC's own date and time is wrong
+    sb.Append("<p>서버 시각(서울): ").Append(H(SeoulTime.NowText)).Append(" · PC 표준 시간대: ").Append(H(TimeZoneInfo.Local.Id)).Append("</p>");
     sb.Append("<p>수동 업로드: ").Append(s.UploadsEnabled ? "가능" : "꺼짐(Admin:Token 미설정 또는 짧음, GitHub 가져오기만 사용)").Append("</p><h2>이전 버전</h2><ul>");
-    foreach (var h in s.History()) sb.Append($"<li>{H(h.Version)} ({H(h.Published)})</li>");
+    foreach (var h in s.History()) sb.Append($"<li>{H(h.Version)} ({H(SeoulTime.FromIso(h.Published))})</li>");
     sb.Append("</ul></body></html>");
     return Results.Content(sb.ToString(), "text/html; charset=utf-8");
 });

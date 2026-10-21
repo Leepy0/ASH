@@ -17,7 +17,6 @@ public sealed class CpSettings
     }
 
     public string Group { get; set; } = "G1"; // matches the default ProjectSettings.Groups
-    public string Station { get; set; } = "";
     public string Prefix { get; set; } = "T";
     public int Cap { get; set; } = CpTypes.DefaultCap("traffic");
     public bool DetailedMode { get; set; }

@@ -39,7 +39,7 @@ public static class Program
     internal static string? RotateRuns(string runsDir)
     {
         if (!Directory.Exists(runsDir)) return null;
-        var stamp = runsDir.TrimEnd('\\', '/') + "." + DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
+        var stamp = runsDir.TrimEnd('\\', '/') + "." + ASH.Core.SeoulTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
         var dst = stamp;
         for (int k = 2; Directory.Exists(dst); k++) dst = stamp + "_" + k;
         Directory.Move(runsDir, dst);

@@ -143,7 +143,7 @@ ASH.Runner      (.NET 10 콘솔/트레이 앱, ZWCAD 밖에서 독립 실행)
 | `AGV_STATION` | 공정/스테이션 위치 블록(자재 연결용) | 로직의 스테이션 테이블 |
 | `AGV_RESULT_*` | 모듈 D가 그리는 결과 레이어(병목 히트맵) | 없음 |
 
-CP 블록 어트리뷰트: `NAME`(사용자 지정, 필수), `TYPE`(standby / load / unload / rtnload / rtnunload / traffic / buffer), `GROUP`(AGV 그룹), `STATION`(공정명, Excel의 Stations 시트와 연결), `CAP`(동시 점유 수, 기본 1).
+CP 블록 어트리뷰트: `NAME`(사용자 지정, 필수), `TYPE`(standby / load / unload / rtnload / rtnunload / traffic / buffer), `GROUP`(AGV 그룹), `CAP`(동시 점유 수. traffic 1, 나머지 종류는 `INF` 무제한). 예전에 있던 `STATION` 속성은 쓰지 않아 없앴다(공정과 CP의 연결은 Excel `Stations` 시트의 `CPName`). 이미 `STATION`이 있는 도면의 블록 정의는 그대로 두고 읽지 않는다.
 
 `buffer` 타입은 이번에 추가한다. 공정 앞에서 AGV가 재고가 언로딩 가능 수준으로 떨어질 때까지 대기하는 지점이다.
 
@@ -172,7 +172,7 @@ CP 작성:
 
 - `AGVCP`: 경로 위를 클릭하면 가장 가까운 경로에 투영해 CP 블록을 놓는다. 두 가지 모드가 있고 팔레트에서 전환한다.
   - **상세 모드**: 어트리뷰트 입력 창이 뜬다. load/unload처럼 개별 정보가 필요한 CP에 쓴다.
-  - **연속 모드(기본)**: 팔레트에 TYPE, GROUP, STATION, 접두어를 한 번 설정해 두면, 클릭할 때마다 그 값으로 CP를 놓고 NAME만 `접두어 + 번호`로 자동 가산한다(예: `T001`, `T002`). 시작 번호는 도면에 이미 있는 같은 접두어의 최대 번호 + 1이다. Enter나 Esc로 끝낸다. 타입을 바꾸면 접두어도 타입 기본값(T=traffic, L=load, U=unload, RL=rtnload, RU=rtnunload, S=standby, B=buffer)으로 바뀌고 번호는 접두어별로 따로 센다.
+  - **연속 모드(기본)**: 팔레트에 TYPE, GROUP, 접두어를 한 번 설정해 두면, 클릭할 때마다 그 값으로 CP를 놓고 NAME만 `접두어 + 번호`로 자동 가산한다(예: `T001`, `T002`). 시작 번호는 도면에 이미 있는 같은 접두어의 최대 번호 + 1이다. Enter나 Esc로 끝낸다. 타입을 바꾸면 접두어와 CAP도 타입 기본값(T=traffic, L=load, U=unload, RL=rtnload, RU=rtnunload, S=standby, B=buffer)으로 바뀌고 번호는 접두어별로 따로 센다.
 - `AGVCPAUTO`: traffic CP 자동 배치. 기준은 다음과 같고, 거리 기본값은 Settings 시트에서 읽는다.
   - **block 진입 기준(기본 켜짐)**: 도면의 각 block 사각형에 대해, 사각형으로 들어가는 각 경로마다 사각형 경계에서 `ClaimDist`(기본 = 안전 간격) 앞에 진입 CP를 하나 놓는다. 이 CP에서 block을 claim한다. 해제는 차량이 사각형 밖으로 나갈 때 AM이 자동으로 하므로 진출 CP는 만들지 않는다. 경계 앞 거리가 부족하면(이전 노드와 너무 가까우면) 가능한 가장 먼 위치에 놓고 경고한다. block이 아직 없으면 `AGVBLOCKAUTO`를 먼저 실행하라고 안내한다.
   - **간격 기준(기본 꺼짐)**: 직선·곡선 구간을 `CPSpacing`(기본 10 m) 간격으로 나누어 traffic CP를 놓는다. 긴 통로에서 차량이 줄지어 따라가도록 하고 싶을 때만 켠다.
@@ -399,7 +399,9 @@ Process `.asy`의 `code.m`에 들어간다. 사용자는 이 파일을 편집하
 
 - **CP 종류**: traffic, load, unload, rtnload, rtnunload, standby, buffer. 종류마다 이름 접두어(T, L, U, RL, RU, S, B)와 레이어 색이 정해져 있고 팔레트 TYPE 목록에 색 견본과 이름 규칙(`L###`)이 보인다.
 - **CAP**: traffic은 1, 나머지 종류는 무제한(`INF`, AutoMod 2147483647). 종류를 바꾸면 접두어와 CAP이 그 종류의 기본값으로 돌아간다. 내보낼 때 용량마다 `CPOINTTYPE`을 만들고 무제한은 `<이름>_capinf`.
-- **STATION**: 공정 이름을 적는 메모 속성이다. 내보내기와 모델 생성은 쓰지 않는다. 공정과 CP의 연결은 Excel `Stations` 시트의 `CPName`이 정한다.
+- **STATION**: 쓰이지 않는 메모 속성이어서 없앴다(CP 블록의 속성은 NAME, TYPE, GROUP, CAP).
+- **시간 표시**: 사람에게 보이는 시간과 파일 이름에 넣는 시간은 PC의 시간대와 상관없이 서울 시간(UTC+9)이다(서버 상태 페이지, 설치·플러그인 로그, 내보내기 백업 `agv.asy.bak.<시각>`, `runs.<시각>` 폴더). `ASH.json`의 `published`처럼 기계가 읽는 값은 UTC(`Z`)로 두고 보여 줄 때만 서울 시간으로 바꾼다. PC의 시계 자체가 틀리면 그대로 틀리므로 Windows 날짜 및 시간을 맞춘다. 서버 상태 페이지에 "서버 시각(서울)"과 PC 표준 시간대가 나와서 틀린 시계를 알아볼 수 있다.
+- **필렛 반경**: 마지막으로 입력한 값을 PC별로(`%APPDATA%\ASH\ash.user.tsv`의 `FilletRadiusM`, 미터 단위) 기억해 다음 필렛의 기본값으로 보여 준다. 처음에는 1.2 m(mm 도면에서 1200).
 - **traffic CP 자동 생성**: 교통제어 자동 생성(`AGVTRAFFIC` = block + traffic CP)과 겹쳐서 CP 탭과 리본 CP 패널에서 뺐다. 명령 `AGVCPAUTO`는 남아 있다.
 - **ash.settings.tsv `Scale`**: 새 파일은 도면 `INSUNITS`로 정한다(mm 0.001, cm 0.01, m 1, inch 0.0254, ft 0.3048, 단위 없음 0.001). 파일에 `Scale`이 없으면 0.001.
 - **방향표**: `AGVARROW`가 길이(`ArrowSize`, m)를 묻고 설정 파일에 저장한 뒤 모든 방향표를 바로 다시 그린다. Enter만 누르면 길이를 그대로 두고 다시 그리기만 한다(설정 파일을 직접 고친 뒤 쓴다). 경로를 편집하는 다른 명령도 끝날 때 다시 그린다.

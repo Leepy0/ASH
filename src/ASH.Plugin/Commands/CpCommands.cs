@@ -42,7 +42,7 @@ public sealed class CpCommands
                 var prefix = string.IsNullOrEmpty(s.Prefix) ? AutoNamer.PrefixFor(s.Type) : s.Prefix;
                 var cp = new LayoutCp
                 {
-                    Type = s.Type, Group = s.Group, Station = s.Station, Cap = s.Cap,
+                    Type = s.Type, Group = s.Group, Cap = s.Cap,
                     Position = hit.Value.Path.PointAt(hit.Value.Dist),
                 };
                 if (s.DetailedMode)
@@ -65,10 +65,9 @@ public sealed class CpCommands
                         ed.WriteMessage("\nGROUP 이름에 공백·예약어·'?'로 시작하는 이름은 쓸 수 없습니다.");
                         group = Ask(ed, "GROUP", s.Group);
                     }
-                    var station = group == null ? null : Ask(ed, "STATION (공정 이름 메모)", s.Station);
-                    var cap = station == null ? null : Ask(ed, "CAP (숫자 또는 INF=무제한)", CpTypes.FormatCap(type == s.Type ? s.Cap : CpTypes.DefaultCap(type)));
+                    var cap = group == null ? null : Ask(ed, "CAP (숫자 또는 INF=무제한)", CpTypes.FormatCap(type == s.Type ? s.Cap : CpTypes.DefaultCap(type)));
                     if (cap == null) break;
-                    cp.Name = name!; cp.Type = type!; cp.Group = group!; cp.Station = station!;
+                    cp.Name = name!; cp.Type = type!; cp.Group = group!;
                     cp.Cap = CpTypes.TryParseCap(cap, out var c) ? c : CpTypes.DefaultCap(type);
                     names.Add(cp.Name);
                     naming = new CpNaming(names); // typed names must not be handed out again

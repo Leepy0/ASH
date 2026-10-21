@@ -191,9 +191,9 @@ public static class RunnerUpdater
     {
         // one updater at a time: a second ash-run started together waits, then finds the new exe already in place.
         // A file lock, not a Mutex: this code awaits, and a Mutex must be released by the thread that took it.
-        Debug(o, $"{DateTime.Now:HH:mm:ss.fff} pid {Environment.ProcessId} waits for {c.ExePath}.lock");
+        Debug(o, $"{ASH.Core.SeoulTime.Now:HH:mm:ss.fff} pid {Environment.ProcessId} waits for {c.ExePath}.lock");
         using var gate = await TakeLockAsync(c.ExePath + ".lock", TimeSpan.FromSeconds(120), ct);
-        Debug(o, $"{DateTime.Now:HH:mm:ss.fff} pid {Environment.ProcessId} got the lock: {gate != null}");
+        Debug(o, $"{ASH.Core.SeoulTime.Now:HH:mm:ss.fff} pid {Environment.ProcessId} got the lock: {gate != null}");
         if (gate == null) { o.WriteLine("update skipped: another update is taking too long"); return null; }
         {
             CleanLeftovers(c.ExePath); // inside the lock: another updater's .new must not be deleted under it

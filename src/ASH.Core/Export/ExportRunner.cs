@@ -26,7 +26,7 @@ public static class ExportRunner
         string? backup = null;
         if (File.Exists(asy))
         {
-            var stem = asy + ".bak." + DateTime.Now.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture);
+            var stem = asy + ".bak." + SeoulTime.Now.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture);
             backup = stem;
             for (int i = 1; File.Exists(backup); i++) backup = stem + "_" + i;
             File.Copy(asy, backup, false);

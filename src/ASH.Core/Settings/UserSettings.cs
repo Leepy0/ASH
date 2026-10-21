@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Text;
 
@@ -9,7 +10,7 @@ namespace ASH.Core.Settings;
 /// Per-PC (not per-drawing) settings at %APPDATA%\ASH\ash.user.tsv, "key\tvalue" lines. Unknown keys are ignored.
 /// SYSTEM deployments (no user profile to write to) keep ServerUrl in %ProgramData%\ASH\ash.machine.tsv instead; the user file wins when its ServerUrl is non-empty.
 /// </summary>
-public sealed record UserSettings(string ServerUrl = "")
+public sealed record UserSettings(string ServerUrl = "", double FilletRadiusM = 0)
 {
     public const string FileName = "ash.user.tsv";
 
@@ -32,7 +33,7 @@ public sealed record UserSettings(string ServerUrl = "")
     {
         machinePath ??= path == null ? MachinePath : null;
         var u = Read(path ?? DefaultPath);
-        return u.ServerUrl.Length == 0 && machinePath != null ? Read(machinePath) : u;
+        return u.ServerUrl.Length == 0 && machinePath != null ? u with { ServerUrl = Read(machinePath).ServerUrl } : u; // the machine file only supplies the address
     }
 
     static UserSettings Read(string path)
@@ -44,14 +45,17 @@ public sealed record UserSettings(string ServerUrl = "")
             int tab = line.IndexOf('\t');
             if (tab > 0) kv[line.Substring(0, tab).Trim()] = line.Substring(tab + 1).Trim();
         }
-        return new UserSettings(kv.TryGetValue(nameof(ServerUrl), out var u) ? u : "");
+        double.TryParse(kv.TryGetValue(nameof(FilletRadiusM), out var r) ? r : "", NumberStyles.Float, CultureInfo.InvariantCulture, out var radius);
+        return new UserSettings(kv.TryGetValue(nameof(ServerUrl), out var u) ? u : "", radius > 0 ? radius : 0);
     }
 
     public void Save(string? path = null)
     {
         path ??= DefaultPath;
         Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
-        File.WriteAllText(path, $"{nameof(ServerUrl)}\t{ServerUrl}\r\n", new UTF8Encoding(false));
+        var text = $"{nameof(ServerUrl)}\t{ServerUrl}\r\n";
+        if (FilletRadiusM > 0) text += $"{nameof(FilletRadiusM)}\t{FilletRadiusM.ToString("R", CultureInfo.InvariantCulture)}\r\n";
+        File.WriteAllText(path, text, new UTF8Encoding(false));
     }
 
     /// <summary>Absolute http/https URL without whitespace, control characters, userinfo, query or fragment; <paramref name="url"/> is the trimmed text.</summary>
