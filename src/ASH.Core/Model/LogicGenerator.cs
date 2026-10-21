@@ -194,9 +194,9 @@ public static class LogicGenerator
     }
 
     /// <summary>AM dispatch for the load-centric logic. Scheduling lists are per location, not per vehicle type, so the lists hold every
-    /// group and the per-type work/load search/park ok functions in code.m filter by group: nl_pick_&lt;G&gt; = the group's pickup CPs
-    /// (SupplyFromCP, ReturnFromCP when EmptyReturn); nl_&lt;G&gt; = the group's standby CPs (vehicle start); every CP gets a WORKLST over
-    /// all nl_pick lists, every non-standby CP a PARKLST to each group's first standby CP, every pickup CP a SRCHLST.</summary>
+    /// group and the per-type work/load search/park ok functions in code.m filter by group: a call enters at the group's standby CP and waits
+    /// there, so nl_pick_&lt;G&gt; = nl_&lt;G&gt; = the group's standby CPs; every CP gets a WORKLST over all nl_pick lists (Oldest: first come
+    /// first served), every non-standby CP a PARKLST to each group's first standby CP, every standby CP a SRCHLST.</summary>
     public static void AddDispatchLists(AgvsSystem s, ProjectInput input, LayoutInfo layout)
     {
         Check(input);
@@ -210,15 +210,9 @@ public static class LogicGenerator
             s.NameLists["nl_" + g.Group] = standby;
             standbyAll.UnionWith(standby);
             parks.Add(standby[0]);
-            var pick = new List<string>();
-            void Add(string? cp) { if (!string.IsNullOrEmpty(cp) && !pick.Contains(cp!)) pick.Add(Cp(layout, cp!)); }
-            foreach (var m in input.Materials.Where(x => x.Group == g.Group))
-            {
-                var r = RouteOf(input, m);
-                Add(r.SupplyFromCP);
-                if (m.EmptyReturn) Add(r.ReturnFromCP);
-            }
-            if (pick.Count == 0) continue;
+            // calls wait at the group's standby CPs (the load boards there and rides along), so that is where a free vehicle looks for work
+            var pick = new List<string>(standby);
+            if (!input.Materials.Any(x => x.Group == g.Group)) continue;
             s.NameLists["nl_pick_" + g.Group] = pick;
             picks.Add("nl_pick_" + g.Group);
             foreach (var cp in pick) if (!pickupAll.Contains(cp)) pickupAll.Add(cp);

@@ -44,14 +44,15 @@ public class CrossingScenarioTests
             Line("bot", 0, 0, 80, 0), Line("right", 80, 0, 80, 20), Line("top", 80, 20, 0, 20), Line("left", 0, 20, 0, 0),
             Line("cdown", 40, 35, 40, -15), Line("ceast", 40, -15, 46, -15), Line("cup", 46, -15, 46, 35), Line("cwest", 46, 35, 40, 35),
             // parking loops (one-way side loops): a parked vehicle never stands on a through path and can always drive out
-            Line("pa1", 2, 0, 2, -6), Line("pa2", 2, -6, 6, -6), Line("pa3", 6, -6, 6, 0),
-            Line("pb1", 14, 0, 14, -6), Line("pb2", 14, -6, 18, -6), Line("pb3", 18, -6, 18, 0),
-            Line("pc1", 45, 35, 45, 41), Line("pc2", 45, 41, 41, 41), Line("pc3", 41, 41, 41, 35),
+            // 20 m lanes: every vehicle of the group queues for its standby CP without its tail reaching back into the junction block
+            Line("pa1", 2, 0, 2, -20), Line("pa2", 2, -20, 6, -20), Line("pa3", 6, -20, 6, 0),
+            Line("pb1", 14, 0, 14, -20), Line("pb2", 14, -20, 18, -20), Line("pb3", 18, -20, 18, 0),
+            Line("pc1", 45, 35, 45, 55), Line("pc2", 45, 55, 41, 55), Line("pc3", 41, 55, 41, 35),
         };
         var l = new ASH.Core.Layout.Layout();
         l.Paths.AddRange(PathSplitter.SplitAll(raw, l.Tolerance).Paths);
         void Cp(string n, double x, double y, string type, string group) => l.Cps.Add(new LayoutCp { Name = n, Type = type, Group = group, Position = new Point2(x, y), Cap = CpTypes.DefaultCap(type) });
-        Cp("SA", 4, -6, "standby", "A"); Cp("SB", 16, -6, "standby", "B"); Cp("SC", 43, 41, "standby", "C");
+        Cp("SA", 4, -20, "standby", "A"); Cp("SB", 16, -20, "standby", "B"); Cp("SC", 43, 55, "standby", "C");
         Cp("LA", 10, 0, "load", "A"); Cp("UA", 60, 20, "unload", "A");
         Cp("LB", 24, 0, "load", "B"); Cp("UB", 70, 20, "unload", "B");
         Cp("LC", 40, 30, "load", "C"); Cp("UC", 46, -10, "unload", "C");
@@ -102,7 +103,7 @@ public class CrossingScenarioTests
     /// <summary>
     /// One container per material per trip; each material has at most one call in flight, so a group needs several materials to keep several vehicles busy.
     /// Speed 1 m/s, load + unload 40 s. Round trips: A 200 m (240 s), B 200 m (240 s), C 112 m (152 s).
-    /// A: 3 materials, one container every 360 s each → 1/120 s → 2.0 vehicles busy → 3 at UtilMax 0.75 (2 would be ~100 %).
+    /// A: 5 materials, one container every 600 s each → 1/120 s → 2.0 vehicles busy → 3 at UtilMax 0.75 (2 would be ~100 %).
     /// B: 2 materials, every 360 s each → 1/180 s → 1.33 busy → 2 (67 %).
     /// C: 2 materials, every 240 s each → 1/120 s → 1.27 busy → 2 (63 %), plus whatever the crossings cost.
     /// </summary>
@@ -119,7 +120,7 @@ public class CrossingScenarioTests
             p.Materials.Add(new MaterialInfo(m, "", g, takt, 1, 1, 4, 1, null, null, false));
             p.Routes.Add(new Route(m, from, to, null, null, null, 0));
         }
-        for (int i = 1; i <= 3; i++) Mat("MA" + i, "A", 360, "LA", "UA");
+        for (int i = 1; i <= 5; i++) Mat("MA" + i, "A", 600, "LA", "UA"); // five materials in one group, same total demand as before (1 / 120 s)
         for (int i = 1; i <= 2; i++) Mat("MB" + i, "B", 360, "LB", "UB");
         for (int i = 1; i <= 2; i++) Mat("MC" + i, "C", 240, "LC", "UC");
         return p;
@@ -149,6 +150,10 @@ public class CrossingScenarioTests
         if (Directory.Exists(work)) Directory.Delete(work, true);
         Directory.CreateDirectory(work);
         var l = Layout(); var input = Input();
+        if ((Environment.GetEnvironmentVariable("ASH_SCENARIO_VARIANT") ?? "").Contains("fastload"))
+            for (int i = 0; i < input.AgvTypes.Count; i++) input.AgvTypes[i] = input.AgvTypes[i] with { LoadTime = 2, UnloadTime = 2 };
+        if ((Environment.GetEnvironmentVariable("ASH_SCENARIO_VARIANT") ?? "").Contains("amax8"))
+            input.Groups[0] = input.Groups[0] with { MaxCount = 8 };
         var specs = input.Groups.Select(g => { var t = input.AgvTypes.Single(x => x.Type == g.Type); return new VehicleGroupSpec(g.Group, g.Type, g.MaxCount, t.SpeedLoaded, t.Length, t.Width, Accel: t.Accel, Decel: t.Decel, Kind: t.Kind); }).ToList();
         var build = ModelBuilder.Build(new ModelBuildRequest(work, Model, input, l, new ExportOptions(Groups: specs)), AmHome!, TimeSpan.FromMinutes(10));
         Assert.True(build.Build?.Success == true, "build failed:\n" + build.Build?.MakeErrText + build.Build?.Am2ErrText + string.Join("\n", build.Findings.Select(f => f.Message)));
@@ -189,6 +194,20 @@ public class CrossingScenarioTests
                 $" ok {at.Count > 0 && at.All(x => x.Ok)} crossingWait/run {Get(waits, g.Group).ToString("0", inv)} s");
             foreach (var c in rows.Where(x => x.Group == g.Group).GroupBy(x => x.Active).OrderBy(x => x.Key))
                 rep.AppendLine($"   {g.Group}={c.Key}: runs {c.Count()} util {c.Average(x => x.Utilization).ToString("0.000", inv)} fails {c.Count(x => !x.Ok)} {string.Join("; ", c.Where(x => !x.Ok).Select(x => x.Reason).Distinct().Take(2))}");
+        }
+        // per vehicle and per material numbers of the first confirm run (the logic's own tables)
+        var first = sum.ConfirmRunIds.Select(id => Path.Combine(work, "runs", id, "result.tsv")).FirstOrDefault(File.Exists);
+        if (first != null)
+        {
+            var rs0 = ResultParser.Parse(first);
+            rep.AppendLine("confirm run " + Path.GetFileName(Path.GetDirectoryName(first)) + ":");
+            foreach (var v in rs0.Vehicles ?? new List<VehicleResult>())
+                if (v.Jobs > 0) rep.AppendLine($"   vehicle {v.Name}: util {(v.BusySec / v.WindowSec).ToString("0.000", inv)} jobs {v.Jobs} distance {v.Distance.ToString("0", inv)} m ({(v.Distance / v.Jobs).ToString("0", inv)} m/job, {(v.BusySec / v.Jobs).ToString("0", inv)} s/job)");
+            foreach (var m in rs0.MaterialStats ?? new List<MaterialStat>())
+            {
+                var mr = rs0.Materials.First(x => x.Name == m.Name);
+                rep.AppendLine($"   material {m.Name}: supplies {mr.Supplies}/{mr.Expected.ToString("0", inv)} stop {mr.StopTimeSec.ToString("0", inv)} s, lead call->pickup avg {m.PickAvg.ToString("0", inv)} max {m.PickMax.ToString("0", inv)} s, call->delivered avg {m.DelivAvg.ToString("0", inv)} max {m.DelivMax.ToString("0", inv)} s, stock avg {m.StockAvg.ToString("0.00", inv)} sd {m.StockStd.ToString("0.00", inv)} min {m.StockMin.ToString("0.00", inv)} max {m.StockMax.ToString("0.00", inv)}");
+            }
         }
         foreach (var kv in blocks.OrderBy(k => k.Key)) rep.AppendLine($"block {kv.Key}: avg wait {(kv.Value.Wait / kv.Value.N).ToString("0.0", inv)} s, passes/run {(kv.Value.Passes / kv.Value.N).ToString("0", inv)}");
         foreach (var w in sum.Warnings) rep.AppendLine("warning: " + w);

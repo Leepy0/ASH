@@ -2,9 +2,10 @@
 /* one consumer cycle per takt: call check, then consume or stay stopped; a stopped cycle re-checks every takt */
 begin P_consume_{{M}} arriving procedure
 	while 1 = 1 do begin
-		/* also call when stock cannot cover one cycle, or a call threshold below the per-cycle need would stop forever */
-		if (V_stock({{M}}) <= V_call({{M}}) + 0.000001 or V_stock({{M}}) < V_need({{M}}) - 0.000001) and V_pending({{M}}) = 0 then begin
-			set V_pending({{M}}) to 1
+		/* reorder on the stock position (on hand + containers already called): one call per container short, as many as needed at once;
+		   also call when the position cannot cover one cycle, or a call threshold below the per-cycle need would stop forever */
+		while V_stock({{M}}) + V_pending({{M}}) <= V_call({{M}}) + 0.000001 or V_stock({{M}}) + V_pending({{M}}) < V_need({{M}}) - 0.000001 do begin
+			inc V_pending({{M}}) by 1
 			set V_extMat to {{M}}
 			set V_tmp to F_ext_on_call()
 			clone 1 load to P_supply_{{M}}
@@ -34,23 +35,25 @@ begin P_consume_{{M}} arriving procedure
 	end
 end
 
-/* One supply job, start to end, driven by the load: it enters the system at the pickup CP (an idle vehicle is called through the work list),
-   rides along every leg with travel to, and brings the vehicle home before it dies, so the park list never decides where a vehicle goes.
-   AutoMod's vehicle states no longer mean anything (the load is on board the whole job), so busy time, distance and lead times are kept here. */
+/* One supply job, start to end, driven by the load: it enters the system at the group's standby CP, where calls queue first come first served
+   whether or not a vehicle is there, boards the first free vehicle, rides along every leg with travel to, and brings the vehicle home before it
+   dies, so the park list never decides where a vehicle goes. AutoMod's vehicle states no longer mean anything (the load is on board the whole
+   job), so busy time, distance and lead times are kept here. */
 begin P_supply_{{M}} arriving procedure
 	set A_grp to {{G}}
 {{SET_TYPE}}
 	set A_tCall to ac
 	set V_extMat to {{M}}
 	set V_tmp to F_ext_select_vehicle()
-	move into {{SYS}}:{{FROM}}
+	move into {{SYS}}:{{HOME}}
 	set A_veh to this load vehicle
 	set A_vid to A_veh A_index + {{VID_OFFSET}}
 	set A_tPick to ac
-	/* the empty run to this pickup: AutoMod counts it as retrieving; the share since this vehicle's last pickup is this job's */
+	/* a vehicle that came over from elsewhere to take this load: AutoMod counts that run as retrieving; the share since its last pickup is this job's */
 	set V_x to (A_veh percent time retrieving) / 100 * ac
 	set A_ret to V_x - A_veh A_rLast
 	set A_veh A_rLast to V_x
+	travel to {{SYS}}:{{FROM}}
 	if ac >= V_warmup then tabulate ac - A_tCall in T_pick_{{M}}
 	wait for {{LOAD_TIME}} sec
 {{SUPPLY_LEGS}}
@@ -62,7 +65,7 @@ begin P_supply_{{M}} arriving procedure
 		inc V_supplies({{M}}) by 1
 		tabulate ac - A_tCall in T_deliv_{{M}}
 	end
-	set V_pending({{M}}) to 0
+	dec V_pending({{M}}) by 1
 {{EMPTY_TYPE}}
 {{RETURN_LEGS}}
 {{FINISH}}

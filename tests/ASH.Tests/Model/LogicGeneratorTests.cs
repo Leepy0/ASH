@@ -45,13 +45,14 @@ public class LogicGeneratorTests
         var s = new ASH.Core.Asy.AgvsSystem();
         foreach (var cp in Layout2.CpNames) s.ControlPoints.Add(new ASH.Core.Asy.ControlPoint(cp, "DefaultControlPoint", "p1", 1, null));
         LogicGenerator.AddDispatchLists(s, input, Layout2);
-        Assert.Equal(new[] { "L001" }, s.NameLists["nl_pick_G1"]);
-        Assert.Equal(new[] { "L002" }, s.NameLists["nl_pick_G2"]);
+        // calls wait at the group's standby CP, so that is where a free vehicle looks for work
+        Assert.Equal(new[] { "S001" }, s.NameLists["nl_pick_G1"]);
+        Assert.Equal(new[] { "S002" }, s.NameLists["nl_pick_G2"]);
         Assert.Equal(new[] { "S002" }, s.NameLists["nl_G2"]);
         Assert.Contains("WORKLST name U001 Oldest item nl_pick_G1 item nl_pick_G2 ", s.WorkListLines);
         Assert.Contains("PARKLST name U001 Sequential item S001 item S002 ", s.ParkListLines);
         Assert.DoesNotContain(s.ParkListLines, l => l.StartsWith("PARKLST name S00"));
-        Assert.Equal(new[] { "SRCHLST name L001 Closest item All ", "SRCHLST name L002 Closest item All " }, s.SearchListLines);
+        Assert.Equal(new[] { "SRCHLST name S001 Closest item All ", "SRCHLST name S002 Closest item All " }, s.SearchListLines);
 
         var t = LogicGenerator.Render(input, Layout2);
         Assert.Contains("begin agv.Tug2 work ok function\n\tif theLoad A_grp = 2 then return true", t);
@@ -81,8 +82,8 @@ public class LogicGeneratorTests
         Assert.Contains("if ac - A_t0 > V_deadlockSec", supply);
         Assert.DoesNotContain("ac - V_legStart", supply);
         // empty container pickup at ReturnFrom (LoadTime 10) and set-down at ReturnTo (UnloadTime 10)
-        var ret = supply.Substring(supply.IndexOf("V_pending(1) to 0"));
-        Assert.Matches(@"travel to agv:U001[\s\S]*?wait for 10 sec[\s\S]*?travel to agv:L001[\s\S]*?wait for 10 sec[\s\S]*?send to die", ret);
+        var ret = supply.Substring(supply.IndexOf("dec V_pending(1) by 1"));
+        Assert.Matches(@"travel to agv:U001[\s\S]*?wait for 10 sec[\s\S]*?travel to agv:L001[\s\S]*?wait for 10 sec[\s\S]*?travel to agv:S001[\s\S]*?send to die", ret);
         Assert.Contains("if V_inLeg(3) = 1 and ac - V_legStart(3) > V_deadlockSec", t);
         Assert.Contains("read V_tok, V_simLen, V_warmup, V_deadlockSec from V_fp", t);
     }
@@ -122,7 +123,8 @@ public class LogicGeneratorTests
     public void Render_Uses_Route_Cp_Names()
     {
         var t = LogicGenerator.Render(Sample(), Layout);
-        Assert.Contains("move into agv:L001", t);
+        Assert.Contains("move into agv:S001", t);                  // the call boards at the standby CP (first come first served)
+        Assert.Contains("travel to agv:L001", t);
         Assert.Contains("travel to agv:B001", t);
         Assert.Contains("travel to agv:U001", t);
         var bad = Sample(); bad.Routes[0] = bad.Routes[0] with { SupplyToCP = "X999" };
