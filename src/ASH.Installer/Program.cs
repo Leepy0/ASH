@@ -41,7 +41,7 @@ static class Program
         var capture = Arg(args, "/capture:").FirstOrDefault();
         var dirs = Arg(args, "/dir:").ToList();
         var manual = dirs.Select(Manual).Where(m => m != null).Select(m => m!).ToList();
-        var bad = dirs.Where(d => Manual(d) == null).Select(d => "/dir: ZWCAD.exe 없음, 무시: " + d).ToList();
+        var bad = dirs.Where(d => Manual(d) == null).Select(d => "/dir: ZWCAD.exe(MFG는 ZWCADM.exe) 없음, 무시: " + d).ToList();
         string? server = null, badServer = null;
         var serverArg = Arg(args, "/server:").FirstOrDefault();
         if (serverArg != null)
@@ -95,10 +95,12 @@ static class Program
     public static ZwcadInstall? Manual(string dir)
     {
         dir = dir.Trim().Trim('"').TrimEnd('\\');
-        if (!File.Exists(Path.Combine(dir, "ZWCAD.exe"))) return null;
+        var zw = File.Exists(Path.Combine(dir, "ZWCAD.exe"));
+        if (!zw && !File.Exists(Path.Combine(dir, "ZWCADM.exe"))) return null;
         var m = Regex.Match(Path.GetFileName(dir), @"(?<!\d)(20\d{2})(?!\d)");
         var ver = m.Success ? m.Groups[1].Value : "";
-        return new ZwcadInstall(ver, "", dir, ver.Length > 0 ? @"Software\ZWSoft\ZWCAD\" + ver : @"Software\ZWSoft\ZWCAD");
+        var root = ZwcadLocator.ProfileRoot(ZwcadLocator.LooksMfg(Path.GetFileName(dir)) || !zw);
+        return new ZwcadInstall(ver, "", dir, ver.Length > 0 ? root + "\\" + ver : root);
     }
 
     // no detection: the capture path must not read or write the registry

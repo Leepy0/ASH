@@ -40,9 +40,14 @@ sealed class StepRunner : IDisposable
     /// <summary>A running ZWCAD locks the DLLs and may rewrite its profile keys on exit.</summary>
     public static bool ZwcadRunning()
     {
-        var p = Process.GetProcessesByName("ZWCAD"); // name match is case-insensitive
-        foreach (var x in p) x.Dispose();
-        return p.Length > 0;
+        var running = false;
+        foreach (var name in new[] { "ZWCAD", "ZWCADM" }) // name match is case-insensitive
+        {
+            var p = Process.GetProcessesByName(name);
+            running |= p.Length > 0;
+            foreach (var x in p) x.Dispose();
+        }
+        return running;
     }
 
     public const string CloseZwcad = "ZWCAD를 닫고 다시 실행하세요.";
@@ -164,7 +169,7 @@ sealed class StepRunner : IDisposable
         var src = Extract();
         foreach (var t in targets)
         {
-            Log($"-- ZWCAD {t.Version} {t.Language} {t.InstallDir}");
+            Log($"-- {t.Product} {t.Version} {t.Language} {t.InstallDir}");
             var r = _exec.Install(t, src, Elevated, _reg, FallbackDir(t), Program.SupportedVersion);
             _results.Add(r);
             if (!r.Ok) Log("이 ZWCAD는 설치 실패. ZWCAD가 실행 중이면 닫고 다시 시도하세요. 로그: " + LogPath);

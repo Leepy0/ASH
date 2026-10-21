@@ -32,6 +32,17 @@ public class InstallPlannerTests
         Assert.Equal(InstallPlanner.Files.Length, s.Count(x => x.Kind == "Unblock"));
     }
 
+    [Fact] public void Plan_Registers_Mfg_Under_Its_Own_ZWCADM_Key()
+    {
+        var mfg = new ZwcadInstall("2026", "ko-KR", @"C:\ZWCADM2026", @"Software\ZWSoft\ZWCADM\2026\ko-KR");
+        var s = InstallPlanner.Plan(new[] { mfg }, @"D:\src", elevated: true, uninstall: false);
+        Assert.Contains(s, x => x.Kind == "RegString" && x.Target == @"HKCU\Software\ZWSoft\ZWCADM\2026\ko-KR\Applications\ASH\LOADER" && x.Value == @"C:\ZWCADM2026\ASH\ASH.Plugin.dll");
+        Assert.Contains(s, x => x.Kind == "RegDword" && x.Target == @"HKLM\Software\ZWSoft\ZWCADM\2026\ko-KR\Applications\ASH\LOADCTRLS" && x.Value == "2");
+        Assert.DoesNotContain(s, x => x.Kind.StartsWith("Reg") && x.Target.Contains(@"\ZWCAD\"));
+        var u = InstallPlanner.Plan(new[] { mfg }, @"D:\src", true, true);
+        Assert.Contains(u, x => x.Kind == "DeleteKey" && x.Target == @"HKCU\Software\ZWSoft\ZWCADM\2026\ko-KR\Applications\ASH");
+    }
+
     [Fact] public void Plan_Skips_Unsupported_Version()
     {
         var old = new ZwcadInstall("2024", "ko_KR", @"C:\ZWCAD2024", @"Software\ZWSoft\ZWCAD\2024\ko_KR");

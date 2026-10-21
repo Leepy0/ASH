@@ -41,7 +41,7 @@ sealed class MainForm : Form
         // unknown version stays selectable: the planner copies DLLs and warns that autoload was not registered
         public bool Supported => Install.Version.Length == 0 || Install.Version == Program.SupportedVersion;
         public override string ToString() =>
-            "ZWCAD " + (Install.Version.Length > 0 ? Install.Version : "(버전 모름)")
+            Install.Product + " " + (Install.Version.Length > 0 ? Install.Version : "(버전 모름)")
             + (Install.Language.Length > 0 ? " (" + Install.Language + ")" : "") + " — " + Install.InstallDir
             + (Supported ? "" : " (미지원: ASH는 ZWCAD " + Program.SupportedVersion + "용)");
     }
@@ -137,17 +137,17 @@ sealed class MainForm : Form
 
     void AddManual()
     {
-        using var d = new FolderBrowserDialog { Description = "ZWCAD.exe가 있는 ZWCAD 설치 폴더를 고르세요." };
+        using var d = new FolderBrowserDialog { Description = "ZWCAD.exe(MFG는 ZWCADM.exe)가 있는 설치 폴더를 고르세요." };
         if (d.ShowDialog(this) != DialogResult.OK) return;
         var m = Program.Manual(d.SelectedPath);
-        if (m == null) { MessageBox.Show(this, "이 폴더에 ZWCAD.exe가 없습니다.", Text, MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+        if (m == null) { MessageBox.Show(this, "이 폴더에 ZWCAD.exe(MFG는 ZWCADM.exe)가 없습니다.", Text, MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
         // without a 20xx version autoload cannot be registered, so do not add the folder until one is given
         var prompt = "ZWCAD 버전(연도)을 입력하세요. 예: 2026";
         while (m.Version.Length == 0)
         {
             var v = Microsoft.VisualBasic.Interaction.InputBox(prompt, Text, "2026").Trim();
             if (v.Length == 0) return; // cancelled
-            if (System.Text.RegularExpressions.Regex.IsMatch(v, @"^20\d{2}$")) m = m with { Version = v, ProfileKeyPath = @"Software\ZWSoft\ZWCAD\" + v };
+            if (System.Text.RegularExpressions.Regex.IsMatch(v, @"^20\d{2}$")) m = m with { Version = v, ProfileKeyPath = ZwcadLocator.ProfileRoot(m.IsMfg) + "\\" + v };
             else prompt = "버전은 20xx 형식이어야 합니다(예: 2026). 다시 입력하세요.";
         }
         var item = new Item(m);
