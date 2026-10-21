@@ -90,7 +90,7 @@ public sealed class AgvPaletteControl : UserControl
         tabs.TabPages.Add(Page("검증·내보내기", Theme.Section("검증"), Theme.Make("검증", GlyphKind.Check, "AGVCHECK"), checkResult,
             Theme.Caption("문제 목록 — 더블클릭하면 그 위치로 이동"), problems,
             Theme.Section("내보내기"), Theme.Make("내보내기", GlyphKind.Export, "AGVEXPORT"),
-            Theme.Section("모델"), Theme.Make("Excel 양식", GlyphKind.Excel, "AGVEXCEL"), Theme.Make("모델 생성·빌드", GlyphKind.Model, "AGVMODEL"),
+            Theme.Section("모델"), Theme.Make("Excel 양식", GlyphKind.Excel, "AGVEXCEL"), Theme.Make("모델 생성·빌드", GlyphKind.Model, "AGVMODEL"), Theme.Make("서버로 보내기", GlyphKind.Send, "AGVSEND"),
             Theme.Section("설정"), settings));
 
         var finder = FinderPage(tabs);

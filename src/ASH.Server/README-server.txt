@@ -22,6 +22,16 @@ ASH.Server - ASH 배포 서버 (최소판)
                     비워 두면 수동 업로드만 꺼지고 GitHub 가져오기는 동작한다.
    - Urls         기본 http://0.0.0.0:8082
    - Releases:Dir 배포 파일 보관 폴더(기본 %ProgramData%/ASH.Server/releases)
+   - Jobs         서버 실행(ASH의 "서버로 보내기"로 올린 모델을 빌드하고 대수 탐색). 서버 PC 에 AutoMod 가 있어야 한다.
+                    AmHome AutoMod 설치 폴더(기본 C:\AutoMod\12_6, bin\am264.exe 가 있어야 함)
+                    Parallel 동시에 돌리는 모델 실행 수(기본 2). 코어 수와 AutoMod 라이선스에 맞춘다.
+                    DialogButton 체험판처럼 실행 때 대화상자가 뜨는 설치면 누를 버튼 이름(예: "Student Version"). 정식판은 비운다.
+                    RunTimeoutMin 실행 하나의 시간 제한(기본 30분), BuildTimeoutMin 빌드 시간 제한(기본 10분),
+                    JobTimeoutHours 작업 하나의 시간 제한(기본 24시간). 넘으면 끊고 다음 작업으로 넘어간다.
+                    Dir 작업 폴더(기본 %ProgramData%/ASH.Server/jobs). 올린 파일·실행 결과를 지우지 않으므로 디스크를 지켜본다.
+                    Enabled false 면 작업을 받지 않는다. WorkerEnabled false 면 받기만 하고 실행하지 않는다.
+                    주의: 올린 모델의 로직(user_ext.m 등)이 서버에서 AutoMod 로 컴파일·실행된다. 사내망에서만 연다.
+                    작업 대기열과 결과는 http://서버:8082/jobs 에서 본다. 취소는 보낸 PC(같은 IP)나 관리자 토큰으로만 된다.
    를 확인한다. 환경 변수 Admin__Token 으로 토큰을 줄 수도 있다.
    설치 폴더 권한을 관리자로 제한한다(토큰을 넣었다면 토큰 보호):
      icacls "C:\Program Files\ASH.Server" /inheritance:r /grant:r "Administrators:(OI)(CI)F" "SYSTEM:(OI)(CI)F"
