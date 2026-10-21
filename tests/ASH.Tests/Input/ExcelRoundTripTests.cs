@@ -96,7 +96,7 @@ public class ExcelRoundTripTests
         {
             ExcelTemplate.Write(path);
             using (var wb = new XLWorkbook(path)) { wb.Worksheet("Materials").Cell(3, 4).Value = "abc"; wb.Save(); }
-            var ex = Assert.Throws<FormatException>(() => ExcelReader.Read(path));
+            var ex = Assert.Throws<ExcelDataException>(() => ExcelReader.Read(path));
             Assert.Contains("Materials", ex.Message);
             Assert.Contains("3행", ex.Message);
             Assert.Contains("TaktTime", ex.Message);

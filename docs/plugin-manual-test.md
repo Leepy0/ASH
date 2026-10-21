@@ -255,3 +255,13 @@ AutoMod 12.6이 있는 PC 필요(T16-2, T16-4). 검증·내보내기 탭 "Excel 
 | E5 찾기 목록 행을 더블클릭 → 객체가 선택되고 화면이 그 객체 중심으로 pan. 줌 배율은 변하지 않음. "목록 새로고침"으로 도면 변경 반영 | | | |
 | E6 "Excel 양식" 버튼 → `TypeInitializer`/`TableLoader` 예외 없이 양식이 저장됨. 열어서 읽기(`AGVMODEL`)도 됨. 실패하면 `plugin.log`의 "assembly ..." 줄 확인 | | | |
 | E7 Setup: 설치 마지막 화면에 "설치 후 ZWCAD 실행" 체크박스. 체크 후 설치 → ZWCAD가 (관리자 권한 없이) 실행됨. 해제하면 실행 안 함 | | | |
+
+## Excel 읽기 오류 진단 (0.8.2)
+
+| 항목 | 날짜 | 결과 | 비고 |
+|---|---|---|---|
+| F1 `input.xlsx`의 숫자 칸에 글자를 넣고 `AGVMODEL` → "Excel 읽기 오류: Materials 시트 3행 'TaktTime' 열: ..."처럼 시트·행·열이 나옴 | | | |
+| F2 `input.xlsx`를 0바이트 파일로 바꾸고 `AGVMODEL` → 원인(예외 종류와 메시지)과 "파일이 비어 있습니다" 안내가 나옴 | | | |
+| F3 `input.xlsx`를 메모장으로 열어 아무 글이나 저장 → "텍스트(CSV·HTML 등)로 저장된 파일" 안내 | | | |
+| F4 Excel로 연 채 `AGVMODEL` → "다른 프로그램이 사용 중" 안내(원인 메시지 포함). 같은 내용이 `%APPDATA%\ASH\plugin.log`에도 남음 | | | |
+| F5 `AGVEXCEL`로 새 양식을 만든 뒤 폴더에 `input.xlsx.tmp`가 남지 않음 | | | |

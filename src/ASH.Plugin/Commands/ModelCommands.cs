@@ -70,9 +70,18 @@ public sealed class ModelCommands
                 input = ExcelReader.Read(xlsx, out var xw);
                 foreach (var w in xw) ed.WriteMessage($"\nExcel 경고: {w.Message}");
             }
-            catch (System.Exception ex) when (ex is IOException || ex is InvalidOperationException || ex is FormatException || ex is ArgumentException || ex is UnauthorizedAccessException)
+            catch (System.Exception ex) when (!(ex is OperationCanceledException))
             {
-                ed.WriteMessage($"\nExcel 읽기 오류: {ex.Message}"); // Excel holding the file open -> IOException
+                // a bad value names its sheet, row and column; anything else is a damaged or locked file, so look into the file and say what is wrong with it
+                ed.WriteMessage($"
+Excel 읽기 오류: {ex.Message}");
+                if (!(ex is ExcelDataException))
+                {
+                    foreach (var line in ExcelDiagnosis.Explain(xlsx, ex)) ed.WriteMessage("
+  " + line);
+                    PluginLog.Write("AGVMODEL Excel read failed", ex);
+                    foreach (var line in ExcelDiagnosis.Inspect(xlsx)) PluginLog.Write("  " + line);
+                }
                 return Fail();
             }
             var layout = DrawingReader.Read(db, tr);

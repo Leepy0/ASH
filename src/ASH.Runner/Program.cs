@@ -57,7 +57,14 @@ public static class Program
         {
             var xlsx = Path.Combine(a.ProjectDir, "input.xlsx");
             if (!File.Exists(xlsx)) { o.WriteLine("error: input.xlsx not found: " + xlsx); return 1; }
-            input = ExcelReader.Read(xlsx, out var findings);
+            System.Collections.Generic.List<ASH.Core.Layout.Finding> findings;
+            try { input = ExcelReader.Read(xlsx, out findings); }
+            catch (Exception ex) when (!(ex is OperationCanceledException))
+            {
+                o.WriteLine("error: input.xlsx를 읽지 못함: " + ex.Message);
+                if (!(ex is ExcelDataException)) foreach (var line in ExcelDiagnosis.Explain(xlsx, ex)) o.WriteLine("  " + line);
+                return 1;
+            }
             foreach (var f in findings) { o.WriteLine("input: " + f.Message); warnings.Add(f.Message); }
         }
         if (input.Groups.Count == 0) { o.WriteLine("error: input has no AGV groups"); return 1; }

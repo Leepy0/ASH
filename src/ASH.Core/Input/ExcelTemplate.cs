@@ -168,6 +168,14 @@ public static class ExcelTemplate
                 ws.Column(c).Width = ColumnWidth(texts);
             }
         }
-        wb.SaveAs(path);
+        // saved beside the target and moved over it: a failure half way must not leave a truncated input.xlsx that the next run takes for a real one
+        var tmp = path + ".tmp";
+        try
+        {
+            using (var fs = System.IO.File.Create(tmp)) wb.SaveAs(fs);
+            if (System.IO.File.Exists(path)) System.IO.File.Delete(path);
+            System.IO.File.Move(tmp, path);
+        }
+        finally { if (System.IO.File.Exists(tmp)) System.IO.File.Delete(tmp); }
     }
 }

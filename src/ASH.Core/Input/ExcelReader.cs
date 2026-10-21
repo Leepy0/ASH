@@ -18,7 +18,7 @@ public static class ExcelReader
         public int RowNum => _row;
         public Row(IXLWorksheet ws, Dictionary<string, int> cols, int row) { _ws = ws; _cols = cols; _row = row; }
 
-        FormatException Err(string col, string why) => new FormatException($"{_ws.Name} 시트 {_row}행 '{col}' 열: {why}");
+        FormatException Err(string col, string why) => new ExcelDataException($"{_ws.Name} 시트 {_row}행 '{col}' 열: {why}");
         IXLCell Cell(string col) => _cols.TryGetValue(col, out var c) ? _ws.Cell(_row, c) : throw new FormatException($"{_ws.Name} 시트에 '{col}' 열이 없습니다.");
         public string Str(string col) => Cell(col).GetString().Trim();
         public string? OptStr(string col) { var s = Str(col); return s.Length == 0 ? null : s; }
@@ -119,4 +119,10 @@ public static class ExcelReader
             p.Ext.Add(new ExtHook(r.Str("Name"), r.Bool("Enabled"), r.Str("Description"), r.RowNum));
         return p;
     }
+}
+
+/// <summary>A value in the workbook that cannot be used; the message names sheet, row and column. Other failures (a damaged file) are explained by ExcelDiagnosis.</summary>
+public sealed class ExcelDataException : FormatException
+{
+    public ExcelDataException(string message) : base(message) { }
 }
