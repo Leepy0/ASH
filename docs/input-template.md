@@ -25,7 +25,7 @@
 | 시트 | 열 (단위) |
 |---|---|
 | AGV_Types | Type, Group, SpeedLoaded(m/s), SpeedEmpty(m/s), Accel(m/s²), Decel(m/s²), Capacity(용기 수), LoadTime(초), UnloadTime(초), MTBF(초, 0=없음), MTTR(초), Length(m), Width(m), Color, Kind(선택: Standard / Conveyor / Ant / Magnet) |
-| AGV_Groups | Group, Type(그룹당 하나), MinCount(≥1), MaxCount(≥MinCount), StandbyCPs(쉼표 구분), Dispatch(Nearest / FIFO) |
+| AGV_Groups | Group, Type(그룹당 하나), MinCount(≥1), MaxCount(≥MinCount), StandbyCPs(쉼표 구분), Dispatch(Nearest / FIFO), FinishCP(선택) |
 | Materials | Material, Station(선택·메모), Group, TaktTime(초, >0), UnitsPerCycle(원수), UnitsPerContainer(≥1), CallThreshold(용기), UnloadThreshold(용기), InitStock(용기, 선택), SafetyStock(용기, 선택), EmptyReturn(Y/N), Form(선택: Box / Pallet / Trolley), LoadLength / LoadWidth / LoadHeight(m, 선택) |
 | Routes | Material, SupplyFromCP, SupplyToCP, BufferCP(선택), ReturnFromCP(선택), ReturnToCP(선택), ExtraTime(초) |
 
@@ -68,3 +68,12 @@ Stations·Ext 시트는 양식에서 뺐다(모델에 아무 영향이 없었다
 ## 암호화된 파일
 
 사내 문서 암호화(NASCA)가 저장 때 `input.xlsx`를 암호화하면 플러그인이 직접 읽지 못한다. 이때 `AGVMODEL`은 Excel로 셀을 읽고(Excel이 이미 열고 있으면 그 통합 문서를 그대로), 읽은 셀을 프로젝트 폴더의 `input.cells.tsv`(텍스트)로 저장한다. `ash-run`은 `input.xlsx`를 못 읽으면 이 파일을 쓴다. 스냅샷은 마지막 `AGVMODEL` 시점의 값이므로, `input.xlsx`를 고쳤으면 `AGVMODEL`을 다시 실행한다.
+
+## 공급 로직 (0.13.0)
+
+- 호출: 자재마다 T/T마다 재고를 보고, (재고 + 이미 호출한 수량)이 CallThreshold 이하이면 부족한 만큼 한꺼번에 여러 건 호출한다.
+- 탑승: 호출된 용기(load)는 차량이 있든 없든 그룹의 첫 대기 CP(StandbyCPs의 첫 번째)로 들어가 먼저 온 순서대로 차량에 탄다.
+- 이동: 상차 CP → (BufferCP) → 하차 CP → (회수: ReturnFrom 도착 → 추가 시간(ExtraTime) → 상차 → ReturnTo 하차) → 대기 CP. 회수 구간이 없으면 추가 시간은 하차 뒤. 모든 작업은 대기 CP에 돌아와서 끝난다.
+- 가동 시간: 대기 CP에서 차량에 탄 순간(다른 곳에서 데리러 온 빈 주행 포함)부터 FinishCP 도착까지, FinishCP가 없으면 대기 CP 도착까지. 대기 CP 앞에 줄 서는 시간을 빼려면 FinishCP(CP 타입 finish)를 대기 레인 입구에 둔다.
+- 기록(result.tsv): 차량별 가동 시간·주행 거리(AutoMod total distance traveled)·작업 수, 자재별 리드타임(호출→상차 도착, 호출→하차 완료)·재고 평균·표준편차·최소·최대(AutoMod TABLE). 평균 재고 − 2σ가 안전재고보다 작으면 경고.
+- 대기 CP 앞 레인이 "최대 대수 × (차량 길이 + 0.5 m)"보다 짧으면(분기점이나 block까지) 모델 생성 때 경고한다.

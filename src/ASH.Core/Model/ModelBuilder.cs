@@ -51,20 +51,9 @@ public static class ModelBuilder
         foreach (var c in l.Cps.Where(c => c.Type == "standby" && c.Group.Length > 0)) { if (!standby.ContainsKey(c.Group)) standby[c.Group] = c.Name; }
         var entryBlock = new Dictionary<string, string>();
         foreach (var e in ASH.Core.Traffic.TrafficTable.Build(l).Entries) if (e.CpName != null && !entryBlock.ContainsKey(e.CpName)) entryBlock[e.CpName] = e.BlockName;
-        // free-run time home after the last drop (model units / speed), for groups without a Finish CP
-        var returnSec = new Dictionary<string, double>();
-        try
-        {
-            var back = Runner.GroupClusters.Build(l, input, ASH.Core.Traffic.TrafficTable.Build(l)).ReturnLength;
-            foreach (var mat in input.Materials)
-            {
-                var ty = input.Groups.Where(x => x.Group == mat.Group).Select(x => input.AgvTypes.FirstOrDefault(t => t.Type == x.Type)).FirstOrDefault();
-                if (ty != null && ty.SpeedLoaded > 0 && back.TryGetValue(mat.Material, out var len)) returnSec[mat.Material] = len * o.Scale / ty.SpeedLoaded;
-            }
-        }
-        catch (Exception e) { warnings.Add("복귀 시간 계산 실패(대기 CP 도착을 작업 끝으로 봄): " + e.Message); }
-        var info = new LayoutInfo(l.Cps.Select(c => c.Name).ToList(), l.Blocks.Select(b => b.Name).ToList(), standby, EntryBlockByCp: entryBlock,
-            ReturnSecByMaterial: returnSec);
+        // standby lanes too short for the group's vehicles to queue in (the queue would reach back into a junction or a block)
+        warnings.AddRange(ASH.Core.Layout.StandbyQueueCheck.Check(l, input, o.Scale));
+        var info = new LayoutInfo(l.Cps.Select(c => c.Name).ToList(), l.Blocks.Select(b => b.Name).ToList(), standby, EntryBlockByCp: entryBlock);
 
         var agv = Path.Combine(arc, "agv.asy");
         var sys = AsyReader.ReadFile(agv);

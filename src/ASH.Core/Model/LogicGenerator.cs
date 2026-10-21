@@ -12,7 +12,7 @@ namespace ASH.Core.Model;
 /// EntryBlockByCp maps a traffic-entry CP (traffic.tsv entry_cp) to its block, for the blockgroup wait rows.</summary>
 public sealed record LayoutInfo(IReadOnlyList<string> CpNames, IReadOnlyList<string> BlockNames,
     IReadOnlyDictionary<string, string> StandbyCpByGroup, string AgvSystemName = "agv",
-    IReadOnlyDictionary<string, string>? EntryBlockByCp = null, IReadOnlyDictionary<string, double>? ReturnSecByMaterial = null);
+    IReadOnlyDictionary<string, string>? EntryBlockByCp = null);
 
 /// <summary>Seeding: the logic draws no random numbers, so a run is fully determined by params.txt (seeded init stocks).
 /// AM-side RNSTREAM seeding is not needed until randomness (MTBF/MTTR, phase 3) exists.</summary>
@@ -136,13 +136,11 @@ public static class LogicGenerator
                 if (!string.IsNullOrEmpty(r.ReturnToCP)) ret.Append(Leg(r.ReturnToCP!, mi + nm)).Append($"\twait for {N(t.UnloadTime)} sec\n");
             }
             if (!returnPick) ret.Insert(0, extra);
-            // busy ends at the Finish CP when the group has one; else after the free-run return time to the standby CP (so neither a long way home
-            // nor a queue at a full standby CP distorts it); with no known return time, at the standby CP
+            // busy ends at the Finish CP when the group has one (put it at the entry of the standby lane: the queue behind a waiting vehicle is idle
+            // time), else on arrival at the standby CP. A free-run return time was tried and under-counts badly when the way home is congested.
             var home = StandbyOf(g, layout)[0];
             string finish, finishAtHome = "";
             if (!string.IsNullOrEmpty(g.FinishCP)) finish = Leg(g.FinishCP!, mi + nm) + "\tset A_fin to ac";
-            else if (layout.ReturnSecByMaterial != null && layout.ReturnSecByMaterial.TryGetValue(m.Material, out var retSec) && !double.IsNaN(retSec))
-                finish = $"\tset A_fin to ac + {N(retSec)}";
             else { finish = ""; finishAtHome = "\tset A_fin to ac"; }
             int vidOffset = input.Groups.TakeWhile(x => x.Group != g.Group).Sum(x => x.MaxCount);
             // the supply load shows as the material's own picture; a box goes back empty (other forms are the same picture on the way back)
