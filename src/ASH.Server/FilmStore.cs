@@ -33,6 +33,8 @@ public sealed class FilmInfo
     public DateTime? FinishedUtc { get; set; }
     public string? Phase { get; set; }
     public string? Error { get; set; }
+    /// <summary>Shown on the film page (e.g. a version filmed with the estimated F0).</summary>
+    public List<string> Warnings { get; set; } = new();
     /// <summary>Cuts made / failed so far.</summary>
     public int Done { get; set; }
     public int Failed { get; set; }

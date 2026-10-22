@@ -20,6 +20,8 @@ public sealed class FakeFilm : IFilmAutoMod, IFilmRenderer
     public readonly List<(IReadOnlyList<string> Mp4s, IReadOnlyList<string> Captions, string Out, bool Join)> Finishes = new();
     public (double W, double H)? Mark = (640, 360);
     public bool WriteEvents = true;
+    /// <summary>Every render hits the time limit at once (a hung AutoView).</summary>
+    public bool AlwaysTimeout;
 
     public AmBuildResult Build(string projectDir, string model)
     {
@@ -44,13 +46,15 @@ public sealed class FakeFilm : IFilmAutoMod, IFilmRenderer
     public RenderResult Render(string workDir, string modelName, string cameraScript, TimeSpan timeout, CancellationToken ct)
     {
         lock (Scripts) Scripts.Add(cameraScript);
-        if (cameraScript.Contains("\ntime 4321\n")) { ct.WaitHandle.WaitOne(timeout); return new RenderResult(false, null, "시간 제한을 넘어 AutoView를 끊었습니다.", Array.Empty<string>()); }
+        if (AlwaysTimeout) return new RenderResult(false, null, "시간 제한을 넘어 AutoView를 끊었습니다.", Array.Empty<string>(), true);
+        // the cut, not its model's calibration (which also reaches 4321 s)
+        if (cameraScript.Contains("\ntime 4321\n") && !cameraScript.Contains("quality 100")) { ct.WaitHandle.WaitOne(timeout); return new RenderResult(false, null, "시간 제한을 넘어 AutoView를 끊었습니다.", Array.Empty<string>(), true); }
         var mp4 = AutoViewRenderer.MovieFile(cameraScript) + ".mp4";
         File.WriteAllText(mp4, "raw");
         return new RenderResult(true, mp4, null, Array.Empty<string>());
     }
 
-    public string Finish(IReadOnlyList<string> mp4s, IReadOnlyList<string> captions, string outPath, bool join)
+    public string Finish(IReadOnlyList<string> mp4s, IReadOnlyList<string> captions, string outPath, bool join, CancellationToken ct = default)
     {
         lock (Finishes) Finishes.Add((mp4s.ToList(), captions.ToList(), outPath, join));
         Assert.All(mp4s, m => Assert.True(File.Exists(m), m));
@@ -58,7 +62,7 @@ public sealed class FakeFilm : IFilmAutoMod, IFilmRenderer
         return outPath;
     }
 
-    public (double W, double H)? MarkSize(string mp4With, string mp4Without, int width, int height) => Mark;
+    public (double W, double H)? MarkSize(string mp4With, string mp4Without, int width, int height, CancellationToken ct = default) => Mark;
 }
 
 public class FilmTests
@@ -168,6 +172,39 @@ public class FilmTests
         Assert.True(f.Items[1].Ok);
         Assert.Single(env.Film.Finishes.Single(x => x.Join).Mp4s); // the joined film has the cut that worked
         Assert.True(Directory.Exists(Path.Combine(env.Factory.Services.GetRequiredService<FilmStore>().FilmDir(f.Id), j1))); // kept to look into
+    }
+
+    [Fact]
+    public async Task Hung_AutoView_Stops_The_Film_After_Two_Timeouts()
+    {
+        using var env = new JobEnv();
+        var j1 = await Done(env, "분석", "A안");
+        var j2 = await Done(env, "분석", "B안");
+        var (_, aid) = Analysis(env);
+        env.Factory.Services.GetRequiredService<CutStore>().Save(aid, new[] { Hold("c1"), Hold("c2", "출구") });
+        env.Film.AlwaysTimeout = true;
+        var before = env.Film.Scripts.Count;
+        var f = await Film(env, aid, Body(new[] { "c1", "c2" }, new[] { j1, j2 }));
+        Assert.Equal(2, env.Film.Scripts.Count - before); // the first version's calibration, then the second's: no cut waits its time limit
+        Assert.Equal(JobState.Failed, f.State);
+        Assert.Equal((0, 4), (f.Done, f.Failed));
+        Assert.All(f.Items.Where(i => i.JobId == j1), i => Assert.Contains("화면 배율 보정 중 시간 제한", i.Error));
+        Assert.All(f.Items.Where(i => i.JobId == j2), i => Assert.Equal(FilmWorker.Hung, i.Error));
+        Assert.Contains("AutoView가 응답하지 않아 중단", await env.Http.GetStringAsync("/films/" + f.Id));
+    }
+
+    [Fact]
+    public async Task Calibration_Fallback_Is_Shown_On_The_Film_Page()
+    {
+        using var env = new JobEnv();
+        var j1 = await Done(env, "분석", "A안");
+        var (_, aid) = Analysis(env);
+        env.Factory.Services.GetRequiredService<CutStore>().Save(aid, new[] { Hold("c1") });
+        env.Film.Mark = null; // nothing differs between the two calibration frames
+        var f = await Film(env, aid, Body(new[] { "c1" }, new[] { j1 }));
+        Assert.Equal((1, 0), (f.Done, f.Failed)); // filmed with the estimate
+        Assert.Equal("A안 v1: " + FilmWorker.CalWarning, f.Warnings.Single());
+        Assert.Contains(FilmWorker.CalWarning, await env.Http.GetStringAsync("/films/" + f.Id));
     }
 
     [Fact]
@@ -321,6 +358,22 @@ public class FilmTests
         await Until(() => File.Exists(d1) && !File.Exists(Path.Combine(env.Store.JobDir(j1), FilmWorker.ScenesRequest)) ? "ok" : null);
         Assert.Equal(1, env.Film.Runs.Last(r => r.Scenario.Events).Scenario.ActiveByGroup["G1"]);
         Assert.Contains("Stockout", await env.Http.GetStringAsync($"/api/jobs/{j1}/scenes?delta=-1"));
+
+        // a request file that cannot be deleted runs once, not on every round of the worker
+        var reqFile = Path.Combine(env.Store.JobDir(j1), FilmWorker.ScenesRequest);
+        File.WriteAllText(reqFile, "{\"delta\":-2,\"requestedUtc\":\"2026-10-23T00:00:00Z\"}");
+        File.SetAttributes(reqFile, FileAttributes.ReadOnly);
+        try
+        {
+            int EventRuns() { lock (env.Film.Runs) return env.Film.Runs.Count(r => r.Scenario.Events && r.ProjectDir == env.Store.ProjectDir(j1)); }
+            env.Store.Wake();
+            await Until(() => File.Exists(Path.Combine(env.Store.JobDir(j1), "scenes.delta-2.json")) ? "ok" : null);
+            var runs = EventRuns();
+            await Done(env, "분석", "C안"); // the worker goes round more than once meanwhile
+            Assert.Equal(runs, EventRuns());
+            Assert.True(File.Exists(reqFile));
+        }
+        finally { File.SetAttributes(reqFile, FileAttributes.Normal); }
 
         // a model built before the event log: no events.tsv
         env.Film.WriteEvents = false;

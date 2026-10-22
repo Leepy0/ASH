@@ -59,7 +59,14 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
         foreach (var j in jobs.All())
         {
             var req = Path.Combine(jobs.JobDir(j.Id), ScenesRequest);
-            if (File.Exists(req)) { SceneRequest(j, req); return true; }
+            if (!File.Exists(req)) continue;
+            string text;
+            try { text = File.ReadAllText(req); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { continue; }
+            // a request file that could not be deleted must not run the scene search again and again
+            if (_scenesDone.TryGetValue(j.Id, out var done) && done == text) { TryDelete(req); continue; }
+            _scenesDone[j.Id] = text;
+            SceneRequest(j, req, text);
+            return true;
         }
         var f = films.TakeNext();
         if (f == null) return false;
@@ -67,14 +74,19 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
         return true;
     }
 
-    void SceneRequest(JobInfo j, string req)
+    /// <summary>Job id -> the scene request text already run (only touched on the worker thread).</summary>
+    readonly Dictionary<string, string> _scenesDone = new(StringComparer.Ordinal);
+
+    static void TryDelete(string path) { try { File.Delete(path); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { } }
+
+    void SceneRequest(JobInfo j, string req, string text)
     {
-        string text; int delta;
-        try { text = File.ReadAllText(req); delta = JsonDocument.Parse(text).RootElement.GetProperty("delta").GetInt32(); }
-        catch (Exception e) when (e is IOException or JsonException or KeyNotFoundException or InvalidOperationException or FormatException)
+        int delta;
+        try { delta = JsonDocument.Parse(text).RootElement.GetProperty("delta").GetInt32(); }
+        catch (Exception e) when (e is JsonException or KeyNotFoundException or InvalidOperationException or FormatException)
         {
             logger.LogWarning("장면 요청을 읽지 못해 지웁니다 {Id}: {Error}", j.Id, e.Message);
-            try { File.Delete(req); } catch (IOException) { }
+            TryDelete(req);
             return;
         }
         using (var log = new StreamWriter(jobs.LogPath(j.Id), true, new UTF8Encoding(false)) { AutoFlush = true })
@@ -83,7 +95,7 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
             FindScenes(j, j.Decided, delta, log);
         }
         // latest wins: a request that came in meanwhile (another delta) stays for the next round
-        try { if (File.ReadAllText(req) == text) File.Delete(req); } catch (IOException) { }
+        try { if (File.ReadAllText(req) == text) TryDelete(req); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
     }
 
     /// <summary>One run with the event log on (counts = decided + delta within each group's range, the input's SeedBase) and the scene file for that delta.
@@ -174,8 +186,25 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
         input.Groups.ToDictionary(g => g.Group, g => Math.Clamp(r.SameCounts != null && r.SameCounts.TryGetValue(g.Group, out var same) ? same
             : (decided.TryGetValue(g.Group, out var d) ? d : g.MinCount) + r.VehicleDelta + cut.VehicleDelta, g.MinCount, g.MaxCount), StringComparer.Ordinal);
 
+    public const string Hung = "AutoView가 응답하지 않아 중단했습니다(연속 2회 시간 초과).";
+    public const string CalWarning = "주의: 화면 배율 보정 실패, 추정값 사용";
+
+    /// <summary>Thrown after two AutoView runs in a row hit the time limit: a hung AutoView (session 0, a dialog nobody clicks) would otherwise block the queue for hours.</summary>
+    sealed class AutoViewHungException() : Exception(Hung);
+
+    /// <summary>Render runs in a row that hit the time limit (worker thread only).</summary>
+    int _timeouts;
+
+    RenderResult Render(string work, string model, string script, CancellationToken stop)
+    {
+        var res = renderer.Render(work, model, script, CutTimeout, stop);
+        _timeouts = res.TimedOut ? _timeouts + 1 : 0;
+        return res;
+    }
+
     void RunFilm(FilmInfo f, CancellationToken stop)
     {
+        _timeouts = 0;
         var dir = films.FilmDir(f.Id);
         Directory.CreateDirectory(dir);
         using var log = new StreamWriter(Path.Combine(dir, "film.log"), true, new UTF8Encoding(false)) { AutoFlush = true };
@@ -199,26 +228,35 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
         var r = f.Request;
         say($"시작: 컷 {f.Cuts.Count}개 × 버전 {r.JobIds.Count}개, {r.Width}×{r.Height} {r.Fps} fps, {r.Output}");
         int? seed = r.Seed;
-        foreach (var jid in r.JobIds)
+        try { Versions(); }
+        catch (AutoViewHungException)
         {
-            stop.ThrowIfCancellationRequested();
-            var j = jobs.Get(jid);
-            void FailAll(IEnumerable<CutSpec> cuts, string why)
+            say(Hung);
+            films.Update(f.Id, x => { foreach (var i in x.Items.Where(i => !i.Ok && i.Error == null)) i.Error = Hung; x.Failed = x.Items.Count(i => i.Error != null); x.Error = Hung; });
+        }
+        void Versions()
+        {
+            foreach (var jid in r.JobIds)
             {
-                say($"{jid}: {why}");
-                var ids = cuts.Select(c => c.Id).ToHashSet();
-                films.Update(f.Id, x => { foreach (var i in x.Items.Where(i => i.JobId == jid && ids.Contains(i.CutId))) i.Error = why; x.Failed = x.Items.Count(i => i.Error != null); });
-            }
-            if (j?.Decided == null) { FailAll(f.Cuts, "작업이 없거나 결론 대수가 없습니다."); continue; }
-            var input = SearchJob.ReadInput(jobs.ProjectDir(jid), TextWriter.Null, new List<string>(), out var err);
-            if (input == null) { FailAll(f.Cuts, "입력을 읽지 못했습니다: " + err); continue; }
-            seed ??= input.Settings.SeedBase; // R8: the first version's seed for every version
-            var groups = f.Cuts.GroupBy(c => string.Join(";", Counts(input, j.Decided, r, c).Select(kv => kv.Key + "=" + kv.Value))).ToList();
-            for (int k = 0; k < groups.Count; k++)
-            {
-                var cuts = groups[k].ToList();
-                try { Version(f, j, input, Counts(input, j.Decided, r, cuts[0]), seed.Value, cuts, Path.Combine(dir, groups.Count == 1 ? jid : $"{jid}-{k + 1}"), say, stop); }
-                catch (Exception e) when (e is not OperationCanceledException) { FailAll(cuts, e.Message); }
+                stop.ThrowIfCancellationRequested();
+                var j = jobs.Get(jid);
+                void FailAll(IEnumerable<CutSpec> cuts, string why)
+                {
+                    say($"{jid}: {why}");
+                    var ids = cuts.Select(c => c.Id).ToHashSet();
+                    films.Update(f.Id, x => { foreach (var i in x.Items.Where(i => i.JobId == jid && ids.Contains(i.CutId) && !i.Ok)) i.Error = why; x.Failed = x.Items.Count(i => i.Error != null); });
+                }
+                if (j?.Decided == null) { FailAll(f.Cuts, "작업이 없거나 결론 대수가 없습니다."); continue; }
+                var input = SearchJob.ReadInput(jobs.ProjectDir(jid), TextWriter.Null, new List<string>(), out var err);
+                if (input == null) { FailAll(f.Cuts, "입력을 읽지 못했습니다: " + err); continue; }
+                seed ??= input.Settings.SeedBase; // R8: the first version's seed for every version
+                var groups = f.Cuts.GroupBy(c => string.Join(";", Counts(input, j.Decided, r, c).Select(kv => kv.Key + "=" + kv.Value))).ToList();
+                for (int k = 0; k < groups.Count; k++)
+                {
+                    var cuts = groups[k].ToList();
+                    try { Version(f, j, input, Counts(input, j.Decided, r, cuts[0]), seed.Value, cuts, Path.Combine(dir, groups.Count == 1 ? jid : $"{jid}-{k + 1}"), say, stop); }
+                    catch (Exception e) when (e is not OperationCanceledException and not AutoViewHungException) { FailAll(cuts, e.Message); }
+                }
             }
         }
         if (f.Join)
@@ -228,7 +266,7 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
             if (parts.Count > 0)
             {
                 films.Update(f.Id, x => x.Phase = "이어 붙이기");
-                try { renderer.Finish(parts, Array.Empty<string>(), Path.Combine(dir, g.Joined!), true); films.Update(f.Id, x => x.JoinedOk = true); say("이어 붙임: " + g.Joined); }
+                try { renderer.Finish(parts, Array.Empty<string>(), Path.Combine(dir, g.Joined!), true, stop); films.Update(f.Id, x => x.JoinedOk = true); say("이어 붙임: " + g.Joined); }
                 catch (Exception e) when (e is InvalidOperationException or IOException) { say("이어 붙이기 실패: " + e.Message); films.Update(f.Id, x => x.Error = "이어 붙이지 못했습니다: " + e.Message); }
             }
             if (!f.KeepEach && films.Get(f.Id)!.JoinedOk) foreach (var p in parts) File.Delete(p);
@@ -293,7 +331,8 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
         stop.ThrowIfCancellationRequested();
 
         Phase("화면 배율 보정");
-        var f0 = Calibrate(work, j.Model, (cx, cy, lw, lh, Math.Sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0) + 2.5 * 2.5)), from + 1, r.Width, r.Height, s => say($"{label}: {s}"), stop);
+        var f0 = Calibrate(work, j.Model, (cx, cy, lw, lh, Math.Sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0) + 2.5 * 2.5)), from + 1, r.Width, r.Height,
+            s => say($"{label}: {s}"), w => films.Update(f.Id, x => x.Warnings.Add($"{label}: {w}")), stop);
         var kpi = Kpi(j, input, counts, o);
         say($"{label}: 자막 수치 {kpi}");
         var failed = false;
@@ -303,11 +342,16 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
             var c = ok[k];
             var item = films.Get(f.Id)!.Items.First(i => i.JobId == j.Id && i.CutId == c.Id);
             Phase(c.Name);
-            var res = renderer.Render(work, j.Model, CameraScript.Build(c, f0, r.Width, r.Height, r.Fps, Quality, Path.Combine(work, $"cut{k + 1:00}"), new[] { CalOff }), CutTimeout, stop);
+            var res = Render(work, j.Model, CameraScript.Build(c, f0, r.Width, r.Height, r.Fps, Quality, Path.Combine(work, $"cut{k + 1:00}"), new[] { CalOff }), stop);
             if (res.Dialogs.Count > 0) say($"{label}: 대화상자 {string.Join(", ", res.Dialogs)}");
-            if (!res.Ok) { failed = true; SetItem(f, j.Id, c.Id, false, res.Error); continue; }
+            if (!res.Ok)
+            {
+                failed = true; SetItem(f, j.Id, c.Id, false, res.Error);
+                if (_timeouts >= 2) { say($"{label}: 작업 폴더를 남깁니다: {work}"); throw new AutoViewHungException(); }
+                continue;
+            }
             var caption = r.Caption && c.Caption ? $"{a?.Name ?? f.AnalysisName} · {label} · {c.Name}\n{Hms(c.StartSec)} · {kpi}" : "";
-            try { renderer.Finish(new[] { res.Mp4! }, new[] { caption }, Path.Combine(films.FilmDir(f.Id), item.Name), false); SetItem(f, j.Id, c.Id, true, null); say($"{label}: {item.Name}"); }
+            try { renderer.Finish(new[] { res.Mp4! }, new[] { caption }, Path.Combine(films.FilmDir(f.Id), item.Name), false, stop); SetItem(f, j.Id, c.Id, true, null); say($"{label}: {item.Name}"); }
             catch (Exception e) when (e is InvalidOperationException or IOException) { failed = true; SetItem(f, j.Id, c.Id, false, e.Message); }
         }
         if (failed) { say($"{label}: 실패한 컷이 있어 작업 폴더를 남깁니다: {work}"); return; }
@@ -336,8 +380,10 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
     }
 
     /// <summary>F0 (metres) of this film model, guide 10.4: two one-frame renders at scale 1 with and without the ash_cal mark, F0 = H × Lc / p.
-    /// Falls back to the first guess 1.19 × the scene's 3D diagonal (a warning in the log) when the measurement fails or is far off.</summary>
-    double Calibrate(string work, string model, (double Cx, double Cy, double Lw, double Lh, double Diag) scene, double t, int width, int height, Action<string> say, CancellationToken stop)
+    /// Falls back to the first guess 1.19 × the scene's 3D diagonal (a warning in the log and on the film page) when the measurement fails or is far off;
+    /// a render that hit the time limit fails the version instead (AutoView hangs: the cuts would hang too).</summary>
+    double Calibrate(string work, string model, (double Cx, double Cy, double Lw, double Lh, double Diag) scene, double t, int width, int height, Action<string> say,
+        Action<string> warn, CancellationToken stop)
     {
         var guess = 1.19 * scene.Diag;
         string Script(bool hide, string movie) => string.Join("\n",
@@ -347,10 +393,15 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
             "time " + t.ToString("0.###", C),
             $"view focus relative to world pos {Um(scene.Cx)}, {Um(scene.Cy)}, 0 camera relative to world pos {Um(scene.Cx)}, {Um(scene.Cy)}, 30480000 upvector 0, 1, 0 scale 1",
             "record movie", "time " + (t + 1).ToString("0.###", C), "generate movie", "");
-        var on = renderer.Render(work, model, Script(false, Path.Combine(work, "cal_on")), CutTimeout, stop);
-        var off = on.Ok ? renderer.Render(work, model, Script(true, Path.Combine(work, "cal_off")), CutTimeout, stop) : on;
+        var on = Render(work, model, Script(false, Path.Combine(work, "cal_on")), stop);
+        var off = on.Ok ? Render(work, model, Script(true, Path.Combine(work, "cal_off")), stop) : on;
+        if (on.TimedOut || off.TimedOut)
+        {
+            if (_timeouts >= 2) throw new AutoViewHungException();
+            throw new InvalidOperationException("화면 배율 보정 중 " + (on.Error ?? off.Error));
+        }
         (double W, double H)? px = null;
-        try { if (on.Ok && off.Ok) px = renderer.MarkSize(on.Mp4!, off.Mp4!, width, height); }
+        try { if (on.Ok && off.Ok) px = renderer.MarkSize(on.Mp4!, off.Mp4!, width, height, stop); }
         catch (InvalidOperationException e) { say("보정 측정 실패: " + e.Message); }
         if (px is { } p && Math.Max(p.W, p.H) > 8)
         {
@@ -361,6 +412,7 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
             say("경고: 보정값이 첫 추정과 너무 달라 첫 추정을 씁니다.");
         }
         else say($"경고: F0 보정 실패({on.Error ?? off.Error ?? "표시가 보이지 않음"}) → 첫 추정 1.19 × 장면 대각선 = {guess:0.##} m를 씁니다.");
+        warn(CalWarning);
         logger.LogWarning("F0 보정 실패, 첫 추정 사용 {Work}", work);
         return guess;
     }

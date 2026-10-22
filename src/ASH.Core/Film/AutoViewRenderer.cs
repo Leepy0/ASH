@@ -10,8 +10,9 @@ using ASH.Core.AutoMod;
 
 namespace ASH.Core.Film;
 
-/// <summary>Mp4 = the file the camera script names (filename + ".mp4"); Dialogs = AutoView windows that were clicked away.</summary>
-public sealed record RenderResult(bool Ok, string? Mp4, string? Error, IReadOnlyList<string> Dialogs);
+/// <summary>Mp4 = the file the camera script names (filename + ".mp4"); Dialogs = AutoView windows that were clicked away;
+/// TimedOut = the run was killed at its time limit (AutoView hung: a dialog nobody clicked, or no desktop to render on).</summary>
+public sealed record RenderResult(bool Ok, string? Mp4, string? Error, IReadOnlyList<string> Dialogs, bool TimedOut = false);
 
 /// <summary>AutoView and ffmpeg steps of filming; the server's film tests plug in a fake.</summary>
 public interface IFilmRenderer
@@ -23,10 +24,10 @@ public interface IFilmRenderer
     /// <summary>join = false: mp4s[0] re-encoded for phones and PowerPoint (H.264, yuv420p, faststart) with captions[0] drawn at the bottom ("" = none).
     /// join = true: mp4s (same size, fps and codec) put one after another without re-encoding; captions are ignored.
     /// Returns <paramref name="outPath"/>; InvalidOperationException with ffmpeg's message on failure.</summary>
-    string Finish(IReadOnlyList<string> mp4s, IReadOnlyList<string> captions, string outPath, bool join);
+    string Finish(IReadOnlyList<string> mp4s, IReadOnlyList<string> captions, string outPath, bool join, CancellationToken ct = default);
 
     /// <summary>Pixel width and height of what differs between the first frames of two renders of the same view (the F0 calibration mark, guide 10.4); null when nothing differs.</summary>
-    (double W, double H)? MarkSize(string mp4With, string mp4Without, int width, int height);
+    (double W, double H)? MarkSize(string mp4With, string mp4Without, int width, int height, CancellationToken ct = default);
 }
 
 /// <summary>aview64 -n &lt;model&gt; in the folder holding the .avw (guide 6.2/6.3): the "Attention!" windows (grid warnings, "a movie will be generated") are clicked OK,
@@ -37,7 +38,7 @@ public sealed class AutoViewRenderer(string aviewExe, string? amHome, string ffm
     public RenderResult Render(string workDir, string modelName, string cameraScript, TimeSpan timeout, CancellationToken ct)
     {
         var dialogs = new List<string>();
-        RenderResult Fail(string e) { lock (dialogs) return new RenderResult(false, null, e, dialogs.ToArray()); }
+        RenderResult Fail(string e, bool timedOut = false) { lock (dialogs) return new RenderResult(false, null, e, dialogs.ToArray(), timedOut); }
         var avw = Path.Combine(workDir, modelName + ".avw");
         if (!Directory.Exists(avw)) return Fail("AutoView 기록(.avw)이 없습니다: " + avw);
         if (MovieFile(cameraScript) is not { } movie) return Fail("카메라 스크립트에 filename이 없습니다.");
@@ -62,7 +63,8 @@ public sealed class AutoViewRenderer(string aviewExe, string? amHome, string ffm
                 if (sw.Elapsed > timeout || ct.IsCancellationRequested)
                 {
                     Kill(p);
-                    return Fail(ct.IsCancellationRequested ? "취소되었습니다." : $"시간 제한({timeout.TotalMinutes:0.#}분)을 넘어 AutoView를 끊었습니다(대화상자에 걸렸거나 너무 긴 컷).");
+                    return ct.IsCancellationRequested ? Fail("취소되었습니다.")
+                        : Fail($"시간 제한({timeout.TotalMinutes:0.#}분)을 넘어 AutoView를 끊었습니다(대화상자에 걸렸거나 너무 긴 컷).", true);
                 }
         }
         var err = Read(Path.Combine(workDir, "aviewerr.dat"));
@@ -72,7 +74,7 @@ public sealed class AutoViewRenderer(string aviewExe, string? amHome, string ffm
         lock (dialogs) return new RenderResult(true, mp4, null, dialogs.ToArray());
     }
 
-    public string Finish(IReadOnlyList<string> mp4s, IReadOnlyList<string> captions, string outPath, bool join)
+    public string Finish(IReadOnlyList<string> mp4s, IReadOnlyList<string> captions, string outPath, bool join, CancellationToken ct = default)
     {
         if (mp4s.Count == 0 || (!join && mp4s.Count != 1)) throw new ArgumentException("join needs one or more files, a single finish exactly one", nameof(mp4s));
         var tmp = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(outPath))!, ".ff-" + Guid.NewGuid().ToString("N").Substring(0, 8));
@@ -103,7 +105,7 @@ public sealed class AutoViewRenderer(string aviewExe, string? amHome, string ffm
                 args.AddRange(new[] { "-vf", vf + "scale=out_range=tv,format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p", "-an" });
             }
             args.AddRange(new[] { "-movflags", "+faststart", part });
-            var r = Ffmpeg(args, tmp, TimeSpan.FromMinutes(30));
+            var r = Ffmpeg(args, tmp, TimeSpan.FromMinutes(30), ct);
             if (r.Exit != 0 || !File.Exists(part) || new FileInfo(part).Length == 0) throw new InvalidOperationException("ffmpeg 실패: " + Tail(r.Err, 600));
             if (File.Exists(outPath)) File.Delete(outPath);
             File.Move(part, outPath);
@@ -112,12 +114,12 @@ public sealed class AutoViewRenderer(string aviewExe, string? amHome, string ffm
         finally { try { Directory.Delete(tmp, true); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
     }
 
-    public (double W, double H)? MarkSize(string mp4With, string mp4Without, int width, int height)
+    public (double W, double H)? MarkSize(string mp4With, string mp4Without, int width, int height, CancellationToken ct = default)
     {
         byte[]? Frame(string f)
         {
             var r = Ffmpeg(new[] { "-v", "error", "-i", Path.GetFullPath(f), "-frames:v", "1", "-s", $"{width}x{height}", "-f", "rawvideo", "-pix_fmt", "rgb24", "-" },
-                Path.GetDirectoryName(Path.GetFullPath(f))!, TimeSpan.FromMinutes(2));
+                Path.GetDirectoryName(Path.GetFullPath(f))!, TimeSpan.FromMinutes(2), ct);
             return r.Exit == 0 && r.Out.Length == width * height * 3 ? r.Out : null;
         }
         if (Frame(mp4With) is not { } a || Frame(mp4Without) is not { } b) return null;
@@ -144,7 +146,8 @@ public sealed class AutoViewRenderer(string aviewExe, string? amHome, string ffm
         return new[] { "malgunbd.ttf", "malgun.ttf", "gulim.ttc", "arial.ttf" }.Select(n => Path.Combine(dir, n)).FirstOrDefault(File.Exists);
     }
 
-    (int Exit, string Err, byte[] Out) Ffmpeg(IEnumerable<string> args, string cwd, TimeSpan timeout)
+    /// <summary>OperationCanceledException (ffmpeg killed) when <paramref name="ct"/> fires.</summary>
+    (int Exit, string Err, byte[] Out) Ffmpeg(IEnumerable<string> args, string cwd, TimeSpan timeout, CancellationToken ct)
     {
         var psi = Psi(ffmpeg, args, cwd, "");
         psi.RedirectStandardError = true; psi.RedirectStandardOutput = true; psi.CreateNoWindow = true;
@@ -156,7 +159,12 @@ public sealed class AutoViewRenderer(string aviewExe, string? amHome, string ffm
             var err = p.StandardError.ReadToEndAsync();
             var ms = new MemoryStream();
             var output = p.StandardOutput.BaseStream.CopyToAsync(ms);
-            if (!p.WaitForExit((int)timeout.TotalMilliseconds)) { Kill(p); throw new InvalidOperationException("ffmpeg가 시간 제한을 넘었습니다."); }
+            var sw = Stopwatch.StartNew();
+            while (!p.WaitForExit(250))
+            {
+                if (ct.IsCancellationRequested) { Kill(p); ct.ThrowIfCancellationRequested(); }
+                if (sw.Elapsed > timeout) { Kill(p); throw new InvalidOperationException("ffmpeg가 시간 제한을 넘었습니다."); }
+            }
             output.Wait(); p.WaitForExit();
             return (p.ExitCode, err.Result, ms.ToArray());
         }
