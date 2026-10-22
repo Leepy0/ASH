@@ -19,7 +19,7 @@ public static class DrawingJson
     {
         var cache = Path.Combine(jobDir, "drawing.json");
         try { if (File.Exists(cache) && File.ReadAllText(cache, Encoding.UTF8) is var c && c.StartsWith(Head, StringComparison.Ordinal)) return c; }
-        catch (IOException) { }
+        catch (IOException) { } catch (UnauthorizedAccessException) { } // unreadable cache: build it again
         var json = Build(project, model);
         if (json != null && !json.Contains("\"drawingError\""))
             try { var tmp = cache + ".tmp"; File.WriteAllText(tmp, json, new UTF8Encoding(false)); File.Move(tmp, cache, true); }

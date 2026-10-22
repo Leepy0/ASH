@@ -83,13 +83,13 @@ public class FilmTests
     }
 
     /// <summary>Sends a job filed under analysis/plan and waits until the fake search finished it.</summary>
-    static async Task<string> Send(JobEnv env, string analysis, string plan)
+    static async Task<string> Send(JobEnv env, string analysis, string plan, Action<string>? addFiles = null)
     {
         var form = new MultipartFormDataContent
         {
             { new StringContent("Line A"), "project" }, { new StringContent("m"), "model" }, { new StringContent("tester"), "submitter" },
             { new StringContent(analysis), "analysisName" }, { new StringContent(plan), "planName" },
-            { new ByteArrayContent(await File.ReadAllBytesAsync(JobEnv.MakePackage(env.Dir))), "package", "package.zip" },
+            { new ByteArrayContent(await File.ReadAllBytesAsync(JobEnv.MakePackage(env.Dir, addFiles: addFiles))), "package", "package.zip" },
         };
         return JsonDocument.Parse(await (await env.Http.PostAsync("/api/jobs", form)).Content.ReadAsStringAsync()).RootElement.GetProperty("id").GetString()!;
     }
@@ -509,6 +509,18 @@ public class FilmTests
         Assert.True((f.Done, f.Failed) == (3, 0), log + string.Join("\n", f.Items.Select(i => i.Label + ": " + i.Error)));
         Assert.True(f.JoinedOk, log);
         Assert.Contains("F0 보정", log);
+    }
+
+    [Fact]
+    public async Task Model_Without_Event_Log_Gets_No_Scene_Run()
+    {
+        using var env = new JobEnv();
+        // logic written before the event log (0.18): no V_events anywhere
+        var id = await Send(env, "분석", "A안", proj => { var asy = Path.Combine(proj, "m.arc", "m~.asy"); File.WriteAllText(asy, File.ReadAllText(asy).Replace("V_events", "V_old")); });
+        await Until(() => env.Store.Get(id) is { Finished: true } j ? j : null);
+        var json = File.ReadAllText(Path.Combine(env.Store.JobDir(id), "scenes.json"));
+        Assert.Equal(FilmWorker.NoEvents, JsonDocument.Parse(json).RootElement.GetProperty("none").GetString());
+        Assert.DoesNotContain(env.Film.Runs, r => r.Scenario.Events && r.ProjectDir == env.Store.ProjectDir(id)); // no wasted run
     }
 
     [Fact]

@@ -128,7 +128,12 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
     public void FindScenes(JobInfo j, IReadOnlyDictionary<string, int>? decided, int delta, TextWriter log)
     {
         object result;
-        try
+        if (!HasEventLog(jobs.ProjectDir(j.Id), j.Model))
+        {
+            log.WriteLine("scenes: 이벤트 로그가 없는 예전 모델이라 실행하지 않습니다.");
+            result = new { none = NoEvents };
+        }
+        else try
         {
             if (decided == null) throw new InvalidOperationException("결론 대수가 없습니다.");
             var proj = jobs.ProjectDir(j.Id);
@@ -171,6 +176,13 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
             File.Move(path + ".tmp", path, true);
         }
         catch (IOException e) { logger.LogWarning("장면 파일 저장 실패 {Id}: {Error}", j.Id, e.Message); }
+    }
+
+    /// <summary>False for logic from before the event log (0.18): a run would write no events.tsv. An unreadable file lets the run tell.</summary>
+    static bool HasEventLog(string proj, string model)
+    {
+        try { return File.ReadAllText(Path.Combine(proj, model + ".arc", model + "~.asy")).Contains("V_events"); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return true; }
     }
 
     /// <summary>Material -> its unload CP: the route's SupplyToCP, else the station's CP.</summary>

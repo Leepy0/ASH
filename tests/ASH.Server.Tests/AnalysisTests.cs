@@ -28,9 +28,14 @@ public class AnalysisTests : IDisposable
         Assert.Equal(new[] { 1, 2, 3 }, v);
         Assert.Equal(1, st.Assign(js, AddJob(js, "j0000000004"), a.Id, pb.Id, "").Version);
         Assert.Equal("메모", js.Get("j0000000001")!.VersionNote);
+        st.SetSelected(js, "j0000000001", true);
         st.Move(js, "j0000000001", a.Id, pb.Id);
         Assert.Equal(2, js.Get("j0000000001")!.Version);
         Assert.Equal(pb.Id, js.Get("j0000000001")!.PlanId);
+        Assert.True(js.Get("j0000000001")!.Selected); // same analysis: still compared
+        var other = st.CreateAnalysis("다른 분석", ""); var po = st.CreatePlan(other.Id, "X안", "");
+        st.Move(js, "j0000000001", other.Id, po.Id);
+        Assert.False(js.Get("j0000000001")!.Selected); // another analysis: not in its comparison unasked
     }
 
     [Fact]

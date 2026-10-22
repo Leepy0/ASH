@@ -112,7 +112,8 @@ public sealed class AnalysisStore
         => Place(jobs, jobId, analysisId, planId, j => j.VersionNote = note ?? "");
 
     /// <summary>Moves a job to another plan; it becomes that plan's next version.</summary>
-    public void Move(JobStore jobs, string jobId, string analysisId, string planId) => Place(jobs, jobId, analysisId, planId, null);
+    /// <summary>Files the job as the next version of the plan; moved to another analysis it leaves that analysis' comparison (Selected off).</summary>
+    public void Move(JobStore jobs, string jobId, string analysisId, string planId) => Place(jobs, jobId, analysisId, planId, j => { if (j.AnalysisId != analysisId) j.Selected = false; });
 
     public void SetSelected(JobStore jobs, string jobId, bool on)
     {
@@ -126,7 +127,7 @@ public sealed class AnalysisStore
             var a = Find(analysisId);
             if (a.Plans.All(p => p.Id != planId)) throw new ArgumentException("안이 없습니다.", nameof(planId));
             var version = jobs.All().Where(j => j.AnalysisId == analysisId && j.PlanId == planId).Select(j => j.Version).DefaultIfEmpty(0).Max() + 1;
-            if (!jobs.Update(jobId, j => { j.AnalysisId = analysisId; j.PlanId = planId; j.Version = version; extra?.Invoke(j); }))
+            if (!jobs.Update(jobId, j => { extra?.Invoke(j); j.AnalysisId = analysisId; j.PlanId = planId; j.Version = version; }))
                 throw new ArgumentException("작업이 없습니다.", nameof(jobId));
             return (analysisId, planId, version);
         }
