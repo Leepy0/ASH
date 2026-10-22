@@ -177,6 +177,9 @@ public static class AnalysisPages
         sb.Append($"<p><span class=\"state s-{H(f.State)}\">{H(JobState.Korean(f.State))}</span> {(f.Phase != null ? H(f.Phase) + " · " : "")}컷 {f.Items.Count}개 중 {f.Done}개 완료" +
             $"{(f.Failed > 0 ? $" · <span class=\"bad\">실패 {f.Failed}개</span>" : "")}{(f.StartedUtc != null ? " · 걸린 시간 " + Dur((f.FinishedUtc ?? DateTime.UtcNow) - f.StartedUtc.Value) : "")}</p>");
         if (f.State == JobState.Queued) sb.Append("<p class=\"muted\">작업 대기열에서 차례를 기다립니다. 대수 탐색 작업 사이에 하나씩 찍습니다.</p>");
+        if (!f.Finished)
+            sb.Append(f.CancelRequested ? "<p class=\"muted\">취소하는 중입니다. 지금 단계가 끝나면 멈춥니다.</p>"
+                : $"<form method=\"post\" action=\"/films/{H(f.Id)}/cancel\"><button>{(f.State == JobState.Queued ? "대기 취소" : "촬영 취소")}</button> <span class=\"muted\">찍는 동안 다른 작업은 기다립니다. 다 찍은 컷 영상은 남습니다.</span></form>");
         if (f.Error != null) sb.Append($"<p class=\"bad\"><b>{(f.State == JobState.Done ? "주의" : "오류")}:</b> {H(f.Error)}</p>");
         foreach (var w in f.Warnings) sb.Append($"<div class=\"msg warn\">{H(w)}</div>");
         sb.Append($"<p class=\"muted\">{r.Width}×{r.Height} · {r.Fps} fps · 자막 {(r.Caption ? "켬" : "끔")}" +

@@ -187,6 +187,13 @@ public class CutTests
         Assert.Equal(HttpStatusCode.Forbidden, (await env.Http.SendAsync(Req("?delta=-1", null))).StatusCode);
         Assert.Equal(HttpStatusCode.Conflict, (await env.Http.SendAsync(Req("?delta=-1", Ok))).StatusCode); // no conclusion yet
         env.Store.Update(id, j => { j.State = JobState.Done; j.Decided = new() { ["G1"] = 2 }; });
+        var off = await env.Http.SendAsync(Req("?delta=-1", Ok));
+        Assert.Equal(HttpStatusCode.Conflict, off.StatusCode); // nobody would ever run it
+        Assert.Contains("작업을 실행하지 않습니다", await off.Content.ReadAsStringAsync());
+        var film = new HttpRequestMessage(HttpMethod.Post, $"/api/analyses/{env.Factory.Services.GetRequiredService<AnalysisStore>().All().Single().Id}/films") { Content = new StringContent("{}", Encoding.UTF8, "application/json") };
+        film.Headers.Add("Origin", Ok);
+        Assert.Equal(HttpStatusCode.Conflict, (await env.Http.SendAsync(film)).StatusCode);
+        env.Factory.Services.GetRequiredService<Microsoft.Extensions.Configuration.IConfiguration>()["Jobs:WorkerEnabled"] = "true"; // the worker loop stays off: the request is only recorded
         Assert.Equal(HttpStatusCode.BadRequest, (await env.Http.SendAsync(Req("?delta=-99", Ok))).StatusCode);
         Assert.Equal(HttpStatusCode.Accepted, (await env.Http.SendAsync(Req("?delta=-1", Ok))).StatusCode);
         var req = JsonDocument.Parse(File.ReadAllText(Path.Combine(env.Store.JobDir(id), "scenes-request.json"))).RootElement;
@@ -194,5 +201,16 @@ public class CutTests
         Assert.Contains("pending", await env.Http.GetStringAsync($"/api/jobs/{id}/scenes?delta=-1"));
         File.WriteAllText(Path.Combine(env.Store.JobDir(id), "scenes.delta-1.json"), "[]");
         Assert.Equal("[]", await env.Http.GetStringAsync($"/api/jobs/{id}/scenes?delta=-1"));
+
+        // a request file that cannot be replaced: a Korean 503, not a 500
+        var reqFile = Path.Combine(env.Store.JobDir(id), "scenes-request.json");
+        File.SetAttributes(reqFile, FileAttributes.ReadOnly);
+        try
+        {
+            var busy = await env.Http.SendAsync(Req("?delta=-2", Ok));
+            Assert.Equal(HttpStatusCode.ServiceUnavailable, busy.StatusCode);
+            Assert.Contains("저장하지 못했습니다", await busy.Content.ReadAsStringAsync());
+        }
+        finally { File.SetAttributes(reqFile, FileAttributes.Normal); }
     }
 }

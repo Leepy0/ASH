@@ -43,9 +43,11 @@ public sealed class FilmInfo
     /// <summary>File name of the joined film; null when not asked for or not made.</summary>
     public string? Joined { get; set; }
     public bool JoinedOk { get; set; }
+    /// <summary>Set by POST /films/{id}/cancel; the worker stops the film at its next step (a queued film is cancelled at once).</summary>
+    public bool CancelRequested { get; set; }
 
     [JsonIgnore] public string Id => Request.Id;
-    [JsonIgnore] public bool Finished => State is JobState.Done or JobState.Failed;
+    [JsonIgnore] public bool Finished => State is JobState.Done or JobState.Failed or JobState.Cancelled;
     [JsonIgnore] public bool KeepEach => Request.Output != "joined";
     [JsonIgnore] public bool Join => Request.Output != "each";
 }

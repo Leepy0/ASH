@@ -123,9 +123,15 @@ static string ClientIp(HttpContext ctx)
 static bool AcceptsJobs(IConfiguration cfg) => cfg.GetValue("Jobs:Enabled", true);
 static bool WorkerOn(IConfiguration cfg) => cfg.GetValue("Jobs:Enabled", true) && cfg.GetValue("Jobs:WorkerEnabled", true);
 static IResult Html(string html, int status = 200) => Results.Content(html, "text/html; charset=utf-8", Encoding.UTF8, status);
+// a running film or scene search holds the one worker like a job: it counts as one ahead, and its length is unknown (no start estimate)
+static (int Ahead, DateTime? EstimatedStartUtc, TimeSpan? Typical) Queue(JobStore js, FilmWorker fw, string? id = null)
+{
+    var q = js.QueueInfo(id);
+    return fw.Busy == null ? q : (q.Ahead + 1, null, q.Typical);
+}
 
-app.MapGet("/", (ReleaseStore s, GitHubSync g, ServerUpdater u, RunnerStore r, JobStore js, IConfiguration cfg) =>
-    Html(ServerPages.Home(new(s, g, u, r, js.All(), js.QueueInfo(), WorkerOn(cfg)))));
+app.MapGet("/", (ReleaseStore s, GitHubSync g, ServerUpdater u, RunnerStore r, JobStore js, FilmWorker fw, IConfiguration cfg) =>
+    Html(ServerPages.Home(new(s, g, u, r, js.All(), Queue(js, fw), WorkerOn(cfg)))));
 
 // ---- admin pages: settings (appsettings.json) and service restart ----
 // Auth: the X-ASH-Admin-Token header (scripts), or the browser session cookie set by /admin/login after the token was typed once.
@@ -212,11 +218,11 @@ app.MapPost("/admin/restart", async (HttpContext ctx, ReleaseStore rs, AdminSess
 
 // ---- jobs: the plugin sends a model, the worker builds it and searches the vehicle counts, the pages show the result ----
 
-app.MapGet("/api/jobs/queue", (JobStore js, IConfiguration cfg) =>
+app.MapGet("/api/jobs/queue", (JobStore js, FilmWorker fw, IConfiguration cfg) =>
 {
-    var q = js.QueueInfo();
+    var q = Queue(js, fw);
     return Results.Json(new { ahead = q.Ahead, estimatedStart = q.EstimatedStartUtc?.ToString("yyyy-MM-ddTHH:mm:ssZ", System.Globalization.CultureInfo.InvariantCulture),
-        typicalMinutes = q.Typical?.TotalMinutes, enabled = WorkerOn(cfg) && AcceptsJobs(cfg) });
+        typicalMinutes = q.Typical?.TotalMinutes, enabled = WorkerOn(cfg) && AcceptsJobs(cfg), busy = fw.Busy });
 });
 
 // ---- analyses: a study groups plans (안); a send is filed as the next version of a plan ----
@@ -242,8 +248,12 @@ static async Task<(string Name, string Note)?> NameNote(HttpContext ctx)
 }
 const string NameNoteError = "이름은 100자, 메모는 200자까지이며 폼 데이터(name, note)가 필요합니다.";
 
+// the plugin sends no Origin/Referer (and does not call these); a browser always does, so a cross-site page cannot create analyses
+static bool CrossSiteBrowser(HttpContext ctx) => (ctx.Request.Headers.Origin.Count > 0 || ctx.Request.Headers.Referer.Count > 0) && !SameOrigin(ctx);
+
 app.MapPost("/api/analyses", async (HttpContext ctx, AnalysisStore st) =>
 {
+    if (CrossSiteBrowser(ctx)) return Msg(403, "다른 사이트에서 보낸 요청은 받지 않습니다.");
     if (await NameNote(ctx) is not { } v) return Msg(400, NameNoteError);
     try { return Results.Json(new { st.CreateAnalysis(v.Name, v.Note).Id }); }
     catch (ArgumentException e) { return Msg(400, e.Message); }
@@ -251,6 +261,7 @@ app.MapPost("/api/analyses", async (HttpContext ctx, AnalysisStore st) =>
 
 app.MapPost("/api/analyses/{id}/plans", async (string id, HttpContext ctx, AnalysisStore st) =>
 {
+    if (CrossSiteBrowser(ctx)) return Msg(403, "다른 사이트에서 보낸 요청은 받지 않습니다.");
     if (await NameNote(ctx) is not { } v) return Msg(400, NameNoteError);
     try { return Results.Json(new { st.CreatePlan(id, v.Name, v.Note).Id }); }
     catch (ArgumentException e) { return Msg(400, e.Message); }
@@ -335,7 +346,7 @@ app.MapGet("/analyses/unclassified", (AnalysisStore st, JobStore js) => Html(Ana
 app.MapGet("/analyses/{id}", (string id, AnalysisStore st, JobStore js, FilmStore fs) =>
     st.Get(id) is { } a ? Html(AnalysisPages.Detail(a, js.All(), js, fs.All())) : Msg(404, "분석이 없습니다."));
 
-app.MapPost("/api/jobs", async (HttpContext ctx, JobStore js, AnalysisStore analyses, IConfiguration cfg, CancellationToken ct) =>
+app.MapPost("/api/jobs", async (HttpContext ctx, JobStore js, AnalysisStore analyses, FilmWorker fw, IConfiguration cfg, CancellationToken ct) =>
 {
     if (!AcceptsJobs(cfg)) return Msg(403, "이 서버는 작업을 받지 않습니다(Jobs:Enabled=false).");
     if (!ctx.Request.HasFormContentType) return Msg(400, "multipart/form-data가 필요합니다.");
@@ -400,7 +411,7 @@ app.MapPost("/api/jobs", async (HttpContext ctx, JobStore js, AnalysisStore anal
             version = analyses.Assign(js, id, aid, pid, versionNote).Version;
         }
         else js.Add(job);
-        var q = js.QueueInfo(id);
+        var q = Queue(js, fw, id);
         return Results.Json(new { id, url = $"{ctx.Request.Scheme}://{ctx.Request.Host}/jobs/{id}", ahead = q.Ahead, version });
     }
     catch (ArgumentException e)
@@ -421,8 +432,8 @@ app.MapGet("/api/jobs/{id}", (string id, JobStore js) =>
     return Results.Json(new { j.Id, j.State, j.Phase, j.RunsDone, j.RunsFailed, j.Error, j.Decided, j.Warnings, j.CreatedUtc, j.StartedUtc, j.FinishedUtc });
 });
 
-app.MapGet("/jobs", (JobStore js, IConfiguration cfg) =>
-    Results.Content(JobPages.List(js.All(), js.QueueInfo(), WorkerOn(cfg)), "text/html; charset=utf-8"));
+app.MapGet("/jobs", (JobStore js, FilmWorker fw, IConfiguration cfg) =>
+    Results.Content(JobPages.List(js.All(), Queue(js, fw), WorkerOn(cfg)), "text/html; charset=utf-8"));
 
 static string Tail(string path, int lines)
 {
@@ -437,12 +448,12 @@ static string Tail(string path, int lines)
 static bool CanCancel(HttpContext ctx, JobInfo j, ReleaseStore rs, string? token) =>
     ClientIp(ctx) == j.Ip || (rs.UploadsEnabled && rs.TokenMatches(token ?? ctx.Request.Headers[ReleaseStore.HeaderName]));
 
-app.MapGet("/jobs/{id}", (string id, string? tab, HttpContext ctx, JobStore js, ReleaseStore rs, AnalysisStore analyses, FilmStore fs) =>
+app.MapGet("/jobs/{id}", (string id, string? tab, HttpContext ctx, JobStore js, ReleaseStore rs, AnalysisStore analyses, FilmStore fs, FilmWorker fw) =>
 {
     if (!JobStore.IsValidId(id) || js.Get(id) is not { } j) return Msg(404, "작업이 없습니다.");
     var view = j.State == JobState.Queued ? null : JobView.For(js, j);
     var t = tab is "detail" or "input" or "files" ? tab : "summary";
-    return Results.Content(JobPages.Job(j, view, t, t == "files" ? Tail(js.LogPath(id), 200) : "", js.QueueInfo(id), CanCancel(ctx, j, rs, null), analyses.All(), fs.All()), "text/html; charset=utf-8");
+    return Results.Content(JobPages.Job(j, view, t, t == "files" ? Tail(js.LogPath(id), 200) : "", Queue(js, fw, id), CanCancel(ctx, j, rs, null), analyses.All(), fs.All(), fw.Busy), "text/html; charset=utf-8");
 });
 
 app.MapPost("/jobs/{id}/cancel", async (string id, HttpContext ctx, JobStore js, JobWorker worker, ReleaseStore rs) =>
@@ -553,24 +564,33 @@ app.MapGet("/api/jobs/{id}/scenes", (string id, int? delta, JobStore js) =>
     return Results.Content("[]", "application/json; charset=utf-8");
 });
 
-app.MapPost("/api/jobs/{id}/scenes", (string id, int? delta, HttpContext ctx, JobStore js) =>
+const string WorkerOff = "이 서버는 작업을 실행하지 않습니다(Jobs:Enabled 또는 Jobs:WorkerEnabled가 false).";
+
+app.MapPost("/api/jobs/{id}/scenes", (string id, int? delta, HttpContext ctx, JobStore js, IConfiguration cfg) =>
 {
     if (!SameOrigin(ctx)) return Msg(403, CrossSite);
+    if (!WorkerOn(cfg)) return Msg(409, WorkerOff);
     if (!JobStore.IsValidId(id) || js.Get(id) is not { } j) return Msg(404, "작업이 없습니다.");
     if (delta is not { } d || Math.Abs(d) > DeltaMax) return Msg(400, $"delta(결론 대수에 더할 대수, -{DeltaMax}~{DeltaMax})가 필요합니다.");
     if (j.State != JobState.Done || j.Decided == null) return Msg(409, "결론 대수가 나온 완료 작업에서만 후보를 찾을 수 있습니다.");
     var dir = js.JobDir(id);
-    File.Delete(Path.Combine(dir, ScenesFile(d))); // the new result replaces it; until then the page shows "pending"
-    var tmp = Path.Combine(dir, ScenesRequest + ".tmp");
-    File.WriteAllText(tmp, System.Text.Json.JsonSerializer.Serialize(new { delta = d, requestedUtc = DateTime.UtcNow }));
-    File.Move(tmp, Path.Combine(dir, ScenesRequest), true);
+    try
+    {
+        File.Delete(Path.Combine(dir, ScenesFile(d))); // the new result replaces it; until then the page shows "pending"
+        var tmp = Path.Combine(dir, ScenesRequest + ".tmp");
+        File.WriteAllText(tmp, System.Text.Json.JsonSerializer.Serialize(new { delta = d, requestedUtc = DateTime.UtcNow }));
+        File.Move(tmp, Path.Combine(dir, ScenesRequest), true);
+    }
+    catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return Msg(503, "후보 찾기 요청을 저장하지 못했습니다. 잠시 뒤 다시 눌러 주세요: " + e.Message); }
+    js.Wake();
     return Results.Json(new { delta = d }, statusCode: 202);
 });
 
 // ---- films: the export of the cut editor, filmed by FilmWorker between jobs ----
-app.MapPost("/api/analyses/{id}/films", async (string id, HttpContext ctx, AnalysisStore st, CutStore cs, JobStore js, FilmStore fs) =>
+app.MapPost("/api/analyses/{id}/films", async (string id, HttpContext ctx, AnalysisStore st, CutStore cs, JobStore js, FilmStore fs, IConfiguration cfg) =>
 {
     if (!SameOrigin(ctx)) return Msg(403, CrossSite);
+    if (!WorkerOn(cfg)) return Msg(409, WorkerOff);
     if (st.Get(id) is not { } a) return Msg(404, "분석이 없습니다.");
     FilmRequest? r;
     try { r = await System.Text.Json.JsonSerializer.DeserializeAsync<FilmRequest>(ctx.Request.Body, CutStore.Json, ctx.RequestAborted); }
@@ -599,6 +619,24 @@ app.MapGet("/films/{id}", (string id, FilmStore fs) =>
     if (!JobStore.IsValidId(id) || fs.Get(id) is not { } f) return Msg(404, "영상이 없습니다.");
     var dir = fs.FilmDir(id);
     return Html(AnalysisPages.Film(f, n => File.Exists(Path.Combine(dir, n)), Tail(Path.Combine(dir, "film.log"), 60)));
+});
+
+// a queued film is cancelled at once; a running one stops its AutoView/ffmpeg run, the cuts left are marked cancelled and the MP4s made so far stay
+app.MapPost("/films/{id}/cancel", (string id, HttpContext ctx, FilmStore fs, FilmWorker fw) =>
+{
+    if (!SameOrigin(ctx)) return Msg(403, CrossSite);
+    if (!JobStore.IsValidId(id) || fs.Get(id) == null) return Msg(404, "영상이 없습니다.");
+    fs.Update(id, x =>
+    {
+        if (x.Finished) return;
+        x.CancelRequested = true;
+        if (x.State != JobState.Queued) return;
+        x.State = JobState.Cancelled; x.FinishedUtc = DateTime.UtcNow; x.Error = "찍기 전에 취소되었습니다.";
+        foreach (var i in x.Items.Where(i => !i.Ok)) i.Error ??= "취소되었습니다.";
+        x.Failed = x.Items.Count(i => i.Error != null);
+    });
+    fw.CancelRunning(id);
+    return Results.Redirect("/films/" + id);
 });
 
 // only names the film itself lists are served: never a path from the URL

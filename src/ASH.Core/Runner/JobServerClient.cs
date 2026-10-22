@@ -19,6 +19,8 @@ public sealed class QueueInfo
     [DataMember(Name = "estimatedStart")] public string? EstimatedStart { get; set; }
     [DataMember(Name = "typicalMinutes")] public double? TypicalMinutes { get; set; }
     [DataMember(Name = "enabled")] public bool Enabled { get; set; }
+    /// <summary>Film work holding the queue ("영상 촬영 중"), counted in Ahead; null when none (or a 0.18 server).</summary>
+    [DataMember(Name = "busy")] public string? Busy { get; set; }
 }
 
 /// <summary>POST /api/jobs success body.</summary>

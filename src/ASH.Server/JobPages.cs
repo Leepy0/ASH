@@ -114,7 +114,7 @@ document.querySelectorAll('table.sort').forEach(function(t){
     }
 
     public static string Job(JobInfo j, JobView? v, string tab, string logTail, (int Ahead, DateTime? Start, TimeSpan? Typical) q, bool canCancel, IReadOnlyList<ASH.Core.Analysis.AnalysisInfo>? analyses = null,
-        IReadOnlyList<FilmInfo>? films = null)
+        IReadOnlyList<FilmInfo>? films = null, string? busy = null)
     {
         var sb = new StringBuilder();
         if (analyses != null) AnalysisPages.JobHeader(sb, j, analyses);
@@ -123,7 +123,7 @@ document.querySelectorAll('table.sort').forEach(function(t){
         sb.Append($"<p>{State(j)} {(j.Phase != null ? H(j.Phase) + " · " : "")}작업 {H(j.Id)} · 보낸 사람 {H(j.Submitter)} ({H(j.Ip)}) · 보낸 시각 {H(When(j.CreatedUtc))}");
         if (j.StartedUtc != null) sb.Append($" · 실행 시간 {Dur(j.Duration)}");
         sb.Append($" · 모델 실행 {j.RunsDone}회{(j.RunsFailed > 0 ? $" <span class=\"bad\">(실패 {j.RunsFailed})</span>" : "")}</p>");
-        if (j.State == JobState.Queued) sb.Append($"<p>{(q.Ahead == 0 ? "다음 차례입니다" : $"앞에 {q.Ahead}건이 있습니다")}{(q.Start is { } s ? $" · 시작 예상 {H(SeoulTime.Text(s))}" : "")}.</p>");
+        if (j.State == JobState.Queued) sb.Append($"<p>{(q.Ahead == 0 ? "다음 차례입니다" : $"앞에 {q.Ahead}건이 있습니다")}{(busy != null ? $"({H(busy)}: 끝나야 시작합니다)" : "")}{(q.Start is { } s ? $" · 시작 예상 {H(SeoulTime.Text(s))}" : "")}.</p>");
         if (j.State == JobState.Running && j.LastLine != null) sb.Append($"<p class=\"muted\">마지막 출력: {H(j.LastLine)}</p>");
         if (j.Error != null) sb.Append($"<p class=\"bad\"><b>{(j.State == JobState.Done ? "주의" : "오류")}:</b> {H(j.Error)}</p>");
         if (canCancel && !j.Finished)

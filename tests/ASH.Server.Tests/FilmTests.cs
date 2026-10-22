@@ -22,6 +22,8 @@ public sealed class FakeFilm : IFilmAutoMod, IFilmRenderer
     public bool WriteEvents = true;
     /// <summary>Every render hits the time limit at once (a hung AutoView).</summary>
     public bool AlwaysTimeout;
+    /// <summary>A cut script with this text waits until the render is cancelled (an AutoView run that is still going).</summary>
+    public string? BlockOn;
 
     public AmBuildResult Build(string projectDir, string model)
     {
@@ -47,6 +49,7 @@ public sealed class FakeFilm : IFilmAutoMod, IFilmRenderer
     {
         lock (Scripts) Scripts.Add(cameraScript);
         if (AlwaysTimeout) return new RenderResult(false, null, "시간 제한을 넘어 AutoView를 끊었습니다.", Array.Empty<string>(), true);
+        if (BlockOn != null && cameraScript.Contains(BlockOn)) { ct.WaitHandle.WaitOne(TimeSpan.FromMinutes(1)); return new RenderResult(false, null, "취소되었습니다.", Array.Empty<string>()); }
         // the cut, not its model's calibration (which also reaches 4321 s)
         if (cameraScript.Contains("\ntime 4321\n") && !cameraScript.Contains("quality 100")) { ct.WaitHandle.WaitOne(timeout); return new RenderResult(false, null, "시간 제한을 넘어 AutoView를 끊었습니다.", Array.Empty<string>(), true); }
         var mp4 = AutoViewRenderer.MovieFile(cameraScript) + ".mp4";
@@ -80,7 +83,7 @@ public class FilmTests
     }
 
     /// <summary>Sends a job filed under analysis/plan and waits until the fake search finished it.</summary>
-    static async Task<string> Done(JobEnv env, string analysis, string plan)
+    static async Task<string> Send(JobEnv env, string analysis, string plan)
     {
         var form = new MultipartFormDataContent
         {
@@ -88,7 +91,12 @@ public class FilmTests
             { new StringContent(analysis), "analysisName" }, { new StringContent(plan), "planName" },
             { new ByteArrayContent(await File.ReadAllBytesAsync(JobEnv.MakePackage(env.Dir))), "package", "package.zip" },
         };
-        var id = JsonDocument.Parse(await (await env.Http.PostAsync("/api/jobs", form)).Content.ReadAsStringAsync()).RootElement.GetProperty("id").GetString()!;
+        return JsonDocument.Parse(await (await env.Http.PostAsync("/api/jobs", form)).Content.ReadAsStringAsync()).RootElement.GetProperty("id").GetString()!;
+    }
+
+    static async Task<string> Done(JobEnv env, string analysis, string plan)
+    {
+        var id = await Send(env, analysis, plan);
         await Until(() => env.Store.Get(id) is { Finished: true } j ? j : null);
         Assert.Equal(JobState.Done, env.Store.Get(id)!.State);
         return id;
@@ -188,6 +196,60 @@ public class FilmTests
         Assert.Equal((1, 1), (f.Done, f.Failed));
         Assert.Contains("카메라 스크립트", f.Items.Single(i => i.CutId == "c2").Error);
         Assert.True(f.Items.Single(i => i.CutId == "c1").Ok);
+    }
+
+    [Fact]
+    public async Task Running_Film_Shows_In_The_Queue_And_Can_Be_Cancelled()
+    {
+        using var env = new JobEnv();
+        var j1 = await Done(env, "분석", "A안");
+        var (_, aid) = Analysis(env);
+        env.Factory.Services.GetRequiredService<CutStore>().Save(aid, new[] { Hold("c1"), Hold("c2", "출구", 9000) });
+        await Until(() => File.Exists(Path.Combine(env.Store.JobDir(j1), "scenes.json")) ? "ok" : null);
+        env.Film.BlockOn = "\ntime 9000\n"; // c2's AutoView run keeps going until it is cancelled
+        var fs = env.Factory.Services.GetRequiredService<FilmStore>();
+        async Task<string> Start(object body) => JsonDocument.Parse(await (await Post(env, aid, body)).Content.ReadAsStringAsync()).RootElement.GetProperty("id").GetString()!;
+        var id = await Start(Body(new[] { "c1", "c2" }, new[] { j1 }));
+        await Until(() => fs.Get(id)!.Items[0].Ok ? "ok" : null);
+
+        // the film holds the queue: the API and a queued job's page say so and count it ahead
+        var q = JsonDocument.Parse(await env.Http.GetStringAsync("/api/jobs/queue")).RootElement;
+        Assert.Equal(FilmWorker.FilmBusy, q.GetProperty("busy").GetString());
+        Assert.Equal(1, q.GetProperty("ahead").GetInt32());
+        Assert.Equal(JsonValueKind.Null, q.GetProperty("estimatedStart").ValueKind);
+        var waiting = await Send(env, "분석", "B안");
+        var page = await env.Http.GetStringAsync("/jobs/" + waiting);
+        Assert.Contains("앞에 1건이 있습니다(영상 촬영 중", page);
+        Assert.Equal(JobState.Queued, env.Store.Get(waiting)!.State);
+
+        // a second film waits; cancelling it does not touch the running one
+        var queued = await Start(Body(new[] { "c1" }, new[] { j1 }));
+        Assert.Contains("대기 취소", await env.Http.GetStringAsync("/films/" + queued));
+        HttpRequestMessage Cancel(string film, string? origin = Ok) { var m = new HttpRequestMessage(HttpMethod.Post, $"/films/{film}/cancel"); if (origin != null) m.Headers.Add("Origin", origin); return m; }
+        Assert.Equal(HttpStatusCode.Forbidden, (await env.Http.SendAsync(Cancel(queued, null))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await env.Http.SendAsync(Cancel(queued, "http://evil.example"))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await env.Http.SendAsync(Cancel("20260101-000000-zzzz"))).StatusCode);
+        Assert.True((await env.Http.SendAsync(Cancel(queued))).StatusCode is HttpStatusCode.Redirect or HttpStatusCode.Found or HttpStatusCode.OK);
+        Assert.Equal(JobState.Cancelled, fs.Get(queued)!.State);
+        Assert.False(fs.Get(id)!.Finished);
+
+        Assert.Contains("촬영 취소", await env.Http.GetStringAsync("/films/" + id));
+        await env.Http.SendAsync(Cancel(id));
+        var f = await Until(() => fs.Get(id) is { Finished: true } x ? x : null, 30);
+        Assert.Equal(JobState.Cancelled, f.State);
+        Assert.True(f.Items[0].Ok);                       // made before the cancel: kept
+        Assert.True(File.Exists(Path.Combine(fs.FilmDir(id), f.Items[0].Name)));
+        Assert.Contains("취소", f.Items[1].Error);
+        Assert.DoesNotContain(env.Film.Finishes, x => x.Join && x.Out.StartsWith(fs.FilmDir(id))); // no joined film after a cancel
+        var work = Path.Combine(fs.FilmDir(id), j1);     // left to look into, without the run output and raw recordings
+        Assert.True(Directory.Exists(work));
+        Assert.False(Directory.Exists(Path.Combine(work, "runs")));
+        Assert.Empty(Directory.GetFiles(work, "*.mp4"));
+        Assert.Contains("취소", await env.Http.GetStringAsync("/films/" + id));
+
+        // the queue moves on
+        await Until(() => env.Store.Get(waiting) is { Finished: true } j ? j : null);
+        Assert.Null(JsonDocument.Parse(await env.Http.GetStringAsync("/api/jobs/queue")).RootElement.GetProperty("busy").GetString());
     }
 
     [Fact]
@@ -342,6 +404,7 @@ public class FilmTests
             (Body(new[] { "c1" }, new[] { "20260101-000000-zzzz" }), "이 분석의 작업이"), (Body(new[] { "c1" }, new[] { j1 }, "mov"), "파일 형태"),
             (new { cutIds = new[] { "c1" }, jobIds = new[] { j1 }, width = 800, height = 600, fps = 15, output = "each" }, "해상도"),
             (Body(new[] { "c1" }, new[] { j1 }, delta: -50), "대수 변경"),
+            (Body(Enumerable.Range(0, 61).Select(i => "c" + i), new[] { j1 }), "컷 × 버전 60개까지"),
         })
         {
             var r = await Post(env, aid, body);

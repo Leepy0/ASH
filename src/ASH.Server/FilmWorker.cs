@@ -53,6 +53,29 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
     TimeSpan CutTimeout => TimeSpan.FromMinutes(Math.Max(0.01, cfg.GetValue("Film:CutTimeoutMin", 20.0)));
     AutoModJobRunner Jr => new(cfg);
 
+    public const string FilmBusy = "영상 촬영 중", ScenesBusy = "장면 후보 찾기 중";
+    /// <summary>Most cut × version items in one film: a film holds the job queue until it is done.</summary>
+    public const int MaxItems = 60;
+
+    /// <summary>What holds the job queue now (<see cref="FilmBusy"/>, <see cref="ScenesBusy"/>), null when no film work runs.</summary>
+    public string? Busy => _busy;
+    volatile string? _busy;
+
+    readonly object _gate = new();
+    string? _filmId;
+    CancellationTokenSource? _filmCts;
+
+    /// <summary>Cancels the film if it is the one running now; false otherwise.</summary>
+    public bool CancelRunning(string id)
+    {
+        lock (_gate)
+        {
+            if (_filmId != id || _filmCts == null) return false;
+            _filmCts.Cancel();
+            return true;
+        }
+    }
+
     /// <summary>One piece of work between jobs: a waiting scene request, else the oldest queued film. False when there was nothing to do.</summary>
     public bool RunNext(CancellationToken stop)
     {
@@ -65,12 +88,14 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
             // a request file that could not be deleted must not run the scene search again and again
             if (_scenesDone.TryGetValue(j.Id, out var done) && done == text) { TryDelete(req); continue; }
             _scenesDone[j.Id] = text;
-            SceneRequest(j, req, text);
+            _busy = ScenesBusy;
+            try { SceneRequest(j, req, text); } finally { _busy = null; }
             return true;
         }
         var f = films.TakeNext();
         if (f == null) return false;
-        RunFilm(f, stop);
+        _busy = FilmBusy;
+        try { RunFilm(f, stop); } finally { _busy = null; }
         return true;
     }
 
@@ -160,6 +185,7 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
     public static FilmInfo? Plan(FilmRequest r, AnalysisInfo a, IReadOnlyList<CutSpec> cuts, Func<string, JobInfo?> job, out string? error)
     {
         error = null;
+        if (r.CutIds.Count * r.JobIds.Count > MaxItems) { error = $"한 번에 찍는 영상은 컷 × 버전 {MaxItems}개까지입니다(지금 {r.CutIds.Count * r.JobIds.Count}개). 나누어 내보내 주세요."; return null; }
         var byId = cuts.ToDictionary(c => c.Id);
         var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         string Unique(string stem) { var n = stem + ".mp4"; for (int i = 2; !used.Add(n); i++) n = $"{stem}_{i}.mp4"; return n; }
@@ -210,14 +236,19 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
         using var log = new StreamWriter(Path.Combine(dir, "film.log"), true, new UTF8Encoding(false)) { AutoFlush = true };
         void Say(string s) => log.WriteLine($"[{SeoulTime.NowText}] {s}");
         string? error = null;
-        try { Film(f, dir, Say, stop); }
-        catch (OperationCanceledException) { error = "서버가 멈추어 중단되었습니다."; }
+        var cancelled = false;
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(stop);
+        lock (_gate) { _filmId = f.Id; _filmCts = cts; }
+        if (films.Get(f.Id)?.CancelRequested == true) cts.Cancel();
+        try { Film(f, dir, Say, cts.Token); }
+        catch (OperationCanceledException) { cancelled = !stop.IsCancellationRequested; error = cancelled ? "취소되었습니다." : "서버가 멈추어 중단되었습니다."; }
         catch (Exception e) { error = e.Message; Say(e.ToString()); logger.LogError(e, "영상 {Id} 실패", f.Id); }
+        finally { lock (_gate) { _filmId = null; _filmCts = null; } }
         Say("끝: " + (error ?? "정상"));
         films.Update(f.Id, x =>
         {
             x.FinishedUtc = DateTime.UtcNow; x.Phase = null; x.Error ??= error;
-            x.State = x.Items.Any(i => i.Ok) ? JobState.Done : JobState.Failed;
+            x.State = cancelled ? JobState.Cancelled : x.Items.Any(i => i.Ok) ? JobState.Done : JobState.Failed;
             foreach (var i in x.Items.Where(i => !i.Ok && i.Error == null)) i.Error = error ?? "만들지 못했습니다.";
             x.Done = x.Items.Count(i => i.Ok); x.Failed = x.Items.Count(i => !i.Ok);
         });
@@ -259,6 +290,7 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
                 }
             }
         }
+        stop.ThrowIfCancellationRequested(); // the last cut's render may have been the one cancelled: no joined film then
         if (f.Join)
         {
             var g = films.Get(f.Id)!;
@@ -273,8 +305,36 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
         }
     }
 
-    /// <summary>One film model (a version at one set of counts): copy, drawing, calibration mark, recording window, build, run, F0, then each cut.</summary>
+    /// <summary>One film model (a version at one set of counts): copy, drawing, calibration mark, recording window, build, run, F0, then each cut.
+    /// The work copy goes when every cut was made; otherwise (a failed cut, build or run, a hang, a cancel) only what explains it stays.</summary>
     void Version(FilmInfo f, JobInfo j, ProjectInput input, Dictionary<string, int> counts, int seed, List<CutSpec> cuts, string work, Action<string> say, CancellationToken stop)
+    {
+        var clean = false;
+        try { clean = MakeVersion(f, j, input, counts, seed, cuts, work, say, stop); }
+        finally
+        {
+            try
+            {
+                if (clean) { if (Directory.Exists(work)) Directory.Delete(work, true); }
+                else Prune(work, j.Model);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { say($"작업 폴더를 정리하지 못함: {e.Message}"); }
+        }
+    }
+
+    /// <summary>A failed version's work copy without the bulky parts (runs, the build, the recording, frames, raw MP4s); the model source,
+    /// the last camera.des and AutoView's aviewerr/aviewout.dat stay to look into.</summary>
+    internal static void Prune(string work, string model)
+    {
+        if (!Directory.Exists(work)) return;
+        var avw = Path.Combine(work, model + ".avw");
+        if (File.Exists(Path.Combine(avw, "camera.des"))) File.Copy(Path.Combine(avw, "camera.des"), Path.Combine(work, "camera.des"), true);
+        foreach (var d in new[] { "runs", model + ".dir", model + ".avw" }.Select(n => Path.Combine(work, n)).Concat(Directory.GetDirectories(work, "*_frames")))
+            if (Directory.Exists(d)) Directory.Delete(d, true);
+        foreach (var mp4 in Directory.GetFiles(work, "*.mp4")) File.Delete(mp4);
+    }
+
+    bool MakeVersion(FilmInfo f, JobInfo j, ProjectInput input, Dictionary<string, int> counts, int seed, List<CutSpec> cuts, string work, Action<string> say, CancellationToken stop)
     {
         var r = f.Request;
         var a = analyses.Get(r.AnalysisId);
@@ -285,7 +345,7 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
         foreach (var c in cuts)
             if (c.StartSec + c.SimSeconds > simLen) SetItem(f, j.Id, c.Id, false, $"시뮬레이션 길이({simLen:0}초)를 넘는 컷입니다.");
             else ok.Add(c);
-        if (ok.Count == 0) return;
+        if (ok.Count == 0) return true;
 
         Phase($"모델 준비 (대수 {string.Join(", ", counts.Select(kv => kv.Key + " " + kv.Value))}, 시드 {seed})");
         var proj = jobs.ProjectDir(j.Id);
@@ -357,9 +417,8 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
             try { renderer.Finish(new[] { res.Mp4! }, new[] { caption }, Path.Combine(films.FilmDir(f.Id), item.Name), false, stop); SetItem(f, j.Id, c.Id, true, null); say($"{label}: {item.Name}"); }
             catch (Exception e) when (e is InvalidOperationException or IOException) { failed = true; SetItem(f, j.Id, c.Id, false, e.Message); }
         }
-        if (failed) { say($"{label}: 실패한 컷이 있어 작업 폴더를 남깁니다: {work}"); return; }
-        try { Directory.Delete(work, true); }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { say($"{label}: 작업 폴더를 지우지 못함: {e.Message}"); }
+        if (failed) say($"{label}: 실패한 컷이 있어 작업 폴더를 남깁니다(기록·영상 원본은 지움): {work}");
+        return !failed;
     }
 
     void SetItem(FilmInfo f, string jobId, string cutId, bool ok, string? error) => films.Update(f.Id, x =>
@@ -398,6 +457,7 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
             "record movie", "time " + (t + 1).ToString("0.###", C), "generate movie", "");
         var on = Render(work, model, Script(false, Path.Combine(work, "cal_on")), stop);
         var off = on.Ok ? Render(work, model, Script(true, Path.Combine(work, "cal_off")), stop) : on;
+        stop.ThrowIfCancellationRequested(); // a cancelled render is not a calibration failure
         if (on.TimedOut || off.TimedOut)
         {
             if (_timeouts >= 2) throw new AutoViewHungException();

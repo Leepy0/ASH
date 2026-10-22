@@ -94,6 +94,7 @@ public sealed class ServerCommands
         var info = results ? "이 PC의 ash-run 결과를 모델과 함께 서버에 올립니다." : $"서버 대기 {q.Ahead}건";
         if (!results)
         {
+            if (!string.IsNullOrEmpty(q.Busy)) info += $" ({q.Busy})";
             if (!string.IsNullOrEmpty(q.EstimatedStart)) info += $" · 예상 시작 {SeoulTime.FromIso(q.EstimatedStart)}";
             if (q.TypicalMinutes is double m) info += $" · 보통 {m:0.#}분 걸림";
         }

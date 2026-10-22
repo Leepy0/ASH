@@ -207,6 +207,10 @@ public class AnalysisApiTests
         Assert.Equal(HttpStatusCode.BadRequest, (await Post(env, "/api/analyses", null, ("name", new string('x', 101)))).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await Post(env, "/api/analyses", null, ("name", "y"), ("note", new string('x', 201)))).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await Post(env, "/api/analyses/a-nope/plans", null, ("name", "B"))).StatusCode);
+        // a browser always says where it came from: another site may not create analyses or plans, this site may
+        Assert.Equal(HttpStatusCode.Forbidden, (await Post(env, "/api/analyses", "http://evil.example", ("name", "z"))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await Post(env, $"/api/analyses/{aid}/plans", "http://evil.example", ("name", "Z안"))).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await Post(env, "/api/analyses", "http://localhost", ("name", "같은 사이트"))).StatusCode);
 
         async Task<int> Next() => Body(await (await env.Http.GetAsync("/api/analyses")).Content.ReadAsStringAsync())[0].GetProperty("plans")[0].GetProperty("nextVersion").GetInt32();
         Assert.Equal(1, await Next());
