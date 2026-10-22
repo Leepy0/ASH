@@ -9,7 +9,8 @@ namespace ASH.Core.Dxf;
 
 public sealed record DxfSeg(double X1, double Y1, double X2, double Y2, string Layer);
 public sealed record DxfText(double X, double Y, double Height, string Text, string Layer);
-public sealed record DxfDrawing(IReadOnlyList<DxfSeg> Segs, IReadOnlyList<DxfText> Texts, IReadOnlyList<string> Layers);
+/// <summary>Truncated: the work budget ran out (a drawing with huge INSERT fan-out), so the lists are partial.</summary>
+public sealed record DxfDrawing(IReadOnlyList<DxfSeg> Segs, IReadOnlyList<DxfText> Texts, IReadOnlyList<string> Layers, bool Truncated = false);
 
 /// <summary>Reads just the lines and labels of an ASCII DXF (R12..2018 group codes) so the cut editor and the film model can show the factory drawing.
 /// Curves become short segments. Anything else (hatch, dimension, spline, ellipse, 3D, INSERT arrays, extrusion mirroring) is ignored.
@@ -20,6 +21,8 @@ public static class DxfLite
     static readonly CultureInfo C = CultureInfo.InvariantCulture;
 
     sealed class Ent { public string Type = ""; public List<(int Code, string Val)> P = new(); }
+    /// <summary>One budget for everything the expansion does (entities visited, segments and texts made), so nested INSERTs cannot multiply without limit.</summary>
+    sealed class Budget { public int Left = MaxSegs; public bool Cut; public bool Take() { if (Left > 0) { Left--; return true; } Cut = true; return false; } }
     sealed class Blk { public double Bx, By; public List<Ent> Ents = new(); }
 
     /// <summary>Throws InvalidDataException("binary DXF") for a binary file, FormatException for a broken group code.</summary>
@@ -61,9 +64,10 @@ public static class DxfLite
             cur.P.Add((code, val));
         }
         var segs = new List<DxfSeg>(); var texts = new List<DxfText>();
-        Expand(top, Xf.Id, "0", 0, blocks, segs, texts);
+        var bud = new Budget();
+        Expand(top, Xf.Id, "0", 0, blocks, segs, texts, bud);
         var layers = segs.Select(s => s.Layer).Concat(texts.Select(t => t.Layer)).Distinct().ToList();
-        return new DxfDrawing(segs, texts, layers);
+        return new DxfDrawing(segs, texts, layers, bud.Cut);
     }
 
     /// <summary>model = (drawing - Origin) x Scale, the same frame ArcLayout uses (metres).</summary>
@@ -72,10 +76,10 @@ public static class DxfLite
         double X(double v) => (v - f.OriginX) * f.Scale;
         double Y(double v) => (v - f.OriginY) * f.Scale;
         return new DxfDrawing(d.Segs.Select(s => new DxfSeg(X(s.X1), Y(s.Y1), X(s.X2), Y(s.Y2), s.Layer)).ToList(),
-            d.Texts.Select(t => new DxfText(X(t.X), Y(t.Y), t.Height * f.Scale, t.Text, t.Layer)).ToList(), d.Layers);
+            d.Texts.Select(t => new DxfText(X(t.X), Y(t.Y), t.Height * f.Scale, t.Text, t.Layer)).ToList(), d.Layers, d.Truncated);
     }
 
-    static double Num(string s) => double.TryParse(s.Trim(), NumberStyles.Float, C, out var d) ? d : 0;
+    static double Num(string s) => double.TryParse(s.Trim(), NumberStyles.Float, C, out var d) && !double.IsNaN(d) && !double.IsInfinity(d) ? d : 0; // 1e999 parses to infinity on net10
     static double Get(Ent e, int code, double def = 0) { foreach (var (c, v) in e.P) if (c == code) return Num(v); return def; }
     static bool Has(Ent e, int code) => e.P.Any(p => p.Code == code);
     static string Layer(Ent e, string inherit) { var l = e.P.FirstOrDefault(p => p.Code == 8).Val?.Trim(); return string.IsNullOrEmpty(l) || l == "0" ? inherit : l!; }
@@ -88,12 +92,12 @@ public static class DxfLite
         public Xf Then(Xf o) => new(o.A * A + o.B * C, o.A * B + o.B * D, o.C * A + o.D * C, o.C * B + o.D * D, o.A * E + o.B * F + o.E, o.C * E + o.D * F + o.F);
     }
 
-    static void Expand(List<Ent> ents, Xf xf, string inherit, int depth, Dictionary<string, Blk> blocks, List<DxfSeg> segs, List<DxfText> texts)
+    static void Expand(List<Ent> ents, Xf xf, string inherit, int depth, Dictionary<string, Blk> blocks, List<DxfSeg> segs, List<DxfText> texts, Budget bud)
     {
         void Poly(List<(double X, double Y)> pts, bool closed, string layer)
         {
             if (closed && pts.Count > 2) pts = pts.Append(pts[0]).ToList();
-            for (int i = 1; i < pts.Count && segs.Count < MaxSegs; i++)
+            for (int i = 1; i < pts.Count && bud.Take(); i++)
             {
                 var (x1, y1) = xf.Ap(pts[i - 1].X, pts[i - 1].Y); var (x2, y2) = xf.Ap(pts[i].X, pts[i].Y);
                 segs.Add(new DxfSeg(x1, y1, x2, y2, layer));
@@ -101,6 +105,7 @@ public static class DxfLite
         }
         for (int i = 0; i < ents.Count; i++)
         {
+            if (!bud.Take()) return;
             var e = ents[i]; var layer = Layer(e, inherit);
             switch (e.Type)
             {
@@ -140,7 +145,7 @@ public static class DxfLite
                     var raw = e.Type == "TEXT" ? e.P.FirstOrDefault(p => p.Code == 1).Val ?? "" : string.Concat(e.P.Where(p => p.Code == 3).Select(p => p.Val)) + (e.P.FirstOrDefault(p => p.Code == 1).Val ?? "");
                     var text = (e.Type == "TEXT" ? raw.Replace("%%d", "°").Replace("%%p", "±").Replace("%%c", "Ø") : Mtext(raw)).Trim();
                     double h = Get(e, 40) * Math.Sqrt(Math.Abs(xf.A * xf.D - xf.B * xf.C));
-                    if (text.Length > 0) texts.Add(new DxfText(x, y, h, text, layer));
+                    if (text.Length > 0 && bud.Take()) texts.Add(new DxfText(x, y, h, text, layer));
                     break;
                 }
                 case "INSERT":
@@ -149,14 +154,14 @@ public static class DxfLite
                         double sx = Get(e, 41, 1), sy = Get(e, 42, 1), rot = Get(e, 50) * Math.PI / 180, co = Math.Cos(rot), si = Math.Sin(rot);
                         var local = new Xf(co * sx, -si * sy, si * sx, co * sy, 0, 0);
                         local = local with { E = Get(e, 10) - (local.A * b.Bx + local.B * b.By), F = Get(e, 20) - (local.C * b.Bx + local.D * b.By) };
-                        Expand(b.Ents, local.Then(xf), layer, depth + 1, blocks, segs, texts);
+                        Expand(b.Ents, local.Then(xf), layer, depth + 1, blocks, segs, texts, bud);
                     }
                     break;
             }
         }
     }
 
-    /// <summary>Bulge b = tan(sweep/4); the arc is cut into steps of at most 15 degrees, never fewer than 8 (error under 0.5% of the radius).</summary>
+    /// <summary>Bulge b = tan(sweep/4); the arc is cut into steps of at most 15 degrees, never fewer than 8 (error at most 0.86% of the radius).</summary>
     static List<(double X, double Y)> Bulged(List<(double X, double Y, double B)> v, bool closed)
     {
         var o = new List<(double X, double Y)>();

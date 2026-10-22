@@ -56,4 +56,35 @@ public class DrawingJsonTests
         Assert.Contains("바이너리", root.GetProperty("drawingError").GetString());
         Assert.Equal(4, root.GetProperty("paths").GetArrayLength());
     }
+
+    [Fact]
+    public async Task Huge_Coordinates_Still_Give_Json()
+    {
+        using var env = new JobEnv(worker: false);
+        var id = await Upload(env);
+        var project = env.Store.ProjectDir(id);
+        File.WriteAllText(Path.Combine(project, "drawing.dxf"), "0\nSECTION\n2\nENTITIES\n0\nLINE\n10\n1e999\n20\n0\n11\n1e308\n21\n5\n0\nLINE\n10\n0\n20\n0\n11\n3\n21\n0\n0\nENDSEC\n0\nEOF\n");
+        new ModelFrame("Meters", 0, 0, 1e10).Write(Path.Combine(project, ModelFrame.FileName));
+        var res = await env.Http.GetAsync($"/jobs/{id}/drawing.json");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        Assert.Equal(1, JsonDocument.Parse(await res.Content.ReadAsStringAsync()).RootElement.GetProperty("segs").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task Cache_Skips_Errors_And_Old_Versions()
+    {
+        using var env = new JobEnv(worker: false);
+        var id = await Upload(env);
+        var project = env.Store.ProjectDir(id); var cache = Path.Combine(env.Store.JobDir(id), "drawing.json");
+        File.WriteAllText(Path.Combine(project, "drawing.dxf"), "AutoCAD Binary DXF\r\n\u001a\0");
+        new ModelFrame("Meters", 0, 0, 1).Write(Path.Combine(project, ModelFrame.FileName));
+        Assert.Contains("drawingError", await env.Http.GetStringAsync($"/jobs/{id}/drawing.json"));
+        Assert.False(File.Exists(cache));                       // an error result is not cached
+        File.Delete(Path.Combine(project, "drawing.dxf"));
+        Assert.DoesNotContain("drawingError", await env.Http.GetStringAsync($"/jobs/{id}/drawing.json"));
+        Assert.True(File.Exists(cache)); Assert.False(File.Exists(cache + ".tmp"));
+        Assert.StartsWith("{\"v\":" + DrawingJson.Version + ",", File.ReadAllText(cache));
+        File.WriteAllText(cache, "{\"segs\":[]}");              // an older format is rebuilt
+        Assert.Contains("\"paths\"", await env.Http.GetStringAsync($"/jobs/{id}/drawing.json"));
+    }
 }

@@ -10,8 +10,24 @@ namespace ASH.Server;
 public static class DrawingJson
 {
     public const int MaxSegs = 200_000;
+    /// <summary>Bump when the format or the DXF reader changes, so older cached files are rebuilt.</summary>
+    public const int Version = 2;
+    static string Head => "{\"v\":" + Version + ",";
 
-    /// <summary>Null when the model folder (agv.asy) is gone. A missing or unreadable DXF/frame gives empty segs/texts, with "drawingError" when it was unreadable.</summary>
+    /// <summary>Builds the JSON, or reads the cache next to job.json; a result with drawingError is not cached (the cause may be transient).</summary>
+    public static string? Cached(string jobDir, string project, string model)
+    {
+        var cache = Path.Combine(jobDir, "drawing.json");
+        try { if (File.Exists(cache) && File.ReadAllText(cache, Encoding.UTF8) is var c && c.StartsWith(Head, StringComparison.Ordinal)) return c; }
+        catch (IOException) { }
+        var json = Build(project, model);
+        if (json != null && !json.Contains("\"drawingError\""))
+            try { var tmp = cache + ".tmp"; File.WriteAllText(tmp, json, new UTF8Encoding(false)); File.Move(tmp, cache, true); }
+            catch (IOException) { } catch (UnauthorizedAccessException) { }
+        return json;
+    }
+
+    /// <summary>Not cached. Null when the model folder (agv.asy) is gone. A missing or unreadable DXF/frame gives empty segs/texts, with "drawingError" when it was unreadable.</summary>
     public static string? Build(string project, string model)
     {
         ASH.Core.Layout.Layout layout;
@@ -26,11 +42,13 @@ public static class DrawingJson
             {
                 using var r = new StreamReader(dxf, Encoding.UTF8);
                 d = DxfLite.ToModel(DxfLite.Read(r), ModelFrame.Read(frame));
+                static bool Ok(params double[] v) => v.All(x => !double.IsNaN(x) && !double.IsInfinity(x)); // a huge coordinate times the scale can overflow
+                d = d with { Segs = d.Segs.Where(s => Ok(s.X1, s.Y1, s.X2, s.Y2)).ToList(), Texts = d.Texts.Where(t => Ok(t.X, t.Y, t.Height)).ToList() };
             }
             catch (Exception e) when (e is IOException or FormatException or InvalidDataException) { err = e.Message == "binary DXF" ? "도면이 바이너리 DXF라서 읽을 수 없습니다. ASCII DXF로 저장해 주세요." : "도면을 읽을 수 없습니다: " + e.Message; }
 
-        var segs = d.Segs; bool truncated = segs.Count > MaxSegs;
-        if (truncated) segs = segs.OrderByDescending(s => (s.X2 - s.X1) * (s.X2 - s.X1) + (s.Y2 - s.Y1) * (s.Y2 - s.Y1)).Take(MaxSegs).ToList();
+        var segs = d.Segs; bool truncated = d.Truncated || segs.Count > MaxSegs;
+        if (segs.Count > MaxSegs) segs = segs.OrderByDescending(s => (s.X2 - s.X1) * (s.X2 - s.X1) + (s.Y2 - s.Y1) * (s.Y2 - s.Y1)).Take(MaxSegs).ToList();
         var li = d.Layers.Select((n, i) => (n, i)).ToDictionary(p => p.n, p => p.i);
         double minx = double.MaxValue, miny = double.MaxValue, maxx = double.MinValue, maxy = double.MinValue;
         void B(double x, double y) { minx = Math.Min(minx, x); maxx = Math.Max(maxx, x); miny = Math.Min(miny, y); maxy = Math.Max(maxy, y); }
@@ -40,6 +58,7 @@ public static class DrawingJson
         {
             void N(double v) => w.WriteNumberValue(Math.Round(v, 3));
             w.WriteStartObject();
+            w.WriteNumber("v", Version);
             w.WriteStartArray("segs");
             foreach (var s in segs) { w.WriteStartArray(); N(s.X1); N(s.Y1); N(s.X2); N(s.Y2); w.WriteNumberValue(li[s.Layer]); w.WriteEndArray(); B(s.X1, s.Y1); B(s.X2, s.Y2); }
             w.WriteEndArray();

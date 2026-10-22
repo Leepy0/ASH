@@ -67,4 +67,32 @@ public class DxfLiteTests
         var e = Assert.Throws<InvalidDataException>(() => DxfLite.Read(new StringReader("AutoCAD Binary DXF\r\n\u001a\0")));
         Assert.Equal("binary DXF", e.Message);
     }
+
+    [Fact]
+    public void Nested_Insert_Fanout_Stops_At_Budget()
+    {
+        var sb = new System.Text.StringBuilder("0\nSECTION\n2\nBLOCKS\n");
+        string[] names = { "A", "B", "C", "D", "E" };
+        for (int k = 0; k < names.Length; k++)
+        {
+            sb.Append($"0\nBLOCK\n2\n{names[k]}\n10\n0\n20\n0\n");
+            if (k == names.Length - 1) sb.Append("0\nLINE\n10\n0\n20\n0\n11\n1\n21\n1\n0\nTEXT\n10\n0\n20\n0\n40\n1\n1\nx\n");
+            else for (int i = 0; i < 100; i++) sb.Append($"0\nINSERT\n2\n{names[k + 1]}\n10\n{i}\n20\n0\n");
+            sb.Append("0\nENDBLK\n");
+        }
+        sb.Append("0\nENDSEC\n0\nSECTION\n2\nENTITIES\n0\nINSERT\n2\nA\n0\nENDSEC\n0\nEOF\n");
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        var d = DxfLite.Read(new StringReader(sb.ToString()));
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(2), sw.Elapsed.ToString());
+        Assert.True(d.Truncated);
+        Assert.True(d.Segs.Count + d.Texts.Count < 2_000_001);
+    }
+
+    [Fact]
+    public void Non_Finite_Numbers_Become_Zero()
+    {
+        var d = DxfLite.Read(new StringReader("0\nSECTION\n2\nENTITIES\n0\nLINE\n10\n1e999\n20\nNaN\n11\n5\n21\n5\n0\nENDSEC\n0\nEOF\n"));
+        Assert.Equal(new DxfSeg(0, 0, 5, 5, "0"), Assert.Single(d.Segs));
+        Assert.False(d.Truncated);
+    }
 }
