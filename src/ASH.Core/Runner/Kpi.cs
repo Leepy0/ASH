@@ -33,7 +33,7 @@ public static class Kpi
             if (active == 0) util = 0;
             else if (veh != null && veh.Count > 0 && veh[0].WindowSec > 0) util = Math.Min(1.0, veh.Sum(v => v.BusySec) / (active * veh[0].WindowSec));
             else if (report == null) notes.Add("보고서 없음: 가동률 미산출");
-            // the AGVS type is named after the group; models built before 0.15 named it after the AGV_Types row
+            // the AGVS type is named after the group; models built before 0.16 named it after the AGV_Types row
             else if (!report.Types.TryGetValue(g.Group, out var ts) && !report.Types.TryGetValue(g.Type, out ts)) notes.Add($"보고서에 {g.Group} 통계 없음: 가동률 미산출");
             else util = Math.Min(1.0, ts.Vehicles.Sum(v => v.DeliveringPct + v.RetrievingPct) / active);
 
