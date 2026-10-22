@@ -4,6 +4,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Security.Cryptography;
+using ASH.Core.Dxf;
 using ASH.Core.Input;
 
 namespace ASH.Core.Runner;
@@ -20,6 +21,10 @@ public static class JobPackage
 {
     public const long MaxEntryBytes = 512L * 1024 * 1024, MaxTotalBytes = 2L * 1024 * 1024 * 1024;
     public const int MaxEntries = 5000;
+    public const long MaxDxfBytes = 100L * 1024 * 1024;
+
+    /// <summary>Sent when present, never required: the factory drawing and its coordinate frame, for the server's cut editor and videos.</summary>
+    public static readonly IReadOnlyList<string> OptionalFiles = new[] { "drawing.dxf", ModelFrame.FileName };
 
     /// <summary>Paths (inside the package) that must be there for a model name.</summary>
     public static IReadOnlyList<string> Required(string model) =>
@@ -48,6 +53,11 @@ public static class JobPackage
                 files.Add((model + ".arc/" + f.Substring(arc.Length + 1).Replace(Path.DirectorySeparatorChar, '/'), f));
         // ash.settings.tsv stays at home: the model is already baked into the .arc, and its AmHome is this PC's AutoMod, not the server's
         files.Add((CellDump.FileName, Path.Combine(projectDir, CellDump.FileName)));
+        foreach (var name in OptionalFiles)
+        {
+            var f = Path.Combine(projectDir, name);
+            if (File.Exists(f) && (name != "drawing.dxf" || new FileInfo(f).Length <= MaxDxfBytes)) files.Add((name, f));
+        }
         if (includeResults)
         {
             // a local result: the summary, the decision and every run's result.tsv (the block maps); reports and AutoMod output stay at home

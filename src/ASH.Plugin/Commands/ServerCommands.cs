@@ -8,9 +8,11 @@ using System.Threading.Tasks;
 using System.Windows.Forms;
 using ASH.Core;
 using ASH.Core.Analysis;
+using ASH.Core.Dxf;
 using ASH.Core.Runner;
 using ASH.Core.Settings;
 using ASH.Plugin.Ui;
+using ZwSoft.ZwCAD.DatabaseServices;
 using ZwSoft.ZwCAD.EditorInput;
 using ZwSoft.ZwCAD.Runtime;
 using Application = ZwSoft.ZwCAD.ApplicationServices.Application;
@@ -106,6 +108,9 @@ public sealed class ServerCommands
         }
 
         Say(ed, "패키지 만드는 중…");
+        // the factory drawing and its coordinate frame go along for the server's cut editor and videos; a DXF failure is only a warning
+        new ModelFrame(s.Units, s.Origin.X, s.Origin.Y, s.Scale).Write(Path.Combine(dir, ModelFrame.FileName));
+        SaveDxf(ed, Path.Combine(dir, "drawing.dxf"));
         var files = JobPackage.Create(dir, s.ModelName, zip, includeResults: results);
         Say(ed, $"서버로 보내는 중… (파일 {files.Count}개, {new FileInfo(zip).Length / 1048576.0:0.#} MB, 최대 {UploadTimeout.TotalMinutes:0}분)");
         var job = new JobSubmission(folder, drawing, s.ModelName, Environment.UserName,
@@ -127,6 +132,27 @@ public sealed class ServerCommands
             PluginLog.Write("AGVSEND rejected", e);
         }
         catch (System.Exception e) when (IsNetwork(e)) { Fail(ed, "전송하지 못했습니다", e); }
+    }
+
+    // the command runs in the document context, so the document is already locked
+    private static void SaveDxf(Editor ed, string path)
+    {
+        try
+        {
+            File.Delete(path); // never send a stale drawing from an earlier send
+            Application.DocumentManager.MdiActiveDocument.Database.DxfOut(path, 16, DwgVersion.Current);
+            if (new FileInfo(path).Length > JobPackage.MaxDxfBytes)
+            {
+                File.Delete(path);
+                ed.WriteMessage("\n도면(DXF)이 100 MB보다 커서 보내지 않습니다. 모델만 보냅니다.");
+            }
+        }
+        catch (System.Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ZwSoft.ZwCAD.Runtime.Exception)
+        {
+            ed.WriteMessage("\n도면(DXF)을 저장하지 못했습니다. 모델만 보냅니다: " + ex.Message);
+            PluginLog.Write("AGVSEND dxf", ex);
+            try { File.Delete(path); } catch (System.Exception) { /* a partial file must not be sent */ }
+        }
     }
 
     // Task.Run so ZWCAD's UI sync context cannot deadlock the wait; the hard cap is for net48 DNS/WPAD stalls that ignore the token
