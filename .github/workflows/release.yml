@@ -77,7 +77,8 @@ jobs:
 
       - name: 빌드·테스트·서명
         if: steps.ver.outputs.skip != 'true'
-        shell: pwsh
+        # build-release.ps1은 Windows PowerShell 5.1 전용(ReflectionOnlyLoad 사용)
+        shell: powershell
         run: |
           try { scripts\build-release.ps1 -Notes "$env:RUNNER_TEMP\notes.txt" }
           catch { Write-Host "::error title=build-release::$($_.Exception.Message -replace '[\r\n]+',' ')"; exit 1 }
