@@ -83,17 +83,18 @@ public sealed class JobEnv : IDisposable
     }
 
     /// <summary>A project folder as AGVMODEL leaves it (model files + cell snapshot), packed the way the plugin packs it.</summary>
-    public static string MakePackage(string root, string model = "m")
+    /// <param name="dx">shifts the whole layout along X (metres), for versions whose layouts sit in different places</param>
+    public static string MakePackage(string root, string model = "m", double dx = 0)
     {
         var proj = Path.Combine(root, "proj-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(proj);
         var l = new ASH.Core.Layout.Layout();
-        void Line(string n, double x0, double y0, double x1, double y1) { var p = new LayoutPath(n); p.Segments.Add(new LineSeg(new Point2(x0, y0), new Point2(x1, y1))); l.Paths.Add(p); }
+        void Line(string n, double x0, double y0, double x1, double y1) { var p = new LayoutPath(n); p.Segments.Add(new LineSeg(new Point2(x0 + dx, y0), new Point2(x1 + dx, y1))); l.Paths.Add(p); }
         Line("p1", 0, 0, 10, 0); Line("p2", 10, 0, 10, 10); Line("p3", 10, 10, 0, 10); Line("p4", 0, 10, 0, 0);
-        l.Cps.Add(new LayoutCp { Name = "S001", Type = "standby", Group = "G1", Position = new Point2(5, 0), Cap = ASH.Core.Traffic.CpTypes.DefaultCap("standby") });
-        l.Cps.Add(new LayoutCp { Name = "L001", Type = "load", Group = "G1", Position = new Point2(10, 5), Cap = ASH.Core.Traffic.CpTypes.DefaultCap("load") });
-        l.Cps.Add(new LayoutCp { Name = "U001", Type = "unload", Group = "G1", Position = new Point2(2, 10), Cap = ASH.Core.Traffic.CpTypes.DefaultCap("unload") });
-        l.Blocks.Add(new LayoutBlock { Name = "B_x1", Cap = 1, Rect = new Rect2(new Point2(8, -1), new Point2(11, 2)) });
+        l.Cps.Add(new LayoutCp { Name = "S001", Type = "standby", Group = "G1", Position = new Point2(5 + dx, 0), Cap = ASH.Core.Traffic.CpTypes.DefaultCap("standby") });
+        l.Cps.Add(new LayoutCp { Name = "L001", Type = "load", Group = "G1", Position = new Point2(10 + dx, 5), Cap = ASH.Core.Traffic.CpTypes.DefaultCap("load") });
+        l.Cps.Add(new LayoutCp { Name = "U001", Type = "unload", Group = "G1", Position = new Point2(2 + dx, 10), Cap = ASH.Core.Traffic.CpTypes.DefaultCap("unload") });
+        l.Blocks.Add(new LayoutBlock { Name = "B_x1", Cap = 1, Rect = new Rect2(new Point2(8 + dx, -1), new Point2(11 + dx, 2)) });
         var xlsx = Path.Combine(proj, "input.xlsx");
         ExcelTemplate.Write(xlsx, l);
         using (var wb = ExcelReader.Open(xlsx)) CellDump.Write(wb, Path.Combine(proj, CellDump.FileName));

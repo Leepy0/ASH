@@ -26,6 +26,7 @@ builder.Services.AddSingleton<GitHubSync>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<GitHubSync>());
 builder.Services.AddSingleton(sp => JobStore.Create(sp.GetRequiredService<IConfiguration>(), sp.GetRequiredService<ILoggerFactory>().CreateLogger<JobStore>()));
 builder.Services.AddSingleton(sp => AnalysisStore.Create(sp.GetRequiredService<IConfiguration>(), sp.GetRequiredService<ILoggerFactory>().CreateLogger<AnalysisStore>()));
+builder.Services.AddSingleton(sp => new CutStore(sp.GetRequiredService<JobStore>().Dir));
 builder.Services.AddSingleton<IJobRunner, AutoModJobRunner>();
 builder.Services.AddSingleton<JobWorker>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<JobWorker>());
@@ -495,6 +496,63 @@ app.MapGet("/jobs/{id}/drawing.json", (string id, JobStore js) =>
     var json = DrawingJson.Cached(js.JobDir(id), js.ProjectDir(id), j.Model);
     if (json == null) return Msg(410, "모델 폴더가 없습니다.");
     return Results.Content(json, "application/json; charset=utf-8");
+});
+
+// ---- cuts: an analysis' film cuts, edited in the browser and filmed by the server ----
+app.MapGet("/analyses/{id}/cuts", (string id, string? job, AnalysisStore st, JobStore js) =>
+    st.Get(id) is { } a ? Html(CutEditorPage.Render(a, js.All(), js, job)) : Msg(404, "분석이 없습니다."));
+
+app.MapGet("/api/analyses/{id}/cuts", (string id, AnalysisStore st, CutStore cs) =>
+    st.Get(id) == null ? Msg(404, "분석이 없습니다.") : Results.Json(cs.Get(id), CutStore.Json));
+
+app.MapPut("/api/analyses/{id}/cuts", async (string id, HttpContext ctx, AnalysisStore st, CutStore cs) =>
+{
+    if (!SameOrigin(ctx)) return Msg(403, CrossSite);
+    if (st.Get(id) == null) return Msg(404, "분석이 없습니다.");
+    List<ASH.Core.Film.CutSpec>? cuts;
+    try { cuts = await System.Text.Json.JsonSerializer.DeserializeAsync<List<ASH.Core.Film.CutSpec>>(ctx.Request.Body, CutStore.Json, ctx.RequestAborted); }
+    catch (System.Text.Json.JsonException e) { return Msg(400, $"컷 목록을 읽을 수 없습니다(JSON 배열이 필요합니다, 위치 {e.Path})."); }
+    if (cuts == null) return Msg(400, "컷 목록(JSON 배열)이 필요합니다.");
+    try { cs.Save(id, cuts); }
+    catch (ArgumentException e) { return Msg(400, e.Message); }
+    return Results.Json(cs.Get(id), CutStore.Json);
+});
+
+// scene candidates: <job>\scenes.json (conclusion counts, written after the search) or scenes.delta<d>.json (counts + d, on request).
+// A request is <job>\scenes-request.json {"delta":d,"requestedUtc":...}; the filming queue (Task 13) runs it, writes the result file and deletes the request.
+const int DeltaMax = 20;
+static string ScenesFile(int delta) => delta == 0 ? "scenes.json" : $"scenes.delta{delta.ToString(System.Globalization.CultureInfo.InvariantCulture)}.json";
+const string ScenesRequest = "scenes-request.json";
+
+app.MapGet("/api/jobs/{id}/scenes", (string id, int? delta, JobStore js) =>
+{
+    if (!JobStore.IsValidId(id) || js.Get(id) == null) return Msg(404, "작업이 없습니다.");
+    var d = delta ?? 0;
+    if (Math.Abs(d) > DeltaMax) return Msg(400, $"대수 변경은 -{DeltaMax}~{DeltaMax}대입니다.");
+    var path = Path.Combine(js.JobDir(id), ScenesFile(d));
+    if (File.Exists(path)) return Results.Content(File.ReadAllText(path), "application/json; charset=utf-8");
+    var req = Path.Combine(js.JobDir(id), ScenesRequest);
+    try
+    {
+        if (File.Exists(req) && System.Text.Json.JsonDocument.Parse(File.ReadAllText(req)).RootElement.GetProperty("delta").GetInt32() == d)
+            return Results.Json(new { pending = "후보를 찾는 중입니다. 작업 대기열에서 차례가 오면 모델을 한 번 돌립니다." });
+    }
+    catch (Exception e) when (e is IOException or System.Text.Json.JsonException or KeyNotFoundException or InvalidOperationException or FormatException) { }
+    return Results.Content("[]", "application/json; charset=utf-8");
+});
+
+app.MapPost("/api/jobs/{id}/scenes", (string id, int? delta, HttpContext ctx, JobStore js) =>
+{
+    if (!SameOrigin(ctx)) return Msg(403, CrossSite);
+    if (!JobStore.IsValidId(id) || js.Get(id) is not { } j) return Msg(404, "작업이 없습니다.");
+    if (delta is not { } d || Math.Abs(d) > DeltaMax) return Msg(400, $"delta(결론 대수에 더할 대수, -{DeltaMax}~{DeltaMax})가 필요합니다.");
+    if (j.State != JobState.Done || j.Decided == null) return Msg(409, "결론 대수가 나온 완료 작업에서만 후보를 찾을 수 있습니다.");
+    var dir = js.JobDir(id);
+    File.Delete(Path.Combine(dir, ScenesFile(d))); // the new result replaces it; until then the page shows "pending"
+    var tmp = Path.Combine(dir, ScenesRequest + ".tmp");
+    File.WriteAllText(tmp, System.Text.Json.JsonSerializer.Serialize(new { delta = d, requestedUtc = DateTime.UtcNow }));
+    File.Move(tmp, Path.Combine(dir, ScenesRequest), true);
+    return Results.Json(new { delta = d }, statusCode: 202);
 });
 
 // one run to watch in AutoMod on a PC: the run id is only looked up in summary.tsv, never joined into a path
