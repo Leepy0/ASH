@@ -53,20 +53,15 @@ jobs:
         shell: pwsh
         env:
           PEM: ${{ secrets.ASH_SIGNING_KEY_PEM }}
-          ALL_SECRETS: ${{ toJSON(secrets) }}
         run: |
-          # 실패 원인을 annotation으로 남긴다(키 내용은 출력하지 않음, 실패 시 보이는 Secret 이름만)
-          function Fail($m) {
-            $names = (($env:ALL_SECRETS | ConvertFrom-Json).PSObject.Properties.Name | ForEach-Object { "[$_]" }) -join ' '
-            Write-Host "::error title=서명 키::$m / 워크플로에 보이는 Secret 이름: $names"; exit 1
-          }
+          # 실패 원인을 annotation으로 남긴다(키 내용은 출력하지 않음)
+          function Fail($m) { Write-Host "::error title=서명 키::$m"; exit 1 }
           if (-not $env:PEM) { Fail "Secret ASH_SIGNING_KEY_PEM 이 비어 있거나 없습니다 (Settings → Secrets and variables → Actions → Repository secrets 확인)" }
           $pem = $env:PEM.Trim()
           if ($pem -notmatch '^-----BEGIN PRIVATE KEY-----' -or $pem -notmatch '-----END PRIVATE KEY-----$') { Fail "Secret 형식 오류: BEGIN/END PRIVATE KEY 줄 포함 전체를 넣어야 합니다 (길이 $($pem.Length))" }
           $key = Join-Path $env:RUNNER_TEMP 'ash-signing.pem'
           [IO.File]::WriteAllText($key, $pem + "`n")
           "ASH_SIGNING_KEY=$key" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-          $env:ALL_SECRETS = $null
 
       - name: 릴리스 노트
         if: steps.ver.outputs.skip != 'true'
