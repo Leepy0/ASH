@@ -52,13 +52,6 @@ public static class LogicGenerator
     static void Check(ProjectInput input)
     {
         if (input.Groups.Count == 0 || input.Materials.Count == 0) throw new ArgumentException("그룹과 자재가 1개 이상 있어야 합니다.");
-        var types = new Dictionary<string, string>();
-        foreach (var g in input.Groups)
-        {
-            // vehicle procedures and dispatch filters are defined per AGVS vehicle type
-            if (types.TryGetValue(g.Type, out var other)) throw new ArgumentException($"그룹 '{g.Group}'과(와) '{other}'이(가) 같은 Type '{g.Type}'을(를) 씁니다.");
-            types[g.Type] = g.Group;
-        }
         foreach (var m in input.Materials)
             if (!input.Groups.Any(g => g.Group == m.Group)) throw new ArgumentException($"자재 '{m.Material}'의 Group '{m.Group}'이(가) 없습니다.");
     }
@@ -87,7 +80,7 @@ public static class LogicGenerator
             var g = input.Groups[i];
             int gi = i + 1;
             var parkOk = string.Join("\n", StandbyOf(g, layout).Select(cp => $"\tif parkLoc = {sys}:{cp} then return true"));
-            groupLogic.Append(Fill(Res("code_group.m.txt"), ("G", gi.ToString()), ("TYPE", Lit(g.Type)), ("SYS", sys), ("PARK_OK", parkOk)));
+            groupLogic.Append(Fill(Res("code_group.m.txt"), ("G", gi.ToString()), ("TYPE", Lit(g.Group)), ("SYS", sys), ("PARK_OK", parkOk)));
             // value1 = the requested active count; Max - parked would count never-woken vehicles as active
             snap.Append($"\tprint \"group\\t{Lit(g.Group)}\\t{g.Group}\\t\" V_active({gi}) \"\\t0\\t0\\t0\\t0\\t0\\t0\\t0\" to V_out\n");
         }

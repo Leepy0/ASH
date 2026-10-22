@@ -93,6 +93,14 @@ public static class ModelBuilder
         return new ModelBuildResult(arc, build, findings, warnings);
     }
 
+    /// <summary>One AGVS vehicle type per group, named after the group (the logic's vehicle procedures and dispatch filters are per AGVS type),
+    /// with the numbers of the group's AGV_Types row: several groups may share a row.</summary>
+    public static List<VehicleGroupSpec> VehicleGroups(ProjectInput input) => input.Groups.Select(g =>
+    {
+        var t = input.AgvTypes.FirstOrDefault(x => string.Equals(x.Type, g.Type, StringComparison.OrdinalIgnoreCase)) ?? throw new InvalidOperationException($"AGV_Groups {g.Group}: 유형 {g.Type}이 AGV_Types에 없습니다.");
+        return new VehicleGroupSpec(g.Group, g.Group, g.MaxCount, t.SpeedLoaded, t.Length, t.Width, Accel: t.Accel, Decel: t.Decel, Kind: string.IsNullOrWhiteSpace(t.Kind) ? "Standard" : t.Kind, SpeedEmpty: t.SpeedEmpty);
+    }).ToList();
+
     static List<string> Warn(List<Finding> f) => f.Where(x => x.Code == FindingCode.InputWarning).Select(x => x.Message).ToList();
 
     /// <summary>A rebuild in the same folder does not relink unless the old &lt;Model&gt;.dir is gone.</summary>

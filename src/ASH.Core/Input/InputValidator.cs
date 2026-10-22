@@ -9,7 +9,7 @@ namespace ASH.Core.Input;
 
 public static class InputValidator
 {
-    /// <summary>Type and Group become AM identifiers (agv.&lt;Type&gt; procedures, nl_&lt;Group&gt; lists): ASCII letter or _, then letters, digits, _.</summary>
+    /// <summary>Type and Group must be AM identifiers (the group is the AGVS vehicle type: agv.&lt;Group&gt; procedures, nl_&lt;Group&gt; lists): ASCII letter or _, then letters, digits, _.</summary>
     public static bool IsAmIdentifier(string s) =>
         s.Length > 0 && (IsAsciiLetter(s[0]) || s[0] == '_') && s.All(c => IsAsciiLetter(c) || (c >= '0' && c <= '9') || c == '_');
 
@@ -95,9 +95,6 @@ public static class InputValidator
             if ((t.MTBF > 0) != (t.MTTR > 0)) Warn("AGV_Types", t.Row, i, $"타입 '{t.Type}': MTBF와 MTTR을 둘 다 넣어야 고장이 반영됩니다(지금은 고장 없음).");
             if (t.Accel < 0 || t.Decel < 0) Err("AGV_Types", t.Row, i, $"타입 '{t.Type}'의 Accel/Decel은 0 이상이어야 합니다(0 = AutoMod 기본값).");
             if (VehicleKinds.Find(t.Kind) == null) Err("AGV_Types", t.Row, i, $"타입 '{t.Type}'의 Kind '{t.Kind}'은(는) 알 수 없습니다. ({VehicleKinds.Names})");
-            var g = input.Groups.FirstOrDefault(x => x.Group == t.Group);
-            if (g == null || g.Type != t.Type)
-                Add(FindingCode.InputWarning, "AGV_Types", t.Row, i, $"타입 '{t.Type}'의 Group '{t.Group}'이(가) 그 타입을 쓰는 AGV_Groups 그룹과 일치하지 않습니다.");
         }
         for (int i = 0; i < input.Groups.Count; i++)
         {
@@ -113,15 +110,6 @@ public static class InputValidator
             OneOf("AGV_Groups", g.Row, i, "Dispatch", g.Dispatch, "Nearest", "FIFO");
             if (cps != null)
                 foreach (var cp in g.StandbyCPs.Where(c => !cps.Contains(c))) Err("AGV_Groups", g.Row, i, $"StandbyCP '{cp}'이(가) 레이아웃에 없습니다.");
-        }
-        // the AM logic defines vehicle procedures and dispatch filters per vehicle type: one type = one group
-        var typeOwner = new Dictionary<string, string>();
-        for (int i = 0; i < input.Groups.Count; i++)
-        {
-            var g = input.Groups[i];
-            if (g.Type.Length == 0) continue;
-            if (typeOwner.TryGetValue(g.Type, out var first)) Err("AGV_Groups", g.Row, i, $"그룹 '{g.Group}'과(와) '{first}'이(가) 같은 Type '{g.Type}'을(를) 씁니다. 그룹마다 다른 Type이 필요합니다.");
-            else typeOwner[g.Type] = g.Group;
         }
         for (int i = 0; i < input.Materials.Count; i++)
         {

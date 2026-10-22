@@ -32,11 +32,7 @@ public class ModelRunIntegrationTests
         l.Cps.Add(L.Cp("U001", 2, 10, "unload"));
         if (input.Groups.Count > 1) { l.Cps.Add(L.Cp("S002", 0, 5, "standby", "G2")); l.Cps.Add(L.Cp("L002", 10, 8, "load")); }
         var work = Path.Combine(Path.GetTempPath(), "ash_run_" + Guid.NewGuid().ToString("N"));
-        var specs = input.Groups.Select(g =>
-        {
-            var t = input.AgvTypes.Single(x => x.Type == g.Type);
-            return new VehicleGroupSpec(g.Group, g.Type, g.MaxCount, t.SpeedLoaded, t.Length, t.Width, Accel: t.Accel, Decel: t.Decel, Kind: t.Kind, SpeedEmpty: t.SpeedEmpty);
-        }).ToArray();
+        var specs = ModelBuilder.VehicleGroups(input);
         l.Blocks.Add(new ASH.Core.Layout.LayoutBlock { Name = "B_x1", Cap = 1, Rect = new Rect2(new Point2(8, -1), new Point2(11, 2)) }); // corner p1/p2
         var res = ModelBuilder.Build(new ModelBuildRequest(work, Model, input, l, new ExportOptions(Groups: specs), VehicleOverrides: vehOverrides), AmHome!, TimeSpan.FromMinutes(5));
         Assert.DoesNotContain(res.Findings, f => f.Code == ASH.Core.Layout.FindingCode.InputError);
@@ -89,8 +85,8 @@ public class ModelRunIntegrationTests
         var block = demo.Skip(start).TakeWhile((x, i) => i == 0 || !(x.Length > 0 && char.IsUpper(x[0]))).ToList(); // geometry lines start with digits, the next top-level keyword is upper-case
         var text = string.Join("\n", block).Replace("DefSegment", "FromServer") + "\n";
         var run = BuildAndRun(LogicGeneratorTests.Sample(), new Dictionary<string, int> { ["G1"] = 1 }, 1,
-            new Dictionary<string, VehicleTemplateOverride> { ["Tug"] = new(VehSegText: text) });
-        Assert.Contains("AGVVEHSEG name Seg_Tug ", File.ReadAllText(Path.Combine(run.Work, Model + ".arc", "agv.asy")));
+            new Dictionary<string, VehicleTemplateOverride> { ["G1"] = new(VehSegText: text) });
+        Assert.Contains("AGVVEHSEG name Seg_G1 ", File.ReadAllText(Path.Combine(run.Work, Model + ".arc", "agv.asy")));
         Cleanup(run.Work);
     }
 
@@ -214,7 +210,7 @@ public class ModelRunIntegrationTests
         Assert.True(V(Mat(run, "M1"), 3) > 0);
         Assert.True(V(Mat(run, "M2"), 3) > 0);
         var report = File.ReadAllText(run.ReportPath);
-        foreach (var type in new[] { "Tug", "Tug2" }) // first data row of each type in "Vehicle Statistics": delivering %, trips, ...
+        foreach (var type in new[] { "G1", "G2" }) // AGVS types are named after the groups; first data row of each type in "Vehicle Statistics": delivering %, trips, ...
         {
             var m = System.Text.RegularExpressions.Regex.Match(report, @"\n" + type + @":\r?\n\s+[\d.]+\s+(\d+)");
             Assert.True(m.Success && int.Parse(m.Groups[1].Value) > 0, type + " made no deliveries");

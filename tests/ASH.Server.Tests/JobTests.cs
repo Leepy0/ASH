@@ -98,7 +98,7 @@ public sealed class JobEnv : IDisposable
         ExcelTemplate.Write(xlsx, l);
         using (var wb = ExcelReader.Open(xlsx)) CellDump.Write(wb, Path.Combine(proj, CellDump.FileName));
         var input = ExcelReader.Read(xlsx);
-        var groups = input.Groups.Select(g => new VehicleGroupSpec(g.Group, g.Type, g.MaxCount, 1.0, 1.2, 0.8)).ToList();
+        var groups = input.Groups.Select(g => new VehicleGroupSpec(g.Group, g.Group, g.MaxCount, 1.0, 1.2, 0.8)).ToList();
         var r = ModelBuilder.Build(new ModelBuildRequest(proj, model, input, l, new ExportOptions(Groups: groups)), null, TimeSpan.Zero);
         Assert.DoesNotContain(r.Findings, f => f.Code == FindingCode.InputError);
         File.Delete(xlsx); // the plugin does not send the workbook

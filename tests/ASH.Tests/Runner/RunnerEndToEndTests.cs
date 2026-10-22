@@ -155,7 +155,7 @@ public class RunnerEndToEndTests
         for (int i = 0; i < input.Materials.Count; i++) input.Materials[i] = input.Materials[i] with { UnloadThreshold = 5 };
         input.Settings = input.Settings with { Replications = replications, InitStockMode = replications > 1 ? "Uniform" : "Fixed" };
         var work = Path.Combine(Path.GetTempPath(), "ash_e2e_" + Guid.NewGuid().ToString("N"));
-        var specs = new[] { new VehicleGroupSpec("G1", "Tug", 3, 1.0, 1, 1) };
+        var specs = new[] { new VehicleGroupSpec("G1", "G1", 3, 1.0, 1, 1) };
         var res = ModelBuilder.Build(new ModelBuildRequest(work, Model, input, l, new ExportOptions(Groups: specs)), AmHome!, TimeSpan.FromMinutes(5));
         Assert.True(res.Build!.Success, work + "\n" + res.Build.MakeErrText + res.Build.Am2ErrText);
 

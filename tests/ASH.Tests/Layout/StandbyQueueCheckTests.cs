@@ -18,7 +18,7 @@ public class StandbyQueueCheckTests
     static ProjectInput Input(int max)
     {
         var p = new ProjectInput();
-        p.AgvTypes.Add(new AgvType("T1", "G1", 1, 1, 0.3, 0.3, 1, 20, 20, 0, 0, 1.2, 0.8, "Blue"));
+        p.AgvTypes.Add(new AgvType("T1", 1, 1, 0.3, 0.3, 1, 20, 20, 0, 0, 1.2, 0.8, "Blue"));
         p.Groups.Add(new AgvGroup("G1", "T1", 1, max, new List<string> { "S1" }, "Nearest"));
         return p;
     }

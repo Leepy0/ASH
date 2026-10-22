@@ -30,11 +30,60 @@ public class ExcelTemplateSeedTests
             var p = ExcelReader.Read(path);
             Assert.Equal(new[] { "A", "B" }, p.Groups.Select(g => g.Group));
             Assert.Equal(new[] { "SB1", "SB2" }, p.Groups[0].StandbyCPs);
-            Assert.Equal(new[] { "T_A", "T_B" }, p.AgvTypes.Select(t => t.Type));
+            Assert.Equal("T_AGV", Assert.Single(p.AgvTypes).Type);              // one type shared by both groups
+            Assert.All(p.Groups, g => Assert.Equal("T_AGV", g.Type));
             Assert.Equal(new[] { "L001", "L002" }, p.Routes.Select(r => r.SupplyFromCP));
             Assert.Equal(new[] { "U001", "U002" }, p.Routes.Select(r => r.SupplyToCP));
             Assert.Equal(new[] { "A", "B" }, p.Materials.Select(m => m.Group));
             Assert.Empty(InputValidator.Validate(p, new[] { "SB1", "SB2", "SB3", "L001", "L002", "U001", "U002", "T001" }).Where(f => f.Code == FindingCode.InputError));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Update_Keeps_Typed_Rows_And_Appends_What_The_Drawing_Added()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "seed-" + System.Guid.NewGuid().ToString("N") + ".xlsx");
+        try
+        {
+            ExcelTemplate.Write(path, Drawing());
+            using (var wb = ExcelReader.Open(path)) // the user's work: a takt time, and an old-template AGV_Types.Group column
+            {
+                wb.Worksheet("Materials").Cell(3, 4).Value = 99;
+                var t = wb.Worksheet("AGV_Types"); t.Column(2).InsertColumnsBefore(1); t.Cell(1, 2).Value = "Group"; t.Cell(3, 2).Value = "A";
+                wb.Save();
+            }
+            var l = Drawing();
+            l.Cps.Add(Cp("SB4", "standby", "A")); l.Cps.Add(Cp("SB5", "standby", "C")); l.Cps.Add(Cp("L003", "load", "C")); l.Cps.Add(Cp("U003", "unload", "C"));
+            var changes = ExcelTemplate.Update(path, l);
+            var p = ExcelReader.Read(path);
+            Assert.Equal(99, p.Materials[0].TaktTime);                                    // typed value kept
+            Assert.Equal(new[] { "SB1", "SB2", "SB4" }, p.Groups[0].StandbyCPs);          // new standby CP appended
+            Assert.Equal(new[] { "A", "B", "C" }, p.Groups.Select(g => g.Group));          // new group with the existing type
+            Assert.Equal("T_AGV", p.Groups[2].Type);
+            Assert.Equal(new[] { "M001", "M002", "M003" }, p.Materials.Select(m => m.Material));
+            Assert.Equal("L003", p.Routes[2].SupplyFromCP);
+            using (var wb = ExcelReader.Open(path)) Assert.DoesNotContain("Group", wb.Worksheet("AGV_Types").Row(1).CellsUsed().Select(c => c.GetString()));
+            Assert.Contains(changes, c => c.Contains("Group 열 삭제"));
+            Assert.Empty(ExcelTemplate.Update(path, l));                                  // nothing left to add
+            Assert.Equal(3, ExcelReader.Read(path).Routes.Count);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Template_Has_Drop_Down_Lists()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "seed-" + System.Guid.NewGuid().ToString("N") + ".xlsx");
+        try
+        {
+            ExcelTemplate.Write(path, Drawing());
+            ExcelTemplate.Update(path, Drawing()); // re-applied lists must not pile up
+            using var wb = ExcelReader.Open(path);
+            var form = wb.Worksheet("Materials").Cell(3, 12).GetDataValidation();
+            Assert.Equal("\"Box,Pallet,Trolley\"", form.Value);
+            Assert.Contains("AGV_Types", wb.Worksheet("AGV_Groups").Cell(5, 2).GetDataValidation().Value);
+            Assert.Single(wb.Worksheet("Materials").DataValidations, v => v.Ranges.Any(r => r.RangeAddress.FirstAddress.ColumnNumber == 12));
         }
         finally { File.Delete(path); }
     }

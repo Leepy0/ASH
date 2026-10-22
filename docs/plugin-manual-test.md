@@ -146,7 +146,7 @@ AutoMod 12.6이 있는 PC 필요(T16-2, T16-4). 검증·내보내기 탭 "Excel 
 
 | 항목 | 결과 | 날짜 | ZWCAD 버전 | 메모 |
 |---|---|---|---|---|
-| T16-1 저장된 도면에서 `AGVEXCEL`: `input.xlsx`가 없으면 도면 폴더에 양식을 만들고 Excel로 열림, 있으면 덮어쓰지 않고 열기만. 새 도면 → "도면을 먼저 저장하세요." | | | | |
+| T16-1 저장된 도면에서 `AGVEXCEL`: `input.xlsx`가 없으면 도면 폴더에 양식을 만들고 Excel로 열림, 있으면 O/U/W를 묻고 Enter(O)는 열기만, U는 `input.bak.*.xlsx` 백업 뒤 입력 유지·새 그룹/standby/load CP만 추가(명령줄에 변경 목록), W는 한 번 더 확인 후 새 양식. Excel에서 열어 둔 채 U/W → 닫으라는 안내. 새 도면 → "도면을 먼저 저장하세요." | | | | |
 | T16-2 양식을 채우고 `AGVMODEL`: 검사 결과(오류 시 계속 여부 질문) 뒤 상태 줄 "AGVMODEL 빌드 중…" → 명령줄에 arc 폴더 경로와 "빌드 성공", 상태 줄 "AGVMODEL 완료". `input.xlsx`가 없으면 "먼저 AGVEXCEL…" 안내 | | | | |
 | T16-3 Excel에 잘못된 값(예: 없는 CP 이름, 음수 속도): 명령줄에 Excel 경고·오류가 나열되고 빌드 중단, 상태 줄 "AGVMODEL 오류" | | | | |
 | T16-4 AutoMod 빌드 실패 상황(`AmHome`을 없는 폴더로): 명령줄에 MakeErr/Am2Err 앞 20줄 또는 실행 실패 메시지, 상태 줄 "AGVMODEL 오류" | | | | |

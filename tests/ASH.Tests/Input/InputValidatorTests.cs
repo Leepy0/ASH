@@ -10,7 +10,7 @@ public class InputValidatorTests
     static ProjectInput Good()
     {
         var p = new ProjectInput();
-        p.AgvTypes.Add(new AgvType("T1", "G1", 1, 1, 0, 0, 1, 20, 20, 0, 0, 1, 1, "Blue"));
+        p.AgvTypes.Add(new AgvType("T1", 1, 1, 0, 0, 1, 20, 20, 0, 0, 1, 1, "Blue"));
         p.Groups.Add(new AgvGroup("G1", "T1", 1, 3, new List<string> { "S" }, "Nearest"));
         p.Materials.Add(new MaterialInfo("M1", "ST1", "G1", 60, 1, 10, 4, 1, null, null, true));
         p.Routes.Add(new Route("M1", "L", "U", null, null, null, 0));
@@ -65,7 +65,7 @@ public class InputValidatorTests
     {
         var p = Good();
         if (which == "type") { p.AgvTypes[0] = p.AgvTypes[0] with { Type = name }; p.Groups[0] = p.Groups[0] with { Type = name }; }
-        if (which == "group") { p.Groups[0] = p.Groups[0] with { Group = name }; p.Materials[0] = p.Materials[0] with { Group = name }; p.AgvTypes[0] = p.AgvTypes[0] with { Group = name }; }
+        if (which == "group") { p.Groups[0] = p.Groups[0] with { Group = name }; p.Materials[0] = p.Materials[0] with { Group = name }; }
         if (which == "material") { p.Materials[0] = p.Materials[0] with { Material = name }; p.Routes[0] = p.Routes[0] with { Material = name }; }
         var e = Assert.Single(InputValidator.Validate(p, Cps), x => x.Code == FindingCode.InputError);
         Assert.Contains("AutoMod에서 쓸 수 없습니다", e.Message);
@@ -108,13 +108,11 @@ public class InputValidatorTests
     }
 
     [Fact]
-    public void Validate_Flags_Type_Shared_By_Two_Groups()
+    public void Validate_Allows_A_Type_Shared_By_Two_Groups()
     {
         var p = Good();
         p.Groups.Add(new AgvGroup("G2", "T1", 1, 3, new List<string> { "S" }, "Nearest"));
-        var f = InputValidator.Validate(p, Cps).Where(x => x.Code == FindingCode.InputError).ToList();
-        Assert.Single(f);
-        Assert.Equal("AGV_Groups!4", f[0].EntityId);
+        Assert.DoesNotContain(InputValidator.Validate(p, Cps), x => x.Code == FindingCode.InputError);
     }
 
     [Fact]
@@ -173,13 +171,11 @@ public class InputValidatorTests
     }
 
     [Fact]
-    public void Validate_Warns_On_Type_Group_Mismatch_And_Ignores_Station_Name()
+    public void Validate_Ignores_Station_Name()
     {
         var p = Good();
-        p.AgvTypes[0] = p.AgvTypes[0] with { Group = "OTHER" };
         p.Materials[0] = p.Materials[0] with { Station = "NOSUCH" };
         var f = InputValidator.Validate(p, Cps);
-        Assert.Contains(f, x => x.Code == FindingCode.InputWarning && x.EntityId == "AGV_Types!3");
         Assert.DoesNotContain(f, x => x.Code == FindingCode.InputError); // Station is a memo: no Stations row needed
     }
 }

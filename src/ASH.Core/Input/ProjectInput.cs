@@ -19,9 +19,10 @@ public sealed record Settings
     public double DeadlockSec { get; init; } = 600;
 }
 
-public sealed record AgvType(string Type, string Group, double SpeedLoaded, double SpeedEmpty, double Accel, double Decel,
+public sealed record AgvType(string Type, double SpeedLoaded, double SpeedEmpty, double Accel, double Decel,
     int Capacity, double LoadTime, double UnloadTime, double MTBF, double MTTR, double Length, double Width, string Color, int Row = 0, string Kind = "");
 
+/// <summary>The group is the AutoMod vehicle type (its name is the AGVS vehicle type), so one AgvType can serve several groups.</summary>
 /// <param name="FinishCP">Optional: a vehicle counts as idle from its arrival here on the way home (else from the free-run return time).</param>
 public sealed record AgvGroup(string Group, string Type, int MinCount, int MaxCount, List<string> StandbyCPs, string Dispatch, int Row = 0, string? FinishCP = null);
 

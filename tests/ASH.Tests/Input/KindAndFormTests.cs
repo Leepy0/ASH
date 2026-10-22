@@ -13,7 +13,7 @@ public class KindAndFormTests
     static ProjectInput Good(string kind, string form)
     {
         var p = new ProjectInput();
-        p.AgvTypes.Add(new AgvType("T1", "G1", 1, 1, 0.3, 0.3, 1, 20, 20, 0, 0, 1, 1, "Blue", Kind: kind));
+        p.AgvTypes.Add(new AgvType("T1", 1, 1, 0.3, 0.3, 1, 20, 20, 0, 0, 1, 1, "Blue", Kind: kind));
         p.Groups.Add(new AgvGroup("G1", "T1", 1, 3, new System.Collections.Generic.List<string> { "S" }, "Nearest"));
         p.Materials.Add(new MaterialInfo("M1", "", "G1", 60, 1, 10, 4, 1, null, null, true, Form: form));
         p.Routes.Add(new Route("M1", "L", "U", null, null, null, 0));
@@ -72,7 +72,7 @@ public class KindAndFormTests
             ExcelTemplate.Write(path);
             using (var wb = ExcelReader.Open(path))
             {
-                wb.Worksheet("AGV_Types").Column(15).Delete();  // Kind
+                wb.Worksheet("AGV_Types").Column(14).Delete();  // Kind
                 wb.Worksheet("Materials").Column(12).Delete();  // Form
                 wb.Save();
             }

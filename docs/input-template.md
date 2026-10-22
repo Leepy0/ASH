@@ -24,19 +24,48 @@
 
 | 시트 | 열 (단위) |
 |---|---|
-| AGV_Types | Type, Group, SpeedLoaded(m/s), SpeedEmpty(m/s), Accel(m/s²), Decel(m/s²), Capacity(용기 수), LoadTime(초), UnloadTime(초), MTBF(초, 0=없음), MTTR(초), Length(m), Width(m), Color, Kind(선택: Standard / Conveyor / Ant / Magnet) |
-| AGV_Groups | Group, Type(그룹당 하나), MinCount(≥1), MaxCount(≥MinCount), StandbyCPs(쉼표 구분), Dispatch(Nearest / FIFO), FinishCP(선택) |
-| Materials | Material, Station(선택·메모), Group, TaktTime(초, >0), UnitsPerCycle(원수), UnitsPerContainer(≥1), CallThreshold(용기), UnloadThreshold(용기), InitStock(용기, 선택), SafetyStock(용기, 선택), EmptyReturn(Y/N), Form(선택: Box / Pallet / Trolley), LoadLength / LoadWidth / LoadHeight(m, 선택) |
+| AGV_Types | Type, SpeedLoaded(m/s), SpeedEmpty(m/s), Accel(m/s²), Decel(m/s²), Capacity(용기 수), LoadTime(초), UnloadTime(초), MTBF(초, 0=없음), MTTR(초), Length(m), Width(m), Color, Kind(목록: Standard / Conveyor / Ant / Magnet) |
+| AGV_Groups | Group, Type(AGV_Types 목록에서 선택, 여러 그룹이 같은 타입을 써도 된다), MinCount(≥1), MaxCount(≥MinCount), StandbyCPs(쉼표 구분), Dispatch(Nearest / FIFO), FinishCP(선택) |
+| Materials | Material, Station(선택·메모), Group(나르는 그룹, AGV_Groups 목록), TaktTime(초, >0), UnitsPerCycle(원수), UnitsPerContainer(≥1), CallThreshold(용기), UnloadThreshold(용기), InitStock(용기, 선택), SafetyStock(용기, 선택), EmptyReturn(Y/N), Form(목록: Box / Pallet / Trolley), LoadLength / LoadWidth / LoadHeight(m, 선택) |
 | Routes | Material, SupplyFromCP, SupplyToCP, BufferCP(선택), ReturnFromCP(선택), ReturnToCP(선택), ExtraTime(초) |
 
 ## 도면 값으로 채운 양식
 
-`AGVEXCEL`이 새 파일을 만들 때는 도면의 CP를 읽어 채운다(기존 `input.xlsx`는 건드리지 않는다).
+`AGVEXCEL`이 새 파일을 만들 때는 도면의 CP를 읽어 채운다.
 
-- AGV_Groups / AGV_Types: CP의 GROUP 값마다 한 행(타입명은 `T_<그룹>`), StandbyCPs는 그 그룹의 standby CP.
+- AGV_Types: 타입 `T_AGV` 한 행. 모든 그룹이 이 타입을 쓴다. 다른 차량이 필요하면 타입 행을 추가하고 그룹의 Type을 바꾼다.
+- AGV_Groups: CP의 GROUP 값마다 한 행, StandbyCPs는 그 그룹의 standby CP.
 - Routes / Materials: load CP마다 자재 `M001`, `M002`...를 만들고, 같은 순서의 unload / buffer / rtnload / rtnunload CP를 짝지어 넣는다. 짝은 추측이므로 확인한다.
 - 속도, T/T 같은 숫자는 도면에서 알 수 없어 예시 값 그대로이다. 반드시 고친다.
 - 도면에 해당 CP가 없으면 그 시트는 회색 예시 행이 들어간다.
+
+`input.xlsx`가 이미 있으면 `AGVEXCEL`이 묻는다.
+
+- O(기본): 열기만 한다.
+- U 갱신: 입력한 값은 그대로 두고 도면에서 새로 생긴 것만 뒤에 붙인다. 새 그룹(타입은 AGV_Types의 첫 타입), 기존 그룹의 새 standby CP, 아직 Routes의 SupplyFromCP에 없는 load CP(새 자재 이름 `M###`와 경로 한 행). 빠진 시트·열·Settings 키를 더하고, 예전 양식의 AGV_Types.Group 열은 지운다. 바뀐 내용은 명령줄에 한 줄씩 나온다. 도면에서 지운 CP·그룹은 지우지 않는다(검증 오류로 알려 준다).
+- W 덮어쓰기: 한 번 더 확인한 뒤 새 양식으로 바꾼다.
+
+U·W 모두 원래 파일을 `input.bak.<날짜_시각>.xlsx`로 먼저 복사한다. Excel에서 파일을 열어 둔 채면 저장하지 못하므로 닫고 다시 한다.
+
+## 목록 선택(데이터 유효성 검사)
+
+다음 열은 셀의 드롭다운에서 고르고, 목록에 없는 값은 Excel이 받지 않는다. 양식 생성과 갱신 때마다 다시 설정한다.
+
+| 시트.열 | 목록 |
+|---|---|
+| AGV_Types.Kind | Standard / Conveyor / Ant / Magnet |
+| AGV_Groups.Type | AGV_Types의 Type |
+| AGV_Groups.Dispatch | Nearest / FIFO |
+| Materials.Group | AGV_Groups의 Group |
+| Materials.EmptyReturn | Y / N |
+| Materials.Form | Box / Pallet / Trolley |
+| Routes.Material | Materials의 Material |
+
+## 타입과 그룹
+
+타입(AGV_Types)은 차량의 제원, 그룹(AGV_Groups)은 그 제원의 차량 무리(대수·대기 CP)이다. 그룹은 Type 하나를 고르고, 같은 타입을 여러 그룹이 쓸 수 있다. AutoMod 모델에서는 그룹마다 차량 타입이 하나씩 생기고 이름은 그룹명이다.
+
+Materials의 Group은 그 자재를 어느 그룹 차량이 나르는지 정한다. Routes는 어디서 어디로 가는지만 정하므로 그룹이 둘 이상이면 Group 없이는 담당 차량을 정할 수 없어 남겨 두었다.
 
 Stations·Ext 시트는 양식에서 뺐다(모델에 아무 영향이 없었다). 예전 파일에 남아 있어도 읽는다. 사용자 확장 훅은 `<Model>.arc/user_ext.m`의 `F_ext_on_call`, `F_ext_select_vehicle`, `F_ext_before_unload`, `F_ext_on_snap`을 직접 고친다.
 
@@ -61,7 +90,7 @@ Stations·Ext 시트는 양식에서 뺐다(모델에 아무 영향이 없었다
 - TaktTime > 0, UnitsPerContainer ≥ 1, MinCount ≥ 1, MaxCount ≥ MinCount.
 - 타입·그룹·자재 이름은 중복될 수 없다.
 - InitStockMode / TrafficMode / WorkDefinition / Dispatch는 허용 값만 쓸 수 있고, Replications ≥ 1, Warmup < SimLength이다.
-- 필수 이름(자재·그룹·타입·CP 열)이 비어 있으면 오류이다. AGV 타입의 Group이 그 타입을 쓰는 그룹과 다르면 경고이다.
+- 필수 이름(자재·그룹·타입·CP 열)이 비어 있으면 오류이다.
 - 오류 위치는 `시트!행` 형식으로 표시된다. 숫자 형식 오류는 시트·행·열을 알려 준다.
 - Settings의 알 수 없거나 중복된 키는 경고로 알려 준다.
 - AGV 타입: Capacity ≥ 1, SpeedEmpty·MTBF·MTTR ≥ 0. MTBF와 MTTR 중 하나만 넣으면 고장이 반영되지 않는다는 경고.

@@ -123,7 +123,7 @@ public class CrossingScenarioTests
         var types = Merged ? new[] { ("TAB", "AB"), ("TC", "C") } : new[] { ("TA", "A"), ("TB", "B"), ("TC", "C") };
         foreach (var (t, g) in types)
             // "real": breakdowns (MTBF 2 h, MTTR 5 min) and a faster empty run; "cap2": two containers per trip
-            p.AgvTypes.Add(new AgvType(t, g, 1.0, Real ? 1.3 : 1.0, 0.3, 0.3, Variant.Contains("cap2") ? 2 : 1, 20, 20, Real ? 7200 : 0, Real ? 300 : 0, 1.2, 0.8, "Blue", Kind: "Standard"));
+            p.AgvTypes.Add(new AgvType(t, 1.0, Real ? 1.3 : 1.0, 0.3, 0.3, Variant.Contains("cap2") ? 2 : 1, 20, 20, Real ? 7200 : 0, Real ? 300 : 0, 1.2, 0.8, "Blue", Kind: "Standard"));
         if (Merged) p.Groups.Add(new AgvGroup("AB", "TAB", 1, 9, new List<string> { "SA" }, "Nearest"));
         else
         {
@@ -170,7 +170,7 @@ public class CrossingScenarioTests
             for (int i = 0; i < input.AgvTypes.Count; i++) input.AgvTypes[i] = input.AgvTypes[i] with { LoadTime = 2, UnloadTime = 2 };
         if ((Environment.GetEnvironmentVariable("ASH_SCENARIO_VARIANT") ?? "").Contains("amax8"))
             input.Groups[0] = input.Groups[0] with { MaxCount = 8 };
-        var specs = input.Groups.Select(g => { var t = input.AgvTypes.Single(x => x.Type == g.Type); return new VehicleGroupSpec(g.Group, g.Type, g.MaxCount, t.SpeedLoaded, t.Length, t.Width, Accel: t.Accel, Decel: t.Decel, Kind: t.Kind, SpeedEmpty: t.SpeedEmpty); }).ToList();
+        var specs = ModelBuilder.VehicleGroups(input);
         var build = ModelBuilder.Build(new ModelBuildRequest(work, Model, input, l, new ExportOptions(Groups: specs)), AmHome!, TimeSpan.FromMinutes(10));
         Assert.True(build.Build?.Success == true, "build failed:\n" + build.Build?.MakeErrText + build.Build?.Am2ErrText + string.Join("\n", build.Findings.Select(f => f.Message)));
 

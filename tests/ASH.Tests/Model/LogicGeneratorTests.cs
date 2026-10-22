@@ -10,7 +10,7 @@ public class LogicGeneratorTests
     public static ProjectInput Sample(double takt = 60, double simSec = 3600, double warmupSec = 360)
     {
         var p = new ProjectInput { Settings = new ASH.Core.Input.Settings { Units = "Meters", SimLengthSec = simSec, WarmupSec = warmupSec, InitStockMode = "Fixed" } };
-        p.AgvTypes.Add(new AgvType("Tug", "G1", 1.0, 1.0, 0, 0, 1, 10, 10, 0, 0, 2, 1, "red"));
+        p.AgvTypes.Add(new AgvType("Tug", 1.0, 1.0, 0, 0, 1, 10, 10, 0, 0, 2, 1, "red"));
         p.Groups.Add(new AgvGroup("G1", "Tug", 1, 3, new List<string> { "S001" }, "Nearest"));
         foreach (var m in new[] { "M1", "M2" })
         {
@@ -28,7 +28,7 @@ public class LogicGeneratorTests
     public static ProjectInput TwoGroups(double takt = 60)
     {
         var p = Sample(takt);
-        p.AgvTypes.Add(new AgvType("Tug2", "G2", 1.0, 1.0, 1, 1, 1, 10, 10, 0, 0, 2, 1, "blue"));
+        p.AgvTypes.Add(new AgvType("Tug2", 1.0, 1.0, 1, 1, 1, 10, 10, 0, 0, 2, 1, "blue"));
         p.Groups.Add(new AgvGroup("G2", "Tug2", 1, 2, new List<string> { "S002" }, "Nearest"));
         p.Materials[1] = p.Materials[1] with { Group = "G2" };
         p.Routes[1] = p.Routes[1] with { SupplyFromCP = "L002" };
@@ -55,12 +55,13 @@ public class LogicGeneratorTests
         Assert.Equal(new[] { "SRCHLST name S001 Closest item All ", "SRCHLST name S002 Closest item All " }, s.SearchListLines);
 
         var t = LogicGenerator.Render(input, Layout2);
-        Assert.Contains("begin agv.Tug2 work ok function\n\tif theLoad A_grp = 2 then return true", t);
-        Assert.Contains("begin agv.Tug2 park ok function\n\tif parkLoc = agv:S002 then return true", t);
+        Assert.Contains("begin agv.G2 work ok function\n\tif theLoad A_grp = 2 then return true", t);
+        Assert.Contains("begin agv.G2 park ok function\n\tif parkLoc = agv:S002 then return true", t);
         Assert.Contains("begin P_supply_2 arriving procedure\n\tset A_grp to 2", t);
 
+        // a type shared by two groups: each group is its own AGVS vehicle type
         var shared = TwoGroups(); shared.Groups[1] = shared.Groups[1] with { Type = "Tug" };
-        Assert.Throws<ArgumentException>(() => LogicGenerator.Render(shared, Layout2));
+        Assert.Contains("begin agv.G2 work ok function", LogicGenerator.Render(shared, Layout2));
         var orphan = TwoGroups(); orphan.Materials[1] = orphan.Materials[1] with { Group = "GX" };
         Assert.Throws<ArgumentException>(() => LogicGenerator.AddDispatchLists(s, orphan, Layout2));
     }
@@ -144,7 +145,7 @@ public class LogicGeneratorTests
         Assert.Equal(2, Regex.Matches(t, @"begin P_consume_\d+ arriving procedure").Count);
         Assert.Equal(2, Regex.Matches(t, @"begin P_supply_\d+ arriving procedure").Count);
         Assert.Contains("create 1 load of type L_ctl to P_consume_2", t);
-        Assert.Contains("begin agv.Tug task search procedure", t);
+        Assert.Contains("begin agv.G1 task search procedure", t);
         Assert.DoesNotContain("{{", t);
     }
 

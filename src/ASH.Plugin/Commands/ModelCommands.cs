@@ -35,21 +35,37 @@ public sealed class ModelCommands
             if (!ExportCommands.TryLoadSettings(ed, out _, out var dir)) return;
             var path = Path.Combine(dir, ExcelFileName);
             bool made = !File.Exists(path);
-            if (made) // a new file starts from what the drawing has now: group names, standby CPs, one route per load CP
+            // an existing input holds hours of typing: open it, update it in place (only what the drawing added), or replace it after a second yes
+            var mode = made ? "W" : PathCommands.Keyword(ed, $"\n{ExcelFileName}이(가) 이미 있습니다. [O=열기 / U=갱신(입력 유지, 도면의 새 그룹·대기 CP·load CP만 추가) / W=덮어쓰기(새 양식)] <O>", "O", "O", "U", "W");
+            if (mode == null) return;
+            if (mode == "W" && !made && PathCommands.Keyword(ed, "\n입력한 내용이 모두 새 양식으로 바뀝니다(기존 파일은 백업). 덮어쓸까요? [Y/N] <N>", "N", "Y", "N") != "Y") return;
+            if (mode != "O") // the file starts from what the drawing has now: group names, standby CPs, one route per load CP
             {
                 var doc = Application.DocumentManager.MdiActiveDocument;
                 ASH.Core.Layout.Layout? layout = null;
                 PathCommands.Run(doc, "AGVEXCEL", (db, tr) => { layout = DrawingReader.Read(db, tr); return false; }, refreshArrows: false);
-                ExcelTemplate.Write(path, layout);
+                if (!made)
+                {
+                    var bak = Path.Combine(dir, $"input.bak.{ASH.Core.SeoulTime.Now:yyyyMMdd_HHmmss}.xlsx");
+                    File.Copy(path, bak, true);
+                    ed.WriteMessage($"\n기존 파일 백업: {bak}");
+                }
+                if (mode == "W") ExcelTemplate.Write(path, layout);
+                else
+                {
+                    var changes = ExcelTemplate.Update(path, layout);
+                    foreach (var c in changes) ed.WriteMessage($"\n  {c}");
+                    if (changes.Count == 0) ed.WriteMessage("\n  추가할 내용이 없습니다(드롭다운 목록만 다시 설정).");
+                }
             }
-            ed.WriteMessage(made ? $"\nExcel 양식을 만들었습니다: {path}" : $"\n기존 Excel 입력을 엽니다: {path}");
+            ed.WriteMessage(mode == "O" ? $"\n기존 Excel 입력을 엽니다: {path}" : mode == "U" ? $"\nExcel 입력을 갱신했습니다: {path}" : $"\nExcel 양식을 만들었습니다: {path}");
             try { Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }); }
             catch (System.ComponentModel.Win32Exception ex) { ed.WriteMessage($"\nExcel 파일을 열지 못했습니다(연결 프로그램 없음?): {ex.Message}"); }
-            Ui.PaletteStatus.Set(made ? "AGVEXCEL: 양식 생성" : "AGVEXCEL: 열기");
+            Ui.PaletteStatus.Set(mode == "O" ? "AGVEXCEL: 열기" : mode == "U" ? "AGVEXCEL: 갱신" : "AGVEXCEL: 양식 생성");
         }
         catch (System.Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
         {
-            ed.WriteMessage($"\nAGVEXCEL 오류: {ex.Message}");
+            ed.WriteMessage($"\nAGVEXCEL 오류: {ex.Message} (Excel에서 {ExcelFileName}을(를) 열어 두었다면 닫고 다시 하세요)");
             Ui.PaletteStatus.Set("AGVEXCEL 오류");
         }
     }
@@ -73,11 +89,7 @@ public sealed class ModelCommands
             try
             {
                 // Excel wins over ash.settings.tsv Groups
-                var groups = input.Groups.Count == 0 ? SettingsFile.ParseGroups(s.Groups) : input.Groups.Select(g =>
-                {
-                    var t = input.AgvTypes.FirstOrDefault(x => string.Equals(x.Type, g.Type, StringComparison.OrdinalIgnoreCase)) ?? throw new InvalidOperationException($"AGV_Groups {g.Group}: 유형 {g.Type}이 AGV_Types에 없습니다.");
-                    return new VehicleGroupSpec(g.Group, g.Type, g.MaxCount, t.SpeedLoaded, t.Length, t.Width, Accel: t.Accel, Decel: t.Decel, Kind: string.IsNullOrWhiteSpace(t.Kind) ? "Standard" : t.Kind, SpeedEmpty: t.SpeedEmpty);
-                }).ToList();
+                var groups = input.Groups.Count == 0 ? SettingsFile.ParseGroups(s.Groups) : ModelBuilder.VehicleGroups(input);
                 var options = new ExportOptions(Units: s.Units, Origin: s.Origin, Scale: s.Scale, Groups: groups);
                 Ui.PaletteStatus.Set("AGVMODEL 빌드 중…");
                 ed.WriteMessage("\nAutoMod 빌드 중… 최대 10분");
