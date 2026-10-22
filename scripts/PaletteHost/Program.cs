@@ -3,7 +3,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.Windows.Forms;
 
-// Usage: PaletteHost.exe <out.png> [tabIndex] [width] [--sample] [--settings].Constructing the palette touches no ZWCAD type, so no ZWCAD dlls are needed.
+// Usage: PaletteHost.exe <out.png> [tabIndex] [width] [--sample] [--settings] [--send [--old]].Constructing the palette touches no ZWCAD type, so no ZWCAD dlls are needed.
 static class Program
 {
     [STAThread]
@@ -15,6 +15,24 @@ static class Program
         if (Array.IndexOf(args, "--settings") >= 0) // the settings dialog instead of the palette (default values, sample server address)
         {
             using var d = new ASH.Plugin.Ui.SettingsDialog(@"D:\project\ash.settings.tsv", new ASH.Core.Settings.ProjectSettings(), "http://server:8082") { StartPosition = FormStartPosition.Manual, Location = new Point(-2000, 0) };
+            d.Shown += (s, e) =>
+            {
+                Application.DoEvents();
+                using var bmp = new Bitmap(d.Width, d.Height);
+                d.DrawToBitmap(bmp, new Rectangle(0, 0, d.Width, d.Height));
+                bmp.Save(args[0], ImageFormat.Png);
+                d.Close();
+            };
+            d.ShowDialog();
+            return 0;
+        }
+        if (Array.IndexOf(args, "--send") >= 0) // the send dialog with a sample server list (--old = a server without /api/analyses)
+        {
+            static ASH.Core.Runner.AnalysisSummary A(string id, string name, params ASH.Core.Runner.PlanSummary[] plans) => new ASH.Core.Runner.AnalysisSummary { Id = id, Name = name, Plans = new System.Collections.Generic.List<ASH.Core.Runner.PlanSummary>(plans) };
+            static ASH.Core.Runner.PlanSummary P(string id, string name, int next) => new ASH.Core.Runner.PlanSummary { Id = id, Name = name, NextVersion = next };
+            var list = new[] { A("a1", "공장A 증설", P("p1", "기본안", 1), P("p2", "B안", 3)), A("a2", "공장B", P("p3", "기본안", 2)) };
+            var pick = ASH.Core.Analysis.SendChoice.Default(list, "공장A 증설", "B안", null);
+            using var d = new ASH.Plugin.Ui.SendDialog("ASH 서버로 보내기", "서버 대기 2건 · 예상 시작 14:20 · 보통 12.5분 걸림", "보내기", Array.IndexOf(args, "--old") >= 0 ? null : list, pick) { StartPosition = FormStartPosition.Manual, Location = new Point(-2000, 0) };
             d.Shown += (s, e) =>
             {
                 Application.DoEvents();

@@ -1,10 +1,13 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Forms;
 using ASH.Core;
+using ASH.Core.Analysis;
 using ASH.Core.Runner;
 using ASH.Core.Settings;
 using ASH.Plugin.Ui;
@@ -75,29 +78,43 @@ public sealed class ServerCommands
         }
         catch (System.Exception e) when (IsNetwork(e)) { Fail(ed, "서버에 연결하지 못했습니다", e); return; }
         if (!q.Enabled && !results) { Say(ed, "이 서버는 작업을 실행하지 않습니다(서버 설정에서 꺼져 있음)."); return; }
-        if (results)
+        // a 0.18 server has no /api/analyses: send unclassified and say so in the dialog
+        IReadOnlyList<AnalysisSummary>? analyses = null;
+        try
         {
-            // nothing is queued for an uploaded result: only the question
-            if (PathCommands.Keyword(ed, "\n이 PC의 ash-run 결과를 서버에 올릴까요? [Y/N] <Y>", "Y", "Y", "N") != "Y") { PaletteStatus.Set("AGVRESULTUP: 취소"); return; }
+            using var ac = new JobServerClient(new Uri(url));
+            analyses = Run(ac.GetAnalysesAsync, QueueTimeout);
         }
-        else
+        catch (System.Exception e) when (IsNetwork(e) || e is InvalidDataException) { PluginLog.Write("AGVSEND analyses", e); }
+
+        var folder = Path.GetFileName(dir.TrimEnd('\\', '/'));
+        var drawing = Path.GetFileNameWithoutExtension((string)Application.GetSystemVariable("DWGNAME"));
+        var info = results ? "이 PC의 ash-run 결과를 모델과 함께 서버에 올립니다." : $"서버 대기 {q.Ahead}건";
+        if (!results)
         {
-            ed.WriteMessage($"\n서버 대기 {q.Ahead}건");
-            if (!string.IsNullOrEmpty(q.EstimatedStart)) ed.WriteMessage($" · 예상 시작 {SeoulTime.FromIso(q.EstimatedStart)}");
-            if (q.TypicalMinutes is double m) ed.WriteMessage($" · 보통 {m:0.#}분 걸림");
-            if (PathCommands.Keyword(ed, "\n서버로 보낼까요? [Y/N] <Y>", "Y", "Y", "N") != "Y") { PaletteStatus.Set("AGVSEND: 취소"); return; }
+            if (!string.IsNullOrEmpty(q.EstimatedStart)) info += $" · 예상 시작 {SeoulTime.FromIso(q.EstimatedStart)}";
+            if (q.TypicalMinutes is double m) info += $" · 보통 {m:0.#}분 걸림";
+        }
+        var initial = analyses == null ? new SendChoice() : SendChoice.Default(analyses, folder, drawing, SendChoice.Load(dir));
+        using var dlg = new SendDialog(results ? "ASH 결과 올리기" : "ASH 서버로 보내기", info, results ? "올리기" : "보내기", analyses, initial);
+        if (Application.ShowModalDialog(dlg) != DialogResult.OK) { PaletteStatus.Set((results ? "AGVRESULTUP" : "AGVSEND") + ": 취소"); return; }
+        var c = dlg.Choice;
+        if (analyses != null)
+        {
+            try { c.Save(dir); }
+            catch (System.Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { PluginLog.Write("ash.send.tsv", ex); }
         }
 
         Say(ed, "패키지 만드는 중…");
         var files = JobPackage.Create(dir, s.ModelName, zip, includeResults: results);
         Say(ed, $"서버로 보내는 중… (파일 {files.Count}개, {new FileInfo(zip).Length / 1048576.0:0.#} MB, 최대 {UploadTimeout.TotalMinutes:0}분)");
-        var job = new JobSubmission(Path.GetFileName(dir.TrimEnd('\\', '/')), Path.GetFileNameWithoutExtension((string)Application.GetSystemVariable("DWGNAME")),
-            s.ModelName, Environment.UserName);
+        var job = new JobSubmission(folder, drawing, s.ModelName, Environment.UserName,
+            AnalysisId: c.AnalysisId, PlanId: c.PlanId, AnalysisName: c.AnalysisName, PlanName: c.PlanName, VersionNote: dlg.Note);
         try
         {
             using var client = new JobServerClient(new Uri(url));
             var receipt = Run(ct => client.SubmitAsync(zip, job, ct), UploadTimeout);
-            Say(ed, results ? $"결과 올림: {receipt.Id}" : $"전송 완료: 작업 {receipt.Id} (앞에 {receipt.Ahead}건)");
+            Say(ed, results ? $"결과 올림: {receipt.Id}" : $"전송 완료: 작업 {receipt.Id} (앞에 {receipt.Ahead}건)" + (receipt.Version > 0 ? $" · v{receipt.Version}" : ""));
             var page = client.PageUri(receipt);
             if (page == null) { ed.WriteMessage("\n서버가 알려 준 주소가 올바르지 않아 브라우저를 열지 않습니다: " + receipt.Url); return; }
             ed.WriteMessage("\n" + page);
