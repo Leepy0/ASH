@@ -52,6 +52,12 @@ public sealed class JobInfo
     public List<string> FailureMessages { get; set; } = new();
     public List<PackageFile> Files { get; set; } = new();
     public long UploadBytes { get; set; }
+    /// <summary>Which analysis and plan (안) this job is filed under; null until filed. Version 0 = unclassified, else 1.. within the plan.</summary>
+    public string? AnalysisId { get; set; }
+    public string? PlanId { get; set; }
+    public int Version { get; set; }
+    public string VersionNote { get; set; } = "";
+    public bool Selected { get; set; }
 
     [JsonIgnore] public bool Finished => State is JobState.Done or JobState.Failed or JobState.Cancelled;
     [JsonIgnore] public TimeSpan? Duration => StartedUtc is { } s ? (FinishedUtc ?? DateTime.UtcNow) - s : null;
