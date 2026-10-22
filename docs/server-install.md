@@ -100,11 +100,11 @@ git add update-key.pub; git commit -m "chore: update signing public key"
 
 ### GitHub Actions로 릴리스 (기본)
 
-`.github/workflows/release.yml`이 `v*` 태그 push 때 Windows 러너에서 `build-release.ps1`(빌드·테스트·서명)을 돌리고 정식 릴리스를 만든다.
+`.github/workflows/release.yml`이 Windows 러너에서 `build-release.ps1`(빌드·테스트·서명)을 돌리고 정식 릴리스(태그 포함)를 만든다.
 
 - 준비(한 번): 저장소 Settings → Secrets and variables → Actions → New repository secret, 이름 `ASH_SIGNING_KEY_PEM`, 값은 `ash-signing.pem` 파일 내용 전체.
-- 릴리스: `Directory.Build.props`의 `<Version>`을 올려 push한 뒤 같은 버전으로 태그를 push한다(`git tag v0.14.1 && git push origin v0.14.1`). 태그와 버전이 다르면 실패한다.
-- 릴리스 노트는 직전 태그 이후 커밋 제목(chore 제외)이다. 이미 있는 태그로 다시 돌리려면 Actions → release → Run workflow에 태그를 넣는다.
+- 릴리스: `Directory.Build.props`의 `<Version>`을 올려 `main`에 push한다. 그 버전의 릴리스가 없으면 `v<버전>` 태그와 릴리스를 만들고, 있으면 건너뛴다. `v*` 태그를 직접 push해도 된다(태그와 버전이 같아야 함).
+- 릴리스 노트는 직전 태그 이후 커밋 제목(chore·ci 제외)이다.
 - 개인키는 GitHub Secret에도 들어가므로 오프라인 사본 보관 원칙은 그대로 지킨다(Secret은 다시 읽어 낼 수 없다).
 
 ### 빌드와 게시 (릴리스 PC에서 수동)
