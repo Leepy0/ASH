@@ -1,7 +1,7 @@
 # 정식 릴리스: Windows 러너에서 빌드·테스트·서명 후 릴리스(태그 포함)를 만든다.
 # - main push: Directory.Build.props 버전의 릴리스가 없으면 만든다(있으면 건너뜀). 버전만 올려 push하면 릴리스된다.
 # - v* 태그 push: 그 태그로 만든다(태그와 버전이 같아야 함).
-# 서명 키: 저장소 Secret ASH_SIGNING_KEY_PEM (ash-signing.pem 파일 내용 전체)
+# 서명 없음: PC가 사내 서버의 매니페스트를 이 릴리스의 같은 파일(github.com)과 대조한다. Secret이 필요 없어 누가 push해도 릴리스된다.
 name: release
 
 on:
@@ -48,21 +48,6 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: 서명 키 준비
-        if: steps.ver.outputs.skip != 'true'
-        shell: pwsh
-        env:
-          PEM: ${{ secrets.ASH_SIGNING_KEY_PEM }}
-        run: |
-          # 실패 원인을 annotation으로 남긴다(키 내용은 출력하지 않음)
-          function Fail($m) { Write-Host "::error title=서명 키::$m"; exit 1 }
-          if (-not $env:PEM) { Fail "Secret ASH_SIGNING_KEY_PEM 이 비어 있거나 없습니다 (Settings → Secrets and variables → Actions → Repository secrets 확인)" }
-          $pem = $env:PEM.Trim()
-          if ($pem -notmatch '^-----BEGIN PRIVATE KEY-----' -or $pem -notmatch '-----END PRIVATE KEY-----$') { Fail "Secret 형식 오류: BEGIN/END PRIVATE KEY 줄 포함 전체를 넣어야 합니다 (길이 $($pem.Length))" }
-          $key = Join-Path $env:RUNNER_TEMP 'ash-signing.pem'
-          [IO.File]::WriteAllText($key, $pem + "`n")
-          "ASH_SIGNING_KEY=$key" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-
       - name: 릴리스 노트
         if: steps.ver.outputs.skip != 'true'
         shell: pwsh
@@ -75,7 +60,7 @@ jobs:
           [IO.File]::WriteAllText("$env:RUNNER_TEMP\notes.txt", $msg)
           exit 0
 
-      - name: 빌드·테스트·서명
+      - name: 빌드·테스트
         if: steps.ver.outputs.skip != 'true'
         # build-release.ps1은 Windows PowerShell 5.1 전용(ReflectionOnlyLoad 사용)
         shell: powershell
@@ -102,11 +87,6 @@ jobs:
           if ($n -eq 0) { Write-Host "::warning title=테스트::다시 돌렸을 때는 실패한 테스트가 없습니다(간헐 실패 가능)" }
           exit 0
 
-      - name: 서명 키 삭제
-        if: always()
-        shell: pwsh
-        run: Remove-Item "$env:RUNNER_TEMP\ash-signing.pem" -Force -ErrorAction SilentlyContinue
-
       - name: 릴리스 생성
         if: steps.ver.outputs.skip != 'true'
         shell: pwsh
@@ -115,7 +95,7 @@ jobs:
         run: |
           function Fail($m) { Write-Host "::error title=릴리스 생성::$($m -replace '[\r\n]+',' ')"; exit 1 }
           $v = $env:VERSION
-          $files = "ASH-Setup-$v.exe","ASH.json","ASH.json.sig","ASH.Server.json","ASH.Server.json.sig","ASH.Runner.json","ASH.Runner.json.sig","ASH-Plugin-$v.zip","ASH-Runner-$v-win-x64.zip","ASH-Server-$v-win-x64.zip" | ForEach-Object { "dist\$_" }
+          $files = "ASH-Setup-$v.exe","ASH.json","ASH.Server.json","ASH.Runner.json","ASH-Plugin-$v.zip","ASH-Runner-$v-win-x64.zip","ASH-Server-$v-win-x64.zip" | ForEach-Object { "dist\$_" }
           $missing = $files | Where-Object { -not (Test-Path $_) }
           if ($missing) { Fail "자산 없음: $($missing -join ', ') / dist 내용: $((Get-ChildItem dist -Name) -join ', ')" }
           # 태그가 없으면 이 커밋에 만든다

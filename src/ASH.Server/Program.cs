@@ -90,7 +90,7 @@ app.MapPost("/api/admin/releases", async (HttpContext ctx, ReleaseStore s, Cance
         var setup = form.Files.GetFile("setup");
         if (manifest == null || setup == null) return Msg(400, "manifest와 setup 파트가 필요합니다.");
         var m = await s.PublishAsync(manifest, form.Files.GetFile("signature"), setup, ctx.Request.Query["force"] == "1", ct);
-        return Msg(200, $"게시됨: ASH {m.Version} ({m.File})" + (s.Key == null ? "\n경고: 서버에 서명 공개키가 없어 서명을 확인하지 않았습니다." : ""));
+        return Msg(200, $"게시됨: ASH {m.Version} ({m.File})" + (s.Key == null ? "\n참고: 서명 없이 받았습니다. PC는 github.com의 같은 버전 ASH.json과 대조한 뒤에만 설치합니다." : ""));
     }
     catch (UploadException e) { return Msg(e.Status, e.Message); }
     catch (BadHttpRequestException e) { return Msg(e.StatusCode, e.Message); }
@@ -105,8 +105,8 @@ app.MapGet("/", (ReleaseStore s, GitHubSync g, ServerUpdater u, RunnerStore r) =
     if (cur == null) sb.Append("<p>게시된 버전이 없습니다.</p>");
     else sb.Append($"<table border=\"1\" cellpadding=\"4\"><tr><th>현재 버전</th><td>{H(cur.Version)}</td></tr><tr><th>최소 지원</th><td>{H(cur.MinSupported)}</td></tr>" +
         $"<tr><th>게시 시각(서울)</th><td>{H(SeoulTime.FromIso(cur.Published))}</td></tr><tr><th>설치 파일</th><td>{H(cur.File)} ({cur.Size:N0} bytes)</td></tr></table>");
-    sb.Append("<p>서명 키: ").Append(s.Key == null
-        ? (s.AllowUnsigned ? "<b>서명 키 없음(서명 확인 안 함) — Update:AllowUnsigned=true, 개발용</b>" : "<b>서명 키 없음 — 업로드 거절(Update:AllowUnsigned=true로만 허용)</b>")
+    sb.Append("<p>무결성 확인: ").Append(s.Key == null
+        ? (s.AllowUnsigned ? "없음 — PC가 github.com 릴리스와 대조해 확인" : "<b>서명 키 없음 — 업로드 거절(Update:AllowUnsigned=false)</b>")
         : H(s.Key.KeyId)).Append("</p>");
     sb.Append("<p>GitHub 가져오기: ").Append(g.BaseUrl == null ? "꺼짐" : H(g.BaseUrl) + $" ({g.Interval.TotalMinutes:0}분마다, DNS {(g.DnsServers.Count == 0 ? "PC 기본" : string.Join(", ", g.DnsServers))})")
       .Append("<br>마지막 확인(서울): ").Append(g.LastCheckUtc is { } t ? H(SeoulTime.Text(t)) + " — " + H(g.LastResult) : H(g.LastResult)).Append("</p>");

@@ -3,14 +3,13 @@
 # and dist/ASH-Server-<Version>-win-x64.zip (ASH.Server.exe self-contained single file + appsettings.json + README-server.txt + install-service.bat/uninstall-service.bat).
 # Version comes from <Version> in Directory.Build.props.
 # Also dist/ASH.json (release manifest: version, minSupported, SHA-256/size of the Setup exe)
-# and dist/ASH.json.sig, signed with the private-key PEM at $env:ASH_SIGNING_KEY (AshRelease keygen) and verified against update-key.pub.
-# and dist/ASH.Server.json(.sig): version/SHA-256/size of the server zip, signed with the same key (running servers replace themselves from it).
-# and dist/ASH.Runner.json(.sig): the same for the runner zip (ash-run replaces itself from it, through the server).
+# and dist/ASH.Server.json: version/SHA-256/size of the server zip (running servers replace themselves from it).
+# and dist/ASH.Runner.json: the same for the runner zip (ash-run replaces itself from it, through the server).
+# 무결성: 기본은 서명 없음. PC(플러그인·ash-run)가 사내 서버에서 받은 매니페스트를 github.com 릴리스의 같은 파일과 대조한다.
+#   서명은 선택: 저장소 루트에 update-key.pub가 있고 $env:ASH_SIGNING_KEY(개인키 PEM)가 있으면 .sig도 만든다(공개키만 있으면 오류).
 #   -MinSupported <ver>  PCs below this version are told to update (default: $env:ASH_MIN_SUPPORTED, else 0.0.0 = nobody is "below minimum").
 #                        It never defaults to the current version. Must not exceed the version being built.
-#   -AllowUnsigned       DEV ONLY: build without signing (no ASH_SIGNING_KEY / no update-key.pub). Without it the build throws when either is missing.
-#                        Even with it, a repo-root update-key.pub without the signing key is an error (a plugin holding the key cannot update from an unsigned manifest).
-#   -RequireSignature    obsolete no-op (signing is required by default).
+#   -AllowUnsigned, -RequireSignature  obsolete no-ops.
 #   -Notes <file>        becomes the manifest notes.
 # This file is UTF-8 with BOM: Windows PowerShell 5.1 would otherwise read the Korean text in the messages as ANSI.
 param([switch]$AllowUnsigned, [switch]$RequireSignature, [string]$MinSupported, [string]$Notes)
@@ -18,16 +17,14 @@ $ErrorActionPreference = 'Stop'
 $root = [IO.Path]::GetFullPath("$PSScriptRoot\..")
 $version = ([xml](Get-Content "$root\Directory.Build.props" -Raw)).Project.PropertyGroup.Version | Where-Object { $_ } | Select-Object -First 1
 if (-not $version) { throw "Directory.Build.props has no <Version>" }
-if ($RequireSignature) { Write-Warning "-RequireSignature is obsolete: signing is required by default (use -AllowUnsigned for dev builds)" }
+if ($RequireSignature -or $AllowUnsigned) { Write-Warning "-RequireSignature / -AllowUnsigned are obsolete: signing is optional (update-key.pub + ASH_SIGNING_KEY)" }
 $signKey = $env:ASH_SIGNING_KEY
 $pubKey = "$root\update-key.pub"
 $haveKey = [bool]($signKey -and (Test-Path $signKey))
 $havePub = Test-Path $pubKey
 if ($havePub -and -not $haveKey) { throw "update-key.pub exists but ASH_SIGNING_KEY is unset or its file is missing - 키가 든 플러그인과 서명 없는 매니페스트 조합 불가 (even with -AllowUnsigned). Set `$env:ASH_SIGNING_KEY to the signing key PEM path." }
-if (-not $AllowUnsigned -and -not $haveKey) { throw "Signing is required: set `$env:ASH_SIGNING_KEY to the signing key PEM path (AshRelease keygen). Dev builds only: -AllowUnsigned" }
-if (-not $AllowUnsigned -and -not $havePub) { throw "Signing is required: $pubKey is missing (AshRelease keygen, then copy update-key.pub to the repo root). Dev builds only: -AllowUnsigned" }
-$sign = $haveKey -and $havePub # -AllowUnsigned with a key but no update-key.pub: nothing could verify the signature, so it is not signed
-if (-not $sign) { Write-Warning "-AllowUnsigned: dist/ASH.json will NOT be signed and the plugin/server carry no update key. Development use only." }
+$sign = $haveKey -and $havePub # a key without update-key.pub: nothing could verify the signature, so it is not signed
+if (-not $sign) { Write-Host "서명 없음: PC는 github.com 릴리스의 매니페스트와 대조해 확인합니다." }
 if ($Notes -and -not (Test-Path $Notes)) { throw "-Notes file not found: $Notes" }
 $minSupported = if ($MinSupported) { $MinSupported } elseif ($env:ASH_MIN_SUPPORTED) { $env:ASH_MIN_SUPPORTED } else { '0.0.0' }
 dotnet build "$root\ASH.sln" -c Release --no-incremental -nologo -v q

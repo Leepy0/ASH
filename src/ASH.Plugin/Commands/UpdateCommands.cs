@@ -21,6 +21,7 @@ public sealed class UpdateCommands
     private static readonly TimeSpan DownloadIdleTimeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan DownloadTotal = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan HardCapGrace = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan GitHubTimeout = TimeSpan.FromSeconds(20); // 프록시·WPAD 탐색 포함
 
     [CommandMethod("AGVUPDATE")]
     public void AgvUpdate() => Guarded("AGVUPDATE", RunUpdate);
@@ -56,7 +57,8 @@ public sealed class UpdateCommands
 
         var (key, keyErr) = UpdateNotifier.LoadKey();
         if (keyErr != null) { Say(ed, keyErr + " — 업데이트를 중단했습니다."); return; } // never fall back to unsigned
-        if (key == null) ed.WriteMessage("\n경고: 서명 키 미설정 — SHA-256만 확인");
+        // 서명 키가 없는 빌드(기본)는 github.com 릴리스와 대조
+        var github = key == null ? new GitHubManifestCheck(GitHubTimeout) : null;
 
         Say(ed, $"{url} 에서 새 버전을 확인하는 중…");
         UpdateResult r;
@@ -84,7 +86,7 @@ public sealed class UpdateCommands
             var download = Task.Run(async () =>
             {
                 using var c = new UpdateClient(new Uri(url), DownloadIdleTimeout);
-                return await c.DownloadVerifiedAsync(r.Fetched, key, dir, cts.Token).ConfigureAwait(false);
+                return await c.DownloadVerifiedAsync(r.Fetched, key, dir, cts.Token, github).ConfigureAwait(false);
             });
             if (!download.Wait(DownloadTotal + HardCapGrace)) { Say(ed, UpdateMessages.DownloadFailed(new TimeoutException(), totalTimeout: true)); return; }
             path = download.GetAwaiter().GetResult();

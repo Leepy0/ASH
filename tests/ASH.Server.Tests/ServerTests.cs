@@ -291,22 +291,22 @@ public class ServerTests
     }
 
     [Fact]
-    public async Task Without_key_and_AllowUnsigned_unsigned_upload_is_accepted_and_status_warns()
+    public async Task Without_key_and_AllowUnsigned_unsigned_upload_is_accepted_and_status_says_github()
     {
         using var e = new Env(key: false, allowUnsigned: true);
         var r = e.MakeRelease("0.2.0", sign: false);
         var resp = await e.Upload(r);
         Assert.Equal(HttpStatusCode.OK, resp.StatusCode);
-        Assert.Contains("경고", await resp.Content.ReadAsStringAsync());
+        Assert.Contains("github.com", await resp.Content.ReadAsStringAsync());
         Assert.Equal(r.Json, await e.Get("/api/ash/version"));
         Assert.Equal(HttpStatusCode.NotFound, (await e.Http.GetAsync("/api/ash/version.sig")).StatusCode);
         var page = await e.Http.GetStringAsync("/");
-        Assert.Contains("서명 키 없음(서명 확인 안 함)", page);
+        Assert.Contains("github.com 릴리스와 대조", page);
         Assert.Contains("0.2.0", page);
     }
 
     [Fact]
-    public async Task Without_key_uploads_are_rejected_by_default_and_status_says_so()
+    public async Task Without_key_and_AllowUnsigned_false_uploads_are_rejected()
     {
         using var e = new Env(key: false);
         var resp = await e.Upload(e.MakeRelease("0.2.0", sign: false));
@@ -315,7 +315,7 @@ public class ServerTests
         Assert.Equal(HttpStatusCode.NotFound, (await e.Http.GetAsync("/api/ash/version")).StatusCode);
         var page = await e.Http.GetStringAsync("/");
         Assert.Contains("업로드 거절", page);
-        Assert.DoesNotContain("서명 확인 안 함", page);
+        Assert.DoesNotContain("github.com 릴리스와 대조", page);
     }
 
     [Fact]

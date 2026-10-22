@@ -77,12 +77,15 @@ public sealed class UpdateClient : IDisposable
     /// with null the caller is on the unsigned path (SHA-256 only) and must warn. The manifest is always re-parsed from <c>f.Json</c>.
     /// Downloads to &lt;destDir&gt;\&lt;file&gt;.part, checks size and SHA-256, then renames; a mismatch deletes the file.
     /// </summary>
+    /// <param name="github">키가 없을 때 매니페스트를 github.com 릴리스와 대조한다. 키도 이것도 없으면 SHA-256만 확인(개발용).</param>
     /// <exception cref="InvalidDataException">Signature check failed, unsafe file name, or size/hash mismatch.</exception>
+    /// <exception cref="GitHubCheckException">github.com 대조 실패(접속 불가, 내용 다름).</exception>
     /// <exception cref="IOException">The final name is an installer that is still running (Delete+Move cannot replace it).</exception>
-    public async Task<string> DownloadVerifiedAsync(FetchedManifest f, ManifestSignature? key, string destDir, CancellationToken ct = default)
+    public async Task<string> DownloadVerifiedAsync(FetchedManifest f, ManifestSignature? key, string destDir, CancellationToken ct = default, GitHubManifestCheck? github = null)
     {
         if (key != null && (f.Sig == null || !key.Verify(f.Json, f.Sig))) throw new InvalidDataException("서명 확인 실패");
         var m = ReleaseManifest.Parse(f.Json); // validates file name and sha256 format
+        if (key == null && github != null) await github.VerifyAsync(f.Json, m.Version, ReleaseManifest.FileName, ct).ConfigureAwait(false);
         Directory.CreateDirectory(destDir);
         string final = Path.Combine(destDir, m.File), part = final + ".part";
         try

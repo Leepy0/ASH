@@ -26,6 +26,7 @@ public static class UpdateMessages
 
     /// <param name="totalTimeout">The caller's overall download limit fired (as opposed to an idle/connect failure).</param>
     public static string DownloadFailed(Exception e, bool totalTimeout = false) => totalTimeout ? "다운로드 시간 초과(5분)"
+        : Unwrap(e) is GitHubCheckException g ? $"업데이트 중단({g.Message})"
         : Unwrap(e) is IOException || Unwrap(e) is UnauthorizedAccessException
             ? "다운로드 실패(받을 위치의 파일을 쓸 수 없음 — 이전 설치 프로그램이 실행 중이면 닫고 다시 시도하세요)"
             : $"다운로드 실패({Reason(e)})";

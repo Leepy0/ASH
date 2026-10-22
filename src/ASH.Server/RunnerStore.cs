@@ -3,9 +3,9 @@ using ASH.Core.Update;
 namespace ASH.Server;
 
 /// <summary>
-/// The newest signed ASH.Runner zip: &lt;Releases:Dir&gt;\runner\current\ASH.Runner.json(.sig) and runner\files\ASH-Runner-&lt;ver&gt;-win-x64.zip.
-/// ash-run on the analysis PC asks /api/ash/runner for the manifest, checks the signature itself, then downloads the zip from /download.
-/// The server also verifies before it stores, so only signed content is ever served. Fed by the GitHub pull.
+/// The newest ASH.Runner zip (signed when the build has a key): &lt;Releases:Dir&gt;\runner\current\ASH.Runner.json(.sig) and runner\files\ASH-Runner-&lt;ver&gt;-win-x64.zip.
+/// ash-run on the analysis PC asks /api/ash/runner for the manifest, checks it itself (signature, or the github.com release copy), then downloads the zip from /download.
+/// With a key the server also verifies before it stores. Fed by the GitHub pull.
 /// </summary>
 public sealed class RunnerStore
 {
@@ -71,9 +71,9 @@ public sealed class RunnerStore
         var committed = false;
         try
         {
-            if (Key == null) throw new UploadException(400, "서명 키 없음 — Runner 배포는 서명된 것만 받습니다.");
             if (json.Length > MaxManifestBytes || (sig != null && sig.Length > MaxSignatureBytes)) throw new UploadException(400, "Runner 배포 정보가 너무 큽니다.");
-            if (sig == null || !Key.Verify(json, sig)) throw new UploadException(400, "Runner 배포 서명이 맞지 않습니다.");
+            // 키가 없는 빌드(기본)는 서명을 보지 않는다: ash-run이 github.com 릴리스와 대조한다
+            if (Key != null && (sig == null || !Key.Verify(json, sig))) throw new UploadException(400, "Runner 배포 서명이 맞지 않습니다.");
             PackageManifest m;
             try { m = PackageManifest.ParseRunner(json); }
             catch (InvalidDataException e) { throw new UploadException(400, e.Message); }
@@ -95,7 +95,8 @@ public sealed class RunnerStore
             moved = dest;
 
             // signature first: a client that reads between the two swaps gets a new signature with the old manifest, fails verification and retries later
-            Swap(Path.Combine(CurrentDir, PackageManifest.RunnerSignatureName), sig);
+            var sigPath = Path.Combine(CurrentDir, PackageManifest.RunnerSignatureName);
+            if (sig != null) Swap(sigPath, sig); else if (File.Exists(sigPath)) File.Delete(sigPath); // 서명 없는 배포: 옛 서명이 남지 않게
             Swap(Path.Combine(CurrentDir, PackageManifest.RunnerManifestName), json);
             committed = true;
             Prune(m.File);

@@ -83,11 +83,15 @@ public class RunnerStoreTests
     }
 
     [Fact]
-    public async Task Server_without_a_key_refuses_runner()
+    public async Task Server_without_a_key_accepts_unsigned_runner()
     {
+        // 키 없는 빌드(기본): 서명 없이 받고, ash-run이 github.com과 대조한다
         using var e = new Env(key: false);
-        var ex = await Assert.ThrowsAsync<UploadException>(() => Publish(Store(e), MakeRunner(e, "0.5.1")));
-        Assert.Contains("서명 키 없음", ex.Message);
+        var p = MakeRunner(e, "0.5.1", sign: false);
+        await Publish(Store(e), p);
+        Assert.Equal(p.Json, await e.Get("/api/ash/runner"));
+        Assert.Equal(HttpStatusCode.NotFound, (await e.Http.GetAsync("/api/ash/runner.sig")).StatusCode);
+        Assert.Equal(p.Zip, await e.Get("/download/" + p.File));
     }
 
     [Fact]

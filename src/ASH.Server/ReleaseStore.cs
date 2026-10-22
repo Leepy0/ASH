@@ -52,7 +52,7 @@ public sealed class ReleaseStore
         foreach (var d in new[] { CurrentDir, FilesDir, HistoryDir }) Directory.CreateDirectory(d);
         // leftovers of a crashed upload
         TryDelete(Path.Combine(Dir, "incoming"));
-        if (Key == null && AllowUnsigned) _log.LogWarning("서명 공개키가 없습니다: Update:AllowUnsigned=true라 서명을 확인하지 않고 업로드를 받습니다.");
+        if (Key == null && AllowUnsigned) _log.LogInformation("서명 공개키 없음: 서명 없이 받습니다(클라이언트가 github.com 릴리스와 대조).");
         else if (Key == null) _log.LogWarning("서명 공개키가 없습니다: 업로드를 모두 거절합니다(Update:AllowUnsigned=true로만 허용).");
         else _log.LogInformation("서명 공개키 {KeyId}", Key.KeyId);
     }
@@ -63,7 +63,8 @@ public sealed class ReleaseStore
         if (string.IsNullOrWhiteSpace(dir)) dir = "%ProgramData%\\ASH.Server\\releases";
         dir = Path.GetFullPath(Environment.ExpandEnvironmentVariables(dir));
         var pem = ResolveKeyPem(cfg["Update:PublicKeyPem"], EmbeddedKey(), env.IsDevelopment(), log);
-        return new ReleaseStore(dir, pem, cfg["Admin:Token"], log, cfg.GetValue<bool>("Update:AllowUnsigned"));
+        // 키 없는 빌드(기본)는 서명 없이 받는다: 플러그인이 github.com 릴리스와 대조한다
+        return new ReleaseStore(dir, pem, cfg["Admin:Token"], log, cfg.GetValue("Update:AllowUnsigned", true));
     }
 
     /// <summary>
@@ -170,7 +171,7 @@ public sealed class ReleaseStore
                 if (sig == null) throw new UploadException(400, "이 서버는 서명된 배포만 받습니다(signature 없음).");
                 if (!Key.Verify(json, sig)) throw new UploadException(400, "서명이 맞지 않습니다.");
             }
-            else _log.LogWarning("서명 확인 없이 {Version} 업로드를 받습니다(공개키 없음).", m.Version);
+            else _log.LogInformation("서명 확인 없이 {Version}을(를) 받습니다(클라이언트가 github.com과 대조).", m.Version);
 
             if (setupName != m.File)
                 throw new UploadException(400, $"설치 파일 이름({setupName})이 배포 정보의 file({m.File})과 다릅니다.");

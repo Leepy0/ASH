@@ -8,15 +8,16 @@ using ASH.Core.Update;
 namespace ASH.Runner;
 
 /// <param name="Handler">Tests only: the in-memory server. Null = a plain handler without proxy (the server is on the LAN).</param>
-public sealed record RunnerUpdateOptions(Uri Server, ManifestSignature Key, string CurrentVersion, string ExePath, TimeSpan Timeout, HttpMessageHandler? Handler = null);
+/// <param name="Key">내장 서명 키. null이면 <paramref name="GitHub"/>로 매니페스트를 github.com 릴리스와 대조한다(둘 다 null이면 거절).</param>
+public sealed record RunnerUpdateOptions(Uri Server, ManifestSignature? Key, string CurrentVersion, string ExePath, TimeSpan Timeout, HttpMessageHandler? Handler = null, GitHubManifestCheck? GitHub = null);
 
 public sealed record PreparedUpdate(string Version, string NewExePath);
 
 /// <summary>
 /// ash-run updates itself from ASH.Server before it starts a job, so a job never runs half on one version:
-/// ask /api/ash/runner, check the signature with the embedded key, download the zip, check size and SHA-256, take ash-run.exe out of it,
+/// ask /api/ash/runner, check it (embedded key's signature, or without a key the same file on the github.com release), download the zip, check size and SHA-256, take ash-run.exe out of it,
 /// swap it in (the old file stays as ash-run.exe.old for a manual rollback), prove the new one starts, and run the new one with the same arguments.
-/// Updating is quiet and optional: no key, no server address, a server that does not answer or a folder that is not writable just run this version.
+/// Updating is quiet and optional: no server address, github.com out of reach, a server that does not answer or a folder that is not writable just run this version.
 /// </summary>
 public static class RunnerUpdater
 {
@@ -25,6 +26,7 @@ public static class RunnerUpdater
     public const string ExeName = "ash-run.exe";
     private static readonly TimeSpan CheckTimeout = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan SmokeTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan GitHubTimeout = TimeSpan.FromSeconds(20);
 
     /// <summary>Version of this build (Directory.Build.props &lt;Version&gt;), without the "+commit" suffix.</summary>
     public static string CurrentVersion { get; } =
@@ -40,10 +42,16 @@ public static class RunnerUpdater
 
         var json = await GetBytes(http, baseUrl + "/api/ash/runner", o.Timeout, ct);
         if (json == null) return null; // the server has no runner published
-        var sig = await GetBytes(http, baseUrl + "/api/ash/runner.sig", o.Timeout, ct);
-        if (sig == null || !o.Key.Verify(json, sig)) throw new InvalidDataException("서명 확인 실패");
+        if (o.Key != null)
+        {
+            var sig = await GetBytes(http, baseUrl + "/api/ash/runner.sig", o.Timeout, ct);
+            if (sig == null || !o.Key.Verify(json, sig)) throw new InvalidDataException("서명 확인 실패");
+        }
+        else if (o.GitHub == null) throw new InvalidDataException("검증 수단 없음(서명 키·github.com 대조 모두 없음)");
         var m = PackageManifest.ParseRunner(json);
         if (!m.IsNewerThan(o.CurrentVersion)) return null;
+        // 새 버전일 때만 github.com 대조(최신이면 접속하지 않음)
+        if (o.Key == null) await o.GitHub!.VerifyAsync(json, m.Version, PackageManifest.RunnerManifestName, ct);
 
         var dir = Path.GetDirectoryName(o.ExePath)!;
         var work = Path.Combine(dir, "update");
@@ -155,7 +163,7 @@ public static class RunnerUpdater
     private static string Describe(Exception e) =>
         Environment.GetEnvironmentVariable("ASH_RUNNER_DEBUG") != null ? e.ToString() : string.IsNullOrWhiteSpace(e.Message) ? e.GetType().Name : e.Message;
 
-    private sealed record Ctx(Uri Server, ManifestSignature Key, string ExePath);
+    private sealed record Ctx(Uri Server, ManifestSignature? Key, string ExePath);
 
     // null (with a line when verbose) when this process cannot or should not update
     private static Ctx? Context(string? serverArg, TextWriter o, bool verbose)
@@ -167,11 +175,8 @@ public static class RunnerUpdater
             return null;
         }
         var (key, keyErr) = UpdateFlow.LoadKey(Assembly.GetExecutingAssembly().GetManifestResourceStream("update-key.pub"));
-        if (key == null)
-        {
-            if (verbose || keyErr != null) o.WriteLine(keyErr ?? "update: this build has no signing key, it never updates itself.");
-            return null;
-        }
+        if (keyErr != null) { o.WriteLine(keyErr); return null; } // 읽을 수 없는 키는 대조로 바꾸지 않는다
+        // key == null: 서명 키 없는 빌드(기본)는 github.com 릴리스와 대조
         var url = serverArg ?? Environment.GetEnvironmentVariable(ServerEnv);
         if (string.IsNullOrWhiteSpace(url)) { try { url = UserSettings.Load().ServerUrl; } catch (IOException) { } catch (UnauthorizedAccessException) { } }
         if (string.IsNullOrWhiteSpace(url))
@@ -206,7 +211,13 @@ public static class RunnerUpdater
             PreparedUpdate? p;
             try
             {
-                p = await PrepareAsync(new RunnerUpdateOptions(c.Server, c.Key, CurrentVersion, c.ExePath, verbose ? TimeSpan.FromSeconds(15) : CheckTimeout), ct);
+                p = await PrepareAsync(new RunnerUpdateOptions(c.Server, c.Key, CurrentVersion, c.ExePath, verbose ? TimeSpan.FromSeconds(15) : CheckTimeout,
+                    GitHub: c.Key == null ? new GitHubManifestCheck(GitHubTimeout) : null), ct);
+            }
+            catch (GitHubCheckException e)
+            {
+                o.WriteLine("update skipped: " + e.Message);
+                return verbose ? 1 : null;
             }
             catch (Exception e) when (e is HttpRequestException || (e is OperationCanceledException && !ct.IsCancellationRequested))
             {

@@ -49,6 +49,65 @@ public class RunnerUpdaterTests : IDisposable
         Assert.Empty(Directory.GetFiles(Path.Combine(_dir, "update"))); // no .part or zip left behind
     }
 
+    private sealed class FakeGitHub(Func<byte[]?> body) : HttpMessageHandler
+    {
+        public int Calls;
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage r, CancellationToken ct)
+        {
+            Calls++;
+            var b = body();
+            return Task.FromResult(b == null ? new HttpResponseMessage(System.Net.HttpStatusCode.NotFound) : new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new ByteArrayContent(b) });
+        }
+    }
+
+    // 키 없는 빌드(기본): 서버의 ASH.Runner.json을 github.com 릴리스와 대조
+    private async Task<(Env E, byte[] Exe)> UnsignedServer()
+    {
+        var e = new Env(key: false);
+        var exe = Encoding.UTF8.GetBytes("pretend ash-run.exe " + new string('y', 1000));
+        var p = RunnerStoreTests.MakeRunner(e, "0.6.0", sign: false, bytes: ZipOf("ash-run.exe", exe));
+        await e.Factory.Services.GetRequiredService<RunnerStore>().PublishAsync(p.Json, null, p.File, new MemoryStream(p.Zip), default);
+        return (e, exe);
+    }
+
+    [Fact]
+    public async Task Without_key_runner_updates_when_github_has_the_same_manifest()
+    {
+        var (e, exe) = await UnsignedServer();
+        using var _ = e;
+        var json = await e.Get("/api/ash/runner");
+        var gh = new FakeGitHub(() => json);
+        var o = new RunnerUpdateOptions(new Uri("http://localhost/"), null, "0.5.0", Exe, TimeSpan.FromSeconds(10), e.Factory.Server.CreateHandler(),
+            new GitHubManifestCheck(TimeSpan.FromSeconds(5), gh));
+        var p = await RunnerUpdater.PrepareAsync(o, default);
+        Assert.Equal("0.6.0", p!.Version);
+        Assert.Equal(exe, File.ReadAllBytes(p.NewExePath));
+        Assert.Equal(1, gh.Calls);
+    }
+
+    [Fact]
+    public async Task Without_key_runner_does_not_update_when_github_differs()
+    {
+        var (e, _) = await UnsignedServer();
+        using var _e = e;
+        var o = new RunnerUpdateOptions(new Uri("http://localhost/"), null, "0.5.0", Exe, TimeSpan.FromSeconds(10), e.Factory.Server.CreateHandler(),
+            new GitHubManifestCheck(TimeSpan.FromSeconds(5), new FakeGitHub(() => Encoding.UTF8.GetBytes("{}"))));
+        await Assert.ThrowsAsync<GitHubCheckException>(() => RunnerUpdater.PrepareAsync(o, default));
+        Assert.False(File.Exists(Exe + ".new"));
+    }
+
+    [Fact]
+    public async Task Without_key_an_up_to_date_runner_never_contacts_github()
+    {
+        var (e, _) = await UnsignedServer();
+        using var _e = e;
+        var gh = new FakeGitHub(() => throw new HttpRequestException("must not be called"));
+        var o = new RunnerUpdateOptions(new Uri("http://localhost/"), null, "0.6.0", Exe, TimeSpan.FromSeconds(10), e.Factory.Server.CreateHandler(),
+            new GitHubManifestCheck(TimeSpan.FromSeconds(5), gh));
+        Assert.Null(await RunnerUpdater.PrepareAsync(o, default));
+        Assert.Equal(0, gh.Calls);
+    }
+
     [Theory]
     [InlineData("0.6.0")]
     [InlineData("0.7.0")]

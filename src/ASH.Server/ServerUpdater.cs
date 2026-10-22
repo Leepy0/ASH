@@ -53,7 +53,6 @@ public sealed class ServerUpdater
         Current = (typeof(ServerUpdater).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.0.0").Split('+')[0];
         DisabledReason = !cfg.GetValue("GitHub:Enabled", true) ? "GitHub 가져오기가 꺼짐"
             : !cfg.GetValue("GitHub:UpdateServer", true) ? "GitHub:UpdateServer=false"
-            : store.Key == null ? "서명 공개키가 없는 빌드"
             : !OperatingSystem.IsWindows() || !WindowsServiceHelpers.IsWindowsService() ? "Windows 서비스로 실행 중이 아님(콘솔 실행)"
             : File.Exists(Path.Combine(AppContext.BaseDirectory, "ASH.Server.dll")) ? "배포용 단일 exe가 아님(개발 빌드)" // single-file publish has no dll next to the exe
             : !ServiceUsesThisExe() ? $"서비스 {ServiceCommand.ServiceName}에 등록된 exe가 지금 실행 중인 exe가 아님"
@@ -95,9 +94,13 @@ public sealed class ServerUpdater
             return $"{m.Version}은(는) 지난 교체에 실패해 자동 적용하지 않음(update\\apply.log 확인, 더 높은 버전이 나오면 다시 시도)";
 
         var tag = $"{baseUrl}/releases/download/v{Uri.EscapeDataString(m.Version)}";
-        var sig = await GitHubSync.GetSmall(http, $"{tag}/{PackageManifest.ServerSignatureName}", 4096, ct);
-        if (sig == null) return $"거절: {PackageManifest.ServerSignatureName}이(가) 없음";
-        if (!_store.Key!.Verify(json, sig)) return "거절: 서버 배포 서명이 맞지 않습니다.";
+        // 키 없는 빌드(기본)는 github.com HTTPS로 받은 매니페스트를 그대로 믿는다
+        if (_store.Key != null)
+        {
+            var sig = await GitHubSync.GetSmall(http, $"{tag}/{PackageManifest.ServerSignatureName}", 4096, ct);
+            if (sig == null) return $"거절: {PackageManifest.ServerSignatureName}이(가) 없음";
+            if (!_store.Key.Verify(json, sig)) return "거절: 서버 배포 서명이 맞지 않습니다.";
+        }
 
         Directory.CreateDirectory(_dir);
         foreach (var f in Directory.GetFiles(_dir, "*.partial")) TryDeleteFile(f);
@@ -107,7 +110,7 @@ public sealed class ServerUpdater
             if (!resp.IsSuccessStatusCode) throw new HttpRequestException($"서버 zip을 받을 수 없습니다({(int)resp.StatusCode}).");
             await using var src = await resp.Content.ReadAsStreamAsync(ct);
             var (size, hash) = await CopyAndHash(src, part, m.Size, ct);
-            if (size != m.Size || hash != m.Sha256) { TryDeleteFile(part); return "거절: 받은 서버 zip의 크기 또는 SHA-256이 서명된 정보와 다릅니다."; }
+            if (size != m.Size || hash != m.Sha256) { TryDeleteFile(part); return "거절: 받은 서버 zip의 크기 또는 SHA-256이 배포 정보와 다릅니다."; }
         }
         var stage = Path.Combine(_dir, "v" + m.Version);
         if (Directory.Exists(stage)) Directory.Delete(stage, true);
