@@ -166,7 +166,7 @@ view focus relative to world pos CX, CY, 0 camera relative to world pos CX, CY, 
 - **보이는 범위는 `scale`로만 정해진다.** 동영상의 짧은 변 방향으로 보이는 길이는 다음과 같다.
   `보이는 길이(짧은 변) = F0 / S`, 긴 변 = 짧은 변 × (긴 변 px / 짧은 변 px)
   - F0는 **장면마다 정해지는 값**이다(보이는 시스템과 도면에 따라 달라짐, 10.4). F0를 제대로 정하면 10장 공식의 오차는 1% 미만이다. agvdemo에서 측정한 F0는 **264–277 ft**였다(t13: 720p에서 2.73 px/ft, t14: 800×800·scale 2에서 6.0 px/ft, t15: 1280×400·scale 2, m1: scale 6). 10장의 정밀 측정값은 **267 ft**다.
-  - ~~F0 ≈ DRAWPOS 3차원 대각선~~은 **틀렸다**(우연히 비슷했을 뿐). `.avw`에 복사된 model.amo의 DRAWPOS는 0이다. **F0는 화면에 보이는 장면 전체(정적 도면 포함)의 3차원 경계 상자 대각선 × 약 1.17–1.21**이고, 시스템을 끄거나 도면을 더하면 바뀐다 [실험, 10.4].
+  - ~~F0 ≈ DRAWPOS 3차원 대각선~~은 **틀렸다**(우연히 비슷했을 뿐). `.avw`에 복사된 model.amo의 DRAWPOS는 0이다. F0는 화면에 보이는 장면 전체(정적 도면 포함)의 3차원 경계 상자 대각선에 비례하는 값이고(실험 4가지에서 대각선의 약 1.17–1.21배), 시스템을 끄거나 도면을 더하면 바뀐다 [실험, 10.4]. 이 배수는 모델 1개의 첫 추정일 뿐 규칙이 아니다. F0는 10.4의 보정 컷으로 잰다.
   - 출력 크기(1280×720, 800×800, 1280×400)를 바꿔도 짧은 변 기준 F0는 같았다. 화면 중앙은 항상 정확히 (CX, CY)였다 [실험].
 - 사각형 w×h(모델 단위)를 W×H px(W ≥ H)에 여백 m(예: 0.1)을 두고 담으려면:
   ```
@@ -175,7 +175,7 @@ view focus relative to world pos CX, CY, 0 camera relative to world pos CX, CY, 
   CX = (xmin+xmax)/2 · (µm 환산), CY = (ymin+ymax)/2 · (µm 환산)
   ```
   예(m1 실험): 사각형 A = x −10…45, y −35…5 ft(55×40), 1280×720 → L = max(40, 30.9)·1.1 = 44 ft → S = 266/44 ≈ 6.05. CX = 17.5 ft = 5,334,000 µm, CY = −15 ft = −4,572,000 µm.
-- 정확도는 ±5% 정도였다. 첫 사용 전에 모델마다 **보정 컷 1장**을 권한다: scale 1, 1프레임을 렌더해 아는 두 점의 픽셀 거리로 F0를 잰다.
+- F0를 대각선 추정(위 1.17–1.21배)으로 잡으면 이 계산의 오차는 ±5% 정도였다. F0를 보정 컷으로 재면 오차는 1% 미만이다(10.4). 그래서 모델마다 **보정 컷 1장**을 쓴다: scale 1, 1프레임을 렌더해 아는 두 점의 픽셀 거리로 F0를 잰다(ASH 서버는 영상마다 자동으로 한다, 12장).
 - 원근(perspective): 카메라 높이를 100 ft에서 200 ft로 바꿔도 화면 배율은 거의 같았다. 원근 왜곡 정도만 달라졌다(t11/t12). 즉 원근에서도 확대는 scale로 한다. 10장에서 확인했다: 초점(focus) 평면의 배율이 F0/S로 고정되고, 카메라 거리 D는 원근 왜곡만 바꾼다. 기울인 시점의 공식과 실측은 **10장**에 있다.
 - 기본 TOP 뷰(.vdf)는 모델 전체가 들어오게 만들어진다. 카메라 = 중심 + Z 549 ft, scale 1 [실험 .vdf].
 
@@ -592,3 +592,21 @@ STATIC name drw
 5. F0는 10.4의 보정 컷(`ash_cal`)으로 정한다.
 
 미검증: GUI의 DXF Read 결과가 같은 `511` 형식인지(추정: 데모 HSF와 같음). 선 수천 개짜리 도면의 빌드·로드 시간. 글자·원 HMF 요소. 서버(라이선스판)에서의 동작.
+
+---
+
+## 12. ASH 구현이 쓰는 절
+
+이 가이드의 규칙을 코드가 어디서 쓰는지 적는다. 가이드를 고치면 아래 코드도 맞춰 본다.
+
+| 절 | 내용 | 쓰는 코드 |
+|---|---|---|
+| 2.1 | 기록 구간만 snap으로 남기는 CONTROL 줄 | `src/ASH.Core/Model/ModelAmoWriter.cs` (영상용 실행) |
+| 3, 9 | camera.des 문법, 컷 4종 레시피(Hold/Move 등) | `src/ASH.Core/Film/CameraScript.cs`, `CutModels.cs` |
+| 4, 5, 10.1–10.3 | 사각형 → scale·중심, 기울인 시점의 scale 공식, 시간 규칙 | `src/ASH.Core/Film/CameraMath.cs` |
+| 6.2–6.4 | `aview64 -n`, 대화상자 자동 클릭, `NoDefaultCurrentDirectoryInExePath` 제거, 컷 하나 = 실행 한 번 = MP4 하나, ffmpeg 이어 붙이기 | `src/ASH.Core/Film/AutoViewRenderer.cs` |
+| 10.4 | F0 보정 컷(`ash_cal`) 두 번 렌더로 F0 = H × Lc / p | `src/ASH.Server/FilmWorker.cs`, 차이 측정은 `AutoViewRenderer.cs` |
+| 11 | 도면을 정적 시스템 `ash_drw`로 넣기 | `src/ASH.Core/Film/StaticDrawing.cs` |
+| 11.4 | DXF → 선분 | `src/ASH.Core/Dxf/DxfLite.cs`, 좌표 틀 `ModelFrame.cs` |
+
+미검증으로 남은 것은 서버가 서비스 세션에서 AutoView를 그릴 수 있는지다(`docs/server-install.md` 5절 "영상 촬영", `docs/plugin-manual-test.md` AN6).

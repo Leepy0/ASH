@@ -168,7 +168,7 @@ SYSTEM으로 실행해도 로그온한 대화형 사용자가 있고 그 사용�
 
 | 바로 적용(다음 작업·다음 정리부터) | 서비스 재시작 필요 |
 |---|---|
-| `Jobs:Enabled`, `Jobs:AmHome`, `Jobs:Parallel`, `Jobs:DialogButton`, `Jobs:RunTimeoutMin`, `Jobs:BuildTimeoutMin`, `Jobs:JobTimeoutHours`, `Jobs:KeepRunsDays` | `Jobs:WorkerEnabled`, `Jobs:Dir`, `GitHub:Enabled`, `GitHub:BaseUrl`, `GitHub:CheckIntervalMin`, `GitHub:UpdateServer`, `GitHub:Proxy`, `GitHub:Dns`, `Urls`, `Releases:Dir`, `Update:AllowUnsigned` |
+| `Jobs:Enabled`, `Jobs:AmHome`, `Jobs:Parallel`, `Jobs:DialogButton`, `Jobs:RunTimeoutMin`, `Jobs:BuildTimeoutMin`, `Jobs:JobTimeoutHours`, `Jobs:KeepRunsDays`, `Film:CutTimeoutMin` | `Jobs:WorkerEnabled`, `Jobs:Dir`, `Film:FfmpegPath`, `Film:AviewExe`, `GitHub:Enabled`, `GitHub:BaseUrl`, `GitHub:CheckIntervalMin`, `GitHub:UpdateServer`, `GitHub:Proxy`, `GitHub:Dns`, `Urls`, `Releases:Dir`, `Update:AllowUnsigned` |
 
   `Admin:Token`, `Update:PublicKeyPem`, `Logging`은 웹에서 바꾸지 않는다(서버 PC에서 파일을 직접 고친다).
 - **저장:** 모든 값을 먼저 검사한다(정수 범위, 켬/끔, `Urls`·`GitHub:BaseUrl`·`GitHub:Proxy`·`GitHub:Dns` 형식). 하나라도 틀리면 아무것도 쓰지 않는다. 통과하면 파일을 다시 읽어 바뀐 키만 고치고(모르는 키는 그대로) 임시 파일로 쓴 뒤 `File.Replace`로 바꿔 넣으며, 이전 파일은 `appsettings.json.yyyyMMdd-HHmmss.bak`으로 남는다. 파일 안의 `//` 주석은 저장 때 없어진다(.bak에는 남음). `Jobs:AmHome`에 AutoMod 빌드 exe가 없으면 경고만 한다.
@@ -209,6 +209,23 @@ sc start ASH.Server
 
 교체한 뒤(자동이든 수동이든) 상태 페이지에서 새 버전이 보이는지 확인한다(서명 키를 다시 쓰는 경우에는 **서명 키 ID가 교체 전과 같은지**도 본다. 다르면 새 exe가 다른 `update-key.pub`로 빌드된 것이니 되돌린다). 손으로 되돌릴 때는 서비스를 멈추고 `ASH.Server.exe.old`를 `ASH.Server.exe`로 바꾼 뒤 시작한다.
 
+### 영상 촬영 (ffmpeg·AutoView, 0.19.0)
+
+웹의 컷 편집기(`/analyses/{id}/cuts`)에서 내보낸 영상은 서버가 작업 사이에 만든다(컷마다 AutoView 한 번 → ffmpeg로 자막·이어 붙이기 → MP4 yuv420p faststart). 서버 PC에 아래가 필요하다. 없으면 영상만 실패하고 작업 실행은 영향이 없다.
+
+1. **ffmpeg** — libx264와 drawtext(libfreetype)가 들어 있는 최신 빌드(gyan.dev의 full/essentials 등). 서버 서비스 계정의 `PATH`에 두거나 `Film:FfmpegPath`에 전체 경로를 적는다. AutoView도 MP4 변환에 PATH의 ffmpeg를 쓰므로, 전체 경로를 적으면 서버가 그 폴더를 AutoView 실행 환경의 PATH에 붙여 준다. 확인: `ffmpeg -hide_banner -encoders | findstr libx264`, `ffmpeg -hide_banner -filters | findstr drawtext` (둘 다 한 줄 이상 나와야 한다).
+2. **AutoView** — AutoMod 폴더의 `bin\aview64.exe`(기본). 다른 곳이면 `Film:AviewExe`. AutoView 라이선스가 모델 실행과 같은 라이선스를 쓰므로 서버 PC에서 AutoMod 라이선스가 AutoView도 허용하는지 확인한다.
+3. **서비스 세션 렌더 확인(최초 1회)** — AutoView가 서비스(세션 0, 로그온 없음)에서 화면 없이 그려지는지는 PC마다 다를 수 있다. 영상을 한 편 만들어 완료되는지 본다. 컷이 "AutoView가 MP4를 만들지 않았습니다"로 실패하면 AutoView가 서비스에서 그리지 못하는 것이니 둘 중 하나를 쓴다. (a) 서비스를 로그온 가능한 계정으로 바꾸고(`sc config ASH.Server obj= ".\<계정>" password= "<암호>"`) 서버 PC에 그 계정이 로그온해 둔다. (b) 서비스 대신 작업 스케줄러에 `ASH.Server.exe`를 "사용자가 로그온한 경우에만 실행"으로 등록한다(자동 업데이트·복구 설정은 서비스일 때만 동작).
+4. 컷 하나가 `Film:CutTimeoutMin`(기본 20분)을 넘으면 AutoView를 끊고 그 컷만 실패한다. 영상 페이지 `/films/{id}`에 컷별 상태와 `film.log`가 나온다. F0(화면 배율 기준값)는 영상마다 자동 보정 컷으로 정한다.
+
+| 설정 | 기본 | 뜻 | 적용 |
+|---|---|---|---|
+| `Film:FfmpegPath` | `ffmpeg` | ffmpeg 실행 파일(PATH에서 찾거나 전체 경로) | 재시작 |
+| `Film:AviewExe` | (빈칸 = `<Jobs:AmHome>\bin\aview64.exe`) | AutoView 실행 파일 | 재시작 |
+| `Film:CutTimeoutMin` | 20 | 컷 하나의 AutoView 시간 제한(분, 1~600) | 바로 |
+
+세 값 모두 웹 설정 페이지의 "영상 촬영" 구역에서 바꾼다.
+
 ### 백업과 복원
 
 - 백업 대상: **`Releases:Dir` 폴더 전체**(`current\`, `files\`, `history\`)와 **`appsettings.json`**(토큰·설정). 서버 exe는 zip에서 다시 얻을 수 있으니 필수가 아니다. 서명 키를 쓰는 경우 개인키는 서버에 없다(2절 "선택: 서명 키 사용").
@@ -235,6 +252,7 @@ sc start ASH.Server
 | 업로드가 403 "업로드가 꺼져 있습니다" | `Admin:Token`이 비었거나 16자 미만. 서비스 재시작 필요. |
 | 업로드가 401 | 토큰이 다름(`$env:ASH_ADMIN_TOKEN` 확인). |
 | (서명 키를 다시 쓸 때만) 경고 "서명 키 미설정", 업로드 400 "서명 키 없음"/서명 거절, `build-release.ps1` 중단, "업데이트 확인 실패(서명 확인 실패)", 상태 페이지 "거절: 서명이 맞지 않습니다" | `update-key.pub`와 `ASH_SIGNING_KEY`(개인키)가 짝이 맞는지, 서버·플러그인·ash-run이 그 공개키로 빌드된 판인지 확인한다. 키 교체 중이면 4절. |
+| 영상 컷이 "AutoView가 MP4를 만들지 않았습니다"로 실패 | 서버 PATH에 ffmpeg가 없거나 AutoView가 서비스 세션에서 그리지 못함. 5절 "영상 촬영"의 확인 명령으로 ffmpeg를 보고, 안 되면 로그온 계정으로 실행한다. `/films/{id}`의 `film.log`와 작업 폴더의 `aviewerr.dat`를 본다. |
 | 다른 PC에서 접속이 안 되고 서버 PC 자신에서는 됨 | 방화벽 규칙이 Public 프로필 NIC에 적용되지 않음. 1절 5번의 함정 참고. |
 | 서비스 로그가 이벤트 뷰어에 없음 | LocalService는 이벤트 원본을 못 만든다. 1절 "로그 위치" 참고. |
 | "업데이트 확인 실패(서버 응답 없음)" | 서비스가 꺼졌거나(`sc query ASH.Server`) 방화벽·주소·포트 오류. 사용자 PC에서 `curl http://<서버>:8082/healthz`가 `ok`인지 본다. 3초 안에 답이 없으면 이 메시지가 나온다. |

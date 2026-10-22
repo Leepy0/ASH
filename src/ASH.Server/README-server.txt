@@ -40,6 +40,14 @@ ASH.Server - ASH 배포 서버 (최소판)
                     상세 탭의 실행 목록에서 "받기"를 누르면 그 실행의 모델(빌드 출력이 남아 있으면 <모델>.exe·.dir 포함)과
                       params.txt, run.bat 을 zip 으로 받는다. AutoMod 가 있는 PC 에서 풀고 run.bat 을 누르면 그 실행을 창으로 본다.
                       run.bat 의 AutoMod 폴더 기본값은 이 서버의 AmHome 이다.
+   - Film         웹 컷 편집기에서 내보낸 영상을 서버가 작업 사이에 만든다(컷마다 AutoView, ffmpeg 로 자막·이어 붙이기, MP4).
+                    FfmpegPath 기본 ffmpeg(PATH 에서 찾음). libx264 와 drawtext 가 들어 있는 최신 빌드를 서버 PATH 에 두거나 전체 경로를 적는다.
+                      확인: ffmpeg -hide_banner -encoders | findstr libx264   /   ffmpeg -hide_banner -filters | findstr drawtext
+                    AviewExe 비우면 AmHome\bin\aview64.exe. AutoView 는 모델 실행과 같은 AutoMod 라이선스를 쓴다.
+                    CutTimeoutMin 컷 하나의 AutoView 제한(기본 20분). 넘으면 그 컷만 실패한다.
+                    최초 1회 확인: 영상을 한 편 만들어 서비스 세션에서 AutoView 가 그리는지 본다. "AutoView가 MP4를 만들지 않았습니다" 로 실패하면
+                      서비스를 로그온 가능한 계정으로 바꾸고 그 계정이 서버 PC 에 로그온해 두거나, 서비스 대신 작업 스케줄러에
+                      "사용자가 로그온한 경우에만 실행" 으로 ASH.Server.exe 를 등록한다. 자세한 내용은 docs\server-install.md 5절 "영상 촬영".
    를 확인한다. 환경 변수 Admin__Token 으로 토큰을 줄 수도 있다.
    설치 뒤에는 Admin:Token 을 넣어 두면 브라우저 http://서버:8082/admin/settings 에서 위 값을 바꿀 수 있다(아래 "웹 설정").
    설치 폴더 권한을 관리자로 제한한다(토큰을 넣었다면 토큰 보호):
@@ -99,10 +107,10 @@ ASH.Server - ASH 배포 서버 (최소판)
   세션 ID, 8시간, 서버를 다시 시작하면 로그아웃)가 남는다. 토큰 자체는 쿠키나 페이지에 들어가지 않는다. 다른 사이트에서 온 POST 는
   Origin 검사로 거절한다. 스크립트는 X-ASH-Admin-Token 헤더로 같은 주소에 POST 해도 된다.
 - 바꿀 수 있는 값: Jobs(Enabled, WorkerEnabled, AmHome, Parallel, DialogButton, RunTimeoutMin, BuildTimeoutMin, JobTimeoutHours,
-  KeepRunsDays, Dir), GitHub(Enabled, BaseUrl, CheckIntervalMin, UpdateServer, Proxy, Dns), Urls, Releases:Dir, Update:AllowUnsigned.
+  KeepRunsDays, Dir), Film(FfmpegPath, AviewExe, CutTimeoutMin), GitHub(Enabled, BaseUrl, CheckIntervalMin, UpdateServer, Proxy, Dns), Urls, Releases:Dir, Update:AllowUnsigned.
   Admin:Token, Update:PublicKeyPem, Logging 은 웹에서 바꾸지 않는다(파일을 직접 고친다).
 - 바로 적용(저장하면 다음 작업·다음 정리부터): Jobs:Enabled, AmHome, Parallel, DialogButton, RunTimeoutMin, BuildTimeoutMin,
-  JobTimeoutHours, KeepRunsDays.  재시작 필요: 나머지 전부(Jobs:WorkerEnabled, Jobs:Dir, GitHub:*, Urls, Releases:Dir, Update:AllowUnsigned).
+  JobTimeoutHours, KeepRunsDays, Film:CutTimeoutMin.  재시작 필요: 나머지 전부(Jobs:WorkerEnabled, Jobs:Dir, Film:FfmpegPath, Film:AviewExe, GitHub:*, Urls, Releases:Dir, Update:AllowUnsigned).
 - 저장은 값을 검사(정수 범위, 켬/끔, 주소 형식)한 뒤 appsettings.json 을 임시 파일로 쓰고 바꿔 넣는다. 이전 파일은
   appsettings.json.yyyyMMdd-HHmmss.bak 으로 남는다. 모르는 키는 그대로 두지만 파일 안의 // 주석은 없어진다(.bak 에는 남음).
   AmHome 에 AutoMod 빌드 exe 가 없으면 경고만 하고 저장한다.
