@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
 
@@ -13,7 +14,8 @@ public static class CameraScript
     /// <summary>Camera script for <paramref name="cut"/> (syntax: guide 3, recipes: guide 9). <paramref name="movieFile"/> has no extension (AutoView adds .mp4).
     /// Cut times are simulation seconds from <see cref="CutSpec.StartSec"/>; Hold records HoldSec, Move holds A for HoldASec, pans to B over MoveSec, holds B for HoldBSec (all simulation seconds).
     /// The scene height is taken as Hz = 0, so tall objects (vehicles, racks) may be clipped at high tilt.</summary>
-    public static string Build(CutSpec cut, double f0Metres, int width, int height, int fps, int quality, string movieFile)
+    /// <param name="display">Extra display statements before the first time statement, e.g. "turn system ash_cal picture System off".</param>
+    public static string Build(CutSpec cut, double f0Metres, int width, int height, int fps, int quality, string movieFile, IEnumerable<string>? display = null)
     {
         bool move = cut.Kind == CutKind.Move;
         if (move && cut.B == null) throw new ArgumentException("Move cut needs B", nameof(cut));
@@ -35,6 +37,7 @@ public static class CameraScript
         L("time scale " + N(CameraMath.TimeScale(cut.Speed, fps)));
         L(cut.Perspective ? "perspective" : "orthogonal");
         L("solid"); L("grid off");
+        foreach (var d in display ?? Array.Empty<string>()) L(d);
         L("define movie spec");
         L("format mp4");
         L($"filename \"{movieFile}\"");

@@ -20,15 +20,16 @@ public static class StaticDrawing
 
     /// <param name="drawingInModelMetres">DxfLite.ToModel output (metres, ArcLayout frame).</param>
     /// <param name="units">The model's UNITS (ExportOptions.Units); ArgumentException for one ASH cannot convert.</param>
-    /// <remarks>When no segment survives the hidden layers, an earlier call's ash_drw.asy and STATIC lines are removed instead.</remarks>
-    public static void AddTo(string arcDir, DxfDrawing drawingInModelMetres, string units, IEnumerable<string>? hiddenLayers)
+    /// <param name="systemName">The static system (and .asy) name; the film's F0 calibration mark is a second one, "ash_cal" (guide 10.4).</param>
+    /// <remarks>When no segment survives the hidden layers, an earlier call's .asy and STATIC lines are removed instead.</remarks>
+    public static void AddTo(string arcDir, DxfDrawing drawingInModelMetres, string units, IEnumerable<string>? hiddenLayers, string systemName = SystemName)
     {
         var upm = new ExportOptions(Units: units).UnitsPerMeter;
         var hidden = new HashSet<string>(hiddenLayers ?? new string[0], StringComparer.OrdinalIgnoreCase); // IReadOnlySet does not exist on netstandard2.0
         var segs = drawingInModelMetres.Segs.Where(s => !hidden.Contains(s.Layer)).ToList();
         var amoPath = Path.Combine(arcDir, "model.amo");
-        var asyPath = Path.Combine(arcDir, SystemName + ".asy");
-        const string Link = "STATIC name " + SystemName + "\n\tSYSPOS endx 1\n";
+        var asyPath = Path.Combine(arcDir, systemName + ".asy");
+        var Link = "STATIC name " + systemName + "\n\tSYSPOS endx 1\n";
         if (segs.Count == 0) // nothing to draw: undo an earlier call so the model has no stale drawing
         {
             if (File.Exists(asyPath)) File.Delete(asyPath);
@@ -51,7 +52,7 @@ public static class StaticDrawing
         void L(string t) => sb.Append(t).Append("\r\n");
         L("SYSTYPE Static"); L($"UNITS {units} Seconds"); L("SYSDEF"); L("FLAGS"); L("\tSystem Inherit"); L("STATICDEF UserId 9");
         L(" IND 0 display picpos endx 1"); L("\ttemplate " + units);
-        L("511 81"); L($"{N(xs.Min())} {N(xs.Max())} {N(ys.Min())} {N(ys.Max())} 0 0"); L("-1 -1 0 1 1 " + SystemName);
+        L("511 81"); L($"{N(xs.Min())} {N(xs.Max())} {N(ys.Min())} {N(ys.Max())} 0 0"); L("-1 -1 0 1 1 " + systemName);
         L(";; HMF V1.25 TEXT"); L("(Segment \"\" ("); L("  (Line_Weight 3)");
         L("  (Segment \"floor\" ((Color_By_Value \"Line\" \"RGB\" 0.6 0.6 0.6)"); // two levels as in guide 11.2
         foreach (var r in runs) L("    (Polyline (" + string.Join(" ", r.Select(p => $"({N(p.X)} {N(p.Y)} 0)")) + "))");
