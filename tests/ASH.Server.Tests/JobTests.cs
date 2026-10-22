@@ -94,7 +94,7 @@ public sealed class JobEnv : IDisposable
 
     /// <summary>A project folder as AGVMODEL leaves it (model files + cell snapshot), packed the way the plugin packs it.</summary>
     /// <param name="dx">shifts the whole layout along X (metres), for versions whose layouts sit in different places</param>
-    /// <param name="addFiles">writes extra files (drawing.dxf, the frame) into the project folder before it is packed</param>
+    /// <param name="addFiles">writes extra files (ash.drawing.dxf as AGVSEND exports it, the frame) into the project folder before it is packed</param>
     public static string MakePackage(string root, string model = "m", double dx = 0, Action<string>? addFiles = null)
     {
         var proj = Path.Combine(root, "proj-" + Guid.NewGuid().ToString("N"));

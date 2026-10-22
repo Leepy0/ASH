@@ -469,7 +469,7 @@ public class FilmTests
             sb.Append(System.FormattableString.Invariant($"0\nLINE\n8\n{layer}\n10\n{x1}\n20\n{y1}\n11\n{x2}\n21\n{y2}\n"));
         Line(-3, -3, 14, -3, "WALL"); Line(14, -3, 14, 13, "WALL"); Line(14, 13, -3, 13, "WALL"); Line(-3, 13, -3, -3, "WALL");
         Line(3, 3, 7, 7, "MARK"); Line(3, 7, 7, 3, "MARK"); Line(14, 5, 30, 5, "WALL");
-        File.WriteAllText(Path.Combine(proj, "drawing.dxf"), sb.Append("0\nENDSEC\n0\nEOF\n").ToString());
+        File.WriteAllText(Path.Combine(proj, JobPackage.LocalDxf), sb.Append("0\nENDSEC\n0\nEOF\n").ToString());
         new ASH.Core.Dxf.ModelFrame("Meters", 0, 0, 1).Write(Path.Combine(proj, ASH.Core.Dxf.ModelFrame.FileName));
     }
 

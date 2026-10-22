@@ -111,7 +111,7 @@ public sealed class ServerCommands
         Say(ed, "패키지 만드는 중…");
         // the factory drawing and its coordinate frame go along for the server's cut editor and videos; a DXF failure is only a warning
         new ModelFrame(s.Units, s.Origin.X, s.Origin.Y, s.Scale).Write(Path.Combine(dir, ModelFrame.FileName));
-        SaveDxf(ed, Path.Combine(dir, "drawing.dxf"));
+        SaveDxf(ed, Path.Combine(dir, JobPackage.LocalDxf)); // own name: a drawing.dxf of the user's in this folder is left alone
         var files = JobPackage.Create(dir, s.ModelName, zip, includeResults: results);
         Say(ed, $"서버로 보내는 중… (파일 {files.Count}개, {new FileInfo(zip).Length / 1048576.0:0.#} MB, 최대 {UploadTimeout.TotalMinutes:0}분)");
         var job = new JobSubmission(folder, drawing, s.ModelName, Environment.UserName,

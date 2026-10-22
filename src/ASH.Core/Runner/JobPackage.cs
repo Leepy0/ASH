@@ -23,8 +23,12 @@ public static class JobPackage
     public const int MaxEntries = 5000;
     public const long MaxDxfBytes = 100L * 1024 * 1024;
 
-    /// <summary>Sent when present, never required: the factory drawing and its coordinate frame, for the server's cut editor and videos.</summary>
-    public static readonly IReadOnlyList<string> OptionalFiles = new[] { "drawing.dxf", ModelFrame.FileName };
+    /// <summary>The drawing as AGVSEND exports it into the project (drawing) folder: its own name, so a drawing.dxf of the user's is never touched.
+    /// It travels as <see cref="DxfInPackage"/>.</summary>
+    public const string LocalDxf = "ash.drawing.dxf", DxfInPackage = "drawing.dxf";
+
+    /// <summary>Sent when present, never required: the factory drawing and its coordinate frame, for the server's cut editor and videos (package names).</summary>
+    public static readonly IReadOnlyList<string> OptionalFiles = new[] { DxfInPackage, ModelFrame.FileName };
 
     /// <summary>Paths (inside the package) that must be there for a model name.</summary>
     public static IReadOnlyList<string> Required(string model) =>
@@ -53,11 +57,10 @@ public static class JobPackage
                 files.Add((model + ".arc/" + f.Substring(arc.Length + 1).Replace(Path.DirectorySeparatorChar, '/'), f));
         // ash.settings.tsv stays at home: the model is already baked into the .arc, and its AmHome is this PC's AutoMod, not the server's
         files.Add((CellDump.FileName, Path.Combine(projectDir, CellDump.FileName)));
-        foreach (var name in OptionalFiles)
-        {
-            var f = Path.Combine(projectDir, name);
-            if (File.Exists(f) && (name != "drawing.dxf" || new FileInfo(f).Length <= MaxDxfBytes)) files.Add((name, f));
-        }
+        var dxf = Path.Combine(projectDir, LocalDxf);
+        if (File.Exists(dxf) && new FileInfo(dxf).Length <= MaxDxfBytes) files.Add((DxfInPackage, dxf));
+        var frame = Path.Combine(projectDir, ModelFrame.FileName);
+        if (File.Exists(frame)) files.Add((ModelFrame.FileName, frame));
         if (includeResults)
         {
             // a local result: the summary, the decision and every run's result.tsv (the block maps); reports and AutoMod output stay at home
