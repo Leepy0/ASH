@@ -15,6 +15,16 @@ public class SettingsFileTests
         var p = Path.GetTempFileName(); var s = new ProjectSettings(SafetyGap: 0.8, ClaimDist: 1.0, Origin: new(100,200), ModelName: "plantA", AmHome: @"D:\AM");
         SettingsFile.Save(s, p); Assert.Equal(s, SettingsFile.Load(p));
     }
+    [Fact] public void Lines_Then_Parse_RoundTrips_And_Bad_Field_Names_Its_Key()
+    {
+        var s = new ProjectSettings(BlockReach: 3.5, Origin: new(-1.25, 7), ModelName: "m2", Units: "Feet");
+        Assert.Equal(s, SettingsFile.Parse(SettingsFile.Lines(s)));
+        var bad = SettingsFile.Lines(s).Select(l => l.StartsWith("OriginY\t") ? "OriginY\t1,5" : l);
+        Assert.Contains(" OriginY ", Assert.Throws<FormatException>(() => SettingsFile.Parse(bad)).Message); // the dialog focuses the field by this
+    }
+    [Theory]
+    [InlineData("plantA", true)] [InlineData("", false)] [InlineData("a b", false)] [InlineData("..", false)] [InlineData(@"x\y", false)] [InlineData("c:", false)]
+    public void Model_Name_Must_Be_A_Plain_Folder_Name(string name, bool ok) => Assert.Equal(ok, ASH.Core.Model.ModelBuilder.IsValidModelName(name));
     [Fact] public void ParseGroups_Rejects_Bad_MaxCount()
     {
         Assert.Throws<FormatException>(() => SettingsFile.ParseGroups("G1:Tug:0:1.0:2.0:1.0"));

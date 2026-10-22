@@ -81,7 +81,7 @@ public sealed class AgvPaletteControl : UserControl
         tabs.TabPages.Add(Page("교통제어", Theme.Section("자동 생성"),
             Theme.Make("block 자동 생성", GlyphKind.Block, "AGVBLOCKAUTO"), Theme.Make("블록 채번", GlyphKind.BlockNum, "AGVBLOCKNUM"), Theme.Make("교통제어 자동 생성", GlyphKind.Traffic, "AGVTRAFFIC")));
 
-        var settings = Theme.Make("Settings 열기", GlyphKind.Settings, "");
+        var settings = Theme.Make("설정 열기", GlyphKind.Settings, "");
         settings.Click += (o, e) => Commands.ExportCommands.OpenSettings();
 
         var checkResult = Theme.Caption("마지막 검사 결과: -");
@@ -101,8 +101,9 @@ public sealed class AgvPaletteControl : UserControl
         };
         tabs.TabPages.Add(Page("검증·내보내기", Theme.Section("검증"), Theme.Make("검증", GlyphKind.Check, "AGVCHECK"), checkResult,
             Theme.Caption("문제 목록 — 더블클릭하면 그 위치로 이동"), problems,
-            Theme.Section("내보내기"), Theme.Make("내보내기", GlyphKind.Export, "AGVEXPORT"),
-            Theme.Section("모델"), Theme.Make("Excel 양식", GlyphKind.Excel, "AGVEXCEL"), Theme.Make("모델 생성·빌드", GlyphKind.Model, "AGVMODEL"), Theme.Make("서버로 보내기", GlyphKind.Send, "AGVSEND"), Theme.Make("결과 올리기", GlyphKind.Send, "AGVRESULTUP"),
+            // "모델 생성" also does what "내보내기" did (AGVEXPORT is still a command): <Model>.arc, and <Model>.dir when this PC has AutoMod
+            Theme.Section("모델"), Theme.Make("Excel 양식", GlyphKind.Excel, "AGVEXCEL"), Theme.Make("모델 생성", GlyphKind.Model, "AGVMODEL"), Theme.Make("빌드·실행", GlyphKind.Run, "AGVRUN"),
+            Theme.Make("서버로 보내기", GlyphKind.Send, "AGVSEND"), Theme.Make("결과 올리기", GlyphKind.Send, "AGVRESULTUP"),
             Theme.Section("설정"), settings));
 
         var finder = FinderPage(tabs);

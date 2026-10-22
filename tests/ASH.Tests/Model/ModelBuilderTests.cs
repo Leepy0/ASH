@@ -55,6 +55,18 @@ public class ModelBuilderTests
     }
 
     [Fact]
+    public void Result_Carries_The_Export_Diff_And_Backup()
+    {
+        var dir = Tmp();
+        var first = ModelBuilder.Build(Req(dir, LogicGeneratorTests.Sample()), null, TimeSpan.Zero).Export!;
+        Assert.Equal((4, 4, (string?)null), (first.Summary.PathsAdded, first.Summary.CpsAdded, first.BackupPath));
+        var again = ModelBuilder.Build(Req(dir, LogicGeneratorTests.Sample()), null, TimeSpan.Zero).Export!;
+        Assert.Equal((0, 0, 0), (again.Summary.PathsAdded, again.Summary.PathsRemoved, again.Summary.PathsMoved));
+        Assert.True(File.Exists(again.BackupPath));
+        Directory.Delete(dir, true);
+    }
+
+    [Fact]
     public void Amo_Render_Has_Control_And_Drawpos()
     {
         var s = ModelAmoWriter.Render("x", "Meters", 0.5, new[] { "agv" }, new Rect2(new Point2(-1, -2), new Point2(3, 4)));

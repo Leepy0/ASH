@@ -93,7 +93,13 @@ public sealed class ModelCommands
         var ed = doc.Editor;
         if (!ExportCommands.TryLoadSettings(ed, out var s, out var dir)) return;
         var xlsx = Path.Combine(dir, ExcelFileName);
-        if (!File.Exists(xlsx)) { ed.WriteMessage($"\n{ExcelFileName}이 없습니다. 먼저 AGVEXCEL로 양식을 만들어 채우세요."); return; }
+        if (!File.Exists(xlsx))
+        {
+            // the palette's one "모델 생성" button replaced "내보내기": without the Excel input it still writes what AGVEXPORT wrote
+            ed.WriteMessage($"\n{ExcelFileName}이 없어 경로·CP만 내보냅니다(agv.asy, traffic.tsv). 모델을 만들려면 먼저 AGVEXCEL로 양식을 만들어 채우세요.");
+            new ExportCommands().AgvExport();
+            return;
+        }
         // AutoMod on this PC is optional: without it the model files are only written, and the server builds them with the AutoMod its own settings name
         var amHome = AmBuilder.FindBuildExe(s.AmHome) != null ? s.AmHome : null;
         bool toServer = false;
@@ -126,6 +132,7 @@ public sealed class ModelCommands
             }
             foreach (var f in r.Findings.Where(f => f.Code != FindingCode.InputWarning)) ed.WriteMessage($"\n[{f.Code}] {f.Message}");
             foreach (var w in r.Warnings) ed.WriteMessage($"\n경고: {w}");
+            if (r.Export != null) ExportCommands.Report(ed, r.Export);
             ed.WriteMessage($"\narc: {r.ArcDir}");
             bool ok = r.Build?.Success ?? false;
             if (r.Build == null && r.Findings.Any(f => f.Code == FindingCode.InputError)) ed.WriteMessage("\n입력 오류가 있어 모델을 만들지 않았습니다.");
@@ -134,17 +141,56 @@ public sealed class ModelCommands
                 ed.WriteMessage("\n이 PC에는 AutoMod가 없어 모델 파일만 만들었습니다. 빌드와 대수 탐색은 서버가 서버의 AutoMod로 합니다.");
                 toServer = true;
             }
-            else
-            {
-                ed.WriteMessage(ok ? "\n빌드 성공" : "\n빌드 실패");
-                if (!ok)
-                    foreach (var t in new[] { r.Build.MakeErrText, r.Build.Am2ErrText })
-                        foreach (var line in (t ?? "").Split('\n').Take(20)) ed.WriteMessage("\n  " + line.TrimEnd());
-            }
+            else if (ok) ed.WriteMessage($"\n빌드 성공: {Path.Combine(dir, s.ModelName + ".dir")} — '빌드·실행'(AGVRUN)으로 AutoMod에서 바로 볼 수 있습니다.");
+            else BuildFailed(ed, r.Build);
             PathCommands.FinalStatus = ok ? "AGVMODEL 완료" : toServer ? "AGVMODEL 모델 생성(서버 빌드)" : "AGVMODEL 오류";
             return false; // nothing in the drawing changed
         }, refreshArrows: false, unitsPerMeter: UnitScale.FromSettings(s));
         if (toServer) ServerCommands.Command("AGVMODEL", results: false); // asks before sending, with the server's queue
+    }
+
+    private static void BuildFailed(Editor ed, AmBuildResult b)
+    {
+        ed.WriteMessage("\n빌드 실패");
+        foreach (var t in new[] { b.MakeErrText, b.Am2ErrText })
+            foreach (var line in (t ?? "").Split('\n').Take(20)) ed.WriteMessage("\n  " + line.TrimEnd());
+    }
+
+    /// <summary>Opens the model in AutoMod's simulation window to watch it run, building it first when &lt;Model&gt;.dir is missing or older than the .arc files.
+    /// AutoMod runs on its own; the command returns as soon as it started. No drawing is read: the model is what the last AGVMODEL wrote.</summary>
+    [CommandMethod("AGVRUN")]
+    public void AgvRun()
+    {
+        var ed = Application.DocumentManager.MdiActiveDocument.Editor;
+        if (!ExportCommands.TryLoadSettings(ed, out var s, out var dir)) return;
+        void Say(string text) { ed.WriteMessage("\n" + text); Ui.PaletteStatus.Set(text); }
+        if (AmBuilder.FindBuildExe(s.AmHome) == null)
+        {
+            ed.WriteMessage($"\nAutoMod를 찾지 못했습니다: {AmBuilder.BuildExeCandidates(s.AmHome)}");
+            Say("이 PC에는 AutoMod가 없어 실행할 수 없습니다. '서버로 보내기'(AGVSEND)로 서버에서 빌드·대수 탐색을 하세요(AutoMod가 있으면 설정에서 AutoMod 설치 폴더를 고치세요).");
+            return;
+        }
+        // the name ends up in a recursive delete of <Model>.dir: never let it point outside the drawing folder
+        if (!ModelBuilder.IsValidModelName(s.ModelName)) { Say($"모델 이름 '{s.ModelName}'을(를) 쓸 수 없습니다. 설정에서 고치세요."); return; }
+        if (!Directory.Exists(Path.Combine(dir, s.ModelName + ".arc"))) { Say($"{s.ModelName}.arc가 없습니다. 먼저 '모델 생성'(AGVMODEL)을 하세요."); return; }
+        try
+        {
+            if (!AmBuilder.IsBuilt(dir, s.ModelName))
+            {
+                Ui.PaletteStatus.Set("AGVRUN 빌드 중…");
+                ed.WriteMessage("\nAutoMod 빌드 중… 최대 10분");
+                ModelBuilder.PrepareBuildDir(dir, s.ModelName);
+                var b = AmBuilder.Build(s.AmHome, dir, s.ModelName, TimeSpan.FromMinutes(10));
+                if (!b.Success) { BuildFailed(ed, b); Ui.PaletteStatus.Set("AGVRUN 빌드 실패"); return; }
+            }
+            AmBuilder.Launch(s.AmHome, dir, s.ModelName).Dispose(); // not waited for: ZWCAD stays usable while the model runs
+            Say($"AutoMod에서 {s.ModelName}을(를) 엽니다. 도면이나 Excel을 고쳤으면 먼저 '모델 생성'을 다시 하세요.");
+        }
+        catch (System.Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is System.ComponentModel.Win32Exception)
+        {
+            Say($"AGVRUN 오류: {ex.Message} (AutoMod에서 이 모델이 실행 중이면 닫고 다시 하세요)");
+            PluginLog.Write("AGVRUN", ex);
+        }
     }
 
     /// <summary>input.xlsx as a ProjectInput; null (after saying why) when it cannot be had. The file is read directly; when that fails (company document encryption

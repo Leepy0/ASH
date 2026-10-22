@@ -13,12 +13,14 @@ public static class SettingsFile
 {
     private static readonly CultureInfo C = CultureInfo.InvariantCulture;
 
-    public static ProjectSettings Load(string path)
+    public static ProjectSettings Load(string path) => File.Exists(path) ? Parse(File.ReadAllLines(path)) : new ProjectSettings();
+
+    /// <summary>"key\tvalue" lines as settings; FormatException names the bad key. The settings dialog checks its fields through this too.</summary>
+    public static ProjectSettings Parse(IEnumerable<string> lines)
     {
         var s = new ProjectSettings();
-        if (!File.Exists(path)) return s;
         var kv = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var line in File.ReadAllLines(path))
+        foreach (var line in lines)
         {
             int tab = line.IndexOf('\t');
             if (tab > 0) kv[line.Substring(0, tab).Trim()] = line.Substring(tab + 1).Trim();
@@ -47,10 +49,13 @@ public static class SettingsFile
         return r;
     }
 
-    public static void Save(ProjectSettings s, string path)
+    public static void Save(ProjectSettings s, string path) => File.WriteAllLines(path, Lines(s));
+
+    /// <summary>The file's lines in file order; Parse(Lines(s)) == s.</summary>
+    public static string[] Lines(ProjectSettings s)
     {
         string N(double v) => v.ToString("R", C);
-        File.WriteAllLines(path, new[]
+        return new[]
         {
             $"{nameof(s.SafetyGap)}\t{N(s.SafetyGap)}",
             $"{nameof(s.CpSpacing)}\t{N(s.CpSpacing)}",
@@ -66,7 +71,7 @@ public static class SettingsFile
             $"{nameof(s.Groups)}\t{s.Groups}",
             $"{nameof(s.AmHome)}\t{s.AmHome}",
             $"{nameof(s.ArrowSize)}\t{N(s.ArrowSize)}",
-        });
+        };
     }
 
     /// <summary>"G1:Tug:5:1.2:2.0:1.0;G2:..." -> one spec per ';' item (Group:TypeName:MaxCount:Speed:Length:Width).</summary>

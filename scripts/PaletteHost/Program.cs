@@ -3,7 +3,7 @@ using System.Drawing;
 using System.Drawing.Imaging;
 using System.Windows.Forms;
 
-// Usage: PaletteHost.exe <out.png> [tabIndex] [width]. Constructing the palette touches no ZWCAD type, so no ZWCAD dlls are needed.
+// Usage: PaletteHost.exe <out.png> [tabIndex] [width] [--sample] [--settings].Constructing the palette touches no ZWCAD type, so no ZWCAD dlls are needed.
 static class Program
 {
     [STAThread]
@@ -12,6 +12,20 @@ static class Program
         Application.EnableVisualStyles();
         int tab = args.Length > 1 ? int.Parse(args[1]) : 0;
         int width = args.Length > 2 ? int.Parse(args[2]) : 280;
+        if (Array.IndexOf(args, "--settings") >= 0) // the settings dialog instead of the palette (default values, sample server address)
+        {
+            using var d = new ASH.Plugin.Ui.SettingsDialog(@"D:\project\ash.settings.tsv", new ASH.Core.Settings.ProjectSettings(), "http://server:8082") { StartPosition = FormStartPosition.Manual, Location = new Point(-2000, 0) };
+            d.Shown += (s, e) =>
+            {
+                Application.DoEvents();
+                using var bmp = new Bitmap(d.Width, d.Height);
+                d.DrawToBitmap(bmp, new Rectangle(0, 0, d.Width, d.Height));
+                bmp.Save(args[0], ImageFormat.Png);
+                d.Close();
+            };
+            d.ShowDialog();
+            return 0;
+        }
         var f = new Form { ClientSize = new Size(width, 900), FormBorderStyle = FormBorderStyle.None, StartPosition = FormStartPosition.Manual, Location = new Point(-2000, 0), ShowInTaskbar = false };
         var c = new ASH.Plugin.Ui.AgvPaletteControl { Dock = DockStyle.Fill };
         f.Controls.Add(c);

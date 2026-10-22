@@ -15,15 +15,19 @@ namespace ASH.Core.Model;
 /// <summary>MaterialOverrides replaces Input.Materials. VehicleOverrides, when set, wins over AgvsOptions.VehicleOverrides.</summary>
 public sealed record ModelBuildRequest(string ProjectDir, string ModelName, ProjectInput Input, Layout.Layout Layout, ExportOptions AgvsOptions,
     IReadOnlyList<MaterialInfo>? MaterialOverrides = null, IReadOnlyDictionary<string, VehicleTemplateOverride>? VehicleOverrides = null, bool AutoView = false);
-/// <summary>Build is null when no AutoMod was given (generate only) or validation failed (ArcDir then has no files).</summary>
-public sealed record ModelBuildResult(string ArcDir, AmBuildResult? Build, List<Finding> Findings, List<string> Warnings);
+/// <summary>Build is null when no AutoMod was given (generate only) or validation failed (ArcDir then has no files, Export is null).
+/// Export is the agv.asy step: diff summary against the previous file and its backup.</summary>
+public sealed record ModelBuildResult(string ArcDir, AmBuildResult? Build, List<Finding> Findings, List<string> Warnings, ExportResult? Export = null);
 
 public static class ModelBuilder
 {
+    /// <summary>A name usable as the &lt;Model&gt;.arc/.dir folder name inside the project folder.</summary>
+    public static bool IsValidModelName(string? n) =>
+        !string.IsNullOrEmpty(n) && !n!.Contains("..") && n.IndexOfAny(new[] { '/', (char)92, ':' }) < 0 && LayoutChecker.IsValidName(n);
+
     public static ModelBuildResult Build(ModelBuildRequest r, string? amHome, TimeSpan timeout)
     {
-        if (string.IsNullOrEmpty(r.ModelName) || r.ModelName.Contains("..") || r.ModelName.IndexOfAny(new[] { '/', (char)92, ':' }) >= 0
-            || !LayoutChecker.IsValidName(r.ModelName)) throw new ArgumentException("invalid model name: " + r.ModelName);
+        if (!IsValidModelName(r.ModelName)) throw new ArgumentException("invalid model name: " + r.ModelName);
         var arc = Path.Combine(r.ProjectDir, r.ModelName + ".arc");
         var l = r.Layout; var o = r.AgvsOptions; var input = r.Input;
         if (r.VehicleOverrides != null) o = o with { VehicleOverrides = r.VehicleOverrides };
@@ -46,7 +50,8 @@ public static class ModelBuilder
         catch (Exception e) { lengthError = "경로 길이 계산 실패: " + e.Message; } // an optional warning must not stop the build
 
         var warnings = Warn(findings); if (lengthError != null) warnings.Add(lengthError);
-        warnings.AddRange(ExportRunner.Run(l, o, arc).Warnings);
+        var export = ExportRunner.Run(l, o, arc);
+        warnings.AddRange(export.Warnings);
         var standby = new Dictionary<string, string>();
         foreach (var c in l.Cps.Where(c => c.Type == "standby" && c.Group.Length > 0)) { if (!standby.ContainsKey(c.Group)) standby[c.Group] = c.Name; }
         // standby lanes too short for the group's vehicles to queue in (the queue would reach back into a junction or a block)
@@ -90,7 +95,7 @@ public static class ModelBuilder
                 catch (System.ComponentModel.Win32Exception e) { throw new InvalidOperationException($"AutoMod({am})를 실행하지 못했습니다: {e.Message}", e); }
             }
         }
-        return new ModelBuildResult(arc, build, findings, warnings);
+        return new ModelBuildResult(arc, build, findings, warnings, export);
     }
 
     /// <summary>One AGVS vehicle type per group, named after the group (the logic's vehicle procedures and dispatch filters are per AGVS type),

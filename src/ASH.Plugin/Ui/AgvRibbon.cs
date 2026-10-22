@@ -27,7 +27,7 @@ public static class AgvRibbon
             ("방향표 크기", GlyphKind.ArrowSize, "AGVARROW")));
         tab.Panels.Add(Panel("CP", ("CP 배치", GlyphKind.Cp, "AGVCP")));
         tab.Panels.Add(Panel("교통제어", ("교통제어 자동", GlyphKind.Traffic, "AGVTRAFFIC"), ("block 자동", GlyphKind.Block, "AGVBLOCKAUTO")));
-        tab.Panels.Add(Panel("검증·내보내기", ("검증", GlyphKind.Check, "AGVCHECK"), ("내보내기", GlyphKind.Export, "AGVEXPORT"), ("Excel 양식", GlyphKind.Excel, "AGVEXCEL"), ("모델 생성·빌드", GlyphKind.Model, "AGVMODEL"), ("서버로 보내기", GlyphKind.Send, "AGVSEND"), ("결과 올리기", GlyphKind.Send, "AGVRESULTUP")));
+        tab.Panels.Add(Panel("검증·내보내기", ("검증", GlyphKind.Check, "AGVCHECK"), ("Excel 양식", GlyphKind.Excel, "AGVEXCEL"), ("모델 생성", GlyphKind.Model, "AGVMODEL"), ("빌드·실행", GlyphKind.Run, "AGVRUN"), ("서버로 보내기", GlyphKind.Send, "AGVSEND"), ("결과 올리기", GlyphKind.Send, "AGVRESULTUP")));
         ribbon.Tabs.Add(tab);
     }
 

@@ -65,5 +65,31 @@ namespace ASH.Core.AutoMod
         }
 
         static string Read(string p) => File.Exists(p) ? File.ReadAllText(p) : "";
+
+        /// <summary>True when &lt;Model&gt;.exe exists and the built dll in &lt;Model&gt;.dir is not older than any file in &lt;Model&gt;.arc.
+        /// params.txt is left out: it is read at run time, and ash-run rewrites it before every run.</summary>
+        public static bool IsBuilt(string modelDir, string modelName)
+        {
+            var arc = Path.Combine(modelDir, modelName + ".arc");
+            if (!File.Exists(Path.Combine(modelDir, modelName + ".exe")) || !Directory.Exists(arc)) return false;
+            var built = DateTime.MinValue; // the exe is a copy of runModel64.exe with the install's old date, so the dll tells when the build ran
+            foreach (var n in new[] { modelName + "64.dll", modelName + ".dll" })
+            {
+                var dll = Path.Combine(modelDir, modelName + ".dir", n);
+                if (File.Exists(dll) && File.GetLastWriteTimeUtc(dll) > built) built = File.GetLastWriteTimeUtc(dll);
+            }
+            if (built == DateTime.MinValue) return false;
+            foreach (var f in Directory.GetFiles(arc, "*", SearchOption.AllDirectories))
+                if (!string.Equals(Path.GetFileName(f), "params.txt", StringComparison.OrdinalIgnoreCase) && File.GetLastWriteTimeUtc(f) > built) return false;
+            return true;
+        }
+
+        /// <summary>Opens the built model in AutoMod's simulation window (graphics on, unlike ModelRunner's "-w" batch run) and returns without waiting.</summary>
+        public static Process Launch(string amHome, string modelDir, string modelName)
+        {
+            var psi = new ProcessStartInfo(Path.Combine(modelDir, modelName + ".exe")) { WorkingDirectory = modelDir, UseShellExecute = false };
+            psi.EnvironmentVariables["PATH"] = Path.Combine(amHome, "bin") + ";" + Environment.GetEnvironmentVariable("PATH"); // as Build: AM's dlls first
+            return Process.Start(psi);
+        }
     }
 }

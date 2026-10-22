@@ -4,7 +4,7 @@ using System.Drawing.Drawing2D;
 
 namespace ASH.Plugin.Ui;
 
-public enum GlyphKind { Init, Path, Reverse, Offset, Array, Split, Join, Fillet, Cp, Block, Traffic, Check, Export, Settings, Excel, Model, Update, PathType, ArrowSize, Search, Send, BlockNum }
+public enum GlyphKind { Init, Path, Reverse, Offset, Array, Split, Join, Fillet, Cp, Block, Traffic, Check, Export, Settings, Excel, Model, Update, PathType, ArrowSize, Search, Send, BlockNum, Run }
 
 /// <summary>Single-colour line icons drawn in code (no image files). Coordinates are in a unit square scaled to px.</summary>
 public static class Glyphs
@@ -118,6 +118,9 @@ public static class Glyphs
                 g.DrawRectangle(pen, 0.15f, 0.15f, 0.7f, 0.7f);
                 g.DrawEllipse(pen, 0.33f, 0.33f, 0.34f, 0.34f);
                 g.FillEllipse(fill, 0.45f, 0.45f, 0.1f, 0.1f);
+                break;
+            case GlyphKind.Run: // play triangle
+                g.DrawPolygon(pen, new[] { P(0.28f, 0.18f), P(0.82f, 0.5f), P(0.28f, 0.82f) });
                 break;
             case GlyphKind.Update: // circular arrow: ~290 degree arc with a head at its end
                 g.DrawArc(pen, 0.2f, 0.2f, 0.6f, 0.6f, -60, 290);

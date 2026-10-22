@@ -51,14 +51,20 @@ public sealed class ExportCommands
                 ed.WriteMessage($"\n내보내기 중단: {ex.Message}");
                 return false;
             }
-            var m = r.Summary;
-            ed.WriteMessage($"\n경로 +{m.PathsAdded} −{m.PathsRemoved} ~{m.PathsMoved}, CP +{m.CpsAdded} −{m.CpsRemoved} ~{m.CpsMoved}");
             foreach (var w in r.Warnings) ed.WriteMessage($"\n경고: {w}");
-            // path only: the .asy is not opened (its associated program would launch on every export)
-            ed.WriteMessage($"\nasy: {r.AsyPath}\ntraffic: {r.TrafficTsvPath}{(r.BackupPath != null ? "\n백업: " + r.BackupPath : "")}");
+            Report(ed, r);
             PathCommands.FinalStatus = "AGVEXPORT 완료";
             return false; // nothing in the drawing changed
         }, refreshArrows: false, unitsPerMeter: UnitScale.FromSettings(s));
+    }
+
+    /// <summary>Change summary against the previous agv.asy and the written paths. AGVMODEL prints it too.</summary>
+    internal static void Report(Editor ed, ExportResult r)
+    {
+        var m = r.Summary;
+        ed.WriteMessage($"\n경로 +{m.PathsAdded} −{m.PathsRemoved} ~{m.PathsMoved}, CP +{m.CpsAdded} −{m.CpsRemoved} ~{m.CpsMoved}");
+        // path only: the .asy is not opened (its associated program would launch on every export)
+        ed.WriteMessage($"\nasy: {r.AsyPath}\ntraffic: {r.TrafficTsvPath}{(r.BackupPath != null ? "\n백업: " + r.BackupPath : "")}");
     }
 
     /// <summary>Drawing units per meter for commands that don't otherwise need settings. Same load path as TryLoadSettings (template on first use, mm warning);
@@ -113,7 +119,8 @@ public sealed class ExportCommands
         return s;
     }
 
-    /// <summary>Opens &lt;drawing folder&gt;\ash.settings.tsv in Notepad, writing the default template first when missing. Palette button, not a command.</summary>
+    /// <summary>Edits &lt;drawing folder&gt;\ash.settings.tsv and the server address in a dialog, writing the default template first when missing. Palette button, not a command.
+    /// A file that does not parse opens in Notepad instead (the dialog has nothing valid to start from).</summary>
     internal static void OpenSettings()
     {
         var doc = Application.DocumentManager.MdiActiveDocument;
@@ -123,7 +130,18 @@ public sealed class ExportCommands
             if (Convert.ToInt32(Application.GetSystemVariable("DWGTITLED")) == 0) { doc.Editor.WriteMessage("\n도면을 먼저 저장하세요. 설정 파일(" + SettingsFileName + ")은 도면 폴더에 둡니다."); return; }
             var path = Path.Combine((string)Application.GetSystemVariable("DWGPREFIX"), SettingsFileName);
             if (!File.Exists(path)) SettingsFile.Save(NewSettings(), path);
-            Process.Start("notepad.exe", "\"" + path + "\"");
+            ProjectSettings s;
+            try { s = SettingsFile.Load(path); }
+            catch (FormatException ex)
+            {
+                doc.Editor.WriteMessage($"\n설정 파일 오류 ({path}): {ex.Message} — 메모장으로 엽니다.");
+                Process.Start("notepad.exe", "\"" + path + "\"");
+                return;
+            }
+            using var dlg = new Ui.SettingsDialog(path, s, UserSettings.Load().ServerUrl);
+            if (Application.ShowModalDialog(dlg) != System.Windows.Forms.DialogResult.OK) return;
+            doc.Editor.WriteMessage("\n설정을 저장했습니다: " + path);
+            Ui.PaletteStatus.Set("설정 저장");
         }
         catch (System.Exception ex)
         {
