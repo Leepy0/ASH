@@ -97,13 +97,13 @@ public static class JobReport
             return;
         }
 
-        Kv("권장 총 대수", j.Decided.Values.Sum());
-        Kv("시험 범위", $"{v.Input.Groups.Sum(g => g.MinCount)}~{v.Input.Groups.Sum(g => g.MaxCount)}");
+        Kv("권장 총 대수(대)", j.Decided.Values.Sum());
+        Kv("시험 범위(대)", $"{v.Input.Groups.Sum(g => g.MinCount)}~{v.Input.Groups.Sum(g => g.MaxCount)}");
         Kv("확인 판정", v.Groups.All(g => g.AllOk) ? "통과" : "실패");
-        Kv("모델 실행 수", j.RunsDone); Kv("실패 수", j.RunsFailed);
+        Kv("모델 실행 수(회)", j.RunsDone); Kv("실패 수(회)", j.RunsFailed);
 
         r++; Title(ws, r++, "그룹별 권장 대수");
-        Header(ws, r++, "그룹", "AGV 타입", "권장", "최소", "최대", "가동률", "최소 재고/안전재고", "판정", "사유");
+        Header(ws, r++, "그룹", "AGV 타입", "권장(대)", "최소(대)", "최대(대)", "가동률(%)", "최소 재고/안전재고(배)", "판정", "사유");
         foreach (var g in v.Groups)
         {
             Put(ws, r, 1, g.Group); Put(ws, r, 2, g.Type); Put(ws, r, 3, g.Decided); Put(ws, r, 4, g.Min); Put(ws, r, 5, g.Max);
@@ -121,7 +121,7 @@ public static class JobReport
     static void Curves(IXLWorksheet ws, JobInfo j, JobView v)
     {
         if (v.Curves.Count == 0) { Note(ws, "결과가 없습니다."); return; }
-        Header(ws, 1, "그룹", "대수", "평균 가동률", "최소", "최대", "실행 수", "실패 수", "권장 여부");
+        Header(ws, 1, "그룹", "대수(대)", "평균 가동률(%)", "최소 가동률(%)", "최대 가동률(%)", "실행 수(회)", "실패 수(회)", "권장 여부");
         int r = 2;
         foreach (var (group, points) in v.Curves)
             foreach (var p in points)
@@ -136,7 +136,7 @@ public static class JobReport
 
     static void Runs(IXLWorksheet ws, JobView v)
     {
-        Header(ws, 1, "실행", "그룹", "대수", "시드", "판정", "사유", "가동률", "최소 재고/안전재고", "공급 수", "기대 공급 수", "정지 시간(초)", "교착 수", "소요(초)", "시나리오");
+        Header(ws, 1, "실행", "그룹", "대수(대)", "시드", "판정", "사유", "가동률(%)", "최소 재고/안전재고(배)", "공급(회)", "기대 공급(회)", "결품 시간(초)", "교착(회)", "실행 시간(초)", "시나리오(그룹=대수)");
         int r = 2;
         foreach (var x in v.Rows)
         {
@@ -151,7 +151,7 @@ public static class JobReport
     static void Impact(IXLWorksheet ws, JobView v)
     {
         if (v.Impact.Count == 0) { Note(ws, "영향표가 없습니다(끄고 보냈거나 결과가 없음)."); return; }
-        Header(ws, 1, "+1 그룹", "그 대수", "영향 받은 그룹", "가동률 변화 %p", "최소재고비 변화");
+        Header(ws, 1, "+1대 한 그룹", "그 대수(대)", "영향 받은 그룹", "가동률 변화(%p)", "최소 재고/안전재고 변화(배)");
         int r = 2;
         foreach (var x in v.Impact)
         {
@@ -165,7 +165,7 @@ public static class JobReport
     static void Blocks(IXLWorksheet ws, JobView v)
     {
         if (v.Blocks.Count == 0) { Note(ws, "block 결과가 없습니다(block이 없거나 확인 실행 결과가 없음)."); return; }
-        Header(ws, 1, "block", "평균 대기 초", "점유율", "통과 수");
+        Header(ws, 1, "block", "평균 대기(초)", "점유율(%)", "통과 수(회)");
         int r = 2;
         foreach (var b in v.Blocks) { Put(ws, r, 1, b.Name); Put(ws, r, 2, b.AvgWaitSec, "0.0"); Put(ws, r, 3, b.Utilization, Pct); Put(ws, r, 4, b.Passes, "0.#"); r++; }
         ws.SheetView.FreezeRows(1); Widths(ws);
@@ -176,7 +176,7 @@ public static class JobReport
         if (v.Vehicles.Count == 0) { Note(ws, "차량 결과가 없습니다(모델이 차량 통계를 쓰지 않았거나 확인 실행 결과가 없음)."); return; }
         int r = 1;
         Title(ws, r++, "그룹별 요약 (확인 실행 평균, 권장 대수만큼 움직인 차량)");
-        Header(ws, r++, "그룹", "대수", "평균 가동률", "작업/대", "주행 거리/대(m)", "m/작업", "초/작업");
+        Header(ws, r++, "그룹", "대수(대)", "평균 가동률(%)", "작업/대(회)", "주행 거리/대(m)", "거리/작업(m)", "시간/작업(초)");
         foreach (var g in v.VehicleGroups)
         {
             Put(ws, r, 1, g.Group); Put(ws, r, 2, g.Count); Put(ws, r, 3, g.Util, Pct); Put(ws, r, 4, g.Jobs, "0.#"); Put(ws, r, 5, g.Distance, "0");
@@ -184,7 +184,7 @@ public static class JobReport
             r++;
         }
         r++; Title(ws, r++, "차량별");
-        Header(ws, r++, "차량", "그룹", "가동률", "작업 수", "주행 거리(m)", "m/작업", "초/작업", "고장 시간(초)");
+        Header(ws, r++, "차량", "그룹", "가동률(%)", "작업 수(회)", "주행 거리(m)", "거리/작업(m)", "시간/작업(초)", "고장 시간(초)");
         foreach (var x in v.Vehicles)
         {
             Put(ws, r, 1, x.Name); Put(ws, r, 2, x.Group); Put(ws, r, 3, x.Util, Pct); Put(ws, r, 4, x.Jobs, "0.#"); Put(ws, r, 5, x.Distance, "0");
@@ -197,8 +197,8 @@ public static class JobReport
     static void MaterialStats(IXLWorksheet ws, JobView v)
     {
         if (v.Materials.Count == 0) { Note(ws, "자재 통계가 없습니다(모델이 쓰지 않았거나 확인 실행 결과가 없음)."); return; }
-        Header(ws, 1, "자재", "그룹", "공급 수", "기대 공급 수", "결품 시간(초)", "호출→상차 평균(초)", "호출→상차 최대(초)", "호출→하차 평균(초)", "호출→하차 최대(초)",
-            "재고 평균", "재고 표준편차", "재고 최소", "재고 최대", "안전재고", "주의");
+        Header(ws, 1, "자재", "그룹", "공급(회)", "기대 공급(회)", "결품 시간(초)", "호출→상차 평균(초)", "호출→상차 최대(초)", "호출→하차 평균(초)", "호출→하차 최대(초)",
+            "재고 평균(용기)", "재고 표준편차(용기)", "재고 최소(용기)", "재고 최대(용기)", "안전재고(용기)", "주의");
         int r = 2;
         foreach (var m in v.Materials)
         {
@@ -219,15 +219,15 @@ public static class JobReport
             var s = v.Input.Settings;
             Title(ws, r++, "설정");
             void Kv(string k, object val, string? fmt = null) { ws.Cell(r, 1).Value = k; Put(ws, r, 2, val, fmt); r++; }
-            Kv("반복", s.Replications); Kv("시드 시작", s.SeedBase); Kv("시뮬레이션 시간(초)", s.SimLengthSec); Kv("워밍업(초)", s.WarmupSec);
-            Kv("가동률 상한", s.UtilMax, Pct); Kv("안전재고", s.SafetyStock);
+            Kv("반복(회)", s.Replications); Kv("시드 시작", s.SeedBase); Kv("시뮬레이션 시간(초)", s.SimLengthSec); Kv("워밍업(초)", s.WarmupSec);
+            Kv("가동률 상한(%)", s.UtilMax, Pct); Kv("안전재고(용기)", s.SafetyStock);
 
             r++; Title(ws, r++, "그룹");
-            Header(ws, r++, "그룹", "AGV 타입", "최소", "최대");
+            Header(ws, r++, "그룹", "AGV 타입", "최소(대)", "최대(대)");
             foreach (var g in v.Input.Groups) { Put(ws, r, 1, g.Group); Put(ws, r, 2, g.Type); Put(ws, r, 3, g.MinCount); Put(ws, r, 4, g.MaxCount); r++; }
 
             r++; Title(ws, r++, "자재");
-            Header(ws, r++, "자재", "그룹", "형태", "T/T", "용기당 자재 수량", "호출 임계");
+            Header(ws, r++, "자재", "그룹", "형태", "T/T(초)", "용기당 수량(개)", "호출 임계(용기)");
             foreach (var m in v.Input.Materials)
             {
                 Put(ws, r, 1, m.Material); Put(ws, r, 2, m.Group); Put(ws, r, 3, m.Form); Put(ws, r, 4, m.TaktTime); Put(ws, r, 5, m.UnitsPerContainer); Put(ws, r, 6, m.CallThreshold);

@@ -211,15 +211,15 @@ public class JobTests
         var mats = JobView.For(env.Store, j).Materials;
         Assert.NotEmpty(mats);
         Assert.Contains("<h2>차량</h2>", summary);
-        Assert.Contains("<tr><td>G1</td><td class=\"num\">2</td><td class=\"num\">50.0%</td><td class=\"num\">15</td><td class=\"num\">1000</td><td class=\"num\">66.7</td><td class=\"num\">333.3</td></tr>", summary);
+        Assert.Contains("<tr><td>G1</td><td class=\"num\">2</td><td class=\"num\">50.0</td><td class=\"num\">15</td><td class=\"num\">1000</td><td class=\"num\">66.7</td><td class=\"num\">333.3</td></tr>", summary);
         Assert.Contains("<h2>자재별 리드타임·재고</h2>", summary);
         Assert.Contains($"<td>{mats[0].Name}</td><td>G1</td><td class=\"num\">12 / 15</td><td class=\"num\">45</td><td class=\"num\">20.5 / 60.0</td><td class=\"num\">100.5 / 200.0</td>" +
             "<td class=\"num\">3.0</td><td class=\"num\">1.5</td><td class=\"num\">1</td><td class=\"num\">6</td>", summary);
         Assert.True(mats[0].Warn);                  // 3 - 2*1.5 = 0 < the safety stock
         Assert.Contains("<b>주의</b>", summary);
-        Assert.Contains("<tr><td>TAB1</td><td>G1</td><td class=\"num\">60.0%</td><td class=\"num\">20</td><td class=\"num\">1200</td><td class=\"num\">60</td><td class=\"num\">300</td><td class=\"num\">30</td></tr>", detail);
+        Assert.Contains("<tr><td>TAB1</td><td>G1</td><td class=\"num\">60.0</td><td class=\"num\">20</td><td class=\"num\">1200</td><td class=\"num\">60</td><td class=\"num\">300</td><td class=\"num\">30</td></tr>", detail);
         Assert.Contains("<th>고장 시간(초)</th>", detail);
-        Assert.Contains("<td>TAB2</td><td>G1</td><td class=\"num\">40.0%</td>", detail);
+        Assert.Contains("<td>TAB2</td><td>G1</td><td class=\"num\">40.0</td>", detail);
         Assert.DoesNotContain("TAB3", detail);
         var input = await env.Http.GetStringAsync($"/jobs/{id}?tab=input");
         Assert.Contains("m.arc/agv.asy", input);
@@ -231,6 +231,59 @@ public class JobTests
         var runsZip = await env.Http.GetAsync($"/jobs/{id}/files/runs.zip");
         Assert.Equal(HttpStatusCode.OK, runsZip.StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await env.Http.GetAsync($"/jobs/{id}/files/..%2Fjob.json")).StatusCode);
+    }
+
+    [Fact]
+    public async Task Run_List_Sorts_By_Every_Column_And_Each_Run_Downloads_Its_Model()
+    {
+        using var env = new JobEnv();
+        var id = Id(await (await env.Send(JobEnv.MakePackage(env.Dir))).Content.ReadAsStringAsync());
+        await env.WaitFinished(id);
+        var project = env.Store.ProjectDir(id);
+        // the build output as the server leaves it (the fake runner does not build)
+        File.WriteAllText(Path.Combine(project, "m.exe"), "exe");
+        Directory.CreateDirectory(Path.Combine(project, "m.dir"));
+        File.WriteAllText(Path.Combine(project, "m.dir", "m64.dll"), "dll");
+        File.WriteAllText(Path.Combine(project, "m.arc", "params.txt"), "SEED 999\n");
+
+        var detail = await env.Http.GetStringAsync($"/jobs/{id}?tab=detail");
+        Assert.Contains("<table class=\"sort\"><thead><tr><th aria-sort=\"none\"><button type=\"button\">실행</button></th><th aria-sort=\"none\"><button type=\"button\">G1 대수(대)</button></th>", detail);
+        Assert.Contains("<button type=\"button\">반복(회차)</button>", detail);
+        Assert.Contains("table.sort", detail);    // the inline sort script, nothing loaded from another host
+        Assert.DoesNotContain("<script src", detail);
+        Assert.Contains($"<a href=\"/jobs/{id}/runs/n2_s1/model.zip\" download>받기</a>", detail);
+
+        var res = await env.Http.GetAsync($"/jobs/{id}/runs/n2_s1/model.zip");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        Assert.Equal("application/zip", res.Content.Headers.ContentType!.MediaType);
+        using (var zip = new ZipArchive(await res.Content.ReadAsStreamAsync()))
+        {
+            var names = zip.Entries.Select(e => e.FullName).ToList();
+            Assert.Contains("m.exe", names); Assert.Contains("m.dir/m64.dll", names); Assert.Contains("m.arc/agv.asy", names);
+            Assert.Single(names, n => n == "m.arc/params.txt");
+            Assert.DoesNotContain(names, n => n.StartsWith("runs/") || n.StartsWith("work/"));
+            string Read(string n) { using var rd = new StreamReader(zip.GetEntry(n)!.Open()); return rd.ReadToEnd(); }
+            var p = Read("m.arc/params.txt");
+            Assert.StartsWith("SEED 1\nGROUPS 1\n1 2\n", p); // this run's seed and count, not the file left in the project
+            var bat = Read("run.bat");
+            Assert.Contains("start \"\" \"m.exe\"", bat);
+            Assert.DoesNotContain("-w", bat);
+            Assert.True(bat.All(c => c < 128));       // cmd reads a .bat in the OEM code page
+            Assert.Contains("G1: 2대", Read("README.txt"));
+        }
+
+        // the run id is looked up, never used as a path
+        foreach (var bad in new[] { "n9_s1", "..%2Fjob.json", "n2_s1%5C..", "x.y" })
+            Assert.Equal(HttpStatusCode.NotFound, (await env.Http.GetAsync($"/jobs/{id}/runs/{bad}/model.zip")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await env.Http.GetAsync("/jobs/nope/runs/n2_s1/model.zip")).StatusCode);
+
+        // build output purged (JobRetention): the .arc alone, run.bat builds it first
+        File.Delete(Path.Combine(project, "m.exe"));
+        using (var zip = new ZipArchive(await env.Http.GetStreamAsync($"/jobs/{id}/runs/n1_s1/model.zip")))
+        {
+            Assert.DoesNotContain(zip.Entries, e => e.FullName.StartsWith("m.dir/") || e.FullName == "m.exe");
+            Assert.Contains(zip.Entries, e => e.FullName == "m.arc/params.txt");
+        }
     }
 
     // the plugin's client against the real endpoints: same JSON and multipart contract on both sides
@@ -316,5 +369,10 @@ public class JobTests
         Assert.Contains("B_x1", page); // the block on the map
         File.WriteAllText(Path.Combine(Path.GetTempPath(), "ash-job-page.html"), page);
         File.WriteAllText(Path.Combine(Path.GetTempPath(), "ash-job-detail.html"), await env.Http.GetStringAsync("/jobs/" + id + "?tab=detail"));
+        var bytes = await env.Http.GetByteArrayAsync($"/jobs/{id}/runs/{j.ConfirmRunIds[0]}/model.zip");
+        File.WriteAllBytes(Path.Combine(Path.GetTempPath(), "ash-job-run.zip"), bytes);
+        using var zip = new ZipArchive(new MemoryStream(bytes));
+        Assert.Contains(zip.Entries, e => e.FullName == "m.exe");
+        Assert.Contains(zip.Entries, e => e.FullName == "m.dir/m64.dll");
     }
 }

@@ -37,6 +37,9 @@ ASH.Server - ASH 배포 서버 (최소판)
                     Enabled false 면 작업을 받지 않는다. WorkerEnabled false 면 받기만 하고 실행하지 않는다.
                     주의: 올린 모델의 로직(user_ext.m 등)이 서버에서 AutoMod 로 컴파일·실행된다. 사내망에서만 연다.
                     작업 대기열과 결과는 http://서버:8082/jobs 에서 본다. 취소는 보낸 PC(같은 IP)나 관리자 토큰으로만 된다.
+                    상세 탭의 실행 목록에서 "받기"를 누르면 그 실행의 모델(빌드 출력이 남아 있으면 <모델>.exe·.dir 포함)과
+                      params.txt, run.bat 을 zip 으로 받는다. AutoMod 가 있는 PC 에서 풀고 run.bat 을 누르면 그 실행을 창으로 본다.
+                      run.bat 의 AutoMod 폴더 기본값은 이 서버의 AmHome 이다.
    를 확인한다. 환경 변수 Admin__Token 으로 토큰을 줄 수도 있다.
    설치 폴더 권한을 관리자로 제한한다(토큰을 넣었다면 토큰 보호):
      icacls "C:\Program Files\ASH.Server" /inheritance:r /grant:r "Administrators:(OI)(CI)F" "SYSTEM:(OI)(CI)F"

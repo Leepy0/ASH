@@ -12,7 +12,9 @@ public static class JobPages
 {
     static string H(string? t) => WebUtility.HtmlEncode(t ?? "");
     static string F(double d, string fmt = "0.##") => double.IsNaN(d) || double.IsInfinity(d) ? "-" : d.ToString(fmt, CultureInfo.InvariantCulture);
-    static string Pct(double d) => double.IsNaN(d) ? "-" : (d * 100).ToString("0.0", CultureInfo.InvariantCulture) + "%";
+    static string Pct(double d) => double.IsNaN(d) ? "-" : P(d) + "%";
+    /// <summary>Percent without the sign, for table cells whose header carries "(%)".</summary>
+    static string P(double d) => double.IsNaN(d) ? "-" : (d * 100).ToString("0.0", CultureInfo.InvariantCulture);
     static string When(DateTime? utc) => utc is { } t ? SeoulTime.Text(t) : "-";
     static string Dur(TimeSpan? d) => d is { } x ? (x.TotalHours >= 1 ? $"{(int)x.TotalHours}시간 {x.Minutes}분" : x.TotalMinutes >= 1 ? $"{(int)x.TotalMinutes}분 {x.Seconds}초" : $"{x.Seconds}초") : "-";
 
@@ -32,7 +34,35 @@ table{border-collapse:collapse;background:#fff}td,th{border:1px solid #d3d1c7;pa
 .state{display:inline-block;padding:2px 8px;border-radius:10px;font-size:13px}
 .s-queued{background:#faeeda;color:#633806}.s-running{background:#e6f1fb;color:#0c447c}.s-done{background:#eaf3de;color:#27500a}.s-failed{background:#fcebeb;color:#791f1f}.s-cancelled{background:#f1efe8;color:#444441}
 pre{background:#f1efe8;padding:10px;overflow:auto;max-height:420px;font-size:12px}
-button{padding:6px 14px}";
+button{padding:6px 14px}
+th button{all:unset;cursor:pointer}th button:focus-visible{outline:2px solid #185fa5}
+th[aria-sort=ascending] button::after{content:' ▲'}th[aria-sort=descending] button::after{content:' ▼'}";
+
+    /// <summary>Click a header button of a table.sort to sort its rows; numbers as numbers ("-" last), text in Korean order with digits as numbers.</summary>
+    const string SortScript = @"<script>
+document.querySelectorAll('table.sort').forEach(function(t){
+  var hs=t.tHead.rows[0].cells;
+  Array.prototype.forEach.call(hs,function(th,i){
+    var b=th.querySelector('button'); if(!b) return;
+    b.addEventListener('click',function(){
+      var up=th.getAttribute('aria-sort')!=='ascending', body=t.tBodies[0], rows=Array.prototype.slice.call(body.rows);
+      Array.prototype.forEach.call(hs,function(h){ if(h.querySelector('button')) h.setAttribute('aria-sort','none'); });
+      th.setAttribute('aria-sort',up?'ascending':'descending');
+      function key(r){ var s=r.cells[i].textContent.trim(), n=parseFloat(s); return isNaN(n)?s:n; }
+      rows.sort(function(a,c){
+        var x=key(a), y=key(c);
+        if(x==='-'||y==='-') return (x==='-')-(y==='-');
+        var d=typeof x==='number'&&typeof y==='number'?x-y:String(x).localeCompare(String(y),'ko',{numeric:true});
+        return up?d:-d;
+      });
+      rows.forEach(function(r){ body.appendChild(r); });
+    });
+  });
+});
+</script>";
+
+    /// <summary>A header cell the sort script can sort by.</summary>
+    static string Th(string label) => $"<th aria-sort=\"none\"><button type=\"button\">{label}</button></th>";
 
     public static string Page(string title, string body, bool refresh = false) =>
         "<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\"><title>" + H(title) + "</title>" + (refresh ? "<meta http-equiv=\"refresh\" content=\"10\">" : "") +
@@ -46,7 +76,7 @@ button{padding:6px 14px}";
         sb.Append("<p>").Append(workerEnabled ? "" : "<b class=\"bad\">이 서버는 작업을 실행하지 않습니다(Jobs:WorkerEnabled=false).</b> ")
           .Append($"대기 {q.Ahead}건").Append(q.Typical is { } t ? $" · 보통 한 작업 {Dur(t)}" : "").Append(q.Start is { } s ? $" · 지금 보내면 시작 예상 {H(SeoulTime.Text(s))}" : "").Append("</p>");
         sb.Append("<p class=\"muted\">작업은 ZWCAD의 ASH에서 \"서버로 보내기\"로 올립니다. 먼저 온 순서로 하나씩 실행합니다.</p>");
-        sb.Append("<table><tr><th>작업</th><th>상태</th><th>프로젝트 / 안</th><th>모델</th><th>보낸 사람</th><th>보낸 시각(서울)</th><th>실행</th><th>권장 총 대수</th></tr>");
+        sb.Append("<table><tr><th>작업</th><th>상태</th><th>프로젝트 / 안</th><th>모델</th><th>보낸 사람</th><th>보낸 시각(서울)</th><th>실행(회)</th><th>권장 총 대수(대)</th></tr>");
         foreach (var j in jobs)
         {
             var total = j.Decided?.Values.Sum();
@@ -105,27 +135,28 @@ button{padding:6px 14px}";
         sb.Append("</div>");
 
         sb.Append($"<p><a href=\"/jobs/{H(j.Id)}/files/report.xlsx\">Excel 보고서 받기</a></p>");
-        sb.Append("<h2>그룹별 권장 대수와 부하율</h2><table><tr><th>그룹</th><th>AGV 타입</th><th>권장</th><th>범위</th><th>가동률(확인 실행 평균)</th><th>최소 재고/안전재고</th><th>판정</th></tr>");
+        // units sit in the headers, so the cells are plain numbers (and JobReport uses the same headers)
+        sb.Append("<h2>그룹별 권장 대수와 부하율</h2><table><tr><th>그룹</th><th>AGV 타입</th><th>권장(대)</th><th>범위(대)</th><th>가동률(%, 확인 실행 평균)</th><th>최소 재고/안전재고(배)</th><th>판정</th></tr>");
         foreach (var g in v.Groups)
         {
             var w = double.IsNaN(g.Util) ? 0 : Math.Min(1, g.Util);
             sb.Append($"<tr><td>{H(g.Group)}</td><td>{H(g.Type)}</td><td class=\"num\"><b>{(g.Decided?.ToString(CultureInfo.InvariantCulture) ?? "-")}</b></td><td class=\"num\">{g.Min}~{g.Max}</td>" +
-                $"<td><span class=\"bar\"><i style=\"width:{F(w * 100, "0.#")}%\"></i><b style=\"left:{F(Math.Min(1, v.UtilMax) * 100, "0.#")}%\"></b></span> {Pct(g.Util)}</td>" +
+                $"<td><span class=\"bar\"><i style=\"width:{F(w * 100, "0.#")}%\"></i><b style=\"left:{F(Math.Min(1, v.UtilMax) * 100, "0.#")}%\"></b></span> {P(g.Util)}</td>" +
                 $"<td class=\"num\">{F(g.MinStockRatio)}</td><td class=\"{(g.AllOk ? "ok" : "bad")}\">{(g.AllOk ? "통과" : "실패: " + H(g.Reason))}</td></tr>");
         }
         sb.Append("</table><p class=\"muted\">빨간 세로선은 가동률 상한(Settings의 UtilMax)입니다.</p>");
         if (v.VehicleGroups.Count > 0)
         {
-            sb.Append("<h2>차량</h2><table><tr><th>그룹</th><th>대수</th><th>평균 가동률</th><th>작업/대</th><th>주행 거리/대(m)</th><th>m/작업</th><th>초/작업</th></tr>");
+            sb.Append("<h2>차량</h2><table><tr><th>그룹</th><th>대수(대)</th><th>평균 가동률(%)</th><th>작업/대(회)</th><th>주행 거리/대(m)</th><th>거리/작업(m)</th><th>시간/작업(초)</th></tr>");
             foreach (var g in v.VehicleGroups)
-                sb.Append($"<tr><td>{H(g.Group)}</td><td class=\"num\">{g.Count}</td><td class=\"num\">{Pct(g.Util)}</td><td class=\"num\">{F(g.Jobs, "0.#")}</td>" +
+                sb.Append($"<tr><td>{H(g.Group)}</td><td class=\"num\">{g.Count}</td><td class=\"num\">{P(g.Util)}</td><td class=\"num\">{F(g.Jobs, "0.#")}</td>" +
                     $"<td class=\"num\">{F(g.Distance, "0")}</td><td class=\"num\">{F(g.DistPerJob, "0.#")}</td><td class=\"num\">{F(g.BusyPerJob, "0.#")}</td></tr>");
             sb.Append("</table><p class=\"muted\">확인 실행 평균, 워밍업 이후, 권장 대수만큼 움직인 차량만 셉니다. 가동률은 작업 중 시간(호출 차량의 이동 + 작업)을 측정 시간으로 나눈 값입니다.</p>");
         }
         if (v.Materials.Count > 0)
         {
-            sb.Append("<h2>자재별 리드타임·재고</h2><table><tr><th>자재</th><th>그룹</th><th>공급/기대</th><th>결품(초)</th><th>호출→상차 평균/최대(초)</th><th>호출→하차 평균/최대(초)</th>" +
-                "<th>재고 평균</th><th>표준편차</th><th>최소</th><th>최대</th><th>주의</th></tr>");
+            sb.Append("<h2>자재별 리드타임·재고</h2><table><tr><th>자재</th><th>그룹</th><th>공급/기대(회)</th><th>결품 시간(초)</th><th>호출→상차 평균/최대(초)</th><th>호출→하차 평균/최대(초)</th>" +
+                "<th>재고 평균(용기)</th><th>표준편차(용기)</th><th>최소(용기)</th><th>최대(용기)</th><th>주의</th></tr>");
             foreach (var m in v.Materials)
                 sb.Append($"<tr><td>{H(m.Name)}</td><td>{H(m.Group)}</td><td class=\"num\">{F(m.Supplies, "0.#")} / {F(m.Expected, "0.#")}</td><td class=\"num\">{F(m.StopSec, "0")}</td>" +
                     $"<td class=\"num\">{F(m.PickAvg, "0.0")} / {F(m.PickMax, "0.0")}</td><td class=\"num\">{F(m.DelivAvg, "0.0")} / {F(m.DelivMax, "0.0")}</td>" +
@@ -144,13 +175,13 @@ button{padding:6px 14px}";
         if (v.Layout == null) { sb.Append("<p class=\"muted\">레이아웃을 읽지 못했습니다.</p>"); return; }
         if (v.Blocks.Count == 0) sb.Append("<p class=\"muted\">교통제어 block 결과가 없습니다(block이 없거나 확인 실행 결과가 없음). 경로만 그립니다.</p>");
         sb.Append("<div class=\"cards\">");
-        sb.Append("<div>").Append(Map(v, "block 점유율", b => b.Utilization, x => Pct(x))).Append("</div>");
+        sb.Append("<div>").Append(Map(v, "block 점유율(%)", b => b.Utilization, x => Pct(x))).Append("</div>");
         sb.Append("<div>").Append(Map(v, "block 평균 대기(초)", b => b.AvgWaitSec, x => F(x, "0.0") + "초")).Append("</div>");
         sb.Append("</div>");
         if (v.Blocks.Count > 0)
         {
-            sb.Append("<h2>대기가 긴 block</h2><table><tr><th>block</th><th>평균 대기</th><th>점유율</th><th>통과 수</th></tr>");
-            foreach (var b in v.Blocks.Take(10)) sb.Append($"<tr><td>{H(b.Name)}</td><td class=\"num\">{F(b.AvgWaitSec, "0.0")}초</td><td class=\"num\">{Pct(b.Utilization)}</td><td class=\"num\">{F(b.Passes, "0")}</td></tr>");
+            sb.Append("<h2>대기가 긴 block</h2><table><tr><th>block</th><th>평균 대기(초)</th><th>점유율(%)</th><th>통과 수(회)</th></tr>");
+            foreach (var b in v.Blocks.Take(10)) sb.Append($"<tr><td>{H(b.Name)}</td><td class=\"num\">{F(b.AvgWaitSec, "0.0")}</td><td class=\"num\">{P(b.Utilization)}</td><td class=\"num\">{F(b.Passes, "0")}</td></tr>");
             sb.Append("</table>");
         }
     }
@@ -220,7 +251,7 @@ button{padding:6px 14px}";
         if (v.Impact.Count > 0)
         {
             var groups = v.Input.Groups.Select(x => x.Group).ToList();
-            sb.Append("<h2>영향표</h2><p class=\"muted\">행 그룹을 권장 대수에서 1대 늘렸을 때 열 그룹의 가동률 변화(%p). 진할수록 영향이 큽니다.</p><table><tr><th>+1대 한 그룹</th>");
+            sb.Append("<h2>영향표</h2><p class=\"muted\">행 그룹을 권장 대수에서 1대 늘렸을 때 열 그룹의 가동률 변화(%p). 진할수록 영향이 큽니다.</p><table><tr><th>+1대 한 그룹 → 가동률 변화(%p)</th>");
             foreach (var g in groups) sb.Append($"<th>{H(g)}</th>");
             sb.Append("</tr>");
             double hi = v.Impact.Select(r => Math.Abs(r.UtilDelta)).Where(x => !double.IsNaN(x)).DefaultIfEmpty(0).Max();
@@ -241,19 +272,32 @@ button{padding:6px 14px}";
         if (v.Vehicles.Count > 0)
         {
             bool down = v.Vehicles.Any(x => x.Down > 0);
-            sb.Append("<h2>차량별</h2><p class=\"muted\">권장 대수만큼 움직인 차량의 확인 실행 평균입니다.</p><table><tr><th>차량</th><th>그룹</th><th>가동률</th><th>작업 수</th><th>주행 거리 m</th><th>m/작업</th><th>초/작업</th>" +
+            sb.Append("<h2>차량별</h2><p class=\"muted\">권장 대수만큼 움직인 차량의 확인 실행 평균입니다.</p><table><tr><th>차량</th><th>그룹</th><th>가동률(%)</th><th>작업 수(회)</th><th>주행 거리(m)</th><th>거리/작업(m)</th><th>시간/작업(초)</th>" +
                 (down ? "<th>고장 시간(초)</th>" : "") + "</tr>");
             foreach (var x in v.Vehicles)
-                sb.Append($"<tr><td>{H(x.Name)}</td><td>{H(x.Group)}</td><td class=\"num\">{Pct(x.Util)}</td><td class=\"num\">{F(x.Jobs, "0.#")}</td><td class=\"num\">{F(x.Distance, "0")}</td>" +
+                sb.Append($"<tr><td>{H(x.Name)}</td><td>{H(x.Group)}</td><td class=\"num\">{P(x.Util)}</td><td class=\"num\">{F(x.Jobs, "0.#")}</td><td class=\"num\">{F(x.Distance, "0")}</td>" +
                     $"<td class=\"num\">{F(x.DistPerJob, "0.#")}</td><td class=\"num\">{F(x.BusyPerJob, "0.#")}</td>" + (down ? $"<td class=\"num\">{F(x.Down, "0")}</td>" : "") + "</tr>");
             sb.Append("</table>");
         }
-        sb.Append("<h2>실행 목록</h2><table><tr><th>실행</th><th>그룹</th><th>대수</th><th>시드</th><th>판정</th><th>가동률</th><th>최소재고비</th><th>공급</th><th>기대</th><th>결품 시간(초)</th><th>교착</th><th>시간(초)</th></tr>");
+        // one row per run and group; every group's count of the run is a column, so the list sorts by any of them
+        var gs = v.Input.Groups;
+        var counts = v.RunCounts();
+        sb.Append("<h2>실행 목록</h2><p class=\"muted\">제목을 누르면 그 열로 정렬합니다(다시 누르면 반대로). \"받기\"는 그 실행의 모델과 조건(params.txt)을 zip으로 받아 AutoMod가 있는 PC에서 run.bat으로 창을 띄워 볼 수 있게 합니다.</p>");
+        sb.Append("<table class=\"sort\"><thead><tr>").Append(Th("실행"));
+        foreach (var g in gs) sb.Append(Th(H(g.Group) + " 대수(대)"));
+        sb.Append(Th("시드")).Append(Th("반복(회차)")).Append(Th("그룹")).Append(Th("판정")).Append(Th("가동률(%)")).Append(Th("최소 재고/안전재고(배)")).Append(Th("공급(회)"))
+          .Append(Th("기대 공급(회)")).Append(Th("결품 시간(초)")).Append(Th("교착(회)")).Append(Th("실행 시간(초)")).Append("<th>모델</th></tr></thead><tbody>");
         foreach (var r in v.Rows.Take(1000))
-            sb.Append($"<tr><td>{H(r.RunId)}</td><td>{H(r.Group)}</td><td class=\"num\">{r.Active}</td><td class=\"num\">{r.Seed}</td><td class=\"{(r.Ok ? "ok" : "bad")}\">{(r.Ok ? "통과" : H(r.Reason))}</td>" +
-                $"<td class=\"num\">{Pct(r.Utilization)}</td><td class=\"num\">{F(r.MinStockRatio)}</td><td class=\"num\">{r.Supplies}</td><td class=\"num\">{F(r.Expected, "0.#")}</td><td class=\"num\">{F(r.StopTimeSec, "0")}</td><td class=\"num\">{r.Deadlocks}</td><td class=\"num\">{F(r.DurationSec, "0")}</td></tr>");
-        sb.Append("</table>");
-        if (v.Rows.Count > 1000) sb.Append($"<p class=\"muted\">처음 1000행만 보여 줍니다(전체 {v.Rows.Count}행은 summary.tsv로 받으세요).</p>");
+        {
+            sb.Append($"<tr><td>{H(r.RunId)}</td>");
+            var c = counts[r.RunId];
+            foreach (var g in gs) sb.Append($"<td class=\"num\">{(c.TryGetValue(g.Group, out var n) ? n : g.MinCount)}</td>");
+            sb.Append($"<td class=\"num\">{r.Seed}</td><td class=\"num\">{r.Seed - v.Input.Settings.SeedBase + 1}</td><td>{H(r.Group)}</td><td class=\"{(r.Ok ? "ok" : "bad")}\">{(r.Ok ? "통과" : H(r.Reason))}</td>" +
+                $"<td class=\"num\">{P(r.Utilization)}</td><td class=\"num\">{F(r.MinStockRatio)}</td><td class=\"num\">{r.Supplies}</td><td class=\"num\">{F(r.Expected, "0.#")}</td><td class=\"num\">{F(r.StopTimeSec, "0")}</td><td class=\"num\">{r.Deadlocks}</td><td class=\"num\">{F(r.DurationSec, "0")}</td>" +
+                $"<td><a href=\"/jobs/{H(j.Id)}/runs/{Uri.EscapeDataString(r.RunId)}/model.zip\" download>받기</a></td></tr>");
+        }
+        sb.Append("</tbody></table>").Append(SortScript);
+        if (v.Rows.Count > 1000) sb.Append($"<p class=\"muted\">처음 1000행만 보여 주고 그 안에서 정렬합니다(전체 {v.Rows.Count}행은 summary.tsv로 받으세요).</p>");
     }
 
     static string Curve(string group, int min, int max, IReadOnlyList<CountPoint> pts, double utilMax, int? decided)
@@ -300,14 +344,14 @@ button{padding:6px 14px}";
         }
         else if (v?.InputError != null) sb.Append($"<tr><th>입력</th><td class=\"bad\">{H(v.InputError)}</td></tr>");
         sb.Append("</table>");
-        sb.Append("<h2>올린 파일 (SHA-256)</h2><table><tr><th>파일</th><th>크기</th><th>SHA-256</th></tr>");
+        sb.Append("<h2>올린 파일 (SHA-256)</h2><table><tr><th>파일</th><th>크기(바이트)</th><th>SHA-256</th></tr>");
         foreach (var f in j.Files) sb.Append($"<tr><td>{H(f.Path)}</td><td class=\"num\">{f.Size:N0}</td><td style=\"font-family:monospace;font-size:12px\">{H(f.Sha256)}</td></tr>");
         sb.Append("</table>");
         if (v?.Input != null)
         {
-            sb.Append("<h2>그룹</h2><table><tr><th>그룹</th><th>타입</th><th>최소</th><th>최대</th><th>대기 CP</th></tr>");
+            sb.Append("<h2>그룹</h2><table><tr><th>그룹</th><th>타입</th><th>최소(대)</th><th>최대(대)</th><th>대기 CP</th></tr>");
             foreach (var g in v.Input.Groups) sb.Append($"<tr><td>{H(g.Group)}</td><td>{H(g.Type)}</td><td class=\"num\">{g.MinCount}</td><td class=\"num\">{g.MaxCount}</td><td>{H(string.Join(", ", g.StandbyCPs))}</td></tr>");
-            sb.Append("</table><h2>자재</h2><table><tr><th>자재</th><th>그룹</th><th>형태</th><th>T/T(초)</th><th>용기당</th><th>호출 임계</th></tr>");
+            sb.Append("</table><h2>자재</h2><table><tr><th>자재</th><th>그룹</th><th>형태</th><th>T/T(초)</th><th>용기당 수량(개)</th><th>호출 임계(용기)</th></tr>");
             foreach (var m in v.Input.Materials) sb.Append($"<tr><td>{H(m.Material)}</td><td>{H(m.Group)}</td><td>{H(m.Form.Length == 0 ? "Box" : m.Form)}</td><td class=\"num\">{F(m.TaktTime)}</td><td class=\"num\">{F(m.UnitsPerContainer)}</td><td class=\"num\">{F(m.CallThreshold)}</td></tr>");
             sb.Append("</table>");
         }

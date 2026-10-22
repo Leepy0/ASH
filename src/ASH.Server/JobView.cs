@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using ASH.Core.Input;
+using ASH.Core.Model;
 using ASH.Core.Runner;
 
 namespace ASH.Server;
@@ -53,6 +54,20 @@ public sealed class JobView
     public IReadOnlyList<MaterialView> Materials { get; private set; } = Array.Empty<MaterialView>();
     public IReadOnlyList<ImpactRow> Impact { get; private set; } = Array.Empty<ImpactRow>();
     public double UtilMax => Input?.Settings.UtilMax ?? 0.75;
+
+    /// <summary>Active count per group of every run, from its summary rows (a group without a row ran at MinCount, as in ModelRunner.RunId).</summary>
+    public IReadOnlyDictionary<string, Dictionary<string, int>> RunCounts() =>
+        Rows.GroupBy(r => r.RunId).ToDictionary(g => g.Key, g => g.GroupBy(r => r.Group).ToDictionary(x => x.Key, x => x.First().Active, StringComparer.Ordinal), StringComparer.Ordinal);
+
+    /// <summary>What a run ran with (group counts, seed, debug), rebuilt from summary.tsv; null for an unknown run or one whose id does not come out the same.</summary>
+    public RunScenario? Scenario(string runId)
+    {
+        if (Input == null) return null;
+        var rows = Rows.Where(r => r.RunId == runId && Input.Groups.Any(g => g.Group == r.Group)).ToList();
+        if (rows.Count == 0) return null;
+        var s = new RunScenario(rows[0].Seed, rows.GroupBy(r => r.Group).ToDictionary(g => g.Key, g => g.First().Active, StringComparer.Ordinal), runId.EndsWith("_dbg", StringComparison.Ordinal));
+        return ModelRunner.RunId(Input, s) == runId ? s : null;
+    }
 
     public static JobView For(JobStore store, JobInfo job)
     {

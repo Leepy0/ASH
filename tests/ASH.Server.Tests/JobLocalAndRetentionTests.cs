@@ -106,6 +106,6 @@ public class JobLocalAndRetentionTests
         Assert.Equal(50.0, view.VehicleGroups.Single().Util * 100, 6);
         var page = await env.Http.GetStringAsync("/jobs/" + id);
         Assert.Contains("M_loc", page);
-        Assert.Contains("<td>G1</td><td class=\"num\">2</td><td class=\"num\">50.0%</td>", page);
+        Assert.Contains("<td>G1</td><td class=\"num\">2</td><td class=\"num\">50.0</td>", page);
     }
 }

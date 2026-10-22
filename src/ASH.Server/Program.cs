@@ -277,6 +277,19 @@ app.MapGet("/jobs/{id}/files/{name}", (string id, string name, JobStore js) =>
     return Results.File(fs, type, $"{id}-{name}", enableRangeProcessing: name.EndsWith(".zip"));
 });
 
+// one run to watch in AutoMod on a PC: the run id is only looked up in summary.tsv, never joined into a path
+app.MapGet("/jobs/{id}/runs/{run}/model.zip", (string id, string run, HttpContext ctx, JobStore js, IConfiguration cfg) =>
+{
+    if (!JobStore.IsValidId(id) || js.Get(id) is not { } j || j.State == JobState.Queued) return Msg(404, "작업이 없습니다.");
+    var v = JobView.For(js, j);
+    if (!RunModelZip.IsValidRunId(run) || v.Input == null || v.Scenario(run) is not { } s) return Msg(404, "그런 실행은 없습니다.");
+    if (!Directory.Exists(Path.Combine(js.ProjectDir(id), j.Model + ".arc"))) return Msg(410, "모델 폴더가 없습니다.");
+    var am = new AutoModJobRunner(cfg).AmHome;
+    // the zip writer still flushes its deflate streams synchronously on dispose (even with the .NET 10 async APIs)
+    if (ctx.Features.Get<IHttpBodyControlFeature>() is { } body) body.AllowSynchronousIO = true;
+    return Results.Stream(body => RunModelZip.WriteAsync(body, js.ProjectDir(id), j.Model, v.Input, s, id, run, am), "application/zip", $"{id}-{run}.zip");
+});
+
 app.Run();
 return 0;
 
