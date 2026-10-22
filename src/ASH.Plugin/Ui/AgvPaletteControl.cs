@@ -61,9 +61,11 @@ public sealed class AgvPaletteControl : UserControl
             new ToolTip().SetToolTip(b, $"{t} CP 배치 · 이름 {AutoNamer.PatternFor(t)} (AGVCP)");
             b.Click += (o, e) =>
             {
-                // SendStringToExecute only queues AGVCP, so it still reads the type set below
-                if (!AgvPalette.Send("AGVCP") || s.Type == t) return; // same type again keeps an edited prefix/CAP
+                if (s.Type == t) { AgvPalette.Send("AGVCP"); return; } // same type again keeps an edited prefix/CAP
+                // set before sending (AGVCP must see it whether ZWCAD queues or runs the command at once), put back when the send is refused
+                var (oldType, oldPrefix, oldCap) = (s.Type, s.Prefix, s.Cap);
                 s.Type = t; // also resets Prefix and Cap to the type's defaults
+                if (!AgvPalette.Send("AGVCP")) { s.Type = oldType; s.Prefix = oldPrefix; s.Cap = oldCap; return; }
                 prefix.Text = s.Prefix;
                 cap.Text = CpTypes.FormatCap(s.Cap);
                 ShowType();
