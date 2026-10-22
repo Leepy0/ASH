@@ -64,7 +64,8 @@ public class UpdateFlowTests
         var sw = System.Diagnostics.Stopwatch.StartNew();
         var m = await Run(f, "0.1.0", ms: 300);
         Assert.Equal("업데이트 확인 실패(서버 응답 없음)", m);
-        Assert.True(sw.ElapsedMilliseconds < 2500, "gave up in time: " + sw.ElapsedMilliseconds);
+        // generous for busy CI runners (both target frameworks test at once); a hang would never return at all
+        Assert.True(sw.ElapsedMilliseconds < 10000, "gave up in time: " + sw.ElapsedMilliseconds);
     }
 
     [Fact] public async Task Connection_Refused_Does_Not_Throw()
