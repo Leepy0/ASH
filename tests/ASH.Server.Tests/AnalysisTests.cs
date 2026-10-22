@@ -89,6 +89,18 @@ public class AnalysisTests : IDisposable
     }
 
     [Fact]
+    public void Unreadable_But_Valid_File_Is_Not_Moved_Aside()
+    {
+        var st = new AnalysisStore(_dir);
+        st.CreateAnalysis("분석", "");
+        var path = Path.Combine(_dir, "analyses.json");
+        using (new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
+            Assert.Throws<IOException>(() => new AnalysisStore(_dir, NullLogger.Instance));
+        Assert.Empty(Directory.GetFiles(_dir, "analyses.json.bad-*"));
+        Assert.Single(new AnalysisStore(_dir).All());
+    }
+
+    [Fact]
     public void Old_Job_Json_Loads_As_Unclassified()
     {
         Directory.CreateDirectory(Path.Combine(_dir, "20260101-000000-abcd"));

@@ -20,8 +20,9 @@ public sealed class AnalysisStore
         _path = Path.Combine(dir, "analyses.json");
         _items = new();
         if (!File.Exists(_path)) return;
-        try { _items = JsonSerializer.Deserialize<List<AnalysisInfo>>(File.ReadAllText(_path), Json) ?? new(); }
-        catch (Exception e) when (e is JsonException or IOException)
+        var text = File.ReadAllText(_path); // an IOException here (file locked, disk error) is not corruption: let it stop the start and name the file
+        try { _items = JsonSerializer.Deserialize<List<AnalysisInfo>>(text, Json) ?? throw new JsonException("내용이 비어 있습니다."); }
+        catch (JsonException e)
         {
             // keep the server up: set the unreadable file aside (never overwriting an earlier one) and start with an empty catalog
             var stamp = ASH.Core.SeoulTime.Now.ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture);
