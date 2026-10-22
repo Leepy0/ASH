@@ -21,7 +21,7 @@ public static class InputValidator
     /// <summary>One warning per material whose shortest loaded supply cycle (SupplyFrom -> [Buffer] -> SupplyTo route length / SpeedLoaded
     /// + LoadTime + UnloadTime + ExtraTime) is longer than the time one container lasts (TaktTime × UnitsPerContainer / UnitsPerCycle):
     /// the logic keeps at most one call per material in flight, so no vehicle count can keep up. supplyLength = route length per material
-    /// in model units (see GroupClusters.SupplyLength); materials without a length are skipped.</summary>
+    /// in meters, like SpeedLoaded (see GroupClusters.SupplyLength); materials without a length are skipped.</summary>
     public static List<Finding> SupplyCapacity(ProjectInput input, IReadOnlyDictionary<string, double> supplyLength)
     {
         var f = new List<Finding>();

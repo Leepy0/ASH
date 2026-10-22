@@ -43,6 +43,25 @@ public class ArcLayoutTests
     }
 
     [Fact]
+    public void A_Millimeters_Model_Of_A_Mm_Drawing_Reads_Back_In_Meters()
+    {
+        // the same loop drawn in mm and exported with Scale 0.001 into a Millimeters model: agv.asy holds mm, blocks.tsv / traffic.tsv meters
+        var l = L.Of(L.Line("p1", 0, 0, 10000, 0), L.Line("p2", 10000, 0, 10000, 10000), L.Line("p3", 10000, 10000, 0, 10000), L.Line("p4", 0, 10000, 0, 0));
+        l.Tolerance = 1;
+        l.Cps.Add(L.Cp("S001", 7000, 0, "standby", "G1"));
+        l.Blocks.Add(L.Block("B_x1", 8000, -1000, 11000, 2000));
+        var dir = Tmp();
+        ExportRunner.Run(l, new ExportOptions(Units: "Millimeters", Scale: 0.001, Groups: new[] { new VehicleGroupSpec("G1", "Tug", 1, 1.0, 1, 1) }), dir);
+        Assert.Contains("GPATH name p1 ", File.ReadAllText(Path.Combine(dir, "agv.asy")));
+        var (r, t) = ArcLayout.Load(dir);
+        Assert.Equal(10, r.Paths.Single(p => p.Name == "p1").Length, 6);
+        Assert.Equal(7, r.Cps.Single(c => c.Name == "S001").Position.X, 6);
+        Assert.Equal(8, r.Blocks.Single().Rect.Min.X, 6);
+        Assert.All(t.Entries, e => Assert.InRange(e.BoundaryDist, 0, 10));             // traffic boundaries on the same metre scale
+        Directory.Delete(dir, true);
+    }
+
+    [Fact]
     public void Arcs_RoundTrip_Through_Export_And_Load_Cw_And_Ccw()
     {
         var ccw = new ASH.Core.Layout.LayoutPath("a1") { Segments = { new ArcSeg(new Point2(0, 0), new Point2(5, 0), 90) } };

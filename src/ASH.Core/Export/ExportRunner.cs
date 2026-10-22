@@ -36,7 +36,7 @@ public static class ExportRunner
         var tsv = Path.Combine(arcDir, "traffic.tsv");
         using (var w = new StreamWriter(tsv, false, new UTF8Encoding(false)))
             table.WriteTsv(w, o.Scale);
-        // export units, same transform as the BLOCK entities in the process model
+        // meters, like traffic.tsv (ArcLayout reads the model's agv.asy back in meters too)
         var blocks = Path.Combine(arcDir, "blocks.tsv");
         using (var w = new StreamWriter(blocks, false, new UTF8Encoding(false)))
         {

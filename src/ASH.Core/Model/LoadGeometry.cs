@@ -6,9 +6,10 @@ using ASH.Core.Input;
 namespace ASH.Core.Model;
 
 /// <summary>
-/// The AutoMod picture of a load (box, empty box, pallet, trolley), built from its own length, width and height in the model units. Each part has an absolute
+/// The AutoMod picture of a load (box, empty box, pallet, trolley), built from its own length, width and height (meters, written in the model units). Each part has an absolute
 /// size (board width, wall thickness, caster size), only the outer measures follow the material's size, so a bigger load is a bigger load and not a stretched one.
-/// Length runs along y, width along x (the vehicle picture's frame: y is the travel direction, so a load rides lengthwise), the parts stand on z = 0.
+/// Length runs along x, width along y, the parts stand on z = 0: a load on a vehicle sits in the vehicle segment's CONTAINER, whose x is the travel
+/// direction (seen in AutoMod), so it rides lengthwise.
 /// </summary>
 public static class LoadGeometry
 {
@@ -26,30 +27,18 @@ public static class LoadGeometry
         }
     }
 
-    /// <summary>Model units in one meter, or null for a unit that cannot be converted (the plain cube is then kept).</summary>
-    public static double? UnitsPerMeter(string units)
-    {
-        switch ((units ?? "").Trim().ToLowerInvariant())
-        {
-            case "meters": return 1;
-            case "feet": return 3.280839895;
-            case "inches": return 39.37007874;
-            case "centimeters": return 100;
-            case "millimeters": return 1000;
-            default: return null;
-        }
-    }
-
     static string F(double v) => v.ToString("0.#######", CultureInfo.InvariantCulture);
 
-    static IEnumerable<string> Prim(string name, int color, double x, double y, double z, double bx, double by, double h)
+    /// <summary>One box primitive: centre (x, y), bottom z, size dx along x, dy along y, height h. See <see cref="ASH.Core.Export.VehicleGeometry"/> for the
+    /// cell format: flag 5 = own colour, the size line is y extent before x extent, the fifth number of the name line is 1 = solid.</summary>
+    internal static IEnumerable<string> Box(string name, int color, double x, double y, double z, double dx, double dy, double h)
     {
-        yield return "310 21";
-        yield return $"{color} {color} 0 1 1 {name}"; // display 1 = solid (0 draws the outline only)
+        yield return "310 5";
+        yield return $"{color} {color} 0 1 1 {name}";
         yield return $"{F(x)}  {F(y)}  {F(z)}";
         yield return "0" + (char)9 + "0.00" + (char)9 + "0.00" + (char)9 + "0.00";
         yield return (char)9 + "1.00" + (char)9 + "1.00" + (char)9 + "1.00";
-        yield return $"{F(bx)} {F(by)} {F(bx)} {F(by)} {F(h)} 0 0";
+        yield return $"{F(dy)} {F(dx)} {F(dy)} {F(dx)} {F(h)} 0 0";
     }
 
     /// <summary>The geometry lines of the LDTYPE (between ` template ...` and `end`), or null when the unit is unknown. <paramref name="empty"/> is an open box,
@@ -57,13 +46,12 @@ public static class LoadGeometry
     /// Sizes are in meters; a part is never smaller than the numbers below.</summary>
     public static IReadOnlyList<string>? Build(string form, bool empty, double lengthM, double widthM, double heightM, string units)
     {
-        var upm = UnitsPerMeter(units);
+        var upm = ASH.Core.Settings.UnitScale.ModelUnitsPerMeter(units);
         if (upm == null) return null;
         double u = upm.Value;
         double L = Math.Max(0.05, lengthM), W = Math.Max(0.05, widthM), H = Math.Max(0.02, heightM);
         var parts = new List<IEnumerable<string>>();
-        // the shapes below are written with length along x; the swap of x and y turns them to run along y
-        IEnumerable<string> P(string name, int color, double x, double y, double z, double bx, double by, double h) => Prim(name, color, y * u, x * u, z * u, by * u, bx * u, h * u);
+        IEnumerable<string> P(string name, int color, double x, double y, double z, double bx, double by, double h) => Box(name, color, x * u, y * u, z * u, bx * u, by * u, h * u);
         switch (form)
         {
             case MaterialForms.Pallet:

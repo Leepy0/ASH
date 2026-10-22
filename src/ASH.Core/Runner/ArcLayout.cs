@@ -10,16 +10,19 @@ using ASH.Core.Traffic;
 
 namespace ASH.Core.Runner;
 
-/// <summary>Rebuilds a Layout (export units) from a model's agv.asy + blocks.tsv + traffic.tsv, for runs without the DWG.</summary>
+/// <summary>Rebuilds a Layout (meters, like blocks.tsv and traffic.tsv) from a model's agv.asy + blocks.tsv + traffic.tsv, for runs without the DWG.</summary>
 public static class ArcLayout
 {
     /// <summary>Throws FileNotFoundException when agv.asy is missing; missing blocks.tsv / traffic.tsv give empty lists.
-    /// Every GPATH becomes a one-segment LayoutPath; traffic entries naming a split path (name_s1, name_s2, ...) are expanded to its parts.</summary>
+    /// Every GPATH becomes a one-segment LayoutPath; traffic entries naming a split path (name_s1, name_s2, ...) are expanded to its parts.
+    /// The agv.asy coordinates (model units) are divided by its UNITS per meter.</summary>
     public static (Layout.Layout Layout, TrafficTable Traffic) Load(string arcDir)
     {
         var asyPath = Path.Combine(arcDir, "agv.asy");
         if (!File.Exists(asyPath)) throw new FileNotFoundException("agv.asy not found in " + arcDir, asyPath);
         var sys = AsyReader.ReadFile(asyPath);
+        double k = 1 / (Settings.UnitScale.ModelUnitsPerMeter(sys.UnitsTokens.FirstOrDefault()) ?? 1);
+        Point2 M(Point2 q) => new Point2(q.X * k, q.Y * k);
         var l = new Layout.Layout();
         var byName = new Dictionary<string, LayoutPath>();
         foreach (var g in sys.Paths)
@@ -27,14 +30,14 @@ public static class ArcLayout
             var p = new LayoutPath(g.Name) { IsSpur = g.IsSpur, IsTwoWay = g.IsTwoWay, IsCrab = g.IsCrab };
             switch (g.Piece)
             {
-                case LinePiece lp: p.Segments.Add(new LineSeg(lp.Beg, lp.End)); break;
-                case ArcPiece ap: p.Segments.Add(new ArcSeg(ap.Center, ap.Beg, ap.AngleTenths / 10.0)); break;
+                case LinePiece lp: p.Segments.Add(new LineSeg(M(lp.Beg), M(lp.End))); break;
+                case ArcPiece ap: p.Segments.Add(new ArcSeg(M(ap.Center), M(ap.Beg), ap.AngleTenths / 10.0)); break;
             }
             l.Paths.Add(p); byName[g.Name] = p;
         }
         foreach (var c in sys.ControlPoints)
             if (byName.TryGetValue(c.PathName, out var p))
-                l.Cps.Add(new LayoutCp { Name = c.Name, Position = p.PointAt(c.Dist) });
+                l.Cps.Add(new LayoutCp { Name = c.Name, Position = p.PointAt(c.Dist * k) });
 
         var blocks = Path.Combine(arcDir, "blocks.tsv");
         if (File.Exists(blocks))

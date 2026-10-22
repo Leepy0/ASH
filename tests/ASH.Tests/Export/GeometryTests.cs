@@ -28,58 +28,78 @@ public class GeometryTests
     [Fact]
     public void Body_Takes_Length_And_Width_In_Feet_With_Length_Along_Y()
     {
-        var g = VehicleGeometry.Build(Demo(), "Standard", 1.2, 0.8, "Meters");
+        var g = VehicleGeometry.Build(Demo(), "Standard", 1.2, 0.8);
         var b = Dims(g, "Base2");
-        Assert.Equal(0.8 * 3.280839895, b[0], 4); // width across (x)
-        Assert.Equal(1.2 * 3.280839895, b[1], 4); // length along travel (y)
+        // AutoMod reads a box's size line y extent first (seen in AutoMod: written x first, the body stood across the path)
+        Assert.Equal(1.2 * 3.280839895, b[0], 4); // length along travel (y)
+        Assert.Equal(0.8 * 3.280839895, b[1], 4); // width across (x)
+    }
+
+    [Fact]
+    public void Every_Part_Is_A_Solid_In_Its_Own_Colour()
+    {
+        foreach (var kind in VehicleKinds.All.Select(k => k.Name))
+        {
+            var g = VehicleGeometry.Build(Demo(), kind, 1.4, 0.9).ToList();
+            // 310 21 would take Geom1's colour (every part dark grey); fill 0 would draw the outline only (the demo's bumper fence did)
+            Assert.DoesNotContain(g, x => x == "310 21");
+            for (int i = 0; i < g.Count - 1; i++)
+                if (g[i].StartsWith("310 ")) Assert.Matches(@"^\d+ \d+ 0 1 1 \S+$", g[i + 1]);
+            Assert.DoesNotContain(g, x => x.EndsWith(" Bump1") || x.EndsWith(" Bump2"));
+        }
+        foreach (var form in MaterialForms.All)
+            foreach (var empty in new[] { false, true })
+            {
+                var l = Load(form, empty, 1.0, 0.7, 0.25).ToList();
+                Assert.DoesNotContain(l, x => x == "310 21");
+                for (int i = 0; i < l.Count - 1; i++)
+                    if (l[i] == "310 5") Assert.Matches(@"^\d+ \d+ 0 1 1 \S+$", l[i + 1]);
+            }
     }
 
     [Fact]
     public void A_Longer_Vehicle_Is_Not_A_Stretched_One()
     {
-        var a = VehicleGeometry.Build(Demo(), "Conveyor", 1.2, 0.8, "Meters");
-        var b = VehicleGeometry.Build(Demo(), "Conveyor", 2.4, 0.8, "Meters");
-        Assert.Equal(Dims(a, "CV_Roller1")[1], Dims(b, "CV_Roller1")[1]);        // roller thickness stays
+        var a = VehicleGeometry.Build(Demo(), "Conveyor", 1.2, 0.8);
+        var b = VehicleGeometry.Build(Demo(), "Conveyor", 2.4, 0.8);
+        Assert.Equal(Dims(a, "CV_Roller1")[0], Dims(b, "CV_Roller1")[0]);        // roller thickness (along y) stays
         Assert.Equal(Dims(a, "CV_Roller1")[4], Dims(b, "CV_Roller1")[4]);        // and height
         Assert.True(b.Count(x => x.Contains(" CV_Roller")) > a.Count(x => x.Contains(" CV_Roller"))); // more rollers instead
         Assert.Equal(Dims(a, "Base2")[4], Dims(b, "Base2")[4]);                   // chassis height stays
-        Assert.Equal(Dims(a, "Base2")[0], Dims(b, "Base2")[0]);                   // width untouched
+        Assert.Equal(Dims(a, "Base2")[1], Dims(b, "Base2")[1]);                   // width untouched
     }
 
     [Theory]
     [InlineData("Standard")] [InlineData("Conveyor")] [InlineData("Ant")] [InlineData("Magnet")]
-    public void Child_Counts_Match_And_Bumpers_And_Link_Are_Kept(string kind)
+    public void Child_Counts_Match_And_Link_Is_Kept(string kind)
     {
-        var g = VehicleGeometry.Build(Demo(), kind, 1.4, 0.9, "Meters").ToList();
+        var g = VehicleGeometry.Build(Demo(), kind, 1.4, 0.9).ToList();
         int geom = g.FindIndex(x => x.EndsWith(" Geom1"));
         int declared = int.Parse(g[geom + 1]);
-        // Geom1 children: every "310 21" / "310 5" primitive and every "700 21"/"700 51" assembly that sits directly under it
-        // (the bumper assemblies and the lift joint count one each, their own parts are below them)
-        int prims = g.Skip(geom + 2).Count(x => x == "310 21" || x == "310 5");
-        int bumperParts = 8; // one, two, three, four in each of Bump1 and Bump2
-        Assert.Equal(declared, prims - bumperParts + 2 /* Bump1, Bump2 */ + 1 /* Lift_Joint */);
-        Assert.Contains(g, x => x.EndsWith(" Bump1")); Assert.Contains(g, x => x.EndsWith(" Bump2")); Assert.Contains(g, x => x.EndsWith(" Link1"));
+        // Geom1 children: every "310 5" primitive and the lift joint assembly ("310 17" is the joint's own plate, below it)
+        int prims = g.Skip(geom + 2).Count(x => x == "310 5");
+        Assert.Equal(declared, prims + 1 /* Lift_Joint */);
+        Assert.Contains(g, x => x.EndsWith(" Link1"));
         Assert.Equal("end", g.Single(x => x == "end"));
     }
 
     [Fact]
     public void Only_The_Ant_Has_A_Top_Plate_For_The_Trolley()
     {
-        var ant = VehicleGeometry.Build(Demo(), "Ant", 1.2, 0.8, "Meters");
+        var ant = VehicleGeometry.Build(Demo(), "Ant", 1.2, 0.8);
         Assert.Contains(ant, x => x.EndsWith(" TopPlate"));
-        Assert.DoesNotContain(VehicleGeometry.Build(Demo(), "Standard", 1.2, 0.8, "Meters"), x => x.EndsWith(" TopPlate"));
+        Assert.DoesNotContain(VehicleGeometry.Build(Demo(), "Standard", 1.2, 0.8), x => x.EndsWith(" TopPlate"));
         double plateTop = ZOf(ant, "TopPlate") + Num(ant[ant.ToList().FindIndex(x => x.EndsWith(" TopPlate")) + 4], 4);
         Assert.Equal(-2.5 + 0.15 * FtPerM, plateTop, 5);                          // 150 mm body height
     }
 
     [Fact]
-    public void No_Kind_Unknown_Unit_Or_Bad_Size_Keep_The_Demo_Picture()
+    public void No_Kind_Is_Standard_And_Unknown_Kind_Or_Bad_Size_Keep_The_Demo_Picture()
     {
         var demo = Demo();
-        Assert.Same(demo, VehicleGeometry.Build(demo, "", 1.2, 0.8, "Meters"));
-        Assert.Same(demo, VehicleGeometry.Build(demo, "Standard", 1.2, 0.8, "Furlongs"));
-        Assert.Same(demo, VehicleGeometry.Build(demo, "Standard", 0, 0.8, "Meters"));
-        Assert.Same(demo, VehicleGeometry.Build(demo, "Hover", 1.2, 0.8, "Meters"));
+        Assert.Equal(VehicleGeometry.Build(demo, "Standard", 1.2, 0.8), VehicleGeometry.Build(demo, "", 1.2, 0.8));
+        Assert.Same(demo, VehicleGeometry.Build(demo, "Standard", 0, 0.8));
+        Assert.Same(demo, VehicleGeometry.Build(demo, "Hover", 1.2, 0.8));
     }
 
     const double FtPerM = 3.280839895;
@@ -91,7 +111,7 @@ public class GeometryTests
     [InlineData("Standard")] [InlineData("Conveyor")] [InlineData("Ant")] [InlineData("Magnet")]
     public void Every_Kind_Has_A_Tri_Colour_Lamp_On_Both_End_Faces(string kind)
     {
-        var g = VehicleGeometry.Build(Demo(), kind, 1.4, 0.9, "Meters");
+        var g = VehicleGeometry.Build(Demo(), kind, 1.4, 0.9);
         foreach (var end in new[] { "F", "R" })
         {
             Assert.Contains(g, x => x.EndsWith(" Lamp" + end + "R")); Assert.Contains(g, x => x.EndsWith(" Lamp" + end + "Y")); Assert.Contains(g, x => x.EndsWith(" Lamp" + end + "G"));
@@ -107,7 +127,7 @@ public class GeometryTests
     [Fact]
     public void The_Vehicle_Is_Symmetric_Front_To_Back()
     {
-        var std = VehicleGeometry.Build(Demo(), "Standard", 1.4, 0.9, "Meters"); var mag = VehicleGeometry.Build(Demo(), "Magnet", 1.4, 0.9, "Meters");
+        var std = VehicleGeometry.Build(Demo(), "Standard", 1.4, 0.9); var mag = VehicleGeometry.Build(Demo(), "Magnet", 1.4, 0.9);
         Assert.Contains(std, x => x.EndsWith(" BumperF")); Assert.Contains(std, x => x.EndsWith(" BumperR"));
         Assert.DoesNotContain(mag, x => x.EndsWith(" MagnetF")); Assert.Contains(mag, x => x.EndsWith(" MagnetR")); // magnet module at the rear only
         foreach (var (a, b) in new[] { ("BumperF", "BumperR"), ("WheelFR", "WheelRR"), ("WheelFL", "WheelRL") })
@@ -118,28 +138,29 @@ public class GeometryTests
     [InlineData("Standard")] [InlineData("Conveyor")]
     public void Standard_And_Conveyor_Are_600_Mm_High(string kind)
     {
-        var g = VehicleGeometry.Build(Demo(), kind, 1.2, 0.8, "Meters").ToList();
+        var g = VehicleGeometry.Build(Demo(), kind, 1.2, 0.8).ToList();
         double floor = -2.5, topZ = floor + 0.6 * FtPerM;
         // the highest surface of any part is the load surface at 600 mm
         double high = double.NegativeInfinity;
         for (int i = 0; i < g.Count - 5; i++)
-            if ((g[i] == "310 21") && g[i + 1].Contains(" 0 1 1 ") && !g[i + 1].Contains("Lamp") && !g[i + 1].Contains("Bump") && !g[i + 1].Contains("one") && !g[i + 1].Contains("two") && !g[i + 1].Contains("three") && !g[i + 1].Contains("four"))
+            if ((g[i] == "310 5") && g[i + 1].Contains(" 0 1 1 ") && !g[i + 1].Contains("Lamp") && !g[i + 1].Contains("Bump") && !g[i + 1].Contains("one") && !g[i + 1].Contains("two") && !g[i + 1].Contains("three") && !g[i + 1].Contains("four"))
                 high = System.Math.Max(high, Num(g[i + 2], 2) + Num(g[i + 5], 4));
         Assert.Equal(topZ, high, 4);
-        // loads are attached on that surface
-        Assert.Contains(g, x => x.Trim() == "0  0  " + (floor + 0.6 * FtPerM).ToString("0.######", CultureInfo.InvariantCulture));
+        // loads ride on that surface: the container is in the segment frame (floor z = 0, feet)
+        Assert.Contains(g, x => x.Trim() == "trx 0 try 0 trz " + Ft(0.6));
     }
+
+    static string Ft(double m) => (m * FtPerM).ToString("0.######", CultureInfo.InvariantCulture);
 
     [Fact]
     public void Ant_Wheels_Hang_Below_The_Lower_Plate_And_The_Trolley_Stands_On_The_Top_Plate()
     {
-        var g = VehicleGeometry.Build(Demo(), "Ant", 1.0, 0.7, "Meters");
+        var g = VehicleGeometry.Build(Demo(), "Ant", 1.0, 0.7);
         int w = g.ToList().FindIndex(x => x.EndsWith(" WheelFR")), b = g.ToList().FindIndex(x => x.EndsWith(" Base2"));
         Assert.Equal(-2.5, ZOf(g, "WheelFR"), 6);                                              // the wheels stand on the floor line
         double wheelTop = ZOf(g, "WheelFR") + Num(g[w + 4], 4), plateBottom = ZOf(g, "Base2");
         Assert.True(wheelTop <= plateBottom + 1e-6, "wheels below the lower plate");
-        string attach = "0  0  " + (-2.5 + 0.15 * FtPerM).ToString("0.######", CultureInfo.InvariantCulture);
-        Assert.Contains(g, x => x.Trim() == attach);                                           // the trolley's origin (its casters) on the top plate
+        Assert.Contains(g, x => x.Trim() == "trx 0 try 0 trz " + Ft(0.15));                    // the trolley's origin (its casters) on the top plate
         var trolley = Load("Trolley", false, 1.0, 0.7, 0.25);
         Assert.Equal(0, Num(trolley[trolley.ToList().FindIndex(x => x.EndsWith(" Caster1")) + 1], 2), 6);
     }
@@ -147,11 +168,12 @@ public class GeometryTests
     [Fact]
     public void Magnet_Body_Is_600_Mm_And_Its_Trolley_Stands_On_The_Floor_Behind_The_Rear_Magnet()
     {
-        var g = VehicleGeometry.Build(Demo(), "Magnet", 1.2, 0.8, "Meters");
+        var g = VehicleGeometry.Build(Demo(), "Magnet", 1.2, 0.8);
         double top = ZOf(g, "Base2") + Num(g[g.ToList().FindIndex(x => x.EndsWith(" Base2")) + 4], 4);
         Assert.Equal(-2.5 + 0.6 * FtPerM, top, 5);
-        string attach = "0  " + (-(1.2 / 2 + 0.10 + 0.5) * FtPerM).ToString("0.######", CultureInfo.InvariantCulture) + "  -2.5";
-        Assert.Contains(g, x => x.Trim() == attach);
+        // behind the vehicle: the picture drives towards -y and the segment (the container's frame) towards +x
+        Assert.True(Num(g[g.ToList().FindIndex(x => x.EndsWith(" MagnetR")) + 1], 1) > 0);
+        Assert.Contains(g, x => x.Trim() == "trx " + Ft(-(1.2 / 2 + 0.10 + 0.5)) + " try 0 trz 0");
     }
 
     static System.Collections.Generic.IReadOnlyList<string> Load(string form, bool empty, double l, double w, double h, string units = "Meters") =>
@@ -163,7 +185,7 @@ public class GeometryTests
     {
         var g = Load(form, empty, 0.8, 0.6, 0.3);
         Assert.Equal("700 17", g[0]);
-        Assert.Equal(g.Count(x => x == "310 21"), int.Parse(g[2]));
+        Assert.Equal(g.Count(x => x == "310 5"), int.Parse(g[2]));
     }
 
     [Fact]
@@ -171,7 +193,7 @@ public class GeometryTests
     {
         var full = Load("Box", false, 0.9, 0.5, 0.4); var empty = Load("Box", true, 0.9, 0.5, 0.4);
         Assert.NotEqual(full.Count, empty.Count);
-        Assert.Contains("0.5 0.9 0.5 0.9 0.4 0 0", full); // width across (x), length along travel (y)
+        Assert.Contains("0.5 0.9 0.5 0.9 0.4 0 0", full); // size line y (width) first, then x (length, the travel direction)
     }
 
     [Fact]

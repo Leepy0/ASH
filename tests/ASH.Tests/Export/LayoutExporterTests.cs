@@ -215,6 +215,47 @@ public class LayoutExporterTests
         Assert.Contains("brakedist\t0 4.5 Feet", plain);
         Assert.Contains("vel\t1 0 Feet Seconds", plain);
     }
+    // a mm drawing (Scale 0.001: drawing -> meters) gives the same model in Meters and in Millimeters, only every length is x1000 in Millimeters;
+    // the vehicle picture is in feet either way (its own `template Feet`)
+    static (List<string> Lines, AgvsSystem Sys, List<string> Warnings) MmDrawing(string units, double scale = 0.001)
+    {
+        var l = L.Of(L.Line("a",0,0,10000,0)); l.Tolerance = 1; l.Cps.Add(L.Cp("S001", 2000, 0, "standby", group: "G1"));
+        var warnings = new List<string>();
+        var s = LayoutExporter.ToAgvs(l, new ExportOptions(Units: units, Scale: scale, Groups: new[]{ new VehicleGroupSpec("G1","Tug",1,1.0,1.6,1.0, 30, 0.3, 0.25, "Standard", SpeedEmpty: 1.5) }), warnings);
+        var w = new StringWriter(); AsyWriter.Write(s, w);
+        return (w.ToString().Split('\n').Select(x => x.Trim()).ToList(), s, warnings);
+    }
+    [Fact] public void Mm_Drawing_In_Meters_Model()
+    {
+        var (lines, s, warnings) = MmDrawing("Meters");
+        Assert.Equal(new LinePiece(new(0,0), new(10,0)), s.Paths[0].Piece);
+        Assert.Equal(2, s.ControlPoints.Single(c => c.Name == "S001").Dist, 9);
+        Assert.Contains("vel\t0 1 Meters Seconds", lines); Assert.Contains("vel\t0 1.5 Meters Seconds", lines);
+        Assert.Contains("accel\t0 0.3 Meters Seconds Seconds", lines); Assert.Contains("brakedist\t0 5 Meters", lines);
+        Assert.Empty(warnings);
+    }
+    [Fact] public void Mm_Drawing_In_Millimeters_Model_Scales_Every_Length_Not_The_Picture()
+    {
+        var (mm, s, warnings) = MmDrawing("Millimeters");
+        Assert.Equal(new LinePiece(new(0,0), new(10000,0)), s.Paths[0].Piece);                 // paths: 10 m = 10000 mm, not 10 mm
+        Assert.Equal(2000, s.ControlPoints.Single(c => c.Name == "S001").Dist, 9);
+        Assert.Contains("UNITS Millimeters Seconds", mm);
+        Assert.Contains("vel\t0 1000 Millimeters Seconds", mm); Assert.Contains("vel\t0 1500 Millimeters Seconds", mm); // m/s -> mm/s
+        Assert.Contains("accel\t0 300 Millimeters Seconds Seconds", mm); Assert.Contains("decel\t0 250 Millimeters Seconds Seconds", mm);
+        Assert.Contains("brakedist\t0 5000 Millimeters", mm); Assert.Contains("stopdist\t0 500 Millimeters", mm);
+        Assert.Contains(mm, x => x.StartsWith("GPATHTYPE ") && x.Contains("vel 1 1500 Millimeters Seconds"));
+        Assert.Empty(warnings);
+        // the vehicle segment (picture in feet, 1.6 m x 1.0 m) is the same text as in a Meters model
+        static IEnumerable<string> Seg(List<string> x) => x.SkipWhile(l => !l.StartsWith("AGVVEHSEG")).TakeWhile(l => !l.StartsWith("AGVSVEH"));
+        Assert.Equal(Seg(MmDrawing("Meters").Lines), Seg(mm));
+        Assert.Contains("template Feet", Seg(mm));
+    }
+    [Fact] public void Unknown_Units_Throw_And_A_Scale_Off_By_1000_Warns()
+    {
+        Assert.Throws<ArgumentException>(() => MmDrawing("Furlongs"));
+        Assert.Contains(MmDrawing("Meters", scale: 1).Warnings, x => x.Contains("10000 m") && x.Contains("Scale"));          // mm drawing exported with Scale 1
+        Assert.Contains(MmDrawing("Millimeters", scale: 0.000001).Warnings, x => x.Contains("Scale"));
+    }
     [Fact] public void Empty_Load_Accel_Line_Stays_Inherit_Form() =>
         Assert.Contains(Lines(new ExportOptions(Groups: new[]{ new VehicleGroupSpec("G1","Tug",1,1.0,2,1, 30, 0.3, 0.3) })), x => x.Trim() == "accel\t1 0 Feet Seconds Seconds");
 }

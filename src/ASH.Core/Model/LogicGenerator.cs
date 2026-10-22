@@ -72,7 +72,8 @@ public static class LogicGenerator
         return s;
     }
 
-    public static string Render(ProjectInput input, LayoutInfo layout)
+    /// <summary>unitsPerMeter: model units in one meter (the speeds in the input are m/s).</summary>
+    public static string Render(ProjectInput input, LayoutInfo layout, double unitsPerMeter = 1)
     {
         Check(input);
         var sys = Lit(layout.AgvSystemName);
@@ -103,7 +104,7 @@ public static class LogicGenerator
             string Fail(string start) => fails ? Fill(Res("code_fail.m.txt"), ("START", start), ("MTBF", N(t.MTBF)), ("MTTR", N(t.MTTR))).TrimEnd('\n') : "";
             // empty runs (to the pickup, after the unload, home) at SpeedEmpty; "specification" is the loaded line of the AGVS vehicle
             bool speeds = t.SpeedEmpty > 0 && t.SpeedEmpty != t.SpeedLoaded;
-            string emptySpeed = speeds ? $"\tset A_veh defined velocity to {N(t.SpeedEmpty)}" : "";
+            string emptySpeed = speeds ? $"\tset A_veh defined velocity to {N(t.SpeedEmpty * unitsPerMeter)}" : "";
             string loadedSpeed = speeds ? "\tset A_veh defined velocity to specification" : "";
             // leg slot = mi for supply legs, mi + nm for return legs (a return can overlap the next supply of the same material)
             string Leg(string to, int slot) => Fill(Res("code_leg.m.txt"), ("M", mi.ToString()), ("SLOT", slot.ToString()), ("SYS", sys),
@@ -229,7 +230,7 @@ public static class LogicGenerator
     /// UserExtSource holds the default hooks; the builder replaces it with the project's user_ext.m.</summary>
     public static ProcessModel BuildProcessModel(ProjectInput input, LayoutInfo layout, string units)
     {
-        var m = new ProcessModel { Units = units, LogicSource = Render(input, layout), UserExtSource = DefaultUserExt };
+        var m = new ProcessModel { Units = units, LogicSource = Render(input, layout, ASH.Core.Settings.UnitScale.ModelUnitsPerMeter(units) ?? 1), UserExtSource = DefaultUserExt };
         int nm = input.Materials.Count;
         // arrays get at least 2 elements: AM mishandles 1-element arrays (seen with BLOCK n 1)
         int gs = Math.Max(2, input.Groups.Count), ms = Math.Max(2, nm);

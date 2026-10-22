@@ -6,65 +6,54 @@ using System.Linq;
 namespace ASH.Core.Export;
 
 /// <summary>
-/// The AutoMod picture of a vehicle, built from its real Length and Width instead of stretching a fixed picture: the demo vehicle's chassis, top plate and lift
-/// plate are replaced by boxes of the asked size, so wheels, rollers and the lamps keep their own absolute size whatever the vehicle size is. The bumper
-/// zones (Bump1, Bump2) and the lift joint are taken over from the template, because the traffic and load handling hang on them.
+/// The AutoMod picture of a vehicle, built from its real Length and Width instead of stretching a fixed picture: the demo vehicle's picture is replaced by
+/// boxes of the asked size, so wheels, rollers and the lamps keep their own absolute size whatever the vehicle size is. Only the lift joint and its load link are
+/// taken over from the template (the load rides on the link). The demo's bumper zones (Bump1, Bump2: an 8 ft wireframe fence) are left out.
 /// The vehicle drives both ways, so the picture is symmetric front to back (except the Magnet's rear-only magnet module), with a three-colour status lamp
 /// (red, yellow, green) on each end face.
 /// Heights (metres): Standard, Conveyor and Magnet 0.6; Ant 0.15, with its wheels under the lower plate (ground clearance 0.06) and a top plate on which the
 /// trolley stands. The load attach point is the load surface (the top) for Standard, Conveyor and Ant. The Magnet tows: its trolley stands on the floor, behind
 /// the vehicle with its casters on the same floor line as the vehicle's wheels, coupled to the rear magnet (the distance assumes a 1 m long trolley).
-/// The picture's local frame is the demo's: x across, y along the travel direction (the template's AGVset assembly turns it to travel along +x).
-/// All numbers in the template are feet; <see cref="FeetPerUnit"/> converts from the model units.
+/// The picture's local frame is the demo's: x across, y along the travel direction (checked in AutoMod: the demo's bumper fence is long along y and runs
+/// along the path). The template is in feet whatever the model unit is (its `template Feet` line), so Length and Width are taken in metres.
+/// AutoMod cell format of a box (checked against the demos and in AutoMod 12.6): "310 &lt;flag&gt;" (flag bit 1 = a name line follows, 4 = position,
+/// rotation and scale lines follow, 16 = take the parent's colour instead of the own one), then "face edge linestyle linewidth fill name" where fill 0 draws
+/// the outline only and 1 a solid, then the size line "y-extent x-extent top-y top-x height 0 0" (y first).
 /// </summary>
 public static class VehicleGeometry
 {
-    /// <summary>Feet in one model unit, or null for a unit the picture cannot be converted from (the demo picture is then used unchanged).</summary>
-    public static double? FeetPerUnit(string units)
-    {
-        switch ((units ?? "").Trim().ToLowerInvariant())
-        {
-            case "feet": return 1;
-            case "meters": return 3.280839895;
-            case "inches": return 1.0 / 12;
-            case "centimeters": return 0.03280839895;
-            case "millimeters": return 0.003280839895;
-            default: return null;
-        }
-    }
-
     // AutoMod standard colors (AutoMod's colorwin.h)
     const int Black = 0, Red = 1, Green = 2, Yellow = 3, Blue = 4, LtGray = 8, DkGray = 9;
 
     const double FtPerM = 3.280839895;
     const double FloorRel = -2.5;      // the template's AGVset sits 2.5 ft above the floor: the floor is z = -2.5 in the picture's frame
     const double MinBodyM = 0.25;      // below this the chassis insets do not leave a box
+    const int Rear = 1;                // the vehicle drives towards -y (seen in AutoMod), so its rear is +y
 
     /// <summary>Height of the load surface (metres) a kind has; also the vehicle height for Standard and Conveyor.</summary>
     public static double TopHeightM(string kind) => kind == "Ant" ? 0.15 : 0.6;
 
     static string F(double v) => v.ToString("0.######", CultureInfo.InvariantCulture);
 
-    static IEnumerable<string> Prim(string name, int color, double x, double y, double z, double bx, double by, double tx, double ty, double h, string flag = "21")
+    // bx, tx across (x), by, ty along (y); flag 5: own colour (21 would take Geom1's dark grey)
+    static IEnumerable<string> Prim(string name, int color, double x, double y, double z, double bx, double by, double tx, double ty, double h)
     {
-        yield return "310 " + flag;
-        yield return color + " " + color + " 0 1 1 " + name; // display 1 = solid (0 draws the outline only)
+        yield return "310 5";
+        yield return color + " " + color + " 0 1 1 " + name; // fill 1 = solid (0 draws the outline only)
         yield return F(x) + "  " + F(y) + "  " + F(z);
         yield return "0" + (char)9 + "0.00" + (char)9 + "0.00" + (char)9 + "0.00";
         yield return (char)9 + "1.00" + (char)9 + "1.00" + (char)9 + "1.00";
-        yield return F(bx) + " " + F(by) + " " + F(tx) + " " + F(ty) + " " + F(h) + " 0 0";
+        yield return F(by) + " " + F(bx) + " " + F(ty) + " " + F(tx) + " " + F(h) + " 0 0"; // AutoMod reads the y extent first
     }
 
-    /// <summary>The vehicle segment text for a kind (the whole template with its picture parts replaced), or the template itself when the size or unit is unusable.</summary>
-    public static IReadOnlyList<string> Build(IReadOnlyList<string> template, string kind, double length, double width, string units)
+    /// <summary>The vehicle segment text for a kind (no kind: Standard; the whole template with its picture parts replaced), or the template itself when
+    /// the kind is unknown or the size unusable. length and width are metres.</summary>
+    public static IReadOnlyList<string> Build(IReadOnlyList<string> template, string kind, double length, double width)
     {
-        if (string.IsNullOrWhiteSpace(kind)) return template; // no kind given: the demo picture as it is
-        var k = ASH.Core.Input.VehicleKinds.Find(kind);
-        var fpu = FeetPerUnit(units);
-        if (k == null || fpu == null || !(length > 0) || !(width > 0) || double.IsInfinity(length) || double.IsInfinity(width)) return template;
+        var k = ASH.Core.Input.VehicleKinds.Find(string.IsNullOrWhiteSpace(kind) ? "Standard" : kind);
+        if (k == null || !(length > 0) || !(width > 0) || double.IsInfinity(length) || double.IsInfinity(width)) return template;
 
-        double mPerUnit = fpu.Value / FtPerM;
-        double L = Math.Max(MinBodyM, length * mPerUnit), W = Math.Max(MinBodyM, width * mPerUnit); // metres: length along travel (y), width across (x)
+        double L = Math.Max(MinBodyM, length), W = Math.Max(MinBodyM, width); // metres: length along travel (y), width across (x)
         var tl = template.ToList();
         int Index(string name)
         {
@@ -72,14 +61,14 @@ public static class VehicleGeometry
             if (i < 1) throw new InvalidOperationException("vehicle template has no " + name);
             return i - 1;
         }
-        int iGeom = Index("Geom1"), iBump1 = Index("Bump1"), iBase3 = Index("Base3_Blue"), iLift = Index("Lift_Joint"), iTop = Index("Top"), iLink = Index("Link1");
+        int iGeom = Index("Geom1"), iLift = Index("Lift_Joint"), iTop = Index("Top"), iLink = Index("Link1");
 
         double H = TopHeightM(k.Name);
         double clr = k.Name == "Ant" ? 0.06 : k.Name == "Magnet" ? 0.04 : 0.04;      // ground clearance (the Ant's wheels hang below its lower plate)
         double Z(double m) => FloorRel + m * FtPerM;                                   // metres above the floor -> picture z in feet
         // one box: metres in, feet out. x, y = centre, z0 = bottom
-        IEnumerable<string> B(string name, int color, double x, double y, double z0, double dx, double dy, double h, double tdx = -1, double tdy = -1, string flag = "21") =>
-            Prim(name, color, x * FtPerM, y * FtPerM, Z(z0), dx * FtPerM, dy * FtPerM, (tdx < 0 ? dx : tdx) * FtPerM, (tdy < 0 ? dy : tdy) * FtPerM, h * FtPerM, flag);
+        IEnumerable<string> B(string name, int color, double x, double y, double z0, double dx, double dy, double h, double tdx = -1, double tdy = -1) =>
+            Prim(name, color, x * FtPerM, y * FtPerM, Z(z0), dx * FtPerM, dy * FtPerM, (tdx < 0 ? dx : tdx) * FtPerM, (tdy < 0 ? dy : tdy) * FtPerM, h * FtPerM);
 
         var parts = new List<IEnumerable<string>>();
         double top = H;                                                                 // top of the chassis, where the lift joint stands
@@ -114,7 +103,7 @@ public static class VehicleGeometry
         {
             parts.Add(B("Base2", DkGray, 0, 0, clr, W, L, H - clr));
             double mw = Math.Max(0.1, Math.Min(W - 0.2, 0.4));
-            parts.Add(B("MagnetR", Red, 0, -(L / 2 + 0.04), 0.03, mw, 0.12, 0.08));       // the magnet module is at the rear only
+            parts.Add(B("MagnetR", Red, 0, Rear * (L / 2 + 0.04), 0.03, mw, 0.12, 0.08)); // the magnet module is at the rear only
         }
 
         // wheels: on the floor line, outside the chassis sides near the ends
@@ -133,12 +122,11 @@ public static class VehicleGeometry
 
         var res = new List<string>();
         res.AddRange(tl.Take(iGeom + 2));                                              // up to and including Geom1's name line, then its child count
-        int count = parts.Count + 2 /* Bump1, Bump2 */ + 1 /* Base3_Blue */ + 1 /* Lift_Joint */;
+        int count = parts.Count + 1 /* Base3_Blue */ + 1 /* Lift_Joint */;
         res.Add(count.ToString(CultureInfo.InvariantCulture));
         foreach (var p in parts) res.AddRange(p);
-        res.AddRange(tl.Skip(iBump1).Take(iBase3 - iBump1));                           // Bump1, Bump2 as in the template
         double bandZ = clr + Math.Max(0.01, (H - clr) * 0.5 - 0.01);
-        res.AddRange(B("Base3_Blue", Blue, 0, 0, bandZ, W, L, 0.03, flag: "5"));       // the coloured band round the chassis: the vehicle colour
+        res.AddRange(B("Base3_Blue", Blue, 0, 0, bandZ, W + 0.01, L + 0.01, 0.03));   // the blue band round the chassis, standing 5 mm proud of it
 
         // the lift joint stands on the chassis top; only the Ant has a plate worth seeing on it
         int jointStart = res.Count;
@@ -149,11 +137,14 @@ public static class VehicleGeometry
         res.Add(tl[iTop + 1]);
         res.Add(F(plate * FtPerM) + " " + F(plate * FtPerM) + " " + F(plate * FtPerM) + " " + F(plate * FtPerM) + " " + F(plateH * FtPerM) + " 0 0");
 
-        // the load attach point: the load surface for Standard, Conveyor and Ant; for the Magnet the floor, behind the rear magnet (trolley length 1 m assumed)
-        double attachY = k.Name == "Magnet" ? -(L / 2 + 0.10 + 0.5) * FtPerM : 0;
-        double attachZ = k.Name == "Magnet" ? Z(0) : Z(H);
-        for (int i = iLink; i < tl.Count; i++)
-            res.Add(tl[i].Trim() == "0  0  0.349999994039536" ? "0  " + F(attachY) + "  " + F(attachZ) : tl[i]);
+        res.AddRange(tl.Skip(iLink));
+
+        // Where the load rides: the segment's CONTAINER (the link above does not move it). Its frame is the segment's: x forward, z up from the floor,
+        // numbers in feet (seen in AutoMod: trx 1.4 moved a load 0.43 m in a Meters model). The load surface (the top) for Standard, Conveyor and Ant;
+        // for the Magnet the floor, behind the rear magnet (trolley length 1 m assumed).
+        double ax = k.Name == "Magnet" ? -(L / 2 + 0.10 + 0.5) : 0, az = k.Name == "Magnet" ? 0 : H;
+        res.AddRange(new[] { "\tCONTAINER name OnBoard 0 ", "\t\tx 1 1 Feet ", "\t\ty 1 1 Feet ", "\t\tz 1 1 Feet",
+            "\t\ttrx " + F(ax * FtPerM) + " try 0 trz " + F(az * FtPerM), "\t\trotx 0 roty 0 rotz 0" });
         return res;
     }
 }

@@ -26,19 +26,28 @@ public static class LayoutExporter
 
     static string N(double d) => AsyWriter.Num(d);
 
-    static Point2 Tx(Point2 p, ExportOptions o) => new Point2((p.X - o.Origin.X) * o.Scale, (p.Y - o.Origin.Y) * o.Scale);
 
     static void CheckName(string kind, string name)
     {
         if (!LayoutChecker.IsValidName(name)) throw new ArgumentException($"{kind} name '{name}' is empty, contains whitespace or is a reserved .asy word");
     }
 
-    /// <summary>Template lines keep their own unit tokens (Feet); only UNITS, GPATHTYPE vel, CPOINTTYPE distance and the substituted speeds use o.Units.</summary>
+    /// <summary>Template lines keep their own unit tokens (Feet); only UNITS, GPATHTYPE vel, CPOINTTYPE distance and the substituted speeds use o.Units.
+    /// Coordinates, CP distances, speeds and accelerations are meters (drawing x Scale, m/s) times o.UnitsPerMeter.</summary>
     public static AgvsSystem ToAgvs(Layout.Layout l, ExportOptions o, ICollection<string>? warnings = null)
     {
         if (o.Groups == null || o.Groups.Count == 0) throw new InvalidOperationException("ExportOptions.Groups is required");
         var groups = o.Groups;
         warnings ??= new List<string>();
+        double upm = o.UnitsPerMeter, toModel = o.Scale * upm;
+        // a Scale that does not match the drawing unit makes a model 1000 times too big or too small (mm drawing with Scale 1)
+        var ends = l.Paths.SelectMany(p => p.Segments).SelectMany(sg => new[] { sg.Start, sg.End }).ToList();
+        if (ends.Count > 0)
+        {
+            double extentM = Math.Max(ends.Max(p => p.X) - ends.Min(p => p.X), ends.Max(p => p.Y) - ends.Min(p => p.Y)) * o.Scale;
+            if (extentM > 5000 || (extentM > 0 && extentM < 0.5))
+                warnings.Add($"경로 전체 크기가 {extentM.ToString("0.###", CultureInfo.InvariantCulture)} m입니다. ash.settings.tsv의 Scale(도면 단위→m, mm 도면은 0.001)이 도면 단위와 맞는지 확인하세요.");
+        }
         foreach (var p in l.Paths) CheckName("path", p.Name);
         foreach (var c in l.Cps) CheckName("CP", c.Name);
         foreach (var b in l.Blocks) CheckName("block", b.Name);
@@ -46,7 +55,7 @@ public static class LayoutExporter
 
         var s = new AgvsSystem { Version = o.Version, UnitsTokens = new[] { o.Units, "Seconds" } };
         s.HeaderLines.AddRange(Template("agvs_header.txt").Select(x => o.ClaimBlockOnNextCp ? x.Replace("ignore ResumeSpeedWhenClaimed", "ignore OldBlockClaim ResumeSpeedWhenClaimed") : x));
-        s.PathTypeLines.Add($"GPATHTYPE name {o.PathType} one normal attach rigid color -1 nav 1 vel 1 {N(groups.Max(g => Math.Max(g.Speed, g.SpeedEmpty)))} {o.Units} Seconds ");
+        s.PathTypeLines.Add($"GPATHTYPE name {o.PathType} one normal attach rigid color -1 nav 1 vel 1 {N(groups.Max(g => Math.Max(g.Speed, g.SpeedEmpty)) * upm)} {o.Units} Seconds ");
 
         // GPATH names: single-segment paths keep their name, others get _s<k> skipping any name already emitted.
         var taken = new HashSet<string>(l.Paths.Select(p => p.Name));
@@ -99,7 +108,7 @@ public static class LayoutExporter
                     idx = j; acc = dist = path.Segments.Take(j).Sum(x => x.Length);
                 }
             }
-            s.ControlPoints.Add(new ControlPoint(c.Name, CpTypeOf(c.Cap), segName[(path, idx)], (dist - acc) * o.Scale, null));
+            s.ControlPoints.Add(new ControlPoint(c.Name, CpTypeOf(c.Cap), segName[(path, idx)], (dist - acc) * toModel, null));
             if ((c.Type == "standby" || c.Type == "buffer") && c.Group.Length > 0)
             {
                 var key = "nl_" + c.Group;
@@ -120,34 +129,34 @@ public static class LayoutExporter
 
         foreach (var g in groups)
         {
-            // with a Kind the picture is built from Length x Width (VehicleGeometry); without one it is the demo picture
+            // the picture is built from Length x Width (VehicleGeometry; the picture is in feet whatever the model unit is)
             var seg = "Seg_" + g.TypeName;
             VehicleTemplateOverride? ov = null; o.VehicleOverrides?.TryGetValue(g.TypeName, out ov);
             if (ov?.VehSegText != null)
                 s.VehicleSegmentLines.AddRange(VehicleOverrideApplier.VehSeg(ov.VehSegText, seg));
-            else s.VehicleSegmentLines.AddRange(VehicleGeometry.Build(Template("agvs_vehseg.txt"), g.Kind, g.Length, g.Width, o.Units).Select(x => x.Replace("DefSegment", seg)));
+            else s.VehicleSegmentLines.AddRange(VehicleGeometry.Build(Template("agvs_vehseg.txt"), g.Kind, g.Length, g.Width).Select(x => x.Replace("DefSegment", seg)));
             if (ov?.VehicleBlockText != null)
             {
                 s.VehicleLines.AddRange(VehicleOverrideApplier.Vehicle(ov.VehicleBlockText, g.TypeName, g.MaxCount, seg, "nl_" + g.Group));
                 continue;
             }
-            var speed = N(g.Speed);
+            var speed = N(g.Speed * upm);
             bool emptySpeed = g.SpeedEmpty > 0 && g.SpeedEmpty != g.Speed;
             // sensor field: a vehicle starts braking for the one ahead at v^2 / 2d and stops StopGapM short of it (AutoMod stop distance
-            // = brake distance - v^2 / 2d). The demo template's fixed 4.5 ft / 0 ft is only kept without a decel or with unknown units.
+            // = brake distance - v^2 / 2d). The demo template's fixed 4.5 ft / 0 ft is only kept without a decel.
             string? brake = null, stop = null;
-            if (g.Decel > 0 && VehicleGeometry.FeetPerUnit(o.Units) is { } fpu)
+            if (g.Decel > 0)
             {
-                double v = Math.Max(g.Speed, g.SpeedEmpty), gap = StopGapM * 3.280839895 / fpu;
-                brake = N(v * v / (2 * g.Decel) + gap); stop = N(gap);
+                double v = Math.Max(g.Speed, g.SpeedEmpty);
+                brake = N((v * v / (2 * g.Decel) + StopGapM) * upm); stop = N(StopGapM * upm);
             }
             foreach (var line in Template("agvs_veh.txt"))
             {
                 var t = line.Replace("DefVehicle", g.TypeName).Replace("numveh 10", "numveh " + g.MaxCount)
                     .Replace("start nlwork", "start nl_" + g.Group).Replace("vehsegs item DefSegment", "vehsegs item " + seg);
                 // accel and decel of the loaded (Default) line; the Empty line inherits it. 0 keeps the template value.
-                if (g.Accel > 0) t = Regex.Replace(t, @"^(\s*accel\s+0 )1 Feet( Seconds Seconds)", "${1}" + N(g.Accel) + " " + o.Units + "${2}");
-                if (g.Decel > 0) t = Regex.Replace(t, @"^(\s*decel\s+0 )1 Feet( Seconds Seconds)", "${1}" + N(g.Decel) + " " + o.Units + "${2}");
+                if (g.Accel > 0) t = Regex.Replace(t, @"^(\s*accel\s+0 )1 Feet( Seconds Seconds)", "${1}" + N(g.Accel * upm) + " " + o.Units + "${2}");
+                if (g.Decel > 0) t = Regex.Replace(t, @"^(\s*decel\s+0 )1 Feet( Seconds Seconds)", "${1}" + N(g.Decel * upm) + " " + o.Units + "${2}");
                 t = Regex.Replace(t, @"^(\s*rotate\s+0 )2( Seconds)", "${1}" + N(g.RotateDegPerSec) + "${2}");
                 if (brake != null)
                 {
@@ -155,7 +164,7 @@ public static class LayoutExporter
                     t = Regex.Replace(t, @"^(\s*stopdist\s+0 )0 Feet", "${1}" + stop + " " + o.Units);
                 }
                 // the Empty line (retrieving, parking) runs at SpeedEmpty instead of inheriting the loaded speed
-                if (emptySpeed) t = Regex.Replace(t, @"^(\s*(?:vel|crvvel|sprvel|rvel|rcrvvel|rsprvel|crabvel)\s+)1 0 Feet( Seconds)", "${1}0 " + N(g.SpeedEmpty) + " " + o.Units + "${2}");
+                if (emptySpeed) t = Regex.Replace(t, @"^(\s*(?:vel|crvvel|sprvel|rvel|rcrvvel|rsprvel|crabvel)\s+)1 0 Feet( Seconds)", "${1}0 " + N(g.SpeedEmpty * upm) + " " + o.Units + "${2}");
                 s.VehicleLines.Add(Regex.Replace(t, @"^(\s*(?:vel|crvvel|sprvel|rvel|rcrvvel|rsprvel|crabvel)\s+0 )3 Feet( Seconds)", "${1}" + speed + " " + o.Units + "${2}"));
             }
         }
@@ -167,13 +176,13 @@ public static class LayoutExporter
         PathPiece piece;
         switch (s)
         {
-            case LineSeg ln: piece = new LinePiece(Tx(ln.Start, o), Tx(ln.End, o)); break;
+            case LineSeg ln: piece = new LinePiece(o.ToModel(ln.Start), o.ToModel(ln.End)); break;
             case ArcSeg a:
                 int tenths = (int)Math.Round(a.SweepDeg * 10);
                 double gap = Math.Abs(a.SweepDeg * 10 - tenths) / 10 * Math.PI / 180 * a.Radius;
                 if (gap > tol)
                     warnings.Add($"{name}: 원호 각도 {a.SweepDeg.ToString("0.###", CultureInfo.InvariantCulture)}°를 0.1° 단위로 반올림하여 끝점이 {gap.ToString("0.####", CultureInfo.InvariantCulture)} 어긋남");
-                piece = new ArcPiece(Tx(a.Center, o), Tx(a.Start, o), tenths);
+                piece = new ArcPiece(o.ToModel(a.Center), o.ToModel(a.Start), tenths);
                 break;
             default: throw new NotSupportedException(s.GetType().Name);
         }

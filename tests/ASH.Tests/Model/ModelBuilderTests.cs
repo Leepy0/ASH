@@ -107,6 +107,27 @@ public class ModelBuilderTests
     }
 
     [Fact]
+    public void Millimeters_Model_Scales_Blocks_View_Loads_And_Logic_Speed()
+    {
+        var dir = Tmp();
+        var input = LogicGeneratorTests.Sample();
+        input.AgvTypes[0] = input.AgvTypes[0] with { SpeedEmpty = 1.5 };
+        var req = Req(dir, input);
+        req = req with { AgvsOptions = req.AgvsOptions with { Units = "Millimeters", Scale = 1 } }; // the test layout is drawn in meters
+        var r = ModelBuilder.Build(req, null, TimeSpan.Zero);
+        var proc = File.ReadAllText(Path.Combine(r.ArcDir, "m~.asy"));
+        Assert.Contains("UNITS Millimeters Seconds", proc);
+        Assert.Contains("begx 9500 begy 500 ", proc);                      // block rect (8,-1)-(11,2) m in mm
+        Assert.Contains("scx 750 scy 750", proc);
+        Assert.Contains("set A_veh defined velocity to 1500", proc);       // SpeedEmpty 1.5 m/s
+        Assert.Contains(" template Millimeters", proc);
+        Assert.Contains(proc.Split('\n'), x => x == "400 600 400 600 300 0 0");  // the default 0.6 x 0.4 x 0.3 m box in mm (size line: y, then x)
+        Assert.Matches(@"DRAWPOS minx -\d{4,}(\.\d+)? maxx \d{5,}", File.ReadAllText(Path.Combine(r.ArcDir, "model.amo")));
+        Assert.Contains(r.Warnings, w => w.Contains("Units(Meters)"));    // the Excel's Units differs from the export's
+        Directory.Delete(dir, true);
+    }
+
+    [Fact]
     public void Input_Warnings_Are_Mirrored()
     {
         var input = LogicGeneratorTests.Sample();

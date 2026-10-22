@@ -8,7 +8,7 @@
 
 | Key | 기본값 | 단위·설명 |
 |---|---|---|
-| Units | Meters | AM 거리 단위 |
+| Units | Meters | 쓰지 않음. 모델 단위는 `ash.settings.tsv`의 Units이고, 다르면 모델 생성이 경고한다. 이 양식의 길이·속도는 단위와 상관없이 m, m/s |
 | SimLength | 8 | 시간(h). 내부에서 초로 변환 |
 | Warmup | 1 | 시간(h). 통계 제외 구간 |
 | Replications | 3 | 대수마다 반복 횟수 |

@@ -77,8 +77,8 @@ ZWCAD가 설치된 PC에서 실행한다. 각 항목에 결과(OK/NG), 날짜, Z
 | ClaimDist | (빈칸=SafetyGap) | 점유 거리 |
 | BlockReach | (빈칸=자동) | 교차점에서 block 끝까지 각 가지 길이(m). 빈칸이면 가지마다 그 자리에 선 차량이 다른 경로 차량과 SafetyGap 이상 떨어지는 거리까지만 잡는다(직각 교차는 VehicleWidth/2+SafetyGap). 그 끝에서 다음 꺾임점까지 차량 한 대(VehicleLength+SafetyGap)도 못 서면 그 짧은 구간을 통째로 넣는다(진입 CP가 block 경계에 붙어 AutoMod에서 교착) |
 | VehicleLength / VehicleWidth | 2.0 / 1.0 | 차량 크기(m) |
-| Units | Meters | asy 단위 |
-| Scale | 1.0 | 도면 단위→m 배율. mm 도면은 `0.001`. 설정의 길이 값(m)은 모두 도면 단위로 바꿔(÷Scale) 쓰고, 기호 크기·허용 오차도 같이 바뀐다 |
+| Units | Meters | AutoMod 모델 단위(Meters, Millimeters, Centimeters, Feet, Inches). 그 밖의 값은 모델 생성이 오류로 멈춘다. 경로·CP 위치, 속도(m/s)·가감속, 차량·용기 크기를 모두 이 단위로 바꿔 쓴다 |
+| Scale | 1.0 | 도면 단위→m 배율(Units와 무관). mm 도면은 Units가 Meters든 Millimeters든 `0.001`. 설정의 길이 값(m)은 모두 도면 단위로 바꿔(÷Scale) 쓰고, 기호 크기·허용 오차도 같이 바뀐다. 경로 전체가 5 km보다 크거나 0.5 m보다 작으면 내보내기가 Scale을 확인하라는 경고를 낸다 |
 | OriginX / OriginY | 0 / 0 | 원점 |
 | ModelName | model | `<도면 폴더>\<ModelName>.arc`에 내보냄 |
 | Groups | `G1:DefVehicle:5:1.0:2.0:1.0` | `Group:TypeName:MaxCount:Speed:Length:Width`를 `;`로 이어 씀. 그룹마다 standby/buffer CP가 1개 이상 있어야 내보내기가 됨 |

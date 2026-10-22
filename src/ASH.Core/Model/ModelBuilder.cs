@@ -40,7 +40,7 @@ public static class ModelBuilder
         var findings = InputValidator.Validate(input, l.Cps.Select(c => c.Name).ToList());
         if (findings.Any(f => f.Code == FindingCode.InputError)) return new ModelBuildResult(arc, null, findings, Warn(findings));
 
-        // supply-cycle check only on valid input; route lengths in model units (the vehicle speed is in model units per second)
+        // supply-cycle check only on valid input; route lengths in meters (SpeedLoaded is m/s)
         string? lengthError = null;
         try
         {
@@ -50,6 +50,8 @@ public static class ModelBuilder
         catch (Exception e) { lengthError = "경로 길이 계산 실패: " + e.Message; } // an optional warning must not stop the build
 
         var warnings = Warn(findings); if (lengthError != null) warnings.Add(lengthError);
+        if (!string.Equals(input.Settings.Units.Trim(), o.Units.Trim(), StringComparison.OrdinalIgnoreCase))
+            warnings.Add($"input.xlsx Settings의 Units({input.Settings.Units})는 쓰지 않습니다. 모델 단위는 ash.settings.tsv의 Units({o.Units})이고, 길이·속도 입력은 단위와 상관없이 m, m/s로 넣습니다.");
         var export = ExportRunner.Run(l, o, arc);
         warnings.AddRange(export.Warnings);
         var standby = new Dictionary<string, string>();
@@ -64,7 +66,7 @@ public static class ModelBuilder
         AsyWriter.WriteFile(sys, agv);
 
         var pm = LogicGenerator.BuildProcessModel(input, info, o.Units);
-        Point2 Tx(Point2 p) => new Point2((p.X - o.Origin.X) * o.Scale, (p.Y - o.Origin.Y) * o.Scale);
+        Point2 Tx(Point2 p) => o.ToModel(p);
         foreach (var b in l.Blocks) pm.Blocks.Add(new BlockEntity(b.Name, b.Cap, new Rect2(Tx(b.Rect.Min), Tx(b.Rect.Max))));
         var ext = Path.Combine(arc, "user_ext.m");
         if (!File.Exists(ext)) File.WriteAllText(ext, LogicGenerator.DefaultUserExt, new UTF8Encoding(false));
@@ -73,11 +75,12 @@ public static class ModelBuilder
 
         var pts = l.Paths.SelectMany(p => p.Segments).SelectMany(s => new[] { s.Start, s.End })
             .Concat(l.Cps.Select(c => c.Position)).Concat(l.Blocks.SelectMany(b => new[] { b.Rect.Min, b.Rect.Max })).Select(Tx).ToList();
-        var draw = pts.Count == 0 ? new Rect2(new Point2(-10, -10), new Point2(10, 10))
+        double upm = o.UnitsPerMeter;
+        var draw = pts.Count == 0 ? new Rect2(new Point2(-10 * upm, -10 * upm), new Point2(10 * upm, 10 * upm))
             : new Rect2(new Point2(pts.Min(p => p.X), pts.Min(p => p.Y)), new Point2(pts.Max(p => p.X), pts.Max(p => p.Y)));
         var pad = Math.Max(draw.Max.X - draw.Min.X, draw.Max.Y - draw.Min.Y) * 0.1;
         File.WriteAllText(Path.Combine(arc, "model.amo"),
-            ModelAmoWriter.Render(r.ModelName, o.Units, input.Settings.SimLengthSec / 3600, new[] { "agv" }, draw.Expand(Math.Max(pad, 1)), o.Version, r.AutoView));
+            ModelAmoWriter.Render(r.ModelName, o.Units, input.Settings.SimLengthSec / 3600, new[] { "agv" }, draw.Expand(Math.Max(pad, upm)), o.Version, r.AutoView));
         ParamsFile.Write(input, new RunScenario(input.Settings.SeedBase, new Dictionary<string, int>()), Path.Combine(arc, "params.txt"));
         InputSignature.Write(arc, input); // ash-run refuses a model whose baked-in inputs differ from the current Excel
 

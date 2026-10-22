@@ -31,7 +31,7 @@ public sealed class TrafficTable
         return t;
     }
 
-    /// <summary>scale converts layout units to meters (ExportOptions.Scale), same as the .asy output.</summary>
+    /// <summary>scale converts layout units to meters (ExportOptions.Scale); ArcLayout reads the .asy back in meters to match.</summary>
     public void WriteTsv(TextWriter w, double scale = 1.0)
     {
         w.Write("block\tpath\tboundary_dist\tentry_cp\n");
@@ -39,7 +39,7 @@ public sealed class TrafficTable
             w.Write(e.BlockName + "\t" + e.PathName + "\t" + (e.BoundaryDist * scale).ToString("R", CultureInfo.InvariantCulture) + "\t" + (e.CpName ?? "") + "\n");
     }
 
-    /// <summary>Reads a traffic.tsv written by <see cref="WriteTsv"/> (boundary_dist stays in export units).</summary>
+    /// <summary>Reads a traffic.tsv written by <see cref="WriteTsv"/> (boundary_dist stays in meters).</summary>
     public static TrafficTable ReadTsv(string path)
     {
         var t = new TrafficTable();

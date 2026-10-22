@@ -10,11 +10,21 @@ public sealed record VehicleTemplateOverride(string? VehSegText = null, string? 
 
 /// <summary>VehicleGroupSpec.RotateDegPerSec: the vehicle template line `rotate 0 N Seconds` is N degrees per second (observed: 2 -> 45 s per 90 degree turn; not in the manual), default 90/7 = 7 s per 90 degrees. Applies to the `load Default` line; `load Empty` keeps `rotate 1 0` (first number 1 = inherit from Default, 0 = explicit value).
 /// ClaimBlockOnNextCp adds OldBlockClaim to the AGVSDEF line (claim the next block on reaching the CP before it).
-/// Groups is required by LayoutExporter.ToAgvs; each group needs at least one standby/buffer CP.</summary>
+/// Groups is required by LayoutExporter.ToAgvs; each group needs at least one standby/buffer CP.
+/// Scale converts drawing units to meters (mm drawing: 0.001) whatever Units is; Units is the model's unit, and every length the model gets is
+/// meters x <see cref="UnitsPerMeter"/>: drawing coordinates (x Scale), group Length/Width (m), Speed/SpeedEmpty (m/s), Accel/Decel (m/s2).</summary>
 public sealed record ExportOptions(string Units = "Meters", Point2 Origin = default, double Scale = 1.0,
     IReadOnlyList<VehicleGroupSpec>? Groups = null, string Version = "12.6.1.19",
     string PathType = "DefaultGuidePath", string CpType = "DefaultControlPoint", bool ClaimBlockOnNextCp = true,
-    IReadOnlyDictionary<string, VehicleTemplateOverride>? VehicleOverrides = null);
+    IReadOnlyDictionary<string, VehicleTemplateOverride>? VehicleOverrides = null)
+{
+    /// <summary>Model units in one meter; ArgumentException for a Units value ASH cannot convert (the model would come out at the wrong size).</summary>
+    public double UnitsPerMeter => Settings.UnitScale.ModelUnitsPerMeter(Units)
+        ?? throw new System.ArgumentException($"Units '{Units}'은(는) 지원하지 않는 단위입니다. Meters, Millimeters, Centimeters, Feet, Inches 중 하나로 설정하세요.");
+
+    /// <summary>Drawing point -> model coordinates: (p - Origin) x Scale (meters) x UnitsPerMeter.</summary>
+    public Point2 ToModel(Point2 p) => new Point2((p.X - Origin.X) * Scale * UnitsPerMeter, (p.Y - Origin.Y) * Scale * UnitsPerMeter);
+}
 
 public sealed record ExportSummary(int PathsAdded, int PathsRemoved, int PathsMoved, int CpsAdded, int CpsRemoved, int CpsMoved);
 
