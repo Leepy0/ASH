@@ -66,6 +66,38 @@ public class JobServerClientTests
         finally { File.Delete(zip); }
     }
 
+    [Fact] public async Task Analyses_are_fetched_and_read()
+    {
+        var f = new Fake { Reply = () => Json("[{\"id\":\"a-1\",\"name\":\"분석\",\"note\":\"x\",\"plans\":[{\"id\":\"p-1\",\"name\":\"A안\",\"nextVersion\":3}]},{\"id\":\"a-2\",\"name\":\"빈\",\"plans\":[]}]") };
+        using var c = new JobServerClient(new Uri("http://srv:8082/"), f);
+        var list = await c.GetAnalysesAsync();
+        Assert.Equal("http://srv:8082/api/analyses", f.Seen!.RequestUri!.AbsoluteUri);
+        Assert.Equal(2, list.Count);
+        Assert.Equal("a-1", list[0].Id); Assert.Equal("분석", list[0].Name);
+        Assert.Equal("p-1", list[0].Plans[0].Id); Assert.Equal("A안", list[0].Plans[0].Name); Assert.Equal(3, list[0].Plans[0].NextVersion);
+        Assert.Empty(list[1].Plans);
+        Assert.Throws<InvalidDataException>(() => JobServerClient.ParseAnalyses("<html>"));
+    }
+
+    [Fact] public async Task Submit_sends_analysis_fields_only_when_set_and_reads_the_version()
+    {
+        var zip = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(zip, "PK");
+            var f = new Fake { Reply = () => Json("{\"id\":\"j1\",\"url\":\"/jobs/j1\",\"ahead\":0,\"version\":4}") };
+            using var c = new JobServerClient(new Uri("http://srv:8082"), f);
+            var r = await c.SubmitAsync(zip, new JobSubmission("p", "plan", "M", "kim", AnalysisName: "분석X", PlanName: "B안", VersionNote: "메모"));
+            Assert.Equal(4, r.Version);
+            foreach (var part in new[] { "name=analysisName", "분석X", "name=planName", "B안", "name=versionNote", "메모" }) Assert.Contains(part, f.Body);
+            foreach (var part in new[] { "name=analysisId", "name=planId" }) Assert.DoesNotContain(part, f.Body);
+
+            await c.SubmitAsync(zip, new JobSubmission("p", "plan", "M", "kim")); // a 0.18-style send: none of the new fields
+            foreach (var part in new[] { "name=analysisId", "name=planId", "name=analysisName", "name=planName", "name=versionNote" }) Assert.DoesNotContain(part, f.Body);
+        }
+        finally { File.Delete(zip); }
+    }
+
     /// <summary>Reads a multipart body without keeping it: counts bytes and keeps only the head and the tail, enough to size the "package" part.</summary>
     private sealed class BodyProbe
     {

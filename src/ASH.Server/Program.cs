@@ -206,7 +206,89 @@ app.MapGet("/api/jobs/queue", (JobStore js, IConfiguration cfg) =>
         typicalMinutes = q.Typical?.TotalMinutes, enabled = WorkerOn(cfg) && AcceptsJobs(cfg) });
 });
 
-app.MapPost("/api/jobs", async (HttpContext ctx, JobStore js, IConfiguration cfg, CancellationToken ct) =>
+// ---- analyses: a study groups plans (안); a send is filed as the next version of a plan ----
+const int NameMax = 100, NoteMax = 200;
+var analysisGate = new object(); // find-or-create by name must not run twice at once, or two sends would make two analyses
+
+static int NextVersion(IEnumerable<JobInfo> jobs, string analysisId, string planId) =>
+    jobs.Where(j => j.AnalysisId == analysisId && j.PlanId == planId).Select(j => j.Version).DefaultIfEmpty(0).Max() + 1;
+
+app.MapGet("/api/analyses", (AnalysisStore st, JobStore js) =>
+{
+    var jobs = js.All();
+    return Results.Json(st.All().Select(a => new { a.Id, a.Name, a.Note, Plans = a.Plans.Select(p => new { p.Id, p.Name, NextVersion = NextVersion(jobs, a.Id, p.Id) }) }));
+});
+
+// form fields name/note, trimmed; over the limit (or not a form) is a 400 (null) instead of a silent cut
+static async Task<(string Name, string Note)?> NameNote(HttpContext ctx)
+{
+    if (!ctx.Request.HasFormContentType) return null;
+    var f = await ctx.Request.ReadFormAsync();
+    string name = f["name"].ToString().Trim(), note = f["note"].ToString().Trim();
+    return name.Length > NameMax || note.Length > NoteMax ? null : (name, note);
+}
+const string NameNoteError = "이름은 100자, 메모는 200자까지이며 폼 데이터(name, note)가 필요합니다.";
+
+app.MapPost("/api/analyses", async (HttpContext ctx, AnalysisStore st) =>
+{
+    if (await NameNote(ctx) is not { } v) return Msg(400, NameNoteError);
+    try { return Results.Json(new { st.CreateAnalysis(v.Name, v.Note).Id }); }
+    catch (ArgumentException e) { return Msg(400, e.Message); }
+});
+
+app.MapPost("/api/analyses/{id}/plans", async (string id, HttpContext ctx, AnalysisStore st) =>
+{
+    if (await NameNote(ctx) is not { } v) return Msg(400, NameNoteError);
+    try { return Results.Json(new { st.CreatePlan(id, v.Name, v.Note).Id }); }
+    catch (ArgumentException e) { return Msg(400, e.Message); }
+});
+
+// web-form actions: no login, but a browser post must come from this site
+static async Task<IFormCollection?> FormFrom(HttpContext ctx) => ctx.Request.HasFormContentType ? await ctx.Request.ReadFormAsync() : null;
+const string CrossSite = "다른 사이트에서 보낸 요청은 받지 않습니다.";
+
+app.MapPost("/analyses/{id}/rename", async (string id, HttpContext ctx, AnalysisStore st) =>
+{
+    if (!SameOrigin(ctx)) return Msg(403, CrossSite);
+    var name = (await FormFrom(ctx))?["name"].ToString().Trim() ?? "";
+    if (name.Length > NameMax) return Msg(400, "이름은 100자까지입니다.");
+    try { st.Rename(id, null, name); return Results.Redirect("/jobs"); }
+    catch (ArgumentException e) { return Msg(400, e.Message); }
+});
+
+app.MapPost("/analyses/{id}/plans/{pid}/rename", async (string id, string pid, HttpContext ctx, AnalysisStore st) =>
+{
+    if (!SameOrigin(ctx)) return Msg(403, CrossSite);
+    var name = (await FormFrom(ctx))?["name"].ToString().Trim() ?? "";
+    if (name.Length > NameMax) return Msg(400, "이름은 100자까지입니다.");
+    try { st.Rename(id, pid, name); return Results.Redirect("/jobs"); }
+    catch (ArgumentException e) { return Msg(400, e.Message); }
+});
+
+app.MapPost("/analyses/{id}/delete", (string id, HttpContext ctx, AnalysisStore st, JobStore js) =>
+{
+    if (!SameOrigin(ctx)) return Msg(403, CrossSite);
+    return st.DeleteIfEmpty(id, js) ? Results.Redirect("/jobs") : Msg(409, "작업이 있거나 없는 분석은 지울 수 없습니다.");
+});
+
+app.MapPost("/jobs/{id}/move", async (string id, HttpContext ctx, AnalysisStore st, JobStore js) =>
+{
+    if (!SameOrigin(ctx)) return Msg(403, CrossSite);
+    if (!JobStore.IsValidId(id) || js.Get(id) == null) return Msg(404, "작업이 없습니다.");
+    var f = await FormFrom(ctx);
+    try { st.Move(js, id, f?["analysisId"].ToString() ?? "", f?["planId"].ToString() ?? ""); return Results.Redirect("/jobs/" + id); }
+    catch (ArgumentException e) { return Msg(400, e.Message); }
+});
+
+app.MapPost("/jobs/{id}/select", async (string id, HttpContext ctx, AnalysisStore st, JobStore js) =>
+{
+    if (!SameOrigin(ctx)) return Msg(403, CrossSite);
+    if (!JobStore.IsValidId(id) || js.Get(id) == null) return Msg(404, "작업이 없습니다.");
+    st.SetSelected(js, id, (await FormFrom(ctx))?["on"].ToString() == "1");
+    return Results.Redirect("/jobs/" + id);
+});
+
+app.MapPost("/api/jobs", async (HttpContext ctx, JobStore js, AnalysisStore analyses, IConfiguration cfg, CancellationToken ct) =>
 {
     if (!AcceptsJobs(cfg)) return Msg(403, "이 서버는 작업을 받지 않습니다(Jobs:Enabled=false).");
     if (!ctx.Request.HasFormContentType) return Msg(400, "multipart/form-data가 필요합니다.");
@@ -219,6 +301,13 @@ app.MapPost("/api/jobs", async (HttpContext ctx, JobStore js, IConfiguration cfg
     var model = Field("model", 64);
     if (model.Length == 0 || model.Contains("..") || model.IndexOfAny(new[] { '/', '\\', ':' }) >= 0 || !ASH.Core.Layout.LayoutChecker.IsValidName(model))
         return Msg(400, "모델 이름이 올바르지 않습니다: " + model);
+    var analysisId = Field("analysisId", 64); var planId = Field("planId", 64);
+    var analysisName = form["analysisName"].ToString().Trim(); var planName = form["planName"].ToString().Trim(); var versionNote = form["versionNote"].ToString().Trim();
+    if (analysisName.Length > NameMax || planName.Length > NameMax) return Msg(400, "분석·안 이름은 100자까지입니다.");
+    if (versionNote.Length > NoteMax) return Msg(400, "버전 메모는 200자까지입니다.");
+    var classify = analysisId.Length + planId.Length + analysisName.Length + planName.Length > 0;
+    if (classify && (analysisId.Length == 0 && analysisName.Length == 0 || planId.Length == 0 && planName.Length == 0))
+        return Msg(400, "분석과 안을 모두 지정해야 합니다(analysisId/analysisName, planId/planName).");
     var pkg = form.Files.GetFile("package");
     if (pkg == null || pkg.Length == 0) return Msg(400, "package 파트(zip)가 필요합니다.");
     var id = JobStore.NewId();
@@ -247,9 +336,30 @@ app.MapPost("/api/jobs", async (HttpContext ctx, JobStore js, IConfiguration cfg
             job.Clusters = sum.Clusters.Select(c => c.ToList()).ToList();
             job.ConfirmRunIds = sum.ConfirmRunIds.ToList(); job.Warnings = sum.Warnings.ToList(); job.FailureMessages = sum.FailureMessages.ToList();
         }
-        js.Add(job);
+        var version = 0;
+        if (classify)
+        {
+            // ids first, else find by name or create; resolved before js.Add so a wrong id leaves no job behind (the folder is removed below)
+            string aid, pid;
+            lock (analysisGate)
+            {
+                var a = analysisId.Length > 0 ? analyses.Get(analysisId) ?? throw new ArgumentException("분석이 없습니다: " + analysisId)
+                    : analyses.All().FirstOrDefault(x => string.Equals(x.Name, analysisName, StringComparison.OrdinalIgnoreCase)) ?? analyses.CreateAnalysis(analysisName, "");
+                var p = planId.Length > 0 ? a.Plans.FirstOrDefault(x => x.Id == planId) ?? throw new ArgumentException("안이 없습니다: " + planId)
+                    : a.Plans.FirstOrDefault(x => string.Equals(x.Name, planName, StringComparison.OrdinalIgnoreCase)) ?? analyses.CreatePlan(a.Id, planName, "");
+                aid = a.Id; pid = p.Id;
+            }
+            js.Add(job);
+            version = analyses.Assign(js, id, aid, pid, versionNote).Version;
+        }
+        else js.Add(job);
         var q = js.QueueInfo(id);
-        return Results.Json(new { id, url = $"{ctx.Request.Scheme}://{ctx.Request.Host}/jobs/{id}", ahead = q.Ahead });
+        return Results.Json(new { id, url = $"{ctx.Request.Scheme}://{ctx.Request.Host}/jobs/{id}", ahead = q.Ahead, version });
+    }
+    catch (ArgumentException e)
+    {
+        try { Directory.Delete(dir, true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
+        return Msg(400, e.Message);
     }
     catch (Exception e) when (e is InvalidDataException or IOException or UnauthorizedAccessException)
     {
