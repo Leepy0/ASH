@@ -6,5 +6,9 @@
 		if {{START}} >= V_warmup then inc V_vDown(A_vid) by A_rep
 		set A_rep to {{START}} + A_rep
 		set V_vNextFail(A_vid) to A_rep + rn RS_fail e {{MTBF}}
-		if A_rep > ac then wait for A_rep - ac sec
+		if A_rep > ac then begin
+			set A_veh color to red
+			wait for A_rep - ac sec
+			set A_veh color to inherit
+		end
 	end
