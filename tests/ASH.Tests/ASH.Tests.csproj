@@ -19,6 +19,7 @@
   <ItemGroup>
     <Using Include="Xunit" />
     <None Include="Fixtures/**" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Dxf/Fixtures/**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
@@ -36,4 +37,4 @@
     <Reference Include="System.IO.Compression.FileSystem" />
   </ItemGroup>
 
-</Project>
+</Project>

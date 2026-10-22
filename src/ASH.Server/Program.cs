@@ -488,6 +488,17 @@ app.MapGet("/jobs/{id}/files/{name}", (string id, string name, JobStore js) =>
     return Results.File(fs, type, $"{id}-{name}", enableRangeProcessing: name.EndsWith(".zip"));
 });
 
+// the factory drawing (DXF) and the AGV layout in model metres for the cut editor; built once, then cached next to job.json
+app.MapGet("/jobs/{id}/drawing.json", (string id, JobStore js) =>
+{
+    if (!JobStore.IsValidId(id) || js.Get(id) is not { } j) return Msg(404, "작업이 없습니다.");
+    var cache = Path.Combine(js.JobDir(id), "drawing.json");
+    var json = File.Exists(cache) ? File.ReadAllText(cache, Encoding.UTF8) : DrawingJson.Build(js.ProjectDir(id), j.Model);
+    if (json == null) return Msg(410, "모델 폴더가 없습니다.");
+    if (!File.Exists(cache)) File.WriteAllText(cache, json, new UTF8Encoding(false));
+    return Results.Content(json, "application/json; charset=utf-8");
+});
+
 // one run to watch in AutoMod on a PC: the run id is only looked up in summary.tsv, never joined into a path
 app.MapGet("/jobs/{id}/runs/{run}/model.zip", (string id, string run, HttpContext ctx, JobStore js, IConfiguration cfg) =>
 {
