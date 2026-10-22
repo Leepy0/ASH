@@ -73,7 +73,7 @@ public class KindAndFormTests
             using (var wb = ExcelReader.Open(path))
             {
                 wb.Worksheet("AGV_Types").Column(14).Delete();  // Kind
-                wb.Worksheet("Materials").Column(12).Delete();  // Form
+                wb.Worksheet("Materials").Column(13).Delete();  // Form
                 wb.Save();
             }
             var p = ExcelReader.Read(path);

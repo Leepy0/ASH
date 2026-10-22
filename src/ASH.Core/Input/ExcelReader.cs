@@ -30,7 +30,7 @@ public static class ExcelReader
         {
             var cell = Cell(col);
             var s = Str(col);
-            if (s.Length == 0) return null;
+            if (s.Length == 0 || s == "-") return null; // "-" = the default, as the template's descriptions say
             if (cell.DataType == XLDataType.Number) return cell.GetDouble();
             return double.TryParse(s, NumberStyles.Float, Inv, out var d) ? d : throw Err(col, $"숫자가 아닙니다 ('{s}')");
         }
@@ -131,11 +131,27 @@ public static class ExcelReader
                 r.Str("StandbyCPs").Split(',').Select(s => s.Trim()).Where(s => s.Length > 0).ToList(), r.Str("Dispatch"), r.RowNum,
                 r.StrIfColumn("FinishCP") is { Length: > 0 } fin ? fin : null));
         foreach (var r in Rows(wb, "Materials"))
+        {
+            double per = r.Num("UnitsPerContainer");
+            // a threshold is containers + units (either may be blank, not both), kept in containers as the model counts them
+            double Threshold(string col)
+            {
+                var box = r.OptNum(col); var qty = r.OptNumIfColumn(col + "Qty");
+                if (box == null && qty == null) return r.Num(col); // throws "empty", naming the column
+                return (box ?? 0) + (qty ?? 0) / (per > 0 ? per : 1);
+            }
             p.Materials.Add(new MaterialInfo(r.Str("Material"), r.Str("Station"), r.Str("Group"), r.Num("TaktTime"), r.Num("UnitsPerCycle"),
-                r.Num("UnitsPerContainer"), r.Num("CallThreshold"), r.Num("UnloadThreshold"), r.OptNum("InitStock"), r.OptNum("SafetyStock"), r.Bool("EmptyReturn"), r.RowNum, r.StrIfColumn("Form"), r.OptNumIfColumn("LoadLength"), r.OptNumIfColumn("LoadWidth"), r.OptNumIfColumn("LoadHeight")));
+                per, Threshold("CallThreshold"), Threshold("UnloadThreshold"), r.OptNum("InitStock"), r.OptNum("SafetyStock"), false, r.RowNum, r.StrIfColumn("Form"), r.OptNumIfColumn("LoadLength"), r.OptNumIfColumn("LoadWidth"), r.OptNumIfColumn("LoadHeight")));
+        }
         foreach (var r in Rows(wb, "Routes"))
             p.Routes.Add(new Route(r.Str("Material"), r.Str("SupplyFromCP"), r.Str("SupplyToCP"), r.OptStr("BufferCP"),
                 r.OptStr("ReturnFromCP"), r.OptStr("ReturnToCP"), r.Num("ExtraTime", 0), r.RowNum));
+        // the container goes back when the route has a return CP (an old EmptyReturn column is ignored: it could contradict the route)
+        for (int i = 0; i < p.Materials.Count; i++)
+        {
+            var route = p.Routes.FirstOrDefault(x => x.Material == p.Materials[i].Material);
+            p.Materials[i] = p.Materials[i] with { EmptyReturn = route != null && (route.ReturnFromCP != null || route.ReturnToCP != null) };
+        }
         foreach (var r in Rows(wb, "Stations", optional: true))
             p.Stations.Add(new StationInfo(r.Str("Station"), r.Str("CPName"), r.Num("BufferCapacity", 0), r.RowNum));
         foreach (var r in Rows(wb, "Ext", optional: true))

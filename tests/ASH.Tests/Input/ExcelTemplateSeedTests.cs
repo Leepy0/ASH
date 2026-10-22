@@ -1,7 +1,9 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using ASH.Core.Input;
 using ASH.Core.Layout;
+using ClosedXML.Excel;
 using Xunit;
 
 namespace ASH.Tests.Input;
@@ -71,6 +73,44 @@ public class ExcelTemplateSeedTests
         finally { File.Delete(path); }
     }
 
+    /// <summary>For a file only Excel can write, the plugin replays Update's log through Excel: the log alone must carry every change.</summary>
+    [Fact]
+    public void Update_Log_Replayed_On_The_Original_Gives_The_Same_Cells()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "seed-" + System.Guid.NewGuid().ToString("N") + ".xlsx");
+        try
+        {
+            ExcelTemplate.Write(path, Drawing());
+            using (var wb = ExcelReader.Open(path)) // an older workbook: EmptyReturn column, old description
+            {
+                var m = wb.Worksheet("Materials"); m.Cell(1, 17).Value = "EmptyReturn"; m.Cell(3, 17).Value = "Y"; m.Cell(2, 2).Value = "공정명(선택·메모)";
+                wb.Worksheet("Routes").Delete();
+                wb.Save();
+            }
+            var l = Drawing(); l.Cps.Add(Cp("SB4", "standby", "A")); l.Cps.Add(Cp("L003", "load", "C"));
+            var log = new List<ExcelEdit>();
+            using var updated = ExcelReader.Open(path);
+            var changes = ExcelTemplate.Update(updated, l, log);
+            Assert.Contains(changes, c => c.Contains("EmptyReturn 열 삭제"));
+            using var replay = ExcelReader.Open(path);
+            foreach (var e in log)
+                switch (e)
+                {
+                    case AddSheetEdit a: replay.AddWorksheet(a.Sheet); break;
+                    case DeleteColumnEdit d: replay.Worksheet(d.Sheet).Column(d.Col).Delete(); break;
+                    case CellEdit c: replay.Worksheet(c.Sheet).Cell(c.Row, c.Col).Value = c.Value; break;
+                }
+            Assert.Contains(log, e => e is ListEdit x && x.Sheet == "AGV_Groups" && x.Formula == "=AGV_Types!$A$3:$A$1000");
+            foreach (var ws in updated.Worksheets)
+            {
+                var r = replay.Worksheet(ws.Name);
+                foreach (var cell in ws.CellsUsed(XLCellsUsedOptions.Contents)) Assert.Equal(cell.GetString(), r.Cell(cell.Address.RowNumber, cell.Address.ColumnNumber).GetString());
+                Assert.Equal(ws.CellsUsed(XLCellsUsedOptions.Contents).Count(), r.CellsUsed(XLCellsUsedOptions.Contents).Count());
+            }
+        }
+        finally { File.Delete(path); }
+    }
+
     [Fact]
     public void Template_Has_Drop_Down_Lists()
     {
@@ -80,10 +120,10 @@ public class ExcelTemplateSeedTests
             ExcelTemplate.Write(path, Drawing());
             ExcelTemplate.Update(path, Drawing()); // re-applied lists must not pile up
             using var wb = ExcelReader.Open(path);
-            var form = wb.Worksheet("Materials").Cell(3, 12).GetDataValidation();
+            var form = wb.Worksheet("Materials").Cell(3, 13).GetDataValidation();
             Assert.Equal("\"Box,Pallet,Trolley\"", form.Value);
             Assert.Contains("AGV_Types", wb.Worksheet("AGV_Groups").Cell(5, 2).GetDataValidation().Value);
-            Assert.Single(wb.Worksheet("Materials").DataValidations, v => v.Ranges.Any(r => r.RangeAddress.FirstAddress.ColumnNumber == 12));
+            Assert.Single(wb.Worksheet("Materials").DataValidations, v => v.Ranges.Any(r => r.RangeAddress.FirstAddress.ColumnNumber == 13));
         }
         finally { File.Delete(path); }
     }

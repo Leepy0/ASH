@@ -227,7 +227,7 @@ public static class JobReport
             foreach (var g in v.Input.Groups) { Put(ws, r, 1, g.Group); Put(ws, r, 2, g.Type); Put(ws, r, 3, g.MinCount); Put(ws, r, 4, g.MaxCount); r++; }
 
             r++; Title(ws, r++, "자재");
-            Header(ws, r++, "자재", "그룹", "형태", "T/T", "용기당 원수", "호출 임계");
+            Header(ws, r++, "자재", "그룹", "형태", "T/T", "용기당 자재 수량", "호출 임계");
             foreach (var m in v.Input.Materials)
             {
                 Put(ws, r, 1, m.Material); Put(ws, r, 2, m.Group); Put(ws, r, 3, m.Form); Put(ws, r, 4, m.TaktTime); Put(ws, r, 5, m.UnitsPerContainer); Put(ws, r, 6, m.CallThreshold);

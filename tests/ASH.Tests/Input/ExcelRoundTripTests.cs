@@ -43,7 +43,7 @@ public class ExcelRoundTripTests
             {
                 SetSetting(wb, "SimLength", "2.5");
                 var m = wb.Worksheet("Materials");
-                m.Cell(3, 1).Value = "M9"; m.Cell(3, 4).Value = "45.5"; m.Cell(3, 9).Value = 3; m.Cell(3, 11).Value = "N";
+                m.Cell(3, 1).Value = "M9"; m.Cell(3, 4).Value = "45.5"; m.Cell(3, 11).Value = 3; m.Cell(3, 12).Value = "-";
                 wb.Worksheet("AGV_Groups").Cell(3, 5).Value = "A, B";
                 wb.Worksheet("Routes").Cell(3, 4).Value = "CP_BUF";
                 wb.Save();
@@ -133,16 +133,52 @@ public class ExcelRoundTripTests
     }
 
     [Theory]
-    [InlineData("Y", true)] [InlineData("y", true)] [InlineData("TRUE", true)] [InlineData("1", true)]
-    [InlineData("N", false)] [InlineData("false", false)] [InlineData("", false)]
-    public void Read_Parses_YesNo_Variants(string text, bool expected)
+    [InlineData("", "", false)] [InlineData("RL1", "", true)] [InlineData("", "RU1", true)] [InlineData("RL1", "RU1", true)]
+    public void EmptyReturn_Follows_The_Route_Return_CPs(string from, string to, bool expected)
     {
         var path = Tmp();
         try
         {
             ExcelTemplate.Write(path);
-            using (var wb = new XLWorkbook(path)) { wb.Worksheet("Materials").Cell(3, 11).Value = text; wb.Save(); }
+            using (var wb = new XLWorkbook(path))
+            {
+                var r = wb.Worksheet("Routes"); r.Cell(3, 5).Value = from; r.Cell(3, 6).Value = to;
+                var m = wb.Worksheet("Materials"); m.Cell(1, 17).Value = "EmptyReturn"; m.Cell(3, 17).Value = "Y"; // an old column is ignored
+                wb.Save();
+            }
             Assert.Equal(expected, ExcelReader.Read(path).Materials[0].EmptyReturn);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Theory]
+    [InlineData("4", "", 4.0)] [InlineData("", "25", 2.5)] [InlineData("1", "5", 1.5)] [InlineData("-", "30", 3.0)]
+    public void Threshold_Adds_Containers_And_Units(string boxes, string units, double expected)
+    {
+        var path = Tmp();
+        try
+        {
+            ExcelTemplate.Write(path); // UnitsPerContainer 10
+            using (var wb = new XLWorkbook(path))
+            {
+                var m = wb.Worksheet("Materials"); m.Cell(3, 7).Value = boxes; m.Cell(3, 8).Value = units; m.Cell(3, 9).Value = boxes; m.Cell(3, 10).Value = units;
+                wb.Save();
+            }
+            var mat = ExcelReader.Read(path).Materials[0];
+            Assert.Equal(expected, mat.CallThreshold, 9); Assert.Equal(expected, mat.UnloadThreshold, 9);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Threshold_With_Both_Parts_Blank_Names_The_Column()
+    {
+        var path = Tmp();
+        try
+        {
+            ExcelTemplate.Write(path);
+            using (var wb = new XLWorkbook(path)) { wb.Worksheet("Materials").Cell(3, 7).Value = ""; wb.Save(); }
+            Assert.Contains("CallThreshold", Assert.Throws<ExcelDataException>(() => ExcelReader.Read(path)).Message);
         }
         finally { File.Delete(path); }
     }

@@ -18,12 +18,13 @@ public static class ExcelTemplate
             new[] { "T_EX", "1.0", "1.0", "0.3", "0.3", "1", "20", "20", "0", "0", "1.2", "0.8", "Blue", "Standard" }),
         ("AGV_Groups",
             new[] { "Group", "Type", "MinCount", "MaxCount", "StandbyCPs", "Dispatch", "FinishCP" },
-            new[] { "그룹명", "AGV 타입(AGV_Types에서 선택, 여러 그룹이 같은 타입 가능)", "최소 대수", "최대 대수", "대기 CP(쉼표 구분)", "Nearest / FIFO", "작업 완료 CP(선택: 도착하면 대기로 봄)" },
+            new[] { "그룹명", "AGV 타입", "최소 대수", "최대 대수", "대기 CP", "Nearest / FIFO", "작업 완료 CP" },
             new[] { "G_EX", "T_EX", "1", "3", "CP_STBY", "Nearest", "" }),
+        // thresholds are containers + units (each may be blank: ExcelReader adds them up in containers); EmptyReturn follows the route's return CPs
         ("Materials",
-            new[] { "Material", "Station", "Group", "TaktTime", "UnitsPerCycle", "UnitsPerContainer", "CallThreshold", "UnloadThreshold", "InitStock", "SafetyStock", "EmptyReturn", "Form", "LoadLength", "LoadWidth", "LoadHeight" },
-            new[] { "자재명", "공정명(선택·메모)", "나르는 그룹(AGV_Groups에서 선택)", "T/T(초)", "T/T당 소비 원수", "용기당 원수", "호출 임계(용기)", "언로딩 임계(용기)", "초기재고(용기, 비우면 Settings)", "안전재고(용기, 비우면 Settings)", "빈 용기 회수 Y/N", "형태(목록에서 선택)", "적재물 길이(m, 비우면 형태별 기본값)", "적재물 폭(m)", "적재물 높이(m)" },
-            new[] { "M001", "", "G_EX", "60", "1", "10", "4", "1", "", "", "Y", "Box", "", "", "" }), // Call 4 > Settings SafetyStock 2
+            new[] { "Material", "Station", "Group", "TaktTime", "UnitsPerCycle", "UnitsPerContainer", "CallThreshold", "CallThresholdQty", "UnloadThreshold", "UnloadThresholdQty", "InitStock", "SafetyStock", "Form", "LoadLength", "LoadWidth", "LoadHeight" },
+            new[] { "자재명", "공정명(메모)", "운반 그룹", "T/T(초)", "소요 원수", "용기당 자재 수량", "호출 임계(용기)", "호출 임계(자재)", "언로딩 임계(용기)", "언로딩 임계(자재)", "초기재고(- : 기본값)", "안전재고(- : 기본값)", "형태(목록에서 선택)", "적재물 길이(m, - : 기본값)", "적재물 폭(m, - : 기본값)", "적재물 높이(m, - : 기본값)" },
+            new[] { "M001", "", "G_EX", "60", "1", "10", "4", "", "1", "", "", "", "Box", "", "", "" }), // Call 4 > Settings SafetyStock 2
         ("Routes",
             new[] { "Material", "SupplyFromCP", "SupplyToCP", "BufferCP", "ReturnFromCP", "ReturnToCP", "ExtraTime" },
             new[] { "자재명", "load CP", "unload CP", "buffer CP(선택)", "rtnload CP(선택)", "rtnunload CP(선택)", "추가 시간(초)" },
@@ -37,13 +38,17 @@ public static class ExcelTemplate
         ("AGV_Groups", "Type", "AGV_Types"),
         ("AGV_Groups", "Dispatch", "Nearest,FIFO"),
         ("Materials", "Group", "AGV_Groups"),
-        ("Materials", "EmptyReturn", "Y,N"),
         ("Materials", "Form", string.Join(",", MaterialForms.All)),
         ("Routes", "Material", "Materials"),
     };
 
-    /// <summary>Columns of older templates that conflict with the current ones (the group's type lives in AGV_Groups only); an update deletes them.</summary>
-    static readonly (string Sheet, string Col)[] Obsolete = { ("AGV_Types", "Group") };
+    /// <summary>Columns of older templates that conflict with the current ones (the group's type lives in AGV_Groups only, an empty return follows the
+    /// route); an update deletes them.</summary>
+    static readonly (string Sheet, string Col, string Why)[] Obsolete =
+    {
+        ("AGV_Types", "Group", "그룹의 타입은 AGV_Groups의 Type으로만 정합니다"),
+        ("Materials", "EmptyReturn", "빈 용기 회수는 Routes의 rtnload/rtnunload CP로 정합니다"),
+    };
 
     const int LastListRow = 1000;
 
@@ -184,46 +189,65 @@ public static class ExcelTemplate
     }
 
     /// <summary>Brings an existing input up to date without touching what is typed in it: missing sheets, columns and Settings keys are added, obsolete
-    /// columns deleted, and with a layout the drawing's new groups, their new standby CPs and new load CPs (each as a material with its route) are appended.
-    /// Existing rows are matched by group name and by SupplyFromCP, never overwritten. Returns one line per change.</summary>
+    /// columns deleted, the description row refreshed, and with a layout the drawing's new groups, their new standby CPs and new load CPs (each as a material
+    /// with its route) are appended. Existing rows are matched by group name and by SupplyFromCP, never overwritten. Returns one line per change.</summary>
     public static List<string> Update(string path, ASH.Core.Layout.Layout? layout)
+    {
+        using var wb = ExcelReader.Open(path);
+        var changes = Update(wb, layout);
+        Save(wb, path);
+        return changes;
+    }
+
+    /// <summary>Update on a workbook in memory, not saved. <paramref name="log"/> gets every change in order, for a file only Excel can write (see ExcelEdit).</summary>
+    public static List<string> Update(XLWorkbook wb, ASH.Core.Layout.Layout? layout, List<ExcelEdit>? log = null)
     {
         var changes = new List<string>();
         var seed = layout == null ? new Dictionary<string, List<string[]>>() : Seed(layout);
-        using var wb = ExcelReader.Open(path);
         foreach (var (sheet, cols, desc, _) in Sheets)
         {
             if (!wb.TryGetWorksheet(sheet, out var ws))
             {
                 ws = wb.AddWorksheet(sheet);
-                for (int c = 0; c < cols.Length; c++) { ws.Cell(1, c + 1).Value = cols[c]; ws.Cell(2, c + 1).Value = desc[c]; FitWidth(ws, c + 1, 2); }
+                log?.Add(new AddSheetEdit(sheet));
+                for (int c = 0; c < cols.Length; c++) { Set(ws, 1, c + 1, cols[c], log); Set(ws, 2, c + 1, desc[c], log); FitWidth(ws, c + 1, 2); }
                 StyleHeader(ws, cols.Length);
                 changes.Add($"{sheet} 시트 추가");
             }
-            foreach (var (os, oc) in Obsolete)
-                if (os == sheet && Columns(ws).TryGetValue(oc, out var dc)) { ws.Column(dc).Delete(); changes.Add($"{sheet}: {oc} 열 삭제(그룹의 타입은 AGV_Groups의 Type으로만 정합니다)"); }
+            foreach (var (os, oc, why) in Obsolete)
+                if (os == sheet && Columns(ws).TryGetValue(oc, out var dc))
+                {
+                    ws.Column(dc).Delete(); log?.Add(new DeleteColumnEdit(sheet, dc));
+                    changes.Add($"{sheet}: {oc} 열 삭제({why})");
+                }
             var have = Columns(ws);
             int next = (ws.LastColumnUsed()?.ColumnNumber() ?? 0) + 1;
+            bool described = false;
             for (int i = 0; i < cols.Length; i++)
             {
-                if (have.ContainsKey(cols[i])) continue;
-                ws.Cell(1, next).Value = cols[i]; ws.Cell(2, next).Value = desc[i];
+                if (have.TryGetValue(cols[i], out var c))
+                {
+                    if (ws.Cell(2, c).GetString() != desc[i]) { Set(ws, 2, c, desc[i], log); described = true; }
+                    continue;
+                }
+                Set(ws, 1, next, cols[i], log); Set(ws, 2, next, desc[i], log);
                 ws.Cell(1, next).Style.Font.Bold = true; ws.Cell(1, next).Style.Fill.BackgroundColor = XLColor.LightBlue;
                 FitWidth(ws, next, 2);
                 next++;
                 changes.Add($"{sheet}: {cols[i]} 열 추가");
             }
+            if (described) changes.Add($"{sheet}: 2행 설명 갱신");
         }
         var set = wb.Worksheet("Settings");
         var keys = new HashSet<string>(Values(set, "Key"), StringComparer.OrdinalIgnoreCase);
         foreach (var (k, v, d) in SettingsDefaults)
-            if (!keys.Contains(k)) { Append(set, ColsOf("Settings"), new[] { k, v, d }); changes.Add($"Settings: {k} = {v} 추가"); }
+            if (!keys.Contains(k)) { Append(set, ColsOf("Settings"), new[] { k, v, d }, log); changes.Add($"Settings: {k} = {v} 추가"); }
 
         if (seed.TryGetValue("AGV_Groups", out var sg))
         {
             var tws = wb.Worksheet("AGV_Types");
             var types = Values(tws, "Type");
-            if (types.Count == 0) { Append(tws, ColsOf("AGV_Types"), seed["AGV_Types"][0]); types.Add(SeedType); changes.Add($"AGV_Types: 타입 {SeedType} 추가(값 확인 필요)"); }
+            if (types.Count == 0) { Append(tws, ColsOf("AGV_Types"), seed["AGV_Types"][0], log); types.Add(SeedType); changes.Add($"AGV_Types: 타입 {SeedType} 추가(값 확인 필요)"); }
             var gws = wb.Worksheet("AGV_Groups");
             var gc = Columns(gws);
             foreach (var g in sg)
@@ -232,7 +256,7 @@ public static class ExcelTemplate
                 if (row == 0)
                 {
                     var r = (string[])g.Clone(); r[1] = types[0];
-                    Append(gws, ColsOf("AGV_Groups"), r);
+                    Append(gws, ColsOf("AGV_Groups"), r, log);
                     changes.Add($"AGV_Groups: 그룹 {g[0]} 추가(Type {types[0]}, 대수 확인 필요)");
                     continue;
                 }
@@ -240,7 +264,7 @@ public static class ExcelTemplate
                 var listed = Split(gws.Cell(row, sc).GetString());
                 var add = Split(g[4]).Where(x => !listed.Contains(x)).ToList();
                 if (add.Count == 0) continue;
-                gws.Cell(row, sc).Value = string.Join(",", listed.Concat(add));
+                Set(gws, row, sc, string.Join(",", listed.Concat(add)), log);
                 changes.Add($"AGV_Groups: 그룹 {g[0]} 대기 CP {string.Join(",", add)} 추가");
             }
         }
@@ -258,13 +282,18 @@ public static class ExcelTemplate
                 names.Add(name);
                 var m = (string[])sm[i].Clone(); m[0] = name;
                 var route = (string[])sr[i].Clone(); route[0] = name;
-                Append(mws, ColsOf("Materials"), m); Append(rws, ColsOf("Routes"), route);
+                Append(mws, ColsOf("Materials"), m, log); Append(rws, ColsOf("Routes"), route, log);
                 changes.Add($"Materials·Routes: load CP {sr[i][1]}의 자재 {name} 추가(T/T·임계값·unload CP 확인 필요)");
             }
         }
-        ApplyLists(wb);
-        Save(wb, path);
+        ApplyLists(wb, log);
         return changes;
+    }
+
+    static void Set(IXLWorksheet ws, int r, int c, string v, List<ExcelEdit>? log)
+    {
+        Put(ws.Cell(r, c), v);
+        log?.Add(new CellEdit(ws.Name, r, c, v));
     }
 
     static string[] ColsOf(string sheet) => Sheets.First(x => x.Sheet == sheet).Cols;
@@ -299,15 +328,15 @@ public static class ExcelTemplate
     }
 
     /// <summary>A row after the last used one, each value under its template column wherever that column is in this sheet.</summary>
-    static void Append(IXLWorksheet ws, string[] cols, string[] values)
+    static void Append(IXLWorksheet ws, string[] cols, string[] values, List<ExcelEdit>? log)
     {
         var at = Columns(ws);
         int r = Math.Max(3, (ws.LastRowUsed()?.RowNumber() ?? 0) + 1);
         for (int i = 0; i < cols.Length && i < values.Length; i++)
-            if (values[i].Length > 0 && at.TryGetValue(cols[i], out var c)) Put(ws.Cell(r, c), values[i]);
+            if (values[i].Length > 0 && at.TryGetValue(cols[i], out var c)) Set(ws, r, c, values[i], log);
     }
 
-    static void ApplyLists(XLWorkbook wb)
+    static void ApplyLists(XLWorkbook wb, List<ExcelEdit>? log = null)
     {
         foreach (var (sheet, col, source) in Lists)
         {
@@ -317,11 +346,13 @@ public static class ExcelTemplate
             {
                 v.List(src.Range(3, 1, LastListRow, 1), true);
                 v.ErrorMessage = $"{source} 시트의 이름 중에서 고르세요.";
+                log?.Add(new ListEdit(sheet, c, 3, LastListRow, $"={source}!$A$3:$A${LastListRow}", col, v.ErrorMessage));
             }
             else
             {
                 v.List("\"" + source + "\"", true);
                 v.ErrorMessage = source.Replace(",", " / ") + " 중에서 고르세요.";
+                log?.Add(new ListEdit(sheet, c, 3, LastListRow, source, col, v.ErrorMessage));
             }
             v.IgnoreBlanks = true;
             v.ErrorStyle = XLErrorStyle.Stop;
@@ -360,3 +391,12 @@ public static class ExcelTemplate
         finally { if (System.IO.File.Exists(tmp)) System.IO.File.Delete(tmp); }
     }
 }
+
+/// <summary>One change <see cref="ExcelTemplate.Update(XLWorkbook, ASH.Core.Layout.Layout?, List{ExcelEdit}?)"/> made, in order, so that Excel itself can
+/// repeat it on a file only Excel can write (company document encryption). Columns and rows are 1-based, as they were when the edit was made.</summary>
+public abstract record ExcelEdit(string Sheet);
+public sealed record AddSheetEdit(string Sheet) : ExcelEdit(Sheet);
+public sealed record DeleteColumnEdit(string Sheet, int Col) : ExcelEdit(Sheet);
+public sealed record CellEdit(string Sheet, int Row, int Col, string Value) : ExcelEdit(Sheet);
+/// <summary>A drop-down over rows FirstRow..LastRow: Formula is a sheet range ("=AGV_Types!$A$3:$A$1000") or a comma list ("Box,Pallet").</summary>
+public sealed record ListEdit(string Sheet, int Col, int FirstRow, int LastRow, string Formula, string Title, string Message) : ExcelEdit(Sheet);

@@ -26,7 +26,7 @@
 |---|---|
 | AGV_Types | Type, SpeedLoaded(m/s), SpeedEmpty(m/s), Accel(m/s²), Decel(m/s²), Capacity(용기 수), LoadTime(초), UnloadTime(초), MTBF(초, 0=없음), MTTR(초), Length(m), Width(m), Color, Kind(목록: Standard / Conveyor / Ant / Magnet) |
 | AGV_Groups | Group, Type(AGV_Types 목록에서 선택, 여러 그룹이 같은 타입을 써도 된다), MinCount(≥1), MaxCount(≥MinCount), StandbyCPs(쉼표 구분), Dispatch(Nearest / FIFO), FinishCP(선택) |
-| Materials | Material, Station(선택·메모), Group(나르는 그룹, AGV_Groups 목록), TaktTime(초, >0), UnitsPerCycle(원수), UnitsPerContainer(≥1), CallThreshold(용기), UnloadThreshold(용기), InitStock(용기, 선택), SafetyStock(용기, 선택), EmptyReturn(Y/N), Form(목록: Box / Pallet / Trolley), LoadLength / LoadWidth / LoadHeight(m, 선택) |
+| Materials | Material, Station(공정명, 메모), Group(운반 그룹, AGV_Groups 목록), TaktTime(초, >0), UnitsPerCycle(소요 원수), UnitsPerContainer(용기당 자재 수량, ≥1), CallThreshold(호출 임계, 용기) + CallThresholdQty(호출 임계, 자재), UnloadThreshold(언로딩 임계, 용기) + UnloadThresholdQty(언로딩 임계, 자재), InitStock / SafetyStock(용기, `-` 또는 빈칸 = Settings 기본값), Form(목록: Box / Pallet / Trolley), LoadLength / LoadWidth / LoadHeight(m, `-` 또는 빈칸 = 형태별 기본값) |
 | Routes | Material, SupplyFromCP, SupplyToCP, BufferCP(선택), ReturnFromCP(선택), ReturnToCP(선택), ExtraTime(초) |
 
 ## 도면 값으로 채운 양식
@@ -45,7 +45,9 @@
 - U 갱신: 입력한 값은 그대로 두고 도면에서 새로 생긴 것만 뒤에 붙인다. 새 그룹(타입은 AGV_Types의 첫 타입), 기존 그룹의 새 standby CP, 아직 Routes의 SupplyFromCP에 없는 load CP(새 자재 이름 `M###`와 경로 한 행). 빠진 시트·열·Settings 키를 더하고, 예전 양식의 AGV_Types.Group 열은 지운다. 바뀐 내용은 명령줄에 한 줄씩 나온다. 도면에서 지운 CP·그룹은 지우지 않는다(검증 오류로 알려 준다).
 - W 덮어쓰기: 한 번 더 확인한 뒤 새 양식으로 바꾼다.
 
-U·W 모두 원래 파일을 `input.bak.<날짜_시각>.xlsx`로 먼저 복사한다. Excel에서 파일을 열어 둔 채면 저장하지 못하므로 닫고 다시 한다.
+U·W 모두 원래 파일을 `input.bak.<날짜_시각>.xlsx`로 먼저 복사한다. 갱신은 2행 설명도 현재 양식으로 바꾼다.
+
+사내 문서 암호화(NASCA)로 파일을 직접 고칠 수 없거나 Excel이 파일을 열고 있으면, 같은 갱신을 Excel을 통해 한다(Excel이 연 파일이면 그 창에서 고쳐 저장, 아니면 보이지 않는 Excel이 열어 고치고 저장). Excel이 저장하므로 암호화는 유지된다. Excel에서 셀을 편집 중이면 실패하니 편집을 마치고 다시 한다.
 
 ## 목록 선택(데이터 유효성 검사)
 
@@ -57,9 +59,14 @@ U·W 모두 원래 파일을 `input.bak.<날짜_시각>.xlsx`로 먼저 복사�
 | AGV_Groups.Type | AGV_Types의 Type |
 | AGV_Groups.Dispatch | Nearest / FIFO |
 | Materials.Group | AGV_Groups의 Group |
-| Materials.EmptyReturn | Y / N |
 | Materials.Form | Box / Pallet / Trolley |
 | Routes.Material | Materials의 Material |
+
+## 임계값과 빈 용기 회수
+
+- 호출·언로딩 임계는 용기 열과 자재 열을 더한 값이다. 임계(용기) + 임계(자재) ÷ 용기당 자재 수량. 예: 용기 1, 자재 5, 용기당 10 → 1.5 용기. 한쪽은 비워도 되지만 둘 다 비우면 오류이다.
+- 숫자 칸의 `-`는 빈칸과 같다(기본값 사용).
+- 빈 용기 회수 여부는 따로 입력하지 않는다. Routes에 rtnload(ReturnFromCP) 또는 rtnunload(ReturnToCP)가 있으면 회수한다. 예전 양식의 EmptyReturn 열은 읽지 않고, 갱신(U)하면 지워진다.
 
 ## 타입과 그룹
 
@@ -81,7 +88,7 @@ Stations·Ext 시트는 양식에서 뺐다(모델에 아무 영향이 없었다
 - 적재물을 얹는 기준: Standard, Conveyor는 600 mm 윗면, Ant는 상판 윗면(150 mm)이라 대차가 상판 위에 올라탄다. Magnet은 바닥이며 대차는 차량 뒤쪽 전자석 바로 뒤에 캐스터를 바닥에 두고 선다(대차 길이 1 m 기준으로 거리를 잡음).
 - 적재물 그림은 길이를 진행 방향(y), 폭을 가로(x)로 그린다.
 - 새 형상은 `VehicleKinds.All`에 한 줄 추가하고 `VehicleGeometry.Build`에 그 형상의 부품을 추가한다(없으면 Standard처럼 그려진다).
-- 적재물: 자재마다 Form에 따라 상자, 빈 상자, 파레트, 대차 그림이 만들어지고 크기는 LoadLength(길이) / LoadWidth(폭) / LoadHeight(높이)로 정한다. 비우면 형태별 기본값(Box 0.6×0.4×0.3, Pallet 1.1×1.1×0.15, Trolley 1.0×0.7×0.25 m). 상자는 공급할 때 꽉 찬 상자, 빈 용기 회수(EmptyReturn=Y) 구간에서는 빈 상자로 바뀐다. 파레트와 대차는 돌아올 때도 같은 그림이다.
+- 적재물: 자재마다 Form에 따라 상자, 빈 상자, 파레트, 대차 그림이 만들어지고 크기는 LoadLength(길이) / LoadWidth(폭) / LoadHeight(높이)로 정한다. 비우면 형태별 기본값(Box 0.6×0.4×0.3, Pallet 1.1×1.1×0.15, Trolley 1.0×0.7×0.25 m). 상자는 공급할 때 꽉 찬 상자, 빈 용기 회수 구간에서는 빈 용기 그림(빈 상자, 연회색 파레트·대차)으로 바뀐다.
 
 ## 검증 규칙
 
