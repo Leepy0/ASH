@@ -29,8 +29,10 @@ public class SceneFinderTests
     [Fact]
     public void Stockin_Without_Stockout_Starts_Inside_Warmup()
     {
-        var s = Find(Ev(900, "stockin", "M004", "", 300)).Single(c => c.Kind == SceneKind.Stockout);
+        // began at 400, before the 600 warmup: the window starts at warmup
+        var s = Find(Ev(900, "stockin", "M004", "", 500)).Single(c => c.Kind == SceneKind.Stockout);
         Assert.Equal(540, s.StartSec); Assert.Equal(960, s.EndSec); Assert.Equal(300, s.Severity);
+        Assert.Equal("00:10~00:15 재고 0 (300초)", s.Detail);
     }
 
     [Fact]
@@ -49,18 +51,61 @@ public class SceneFinderTests
         var s = Assert.Single(Find(e.ToArray()), c => c.Kind == SceneKind.DelaySpike);
         Assert.Equal(4560, s.StartSec); Assert.Equal(5030, s.EndSec);
         Assert.Equal((10, 30), (s.CenterX, s.CenterY));
-        Assert.Equal("평균 105초 → 410초", s.Detail);
+        Assert.Equal("평균 90초 → 410초", s.Detail);
     }
 
     [Fact]
     public void Bottleneck_Picks_Max_Wait_Window()
     {
-        var s = Find(Ev(1000, "wait", "M1", "C1", 10), Ev(3000, "wait", "M1", "C2", 100), Ev(3100, "wait", "M1", "C2", 100), Ev(3200, "wait", "M1", "C1", 100))
-            .Single(c => c.Kind == SceneKind.Bottleneck);
-        Assert.True(s.StartSec <= 3000 && s.EndSec > 3200);
-        Assert.Equal(300, s.Severity);
+        // C2 cluster straddles the 1200 s boundary; C1 has more wait in total (450) than C2 inside the winning window (400)
+        var e = new List<SimEvent> { Ev(1000, "wait", "M1", "C1", 10) };
+        foreach (var t in new[] { 1150, 1180, 1210, 1240 }) e.Add(Ev(t, "wait", "M1", "C2", 100));
+        foreach (var t in new[] { 3000, 4000, 5000, 6000, 6900 }) e.Add(Ev(t, "wait", "M1", "C1", 90));
+        var s = Find(e.ToArray()).Single(c => c.Kind == SceneKind.Bottleneck);
+        Assert.Equal(660, s.StartSec); Assert.Equal(1260, s.EndSec); // first of the tied windows that hold the whole cluster
+        Assert.Equal(410, s.Severity);
         Assert.Equal("병목: C2", s.Title);
         Assert.Equal((40, 20), (s.CenterX, s.CenterY));
+    }
+
+    [Fact]
+    public void Lone_Spike_Among_Three_Deliveries_Is_Found()
+    {
+        var s = Assert.Single(Find(Ev(2000, "deliver", "M004", "U1", 90), Ev(3000, "deliver", "M004", "U1", 90), Ev(4000, "deliver", "M004", "U1", 410)), c => c.Kind == SceneKind.DelaySpike);
+        Assert.Equal("평균 90초 → 410초", s.Detail);
+    }
+
+    [Fact]
+    public void All_Zero_Deliveries_Give_No_Spike()
+    {
+        var r = Find(Enumerable.Range(0, 5).Select(i => Ev(1000 + i, "deliver", "M004", "U1", 0)).ToArray());
+        Assert.DoesNotContain(r, c => c.Kind == SceneKind.DelaySpike);
+    }
+
+    [Fact]
+    public void Spikes_Are_Per_Material()
+    {
+        var e = new List<SimEvent>();
+        for (int i = 0; i < 200; i++) { e.Add(Ev(1000 + i, "deliver", "M1", "U1", 100)); e.Add(Ev(1000 + i, "deliver", "M2", "C1", 2000)); }
+        e.Add(Ev(5000, "deliver", "M1", "U1", 400));
+        e.Add(Ev(5000, "deliver", "M2", "C1", 10000));
+        var titles = Find(e.ToArray()).Where(c => c.Kind == SceneKind.DelaySpike).Select(c => c.Title).OrderBy(t => t).ToList();
+        Assert.Equal(new[] { "지연: M1", "지연: M2" }, titles); // a global top 1% would drop M1's 400
+    }
+
+    [Fact]
+    public void Non_Finite_Values_Are_Ignored()
+    {
+        var bad = new[]
+        {
+            Ev(2000, "deliver", "M004", "U1", double.NaN), Ev(2001, "deliver", "M004", "U1", double.PositiveInfinity),
+            Ev(double.NaN, "deliver", "M004", "U1", 50), Ev(3000, "wait", "M1", "C1", double.PositiveInfinity), Ev(3001, "wait", "M1", "C1", -5),
+            Ev(900, "stockin", "M004", "", double.NaN), Ev(901, "stockin", "M004", "", -3),
+        };
+        Assert.Equal(SceneKind.Whole, Assert.Single(Find(bad)).Kind);
+        var s = Assert.Single(Find(bad.Concat(new[] { Ev(2000, "deliver", "M004", "U1", 90), Ev(3000, "deliver", "M004", "U1", 90), Ev(4000, "deliver", "M004", "U1", 410) }).ToArray()),
+            c => c.Kind == SceneKind.DelaySpike);
+        Assert.Equal("평균 90초 → 410초", s.Detail);
     }
 
     [Fact]

@@ -22,7 +22,9 @@ public static class SceneFinder
     /// <paramref name="layout"/> must be in model metres relative to the model origin (what ArcLayout.Load(...).Layout returns), so CP positions are the film's coordinates.
     /// Times in Title/Detail are hh:mm of absolute simulation time (the warmup is included, like StartSec/EndSec).
     /// A stockin without a stockout began before warmup (window starts at stockin.T - value); a stockout without a stockin runs to simSec.
-    /// A delay spike is a delivery of at least 3x its material's mean delivery time that also lies in the slowest 1% of all deliveries.
+    /// A delay spike is a delivery of at least 3x the mean of the same material's other deliveries (leave-one-out; materials with fewer than 2 deliveries are skipped, zero delays never count)
+    /// that also lies in the slowest 1% (at least the single slowest) of that material's own deliveries - per material, so one slow material cannot hide the others.
+    /// Events with a non-finite or negative time/value are ignored.
     /// A material or CP missing from the layout is placed at the layout centre.</summary>
     public static IReadOnlyList<SceneCandidate> Find(IReadOnlyList<SimEvent> events, Layout.Layout layout,
         IReadOnlyDictionary<string, string> unloadCpByMaterial, double simSec, double warmupSec)
@@ -36,7 +38,7 @@ public static class SceneFinder
         string? UnloadCp(string material) => unloadCpByMaterial.TryGetValue(material, out var cp) ? cp : null;
         double Clamp(double t) => Math.Max(0, Math.Min(simSec, t));
         string Sec(double v) => v.ToString("0", CultureInfo.InvariantCulture);
-        var sorted = events.OrderBy(e => e.T).ToList();
+        var sorted = events.Where(e => !double.IsNaN(e.T + e.Value) && !double.IsInfinity(e.T + e.Value) && e.T >= 0 && e.Value >= 0).OrderBy(e => e.T).ToList();
 
         var stock = new List<SceneCandidate>();
         foreach (var g in sorted.Where(e => e.Kind == "stockout" || e.Kind == "stockin").GroupBy(e => e.Material))
@@ -48,22 +50,25 @@ public static class SceneFinder
             foreach (var ev in g)
             {
                 if (ev.Kind == "stockout") open ??= ev.T;
-                else { Add(open ?? ev.T - ev.Value, ev.T); open = null; }
+                else { Add(open ?? Math.Max(warmupSec, ev.T - ev.Value), ev.T); open = null; }
             }
             if (open != null) Add(open.Value, simSec);
         }
 
-        var deliveries = sorted.Where(e => e.Kind == "deliver").ToList();
         var spikes = new List<SceneCandidate>();
-        if (deliveries.Count > 0)
+        foreach (var g in sorted.Where(e => e.Kind == "deliver").GroupBy(e => e.Material))
         {
-            var mean = deliveries.GroupBy(e => e.Material).ToDictionary(g => g.Key, g => g.Average(e => e.Value));
-            var cutoff = deliveries.Select(e => e.Value).OrderByDescending(v => v).ElementAt((int)Math.Ceiling(deliveries.Count * 0.01) - 1);
-            foreach (var d in deliveries.Where(d => d.Value >= 3 * mean[d.Material] && d.Value >= cutoff))
+            var list = g.ToList();
+            if (list.Count < 2) continue;
+            double total = list.Sum(e => e.Value);
+            var cutoff = list.Select(e => e.Value).OrderByDescending(v => v).ElementAt((int)Math.Ceiling(list.Count * 0.01) - 1);
+            foreach (var d in list)
             {
+                double others = (total - d.Value) / (list.Count - 1);
+                if (d.Value <= 0 || others <= 0 || d.Value < 3 * others || d.Value < cutoff) continue;
                 var pos = Pos(UnloadCp(d.Material) ?? d.Cp);
                 spikes.Add(new SceneCandidate(SceneKind.DelaySpike, "지연: " + d.Material, Clamp(d.T - d.Value - SpikeMargin), Clamp(d.T + SpikeMargin),
-                    pos.X, pos.Y, d.Value, $"평균 {Sec(mean[d.Material])}초 → {Sec(d.Value)}초"));
+                    pos.X, pos.Y, d.Value, $"평균 {Sec(others)}초 → {Sec(d.Value)}초"));
             }
         }
 
@@ -92,5 +97,5 @@ public static class SceneFinder
             .Concat(bottleneck).Append(whole).ToList();
     }
 
-    static string Hm(double sec) { int m = (int)(sec / 60); return $"{m / 60:00}:{m % 60:00}"; }
+    static string Hm(double sec) { int m = (int)(Math.Max(0, sec) / 60); return $"{m / 60:00}:{m % 60:00}"; }
 }
