@@ -12,7 +12,7 @@ public class JobLocalAndRetentionTests
     static string Id(string json) => JsonDocument.Parse(json).RootElement.GetProperty("id").GetString()!;
 
     /// <summary>A project folder unpacked from the plugin package, plus what ash-run leaves in runs\.</summary>
-    static string LocalResultPackage(string root)
+    internal static string LocalResultPackage(string root)
     {
         var proj = Path.Combine(root, "local-" + Guid.NewGuid().ToString("N"));
         ZipFile.ExtractToDirectory(JobEnv.MakePackage(root), proj);

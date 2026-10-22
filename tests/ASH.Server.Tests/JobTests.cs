@@ -65,6 +65,7 @@ public sealed class JobEnv : IDisposable
     public readonly WebApplicationFactory<Program> Factory;
     public readonly HttpClient Http;
     public readonly FakeRunner Runner = new();
+    public readonly FakeFilm Film = new();
     public JobStore Store => Factory.Services.GetRequiredService<JobStore>();
 
     public JobEnv(bool worker = true, string? amHome = null)
@@ -76,7 +77,16 @@ public sealed class JobEnv : IDisposable
             b.UseSetting("Jobs:WorkerEnabled", worker ? "true" : "false");
             b.UseSetting("GitHub:Enabled", "false");
             b.UseSetting("Update:PublicKeyPem", "");
-            if (amHome == null) b.ConfigureServices(s => { s.RemoveAll<IJobRunner>(); s.AddSingleton<IJobRunner>(Runner); });
+            if (amHome == null)
+            {
+                b.UseSetting("Film:CutTimeoutMin", "0.02"); // 1.2 s: the fake hangs that long for a "hung" cut
+                b.ConfigureServices(s =>
+                {
+                    s.RemoveAll<IJobRunner>(); s.AddSingleton<IJobRunner>(Runner);
+                    s.RemoveAll<IFilmAutoMod>(); s.AddSingleton<IFilmAutoMod>(Film);
+                    s.RemoveAll<ASH.Core.Film.IFilmRenderer>(); s.AddSingleton<ASH.Core.Film.IFilmRenderer>(Film);
+                });
+            }
             else { b.UseSetting("Jobs:AmHome", amHome); b.UseSetting("Jobs:DialogButton", "Student Version"); b.UseSetting("Jobs:Parallel", "2"); }
         });
         Http = Factory.CreateClient();

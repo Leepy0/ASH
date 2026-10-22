@@ -52,6 +52,9 @@ public static class ServerSettings
         new("Jobs:JobTimeoutHours", "작업 시간 제한(시간)", "넘으면 끊고 다음 작업으로 넘어갑니다. 다음 작업부터 적용.", SettingKind.Int, "24", true, 1, 168),
         new("Jobs:KeepRunsDays", "실행 원본 보관(일)", "끝난 작업의 실행 폴더·빌드 출력을 이 일수 뒤 지웁니다. 0 = 지우지 않음.", SettingKind.Int, "30", true, 0, 3650),
         new("Jobs:Dir", "작업 폴더", "올린 작업과 결과를 두는 폴더.", SettingKind.Text, "%ProgramData%/ASH.Server/jobs", false, Check: PathCheck),
+        new("Film:FfmpegPath", "ffmpeg", "영상 후처리(자막·이어 붙이기)에 쓰는 ffmpeg. 기본 ffmpeg = PATH에서 찾음. AutoView도 PATH의 ffmpeg로 MP4를 만듭니다.", SettingKind.Text, "ffmpeg", false, Check: PathCheck),
+        new("Film:AviewExe", "AutoView 실행 파일", "비우면 AutoMod 폴더의 bin" + System.IO.Path.DirectorySeparatorChar + "aview64.exe.", SettingKind.Text, "", false, Check: PathCheck),
+        new("Film:CutTimeoutMin", "컷 시간 제한(분)", "컷 하나의 AutoView 실행 제한. 넘으면 그 컷만 실패하고 다음 컷으로 넘어갑니다.", SettingKind.Int, "20", true, 1, 600),
         new("GitHub:Enabled", "GitHub 가져오기", "새 릴리스를 github.com에서 가져옵니다.", SettingKind.Bool, "true", false),
         new("GitHub:BaseUrl", "저장소 주소", "https 저장소 주소.", SettingKind.Text, GitHubSync.DefaultBaseUrl, false, Check: v => Try(() => GitHubSync.Url(v))),
         new("GitHub:CheckIntervalMin", "확인 간격(분)", "0 = 시작할 때만.", SettingKind.Int, "60", false, 0, 10080),
@@ -64,7 +67,7 @@ public static class ServerSettings
     ];
 
     /// <summary>Section title of a key for the page.</summary>
-    public static string Section(string key) => key.StartsWith("Jobs:") ? "작업 실행" : key.StartsWith("GitHub:") ? "GitHub 가져오기·자동 업데이트" : "서버";
+    public static string Section(string key) => key.StartsWith("Jobs:") ? "작업 실행" : key.StartsWith("Film:") ? "영상 촬영" : key.StartsWith("GitHub:") ? "GitHub 가져오기·자동 업데이트" : "서버";
 
     /// <summary>Error text, or null with the value normalized (trimmed, "true"/"false", plain integer).</summary>
     public static string? Validate(SettingDef d, string? raw, out string value)

@@ -20,9 +20,9 @@ public sealed class AutoModJobRunner(IConfiguration cfg) : IJobRunner
 {
     public string AmHome => cfg["Jobs:AmHome"] is { Length: > 0 } h ? h : @"C:\AutoMod\12_6";
     int Parallel => Math.Max(1, cfg.GetValue("Jobs:Parallel", 2));
-    string? DialogButton => cfg["Jobs:DialogButton"] is { Length: > 0 } b ? b : null;
-    TimeSpan RunTimeout => TimeSpan.FromMinutes(Math.Max(1, cfg.GetValue("Jobs:RunTimeoutMin", 30)));
-    TimeSpan BuildTimeout => TimeSpan.FromMinutes(Math.Max(1, cfg.GetValue("Jobs:BuildTimeoutMin", 10)));
+    internal string? DialogButton => cfg["Jobs:DialogButton"] is { Length: > 0 } b ? b : null;
+    internal TimeSpan RunTimeout => TimeSpan.FromMinutes(Math.Max(1, cfg.GetValue("Jobs:RunTimeoutMin", 30)));
+    internal TimeSpan BuildTimeout => TimeSpan.FromMinutes(Math.Max(1, cfg.GetValue("Jobs:BuildTimeoutMin", 10)));
 
     public JobOutcome Run(JobInfo job, string projectDir, TextWriter log, Action<string> phase, IProgress<RunOutcome> progress, CancellationToken ct)
     {
@@ -50,8 +50,9 @@ public sealed class AutoModJobRunner(IConfiguration cfg) : IJobRunner
     }
 }
 
-/// <summary>One job at a time, oldest first. A job that runs past Jobs:JobTimeoutHours (default 24) is cancelled, so one stuck job never blocks the queue.</summary>
-public sealed class JobWorker(JobStore store, IJobRunner runner, IConfiguration cfg, ILogger<JobWorker> logger) : BackgroundService
+/// <summary>One job at a time, oldest first. A job that runs past Jobs:JobTimeoutHours (default 24) is cancelled, so one stuck job never blocks the queue.
+/// Filming work (scene requests, films) runs on the same loop after each job, so AutoMod never runs twice at once.</summary>
+public sealed class JobWorker(JobStore store, IJobRunner runner, FilmWorker films, IConfiguration cfg, ILogger<JobWorker> logger) : BackgroundService
 {
     readonly object _gate = new();
     string? _runningId;
@@ -76,12 +77,14 @@ public sealed class JobWorker(JobStore store, IJobRunner runner, IConfiguration 
         while (!stop.IsCancellationRequested)
         {
             var job = store.TakeNext();
-            if (job == null)
+            if (job != null) await Task.Run(() => RunOne(job, stop), CancellationToken.None);
+            var filmed = await Task.Run(() =>
             {
+                try { return films.RunNext(stop); }
+                catch (Exception e) { logger.LogError(e, "영상 작업 실패"); return false; }
+            }, CancellationToken.None);
+            if (job == null && !filmed)
                 try { await store.WaitForWorkAsync(TimeSpan.FromSeconds(10), stop); } catch (OperationCanceledException) { return; }
-                continue;
-            }
-            await Task.Run(() => RunOne(job, stop), CancellationToken.None);
         }
     }
 
@@ -106,6 +109,12 @@ public sealed class JobWorker(JobStore store, IJobRunner runner, IConfiguration 
             log.WriteLine($"[{ASH.Core.SeoulTime.NowText}] 시작: {job.Project} / {job.Plan} / 모델 {job.Model} (보낸 사람 {job.Submitter}, {job.Ip})");
             o = runner.Run(job, store.ProjectDir(job.Id), log, Phase, progress, cts.Token);
             error = o.Error;
+            // scene candidates for the cut editor (spec 6.2): one more run at the conclusion with the event log; a failure only leaves a note in scenes.json
+            if (job.Source == JobSource.Server && o.ExitCode != 1 && o.Decided != null)
+            {
+                Phase("장면 후보 찾기");
+                films.FindScenes(job, o.Decided, 0, log);
+            }
         }
         catch (Exception e) when (e is OperationCanceledException || e.InnerException is OperationCanceledException)
         {

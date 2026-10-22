@@ -113,7 +113,8 @@ document.querySelectorAll('table.sort').forEach(function(t){
         sb.Append("</table></div>");
     }
 
-    public static string Job(JobInfo j, JobView? v, string tab, string logTail, (int Ahead, DateTime? Start, TimeSpan? Typical) q, bool canCancel, IReadOnlyList<ASH.Core.Analysis.AnalysisInfo>? analyses = null)
+    public static string Job(JobInfo j, JobView? v, string tab, string logTail, (int Ahead, DateTime? Start, TimeSpan? Typical) q, bool canCancel, IReadOnlyList<ASH.Core.Analysis.AnalysisInfo>? analyses = null,
+        IReadOnlyList<FilmInfo>? films = null)
     {
         var sb = new StringBuilder();
         if (analyses != null) AnalysisPages.JobHeader(sb, j, analyses);
@@ -127,6 +128,20 @@ document.querySelectorAll('table.sort').forEach(function(t){
         if (j.Error != null) sb.Append($"<p class=\"bad\"><b>{(j.State == JobState.Done ? "주의" : "오류")}:</b> {H(j.Error)}</p>");
         if (canCancel && !j.Finished)
             sb.Append($"<form method=\"post\" action=\"/jobs/{H(j.Id)}/cancel\"><button>{(j.State == JobState.Queued ? "대기 취소" : "실행 취소")}</button> <span class=\"muted\">보낸 PC와 관리자만 취소할 수 있습니다. 실행 중인 모델 실행은 끝까지 돌고 새 실행만 멈춥니다.</span></form>");
+
+        var mine = (films ?? Array.Empty<FilmInfo>()).Where(f => f.Items.Any(i => i.JobId == j.Id && i.Ok)).ToList();
+        if (mine.Count > 0)
+        {
+            sb.Append("<div class=\"box\" style=\"margin:0 0 14px\"><b>이 버전의 영상</b><ul>");
+            foreach (var f in mine)
+            {
+                sb.Append($"<li><a href=\"/films/{H(f.Id)}\">{H(When(f.CreatedUtc))}</a>: ");
+                sb.Append(f.KeepEach ? string.Join(" · ", f.Items.Where(i => i.JobId == j.Id && i.Ok).Select(i => $"<a href=\"{AnalysisPages.FileUrl(f, i.Name)}\">{H(i.Label)}</a>"))
+                    : f.JoinedOk ? $"<a href=\"{AnalysisPages.FileUrl(f, f.Joined!)}\">이어 붙인 영상</a>" : "<span class=\"muted\">이어 붙인 영상만 만들었습니다</span>");
+                sb.Append("</li>");
+            }
+            sb.Append("</ul></div>");
+        }
 
         var tabs = new[] { ("summary", "결론"), ("detail", "상세"), ("input", "입력·추적"), ("files", "다운로드·로그") };
         sb.Append("<div class=\"tabs\">");

@@ -1,0 +1,395 @@
+using System.Globalization;
+using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using ASH.Core;
+using ASH.Core.Analysis;
+using ASH.Core.AutoMod;
+using ASH.Core.Dxf;
+using ASH.Core.Film;
+using ASH.Core.Input;
+using ASH.Core.Model;
+using ASH.Core.Runner;
+
+namespace ASH.Server;
+
+/// <summary>The AutoMod steps of filming and scene finding (build a model folder, run it once); tests plug in a fake.</summary>
+public interface IFilmAutoMod
+{
+    AmBuildResult Build(string projectDir, string model);
+    RunOutcome Run(RunRequest r);
+}
+
+/// <summary>Jobs:AmHome, Jobs:BuildTimeoutMin, as the job runner uses them.</summary>
+public sealed class AutoModFilm(IConfiguration cfg) : IFilmAutoMod
+{
+    public AmBuildResult Build(string projectDir, string model)
+    {
+        var jr = new AutoModJobRunner(cfg);
+        if (AmBuilder.FindBuildExe(jr.AmHome) == null) return new AmBuildResult(false, "서버에 AutoMod가 없습니다: " + AmBuilder.BuildExeCandidates(jr.AmHome), "", Array.Empty<string>());
+        return AmBuilder.Build(jr.AmHome, projectDir, model, jr.BuildTimeout);
+    }
+
+    public RunOutcome Run(RunRequest r) => ModelRunner.Run(r);
+}
+
+/// <summary>
+/// Filming and scene finding, run by JobWorker between jobs on its own thread, so AutoMod never runs twice at once.
+/// A film: per version (and per distinct vehicle counts) a copy of the project in films\&lt;id&gt;\&lt;jobId&gt;\ (the job's folder is never touched) gets the drawing,
+/// the ash_cal calibration mark and a recording window, is built and run once, F0 is measured (guide 10.4), and every cut is one AutoView run plus an ffmpeg finish.
+/// A cut that fails (or hangs past Film:CutTimeoutMin) fails alone. Scenes: one run with the event log, SceneFinder, &lt;job&gt;\scenes.json or scenes.delta&lt;d&gt;.json.
+/// </summary>
+public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore films, IFilmAutoMod am, IFilmRenderer renderer, IConfiguration cfg, ILogger<FilmWorker> logger)
+{
+    public const string ScenesRequest = "scenes-request.json";
+    public const string CalSystem = "ash_cal";
+    public const string NoEvents = "새 버전으로 다시 보내면 생깁니다";
+    const string CalOff = "turn system " + CalSystem + " picture System off";
+    const int Quality = 80;
+    static readonly CultureInfo C = CultureInfo.InvariantCulture;
+
+    public static string ScenesFile(int delta) => delta == 0 ? "scenes.json" : $"scenes.delta{delta.ToString(C)}.json";
+
+    TimeSpan CutTimeout => TimeSpan.FromMinutes(Math.Max(0.01, cfg.GetValue("Film:CutTimeoutMin", 20.0)));
+    AutoModJobRunner Jr => new(cfg);
+
+    /// <summary>One piece of work between jobs: a waiting scene request, else the oldest queued film. False when there was nothing to do.</summary>
+    public bool RunNext(CancellationToken stop)
+    {
+        foreach (var j in jobs.All())
+        {
+            var req = Path.Combine(jobs.JobDir(j.Id), ScenesRequest);
+            if (File.Exists(req)) { SceneRequest(j, req); return true; }
+        }
+        var f = films.TakeNext();
+        if (f == null) return false;
+        RunFilm(f, stop);
+        return true;
+    }
+
+    void SceneRequest(JobInfo j, string req)
+    {
+        string text; int delta;
+        try { text = File.ReadAllText(req); delta = JsonDocument.Parse(text).RootElement.GetProperty("delta").GetInt32(); }
+        catch (Exception e) when (e is IOException or JsonException or KeyNotFoundException or InvalidOperationException or FormatException)
+        {
+            logger.LogWarning("장면 요청을 읽지 못해 지웁니다 {Id}: {Error}", j.Id, e.Message);
+            try { File.Delete(req); } catch (IOException) { }
+            return;
+        }
+        using (var log = new StreamWriter(jobs.LogPath(j.Id), true, new UTF8Encoding(false)) { AutoFlush = true })
+        {
+            log.WriteLine($"[{SeoulTime.NowText}] 장면 후보 찾기 (결론 대수 {delta:+0;-0;+0}대)");
+            FindScenes(j, j.Decided, delta, log);
+        }
+        // latest wins: a request that came in meanwhile (another delta) stays for the next round
+        try { if (File.ReadAllText(req) == text) File.Delete(req); } catch (IOException) { }
+    }
+
+    /// <summary>One run with the event log on (counts = decided + delta within each group's range, the input's SeedBase) and the scene file for that delta.
+    /// Never throws: a failure is written as {"error": ...}; a model built before the event log gives {"none": ...}.</summary>
+    public void FindScenes(JobInfo j, IReadOnlyDictionary<string, int>? decided, int delta, TextWriter log)
+    {
+        object result;
+        try
+        {
+            if (decided == null) throw new InvalidOperationException("결론 대수가 없습니다.");
+            var proj = jobs.ProjectDir(j.Id);
+            var input = SearchJob.ReadInput(proj, TextWriter.Null, new List<string>(), out var err) ?? throw new InvalidOperationException(err);
+            var counts = input.Groups.ToDictionary(g => g.Group, g => Math.Clamp((decided.TryGetValue(g.Group, out var n) ? n : g.MinCount) + delta, g.MinCount, g.MaxCount));
+            if (!File.Exists(Path.Combine(proj, j.Model + ".exe")))
+            {
+                // a result uploaded from a PC, or run folders already purged: build once in the job's folder
+                ModelBuilder.PrepareBuildDir(proj, j.Model);
+                var b = am.Build(proj, j.Model);
+                if (!b.Success) throw new InvalidOperationException("빌드 실패: " + FirstLine(b.MakeErrText + "\n" + b.Am2ErrText));
+            }
+            var o = am.Run(new RunRequest(proj, j.Model, input, new RunScenario(input.Settings.SeedBase, counts, Events: true), Jr.RunTimeout, Jr.DialogButton, AmHome: Jr.AmHome));
+            log.WriteLine($"scenes: run {o.RunId} {(o.Success ? "ok" : "FAILED " + o.Error)}");
+            if (!o.Success) throw new InvalidOperationException("모델 실행 실패: " + o.Error);
+            var events = EventLog.Read(Path.Combine(o.RunDir, "events.tsv"));
+            if (events.Count == 0)
+            {
+                log.WriteLine("scenes: events.tsv가 없거나 비어 있습니다(이벤트 로그가 없는 예전 모델).");
+                result = new { none = NoEvents };
+            }
+            else
+            {
+                var layout = ArcLayout.Load(Path.Combine(proj, j.Model + ".arc")).Layout;
+                var found = SceneFinder.Find(events, layout, UnloadCps(input), input.Settings.SimLengthSec, input.Settings.WarmupSec);
+                log.WriteLine($"scenes: {found.Count}개");
+                result = found;
+            }
+        }
+        catch (Exception e) when (e is not OperationCanceledException)
+        {
+            log.WriteLine("scenes: " + e.Message);
+            logger.LogWarning("장면 후보 실패 {Id}: {Error}", j.Id, e.Message);
+            result = new { error = "장면 후보를 찾지 못했습니다: " + e.Message };
+        }
+        try
+        {
+            var path = Path.Combine(jobs.JobDir(j.Id), ScenesFile(delta));
+            File.WriteAllText(path + ".tmp", JsonSerializer.Serialize(result, CutStore.Json));
+            File.Move(path + ".tmp", path, true);
+        }
+        catch (IOException e) { logger.LogWarning("장면 파일 저장 실패 {Id}: {Error}", j.Id, e.Message); }
+    }
+
+    /// <summary>Material -> its unload CP: the route's SupplyToCP, else the station's CP.</summary>
+    static Dictionary<string, string> UnloadCps(ProjectInput input) => input.Materials.GroupBy(m => m.Material).ToDictionary(g => g.Key, g =>
+        input.Routes.FirstOrDefault(r => r.Material == g.Key)?.SupplyToCP ?? input.Stations.FirstOrDefault(s => s.Station == g.First().Station)?.CPName ?? "");
+
+    static string FirstLine(string s) => s.Split('\n').Select(x => x.Trim()).FirstOrDefault(x => x.Length > 0) ?? "(오류 출력 없음)";
+
+    // ---------------- films ----------------
+
+    /// <summary>The film as stored: items cut by cut, each cut for every version, with unique safe file names; null with the reason when the request is unusable.</summary>
+    public static FilmInfo? Plan(FilmRequest r, AnalysisInfo a, IReadOnlyList<CutSpec> cuts, Func<string, JobInfo?> job, out string? error)
+    {
+        error = null;
+        var byId = cuts.ToDictionary(c => c.Id);
+        var used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        string Unique(string stem) { var n = stem + ".mp4"; for (int i = 2; !used.Add(n); i++) n = $"{stem}_{i}.mp4"; return n; }
+        var f = new FilmInfo { Request = r, AnalysisName = a.Name, CreatedUtc = DateTime.UtcNow };
+        foreach (var cid in r.CutIds)
+        {
+            if (!byId.TryGetValue(cid, out var cut)) { error = "컷이 없습니다: " + cid; return null; }
+            if (!f.Cuts.Contains(cut)) f.Cuts.Add(cut);
+            foreach (var jid in r.JobIds)
+            {
+                var j = job(jid);
+                if (j == null || j.AnalysisId != a.Id) { error = "이 분석의 작업이 아닙니다: " + jid; return null; }
+                if (j.State != JobState.Done || j.Decided == null) { error = $"결론 대수가 나온 완료 작업만 찍을 수 있습니다: {jid}"; return null; }
+                var plan = a.Plans.FirstOrDefault(p => p.Id == j.PlanId)?.Name ?? "안";
+                f.Items.Add(new FilmItem { JobId = jid, CutId = cid, Label = $"{plan} v{j.Version} · {cut.Name}", Name = Unique(AnalysisNames.SafeFileName($"{plan}_v{j.Version}_{cut.Name}")) });
+            }
+        }
+        if (f.Join) f.Joined = Unique(AnalysisNames.SafeFileName($"{a.Name}_{SeoulTime.Now.ToString("yyyyMMdd", C)}"));
+        return f;
+    }
+
+    /// <summary>Counts for one cut of one version: SameCounts per group, else the conclusion + export delta + the cut's delta; always within MinCount..MaxCount.</summary>
+    public static Dictionary<string, int> Counts(ProjectInput input, IReadOnlyDictionary<string, int> decided, FilmRequest r, CutSpec cut) =>
+        input.Groups.ToDictionary(g => g.Group, g => Math.Clamp(r.SameCounts != null && r.SameCounts.TryGetValue(g.Group, out var same) ? same
+            : (decided.TryGetValue(g.Group, out var d) ? d : g.MinCount) + r.VehicleDelta + cut.VehicleDelta, g.MinCount, g.MaxCount), StringComparer.Ordinal);
+
+    void RunFilm(FilmInfo f, CancellationToken stop)
+    {
+        var dir = films.FilmDir(f.Id);
+        Directory.CreateDirectory(dir);
+        using var log = new StreamWriter(Path.Combine(dir, "film.log"), true, new UTF8Encoding(false)) { AutoFlush = true };
+        void Say(string s) => log.WriteLine($"[{SeoulTime.NowText}] {s}");
+        string? error = null;
+        try { Film(f, dir, Say, stop); }
+        catch (OperationCanceledException) { error = "서버가 멈추어 중단되었습니다."; }
+        catch (Exception e) { error = e.Message; Say(e.ToString()); logger.LogError(e, "영상 {Id} 실패", f.Id); }
+        Say("끝: " + (error ?? "정상"));
+        films.Update(f.Id, x =>
+        {
+            x.FinishedUtc = DateTime.UtcNow; x.Phase = null; x.Error ??= error;
+            x.State = x.Items.Any(i => i.Ok) ? JobState.Done : JobState.Failed;
+            foreach (var i in x.Items.Where(i => !i.Ok && i.Error == null)) i.Error = error ?? "만들지 못했습니다.";
+            x.Done = x.Items.Count(i => i.Ok); x.Failed = x.Items.Count(i => !i.Ok);
+        });
+    }
+
+    void Film(FilmInfo f, string dir, Action<string> say, CancellationToken stop)
+    {
+        var r = f.Request;
+        say($"시작: 컷 {f.Cuts.Count}개 × 버전 {r.JobIds.Count}개, {r.Width}×{r.Height} {r.Fps} fps, {r.Output}");
+        int? seed = r.Seed;
+        foreach (var jid in r.JobIds)
+        {
+            stop.ThrowIfCancellationRequested();
+            var j = jobs.Get(jid);
+            void FailAll(IEnumerable<CutSpec> cuts, string why)
+            {
+                say($"{jid}: {why}");
+                var ids = cuts.Select(c => c.Id).ToHashSet();
+                films.Update(f.Id, x => { foreach (var i in x.Items.Where(i => i.JobId == jid && ids.Contains(i.CutId))) i.Error = why; x.Failed = x.Items.Count(i => i.Error != null); });
+            }
+            if (j?.Decided == null) { FailAll(f.Cuts, "작업이 없거나 결론 대수가 없습니다."); continue; }
+            var input = SearchJob.ReadInput(jobs.ProjectDir(jid), TextWriter.Null, new List<string>(), out var err);
+            if (input == null) { FailAll(f.Cuts, "입력을 읽지 못했습니다: " + err); continue; }
+            seed ??= input.Settings.SeedBase; // R8: the first version's seed for every version
+            var groups = f.Cuts.GroupBy(c => string.Join(";", Counts(input, j.Decided, r, c).Select(kv => kv.Key + "=" + kv.Value))).ToList();
+            for (int k = 0; k < groups.Count; k++)
+            {
+                var cuts = groups[k].ToList();
+                try { Version(f, j, input, Counts(input, j.Decided, r, cuts[0]), seed.Value, cuts, Path.Combine(dir, groups.Count == 1 ? jid : $"{jid}-{k + 1}"), say, stop); }
+                catch (Exception e) when (e is not OperationCanceledException) { FailAll(cuts, e.Message); }
+            }
+        }
+        if (f.Join)
+        {
+            var g = films.Get(f.Id)!;
+            var parts = g.Items.Where(i => i.Ok).Select(i => Path.Combine(dir, i.Name)).ToList();
+            if (parts.Count > 0)
+            {
+                films.Update(f.Id, x => x.Phase = "이어 붙이기");
+                try { renderer.Finish(parts, Array.Empty<string>(), Path.Combine(dir, g.Joined!), true); films.Update(f.Id, x => x.JoinedOk = true); say("이어 붙임: " + g.Joined); }
+                catch (Exception e) when (e is InvalidOperationException or IOException) { say("이어 붙이기 실패: " + e.Message); films.Update(f.Id, x => x.Error = "이어 붙이지 못했습니다: " + e.Message); }
+            }
+            if (!f.KeepEach && films.Get(f.Id)!.JoinedOk) foreach (var p in parts) File.Delete(p);
+        }
+    }
+
+    /// <summary>One film model (a version at one set of counts): copy, drawing, calibration mark, recording window, build, run, F0, then each cut.</summary>
+    void Version(FilmInfo f, JobInfo j, ProjectInput input, Dictionary<string, int> counts, int seed, List<CutSpec> cuts, string work, Action<string> say, CancellationToken stop)
+    {
+        var r = f.Request;
+        var a = analyses.Get(r.AnalysisId);
+        var label = $"{a?.Plans.FirstOrDefault(p => p.Id == j.PlanId)?.Name ?? j.Plan} v{j.Version}";
+        void Phase(string p) { films.Update(f.Id, x => x.Phase = $"{label}: {p}"); say($"{label}: {p}"); }
+        double simLen = input.Settings.SimLengthSec;
+        var ok = new List<CutSpec>();
+        foreach (var c in cuts)
+            if (c.StartSec + c.SimSeconds > simLen) SetItem(f, j.Id, c.Id, false, $"시뮬레이션 길이({simLen:0}초)를 넘는 컷입니다.");
+            else ok.Add(c);
+        if (ok.Count == 0) return;
+
+        Phase($"모델 준비 (대수 {string.Join(", ", counts.Select(kv => kv.Key + " " + kv.Value))}, 시드 {seed})");
+        var proj = jobs.ProjectDir(j.Id);
+        if (Directory.Exists(work)) Directory.Delete(work, true);
+        Copy(proj, work, j.Model);
+        var arc = Path.Combine(work, j.Model + ".arc");
+        var amoPath = Path.Combine(arc, "model.amo");
+        var units = Regex.Match(File.ReadAllText(amoPath), @"^UNITS (\S+)", RegexOptions.Multiline) is { Success: true } um ? um.Groups[1].Value : "Meters";
+        var layout = ArcLayout.Load(arc).Layout;
+        var pts = layout.Paths.SelectMany(p => p.Segments).SelectMany(s => new[] { s.Start, s.End }).Concat(layout.Cps.Select(c => c.Position))
+            .Select(p => (p.X, p.Y)).ToList();
+        var dxf = Path.Combine(work, "drawing.dxf"); var frame = Path.Combine(work, ModelFrame.FileName);
+        if (File.Exists(dxf) && File.Exists(frame))
+            try
+            {
+                DxfDrawing d;
+                using (var rd = new StreamReader(dxf, Encoding.UTF8)) d = DxfLite.ToModel(DxfLite.Read(rd), ModelFrame.Read(frame));
+                var segs = d.Segs.Where(s => new[] { s.X1, s.Y1, s.X2, s.Y2 }.All(double.IsFinite)).ToList();
+                StaticDrawing.AddTo(arc, d with { Segs = segs }, units, null);
+                pts.AddRange(segs.SelectMany(s => new[] { (s.X1, s.Y1), (s.X2, s.Y2) }));
+                say($"{label}: 도면 선 {segs.Count}개");
+            }
+            catch (Exception e) when (e is IOException or FormatException or InvalidDataException or ArgumentException) { say($"{label}: 경고: 도면 없이 찍습니다({e.Message})"); }
+        else say($"{label}: drawing.dxf가 없어 도면 없이 찍습니다(예전 작업).");
+        if (pts.Count == 0) pts.Add((0, 0));
+        double x0 = pts.Min(p => p.X), x1 = pts.Max(p => p.X), y0 = pts.Min(p => p.Y), y1 = pts.Max(p => p.Y);
+        // calibration mark (guide 10.4): a rectangle half the scene's size at its centre, inside the scene so it does not move F0
+        double cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, lw = Math.Max((x1 - x0) / 2, 1), lh = Math.Max((y1 - y0) / 2, 1);
+        var mark = new[] { (-1, -1, 1, -1), (1, -1, 1, 1), (1, 1, -1, 1), (-1, 1, -1, -1) }
+            .Select(q => new DxfSeg(cx + q.Item1 * lw / 2, cy + q.Item2 * lh / 2, cx + q.Item3 * lw / 2, cy + q.Item4 * lh / 2, "cal")).ToList();
+        StaticDrawing.AddTo(arc, new DxfDrawing(mark, Array.Empty<DxfText>(), new[] { "cal" }), units, null, CalSystem);
+        double from = Math.Max(0, Math.Floor(ok.Min(c => c.StartSec)) - 2), to = Math.Min(simLen, Math.Ceiling(ok.Max(c => c.StartSec + c.SimSeconds)) + 2);
+        File.WriteAllText(amoPath, ModelAmoWriter.WithRecording(File.ReadAllText(amoPath), simLen, from, to), new UTF8Encoding(false));
+
+        Phase("빌드");
+        ModelBuilder.PrepareBuildDir(work, j.Model);
+        var b = am.Build(work, j.Model);
+        if (!b.Success) throw new InvalidOperationException("빌드 실패: " + FirstLine(b.MakeErrText + "\n" + b.Am2ErrText));
+        stop.ThrowIfCancellationRequested();
+        Phase("모델 실행(기록)");
+        var o = am.Run(new RunRequest(work, j.Model, input, new RunScenario(seed, counts), Jr.RunTimeout, Jr.DialogButton, RunsDir: Path.Combine(work, "runs"), AmHome: Jr.AmHome));
+        if (!o.Success) throw new InvalidOperationException("모델 실행 실패: " + o.Error);
+        stop.ThrowIfCancellationRequested();
+
+        Phase("화면 배율 보정");
+        var f0 = Calibrate(work, j.Model, (cx, cy, lw, lh, Math.Sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0) + 2.5 * 2.5)), from + 1, r.Width, r.Height, s => say($"{label}: {s}"), stop);
+        var kpi = Kpi(j, input, counts, o);
+        say($"{label}: 자막 수치 {kpi}");
+        var failed = false;
+        for (int k = 0; k < ok.Count; k++)
+        {
+            stop.ThrowIfCancellationRequested();
+            var c = ok[k];
+            var item = films.Get(f.Id)!.Items.First(i => i.JobId == j.Id && i.CutId == c.Id);
+            Phase(c.Name);
+            var res = renderer.Render(work, j.Model, CameraScript.Build(c, f0, r.Width, r.Height, r.Fps, Quality, Path.Combine(work, $"cut{k + 1:00}"), new[] { CalOff }), CutTimeout, stop);
+            if (res.Dialogs.Count > 0) say($"{label}: 대화상자 {string.Join(", ", res.Dialogs)}");
+            if (!res.Ok) { failed = true; SetItem(f, j.Id, c.Id, false, res.Error); continue; }
+            var caption = r.Caption && c.Caption ? $"{a?.Name ?? f.AnalysisName} · {label} · {c.Name}\n{Hms(c.StartSec)} · {kpi}" : "";
+            try { renderer.Finish(new[] { res.Mp4! }, new[] { caption }, Path.Combine(films.FilmDir(f.Id), item.Name), false); SetItem(f, j.Id, c.Id, true, null); say($"{label}: {item.Name}"); }
+            catch (Exception e) when (e is InvalidOperationException or IOException) { failed = true; SetItem(f, j.Id, c.Id, false, e.Message); }
+        }
+        if (failed) { say($"{label}: 실패한 컷이 있어 작업 폴더를 남깁니다: {work}"); return; }
+        try { Directory.Delete(work, true); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { say($"{label}: 작업 폴더를 지우지 못함: {e.Message}"); }
+    }
+
+    void SetItem(FilmInfo f, string jobId, string cutId, bool ok, string? error) => films.Update(f.Id, x =>
+    {
+        var i = x.Items.First(i => i.JobId == jobId && i.CutId == cutId);
+        i.Ok = ok; i.Error = error;
+        x.Done = x.Items.Count(i => i.Ok); x.Failed = x.Items.Count(i => i.Error != null);
+    });
+
+    /// <summary>The project without its run output and build products (rebuilt for the film anyway).</summary>
+    static void Copy(string src, string dst, string model)
+    {
+        var skip = new[] { "runs", "work", model + ".dir", model + ".avw" }.Select(s => Path.Combine(src, s) + Path.DirectorySeparatorChar).ToList();
+        foreach (var file in Directory.GetFiles(src, "*", SearchOption.AllDirectories))
+        {
+            if (skip.Any(s => file.StartsWith(s, StringComparison.OrdinalIgnoreCase))) continue;
+            var to = Path.Combine(dst, Path.GetRelativePath(src, file));
+            Directory.CreateDirectory(Path.GetDirectoryName(to)!);
+            File.Copy(file, to, true);
+        }
+    }
+
+    /// <summary>F0 (metres) of this film model, guide 10.4: two one-frame renders at scale 1 with and without the ash_cal mark, F0 = H × Lc / p.
+    /// Falls back to the first guess 1.19 × the scene's 3D diagonal (a warning in the log) when the measurement fails or is far off.</summary>
+    double Calibrate(string work, string model, (double Cx, double Cy, double Lw, double Lh, double Diag) scene, double t, int width, int height, Action<string> say, CancellationToken stop)
+    {
+        var guess = 1.19 * scene.Diag;
+        string Script(bool hide, string movie) => string.Join("\n",
+            "camera description", "distance feet", "time seconds", "angle degree", "time scale 1", "orthogonal", "solid", "grid off", hide ? CalOff : "",
+            "define movie spec", "format mp4", $"filename \"{movie}\"", $"width {width}", $"height {height}", "quality 100", "framespersec 15", "keyframefreq 30",
+            $"saveframedir \"{movie}_frames\\\"", "saveframes false", "end movie spec",
+            "time " + t.ToString("0.###", C),
+            $"view focus relative to world pos {Um(scene.Cx)}, {Um(scene.Cy)}, 0 camera relative to world pos {Um(scene.Cx)}, {Um(scene.Cy)}, 30480000 upvector 0, 1, 0 scale 1",
+            "record movie", "time " + (t + 1).ToString("0.###", C), "generate movie", "");
+        var on = renderer.Render(work, model, Script(false, Path.Combine(work, "cal_on")), CutTimeout, stop);
+        var off = on.Ok ? renderer.Render(work, model, Script(true, Path.Combine(work, "cal_off")), CutTimeout, stop) : on;
+        (double W, double H)? px = null;
+        try { if (on.Ok && off.Ok) px = renderer.MarkSize(on.Mp4!, off.Mp4!, width, height); }
+        catch (InvalidOperationException e) { say("보정 측정 실패: " + e.Message); }
+        if (px is { } p && Math.Max(p.W, p.H) > 8)
+        {
+            // the longer side of the mark in pixels is the more accurate one
+            var f0 = p.W >= p.H ? height * scene.Lw / p.W : height * scene.Lh / p.H;
+            say($"F0 보정: 표시 {p.W:0}×{p.H:0} px (실제 {scene.Lw:0.##}×{scene.Lh:0.##} m) → F0 {f0:0.##} m (첫 추정 {guess:0.##} m)");
+            if (f0 > guess / 3 && f0 < guess * 3) return f0;
+            say("경고: 보정값이 첫 추정과 너무 달라 첫 추정을 씁니다.");
+        }
+        else say($"경고: F0 보정 실패({on.Error ?? off.Error ?? "표시가 보이지 않음"}) → 첫 추정 1.19 × 장면 대각선 = {guess:0.##} m를 씁니다.");
+        logger.LogWarning("F0 보정 실패, 첫 추정 사용 {Work}", work);
+        return guess;
+    }
+
+    static string Um(double metres) => (metres * 1_000_000).ToString("0", C);
+
+    static string Hms(double sec) { var t = TimeSpan.FromSeconds(Math.Max(0, sec)); return $"{(int)t.TotalHours:00}:{t.Minutes:00}:{t.Seconds:00}"; }
+
+    static string Pct(double d) => double.IsNaN(d) ? "-" : (d * 100).ToString("0", C) + "%";
+
+    /// <summary>Caption numbers (spec 6.1): the version's conclusion (as its 결론 table), or for changed counts the search's runs at those counts,
+    /// else this filming run's own values, marked "이 실행 1회 값".</summary>
+    string Kpi(JobInfo j, ProjectInput input, Dictionary<string, int> counts, RunOutcome o)
+    {
+        var total = counts.Values.Sum();
+        if (input.Groups.All(g => counts[g.Group] == (j.Decided!.TryGetValue(g.Group, out var d) ? d : g.MinCount)) && AnalysisPages.MetricsOf(jobs, j) is { } m)
+            return $"권장 {total}대 · 가동률 {Pct(m.Util)} · 결품 {JobPages.F(m.Stop, "0")}초";
+        var v = JobView.For(jobs, j);
+        var runs = v.RunCounts().Where(kv => input.Groups.All(g => (kv.Value.TryGetValue(g.Group, out var n) ? n : g.MinCount) == counts[g.Group])).Select(kv => kv.Key).ToHashSet();
+        var rows = v.Rows.Where(x => runs.Contains(x.RunId)).ToList();
+        static double Mean(IEnumerable<double> xs) { var l = xs.Where(x => !double.IsNaN(x)).ToList(); return l.Count == 0 ? double.NaN : l.Average(); }
+        if (rows.Count > 0)
+            return $"{total}대 · 가동률 {Pct(rows.GroupBy(x => x.Group).Select(g => Mean(g.Select(x => x.Utilization))).DefaultIfEmpty(double.NaN).Max())} · " +
+                   $"결품 {JobPages.F(Mean(rows.GroupBy(x => x.RunId).Select(g => g.Sum(x => x.StopTimeSec))), "0")}초";
+        try
+        {
+            var k = ASH.Core.Runner.Kpi.FromRun(ResultParser.Parse(o.ResultTsvPath!), null, input);
+            return $"{total}대 · 가동률 {Pct(k.Select(x => x.Utilization).DefaultIfEmpty(double.NaN).Max())} · 결품 {JobPages.F(k.Sum(x => x.StopTimeSec), "0")}초 · 이 실행 1회 값";
+        }
+        catch (Exception e) when (e is IOException or InvalidDataException or ArgumentNullException) { return $"{total}대 · 이 실행 1회 값"; }
+    }
+}

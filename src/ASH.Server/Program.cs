@@ -28,6 +28,17 @@ builder.Services.AddSingleton(sp => JobStore.Create(sp.GetRequiredService<IConfi
 builder.Services.AddSingleton(sp => AnalysisStore.Create(sp.GetRequiredService<IConfiguration>(), sp.GetRequiredService<ILoggerFactory>().CreateLogger<AnalysisStore>()));
 builder.Services.AddSingleton(sp => new CutStore(sp.GetRequiredService<JobStore>().Dir, sp.GetRequiredService<ILoggerFactory>().CreateLogger<CutStore>()));
 builder.Services.AddSingleton<IJobRunner, AutoModJobRunner>();
+builder.Services.AddSingleton(sp => new FilmStore(sp.GetRequiredService<JobStore>().Dir, sp.GetRequiredService<ILoggerFactory>().CreateLogger<FilmStore>()));
+builder.Services.AddSingleton<IFilmAutoMod, AutoModFilm>();
+// Film:AviewExe (default <Jobs:AmHome>\bin\aview64.exe) and Film:FfmpegPath (default "ffmpeg" on PATH) are read once at start
+builder.Services.AddSingleton<ASH.Core.Film.IFilmRenderer>(sp =>
+{
+    var cfg = sp.GetRequiredService<IConfiguration>();
+    var am = new AutoModJobRunner(cfg).AmHome;
+    return new ASH.Core.Film.AutoViewRenderer(cfg["Film:AviewExe"] is { Length: > 0 } av ? av : Path.Combine(am, "bin", "aview64.exe"), am,
+        cfg["Film:FfmpegPath"] is { Length: > 0 } ff ? ff : "ffmpeg");
+});
+builder.Services.AddSingleton<FilmWorker>();
 builder.Services.AddSingleton<JobWorker>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<JobWorker>());
 builder.Services.AddSingleton<JobRetention>();
@@ -40,6 +51,7 @@ app.Services.GetRequiredService<AnalysisStore>(); // a bad analyses.json is set 
 app.Services.GetRequiredService<ReleaseStore>(); // bad key/folder/GitHub URL fails at start, not at the first request
 app.Services.GetRequiredService<GitHubSync>();
 app.Services.GetRequiredService<JobStore>();
+app.Services.GetRequiredService<FilmStore>(); // a film that was running when the server stopped is failed now
 
 static IResult Msg(int status, string text) => Results.Text(text, "text/plain; charset=utf-8", Encoding.UTF8, status);
 
@@ -320,8 +332,8 @@ app.MapPost("/jobs/{id}/select", async (string id, HttpContext ctx, AnalysisStor
 
 app.MapGet("/analyses", (AnalysisStore st, JobStore js) => Html(AnalysisPages.Index(st.All(), js.All())));
 app.MapGet("/analyses/unclassified", (AnalysisStore st, JobStore js) => Html(AnalysisPages.Unclassified(js.All(), st.All())));
-app.MapGet("/analyses/{id}", (string id, AnalysisStore st, JobStore js) =>
-    st.Get(id) is { } a ? Html(AnalysisPages.Detail(a, js.All(), js)) : Msg(404, "분석이 없습니다."));
+app.MapGet("/analyses/{id}", (string id, AnalysisStore st, JobStore js, FilmStore fs) =>
+    st.Get(id) is { } a ? Html(AnalysisPages.Detail(a, js.All(), js, fs.All())) : Msg(404, "분석이 없습니다."));
 
 app.MapPost("/api/jobs", async (HttpContext ctx, JobStore js, AnalysisStore analyses, IConfiguration cfg, CancellationToken ct) =>
 {
@@ -425,12 +437,12 @@ static string Tail(string path, int lines)
 static bool CanCancel(HttpContext ctx, JobInfo j, ReleaseStore rs, string? token) =>
     ClientIp(ctx) == j.Ip || (rs.UploadsEnabled && rs.TokenMatches(token ?? ctx.Request.Headers[ReleaseStore.HeaderName]));
 
-app.MapGet("/jobs/{id}", (string id, string? tab, HttpContext ctx, JobStore js, ReleaseStore rs, AnalysisStore analyses) =>
+app.MapGet("/jobs/{id}", (string id, string? tab, HttpContext ctx, JobStore js, ReleaseStore rs, AnalysisStore analyses, FilmStore fs) =>
 {
     if (!JobStore.IsValidId(id) || js.Get(id) is not { } j) return Msg(404, "작업이 없습니다.");
     var view = j.State == JobState.Queued ? null : JobView.For(js, j);
     var t = tab is "detail" or "input" or "files" ? tab : "summary";
-    return Results.Content(JobPages.Job(j, view, t, t == "files" ? Tail(js.LogPath(id), 200) : "", js.QueueInfo(id), CanCancel(ctx, j, rs, null), analyses.All()), "text/html; charset=utf-8");
+    return Results.Content(JobPages.Job(j, view, t, t == "files" ? Tail(js.LogPath(id), 200) : "", js.QueueInfo(id), CanCancel(ctx, j, rs, null), analyses.All(), fs.All()), "text/html; charset=utf-8");
 });
 
 app.MapPost("/jobs/{id}/cancel", async (string id, HttpContext ctx, JobStore js, JobWorker worker, ReleaseStore rs) =>
@@ -519,10 +531,10 @@ app.MapPut("/api/analyses/{id}/cuts", async (string id, HttpContext ctx, Analysi
 });
 
 // scene candidates: <job>\scenes.json (conclusion counts, written after the search) or scenes.delta<d>.json (counts + d, on request).
-// A request is <job>\scenes-request.json {"delta":d,"requestedUtc":...}; the filming queue (Task 13) runs it, writes the result file and deletes the request.
+// A request is <job>\scenes-request.json {"delta":d,"requestedUtc":...}; FilmWorker runs it between jobs, writes the result file and deletes the request.
 const int DeltaMax = 20;
-static string ScenesFile(int delta) => delta == 0 ? "scenes.json" : $"scenes.delta{delta.ToString(System.Globalization.CultureInfo.InvariantCulture)}.json";
-const string ScenesRequest = "scenes-request.json";
+static string ScenesFile(int delta) => FilmWorker.ScenesFile(delta);
+const string ScenesRequest = FilmWorker.ScenesRequest;
 
 app.MapGet("/api/jobs/{id}/scenes", (string id, int? delta, JobStore js) =>
 {
@@ -553,6 +565,51 @@ app.MapPost("/api/jobs/{id}/scenes", (string id, int? delta, HttpContext ctx, Jo
     File.WriteAllText(tmp, System.Text.Json.JsonSerializer.Serialize(new { delta = d, requestedUtc = DateTime.UtcNow }));
     File.Move(tmp, Path.Combine(dir, ScenesRequest), true);
     return Results.Json(new { delta = d }, statusCode: 202);
+});
+
+// ---- films: the export of the cut editor, filmed by FilmWorker between jobs ----
+app.MapPost("/api/analyses/{id}/films", async (string id, HttpContext ctx, AnalysisStore st, CutStore cs, JobStore js, FilmStore fs) =>
+{
+    if (!SameOrigin(ctx)) return Msg(403, CrossSite);
+    if (st.Get(id) is not { } a) return Msg(404, "분석이 없습니다.");
+    FilmRequest? r;
+    try { r = await System.Text.Json.JsonSerializer.DeserializeAsync<FilmRequest>(ctx.Request.Body, CutStore.Json, ctx.RequestAborted); }
+    catch (System.Text.Json.JsonException e) { return Msg(400, $"내보내기 요청을 읽을 수 없습니다(위치 {e.Path})."); }
+    if (r == null) return Msg(400, "내보내기 요청(JSON)이 필요합니다.");
+    string? bad = r.CutIds is not { Count: > 0 } ? "컷을 하나 이상 고르세요."
+        : r.JobIds is not { Count: > 0 } ? "버전을 하나 이상 고르세요."
+        : r.CutIds.Count > CutStore.MaxCuts || r.JobIds.Count > 50 ? "컷이나 버전이 너무 많습니다."
+        : r.CutIds.Distinct().Count() != r.CutIds.Count || r.JobIds.Distinct().Count() != r.JobIds.Count ? "같은 컷이나 버전을 두 번 골랐습니다."
+        : (r.Width, r.Height) is not ((1280, 720) or (1920, 1080)) ? "해상도는 1280×720 또는 1920×1080입니다."
+        : r.Fps is not (15 or 30) ? "프레임은 15 또는 30입니다."
+        : r.Output is not ("each+joined" or "joined" or "each") ? "파일 형태는 each+joined, joined, each 중 하나입니다."
+        : r.VehicleDelta is < -DeltaMax or > DeltaMax ? $"대수 변경은 -{DeltaMax}~{DeltaMax}대입니다."
+        : r.SameCounts != null && r.SameCounts.Values.Any(n => n is < 1 or > 999) ? "같은 대수는 그룹마다 1~999대입니다."
+        : r.Seed is < 0 ? "시드는 0 이상입니다." : null;
+    if (bad != null) return Msg(400, bad);
+    var f = FilmWorker.Plan(r with { Id = JobStore.NewId(), AnalysisId = a.Id }, a, cs.Get(a.Id), js.Get, out var why);
+    if (f == null) return Msg(400, why!);
+    fs.Add(f);
+    js.Wake();
+    return Results.Json(new { id = f.Id });
+});
+
+app.MapGet("/films/{id}", (string id, FilmStore fs) =>
+{
+    if (!JobStore.IsValidId(id) || fs.Get(id) is not { } f) return Msg(404, "영상이 없습니다.");
+    var dir = fs.FilmDir(id);
+    return Html(AnalysisPages.Film(f, n => File.Exists(Path.Combine(dir, n)), Tail(Path.Combine(dir, "film.log"), 60)));
+});
+
+// only names the film itself lists are served: never a path from the URL
+app.MapGet("/films/{id}/files/{name}", (string id, string name, FilmStore fs) =>
+{
+    if (!JobStore.IsValidId(id) || fs.Get(id) is not { } f) return Msg(404, "영상이 없습니다.");
+    if (name != "film.log" && name != f.Joined && f.Items.All(i => i.Name != name)) return Msg(404, "그런 파일은 없습니다.");
+    var path = Path.Combine(fs.FilmDir(id), name);
+    if (!File.Exists(path)) return Msg(404, "파일이 아직 없거나 지워졌습니다.");
+    if (name == "film.log") return Results.File(new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete), "text/plain; charset=utf-8");
+    return Results.File(path, "video/mp4", enableRangeProcessing: true); // inline: the page's <video> plays it, the link's download attribute saves it
 });
 
 // one run to watch in AutoMod on a PC: the run id is only looked up in summary.tsv, never joined into a path

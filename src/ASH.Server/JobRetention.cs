@@ -6,6 +6,7 @@ namespace ASH.Server;
 /// Frees disk: Jobs:KeepRunsDays (default 30, 0 = keep forever) after a job finished, its raw run folders (runs\&lt;RunId&gt;\, AutoMod output), the build
 /// output (&lt;Model&gt;.dir, &lt;Model&gt;.exe), the work slots and runs.zip are deleted. What the result pages need stays: job.json, job.log, upload.zip, the
 /// model folder, runs\summary.tsv, impact.tsv, search.tsv, and the block numbers and vehicle/material statistics, which are saved to blocks.tsv and stats.tsv first. Checked hourly.
+/// Films (&lt;Jobs:Dir&gt;\films, FilmStore) and the scene files (scenes*.json) are never deleted.
 /// </summary>
 public sealed class JobRetention(JobStore store, IConfiguration cfg, ILogger<JobRetention> log) : BackgroundService
 {

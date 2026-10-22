@@ -167,6 +167,9 @@ public sealed class JobStore
         }
     }
 
+    /// <summary>Wakes the worker for other queued work (a film).</summary>
+    public void Wake() => _signal.Release();
+
     /// <summary>Wakes the worker (a job was added) or times out.</summary>
     public Task WaitForWorkAsync(TimeSpan timeout, CancellationToken ct) => _signal.WaitAsync(timeout, ct);
 
