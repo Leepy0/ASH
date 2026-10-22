@@ -25,7 +25,7 @@ builder.Services.AddSingleton<ServerUpdater>();
 builder.Services.AddSingleton<GitHubSync>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<GitHubSync>());
 builder.Services.AddSingleton(sp => JobStore.Create(sp.GetRequiredService<IConfiguration>(), sp.GetRequiredService<ILoggerFactory>().CreateLogger<JobStore>()));
-builder.Services.AddSingleton(sp => AnalysisStore.Create(sp.GetRequiredService<IConfiguration>()));
+builder.Services.AddSingleton(sp => AnalysisStore.Create(sp.GetRequiredService<IConfiguration>(), sp.GetRequiredService<ILoggerFactory>().CreateLogger<AnalysisStore>()));
 builder.Services.AddSingleton<IJobRunner, AutoModJobRunner>();
 builder.Services.AddSingleton<JobWorker>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<JobWorker>());
@@ -35,6 +35,7 @@ builder.Services.AddSingleton(sp => new AppSettingsFile(Path.Combine(sp.GetRequi
 builder.Services.AddSingleton<AdminSessions>();
 
 var app = builder.Build();
+app.Services.GetRequiredService<AnalysisStore>(); // a bad analyses.json is set aside and logged at boot
 app.Services.GetRequiredService<ReleaseStore>(); // bad key/folder/GitHub URL fails at start, not at the first request
 app.Services.GetRequiredService<GitHubSync>();
 app.Services.GetRequiredService<JobStore>();

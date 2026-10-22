@@ -76,6 +76,19 @@ public class AnalysisTests : IDisposable
     }
 
     [Fact]
+    public void Corrupt_File_Is_Moved_Aside_And_Store_Starts_Empty()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(Path.Combine(_dir, "analyses.json"), "{garbage");
+        var st = new AnalysisStore(_dir, NullLogger.Instance);
+        Assert.Empty(st.All());
+        Assert.Equal("{garbage", File.ReadAllText(Directory.GetFiles(_dir, "analyses.json.bad-*").Single()));
+        var a = st.CreateAnalysis("새 분석", "");
+        Assert.Equal(a.Id, new AnalysisStore(_dir).All().Single().Id);
+        Assert.Throws<ArgumentException>(() => st.CreatePlan("a-00000000", "A안", "")); // a job's dangling analysis id is simply not found
+    }
+
+    [Fact]
     public void Old_Job_Json_Loads_As_Unclassified()
     {
         Directory.CreateDirectory(Path.Combine(_dir, "20260101-000000-abcd"));

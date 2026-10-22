@@ -14,18 +14,30 @@ public sealed class AnalysisStore
     readonly string _path;
     readonly List<AnalysisInfo> _items;
 
-    public AnalysisStore(string dir)
+    public AnalysisStore(string dir, ILogger? log = null)
     {
         Directory.CreateDirectory(dir);
         _path = Path.Combine(dir, "analyses.json");
-        _items = File.Exists(_path) ? JsonSerializer.Deserialize<List<AnalysisInfo>>(File.ReadAllText(_path), Json) ?? new() : new();
+        _items = new();
+        if (!File.Exists(_path)) return;
+        try { _items = JsonSerializer.Deserialize<List<AnalysisInfo>>(File.ReadAllText(_path), Json) ?? new(); }
+        catch (Exception e) when (e is JsonException or IOException)
+        {
+            // keep the server up: set the unreadable file aside (never overwriting an earlier one) and start with an empty catalog
+            var stamp = ASH.Core.SeoulTime.Now.ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture);
+            var bad = _path + ".bad-" + stamp;
+            for (var i = 2; File.Exists(bad); i++) bad = _path + ".bad-" + stamp + "-" + i;
+            File.Move(_path, bad);
+            _items = new();
+            log?.LogError("분석 목록을 읽지 못해 {Bad} 로 옮기고 빈 목록으로 시작합니다 ({Path}): {Error}", bad, _path, e.Message);
+        }
     }
 
-    public static AnalysisStore Create(IConfiguration cfg)
+    public static AnalysisStore Create(IConfiguration cfg, ILogger? log = null)
     {
         var dir = cfg["Jobs:Dir"];
         if (string.IsNullOrWhiteSpace(dir)) dir = "%ProgramData%/ASH.Server/jobs";
-        return new AnalysisStore(Path.GetFullPath(Environment.ExpandEnvironmentVariables(dir)));
+        return new AnalysisStore(Path.GetFullPath(Environment.ExpandEnvironmentVariables(dir)), log);
     }
 
     static AnalysisInfo Clone(AnalysisInfo a) => JsonSerializer.Deserialize<AnalysisInfo>(JsonSerializer.Serialize(a, Json), Json)!;
