@@ -83,6 +83,25 @@ jobs:
           try { scripts\build-release.ps1 -Notes "$env:RUNNER_TEMP\notes.txt" }
           catch { Write-Host "::error title=build-release::$($_.Exception.Message -replace '[\r\n]+',' ')"; exit 1 }
 
+      - name: 실패한 테스트 표시
+        if: failure() && steps.ver.outputs.skip != 'true'
+        shell: pwsh
+        run: |
+          # 빌드 결과로 테스트를 다시 돌려 실패 항목을 annotation으로 남긴다
+          dotnet test ASH.sln -c Release --no-build -nologo -v q --logger "trx" --results-directory "$env:RUNNER_TEMP\tr" | Out-Null
+          $n = 0
+          foreach ($f in Get-ChildItem "$env:RUNNER_TEMP\tr\*.trx" -ErrorAction SilentlyContinue) {
+            [xml]$x = Get-Content $f -Raw
+            foreach ($r in $x.TestRun.Results.UnitTestResult | Where-Object { $_.outcome -eq 'Failed' }) {
+              $msg = ([string]$r.Output.ErrorInfo.Message) -replace '[\r\n]+', ' '
+              if ($msg.Length -gt 400) { $msg = $msg.Substring(0, 400) }
+              Write-Host "::error title=테스트 실패::$($r.testName) — $msg"
+              if (++$n -ge 20) { break }
+            }
+          }
+          if ($n -eq 0) { Write-Host "::warning title=테스트::다시 돌렸을 때는 실패한 테스트가 없습니다(간헐 실패 가능)" }
+          exit 0
+
       - name: 서명 키 삭제
         if: always()
         shell: pwsh
