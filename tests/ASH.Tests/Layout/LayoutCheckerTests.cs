@@ -14,6 +14,11 @@ public class LayoutCheckerTests
         var f = LayoutChecker.Check(l, O).Where(x => x.Code == FindingCode.DanglingEnd).ToList();
         Assert.Equal(2, f.Count); Assert.DoesNotContain(f, x => x.EntityId == "s");
     }
+    [Fact] public void Dangling_End_Of_Two_Way_Path_Not_Reported() {
+        var two = L.Line("t",5,0,5,3); two.IsTwoWay = true;
+        var f = LayoutChecker.Check(L.Of(L.Line("a",0,0,10,0), two), O).Where(x => x.Code == FindingCode.DanglingEnd).ToList();
+        Assert.Equal(2, f.Count); Assert.All(f, x => Assert.Equal("a", x.EntityId));
+    }
     [Fact] public void Dead_End_Node() {
         var l = L.Of(L.Line("a",-10,0,0,0), L.Line("b",10,0,0,0)); // 둘 다 (0,0)으로 들어옴
         Assert.Contains(LayoutChecker.Check(l, O), x => x.Code == FindingCode.DeadEndNode && x.Where == new Point2(0,0));

@@ -15,7 +15,7 @@ public static class DrawingReader
     public static CoreLayout Read(Database db, Transaction tr)
     {
         var layout = new CoreLayout { Tolerance = 0.001 * DrawingUnits.PerMeter };
-        var blockTags = new List<(Point2 Pos, Dictionary<string, string> Attrs)>();
+        var blockTags = new List<(Point2 Pos, Dictionary<string, string> Attrs, string Id)>();
         var rects = new List<(Polyline Pl, string Id)>();
         foreach (ObjectId id in ModelSpace(db, tr, OpenMode.ForRead))
         {
@@ -42,7 +42,7 @@ public static class DrawingReader
                 else if (Eq(name, Conventions.StationBlockName))
                     layout.Stations.Add(new LayoutStation { Name = Get(Attributes(br, tr), "NAME"), Position = Xy(br.Position) });
                 else if (Eq(layer, Conventions.LayerBlock) && Eq(name, Conventions.BlockBlockName))
-                    blockTags.Add((Xy(br.Position), Attributes(br, tr)));
+                    blockTags.Add((Xy(br.Position), Attributes(br, tr), br.Handle.ToString()));
             }
             else if (Eq(layer, Conventions.LayerBlock) && e is Polyline pl && pl.Closed && pl.NumberOfVertices >= 3)
                 rects.Add((pl, pl.Handle.ToString()));
@@ -57,7 +57,7 @@ public static class DrawingReader
             var tag = blockTags.Where(t => rect.Contains(t.Pos)).OrderBy(t => t.Pos.DistanceTo(centre)).FirstOrDefault();
             layout.Blocks.Add(new LayoutBlock
             {
-                Id = id, Rect = rect,
+                Id = id, Rect = rect, TagId = tag.Id ?? "",
                 Name = tag.Attrs == null ? "" : Get(tag.Attrs, "NAME"),
                 Cap = tag.Attrs == null ? 1 : ParseCap(Get(tag.Attrs, "CAP")),
             });

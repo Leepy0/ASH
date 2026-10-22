@@ -75,7 +75,7 @@ ZWCAD가 설치된 PC에서 실행한다. 각 항목에 결과(OK/NG), 날짜, Z
 | SafetyGap | 0.5 | 안전 거리(m) |
 | CpSpacing | 10 | CP 간격(m, 현재 간격 CP 생성은 꺼짐) |
 | ClaimDist | (빈칸=SafetyGap) | 점유 거리 |
-| BlockReach | (빈칸=VehicleLength+SafetyGap) | block 길이 |
+| BlockReach | (빈칸=자동) | 교차점에서 block 끝까지 각 가지 길이(m). 빈칸이면 가지마다 그 자리에 선 차량이 다른 경로 차량과 SafetyGap 이상 떨어지는 거리까지만 잡는다(직각 교차는 VehicleWidth/2+SafetyGap). 그 끝에서 다음 꺾임점까지 차량 한 대(VehicleLength+SafetyGap)도 못 서면 그 짧은 구간을 통째로 넣는다(진입 CP가 block 경계에 붙어 AutoMod에서 교착) |
 | VehicleLength / VehicleWidth | 2.0 / 1.0 | 차량 크기(m) |
 | Units | Meters | asy 단위 |
 | Scale | 1.0 | 도면 단위→m 배율. mm 도면은 `0.001`. 설정의 길이 값(m)은 모두 도면 단위로 바꿔(÷Scale) 쓰고, 기호 크기·허용 오차도 같이 바뀐다 |
@@ -85,12 +85,14 @@ ZWCAD가 설치된 PC에서 실행한다. 각 항목에 결과(OK/NG), 날짜, Z
 
 | 항목 | 결과 | 날짜 | ZWCAD 버전 | 메모 |
 |---|---|---|---|---|
-| T14-1 십자 경로 4개(`AGVSPLIT` 완료) + standby CP 1개(GROUP G1)인 도면을 저장 → `AGVTRAFFIC` → block `B001` 사각형 1개와 traffic CP 2개(`T001`, `T002`)가 진입 경로에만 생김 | | | | |
-| T14-2 `AGVCHECK` → `[코드] 메시지 (x, y)` 줄 출력, 끝 4개 DanglingEnd(예상 4건), 첫 항목으로 확대(폭 10 m), "검사 결과 4건" | | | | |
+| T14-1 십자 경로 4개(`AGVSPLIT` 완료) + standby CP 1개(GROUP G1)인 도면을 저장 → `AGVTRAFFIC` → block `B001` 사각형 1개와 traffic CP 2개(`T001`, `T002`)가 진입 경로에만 생김. 기본 설정(폭 1.0, SafetyGap 0.5)이면 사각형은 교차점 중심 2 m × 2 m(예전 7 m × 7 m) | | | | |
+| T14-2 `AGVCHECK` → `[코드] 메시지 (x, y)` 줄 출력, 끝 4개 DanglingEnd(예상 4건), 첫 항목으로 확대(폭 10 m), "검사 결과 4건". 같은 도면을 양방향 경로로 그리면 끝이 이어지지 않아도 DanglingEnd가 나오지 않음(단방향만 보고) | | | | |
 | T14-3 `AGVEXPORT` → "오류 4건이 있습니다. 계속할까요?" Y → 명령줄에 `asy:` 경로만 출력되고 파일은 열리지 않음. `agv.asy` 내용: `GPATH` 4줄, `CPOINT` 3줄, `NAMELST name nl_G1 item S001`, 같은 폴더에 `traffic.tsv` 2행 | | | | |
 | T14-4 명령줄 요약 `경로 +4 −0 ~0, CP +3 −0 ~0`. 다시 `AGVEXPORT` → `+0 −0 ~0`, `agv.asy.bak.<시각>` 백업 생김 | | | | |
 | T14-5 이 `.arc`를 AM 편집기에서 열어 경로·CP가 보임 | | | | |
-| T14-6 block이 겹치는 배치 → `AGVBLOCKAUTO`가 "B001, B002 합칠까요? [Y/N]"를 묻고 Y면 사각형 하나 | | | | |
+| T14-6 교차점 두 개 사이가 차량 한 대(VehicleLength+2×SafetyGap) 자리보다 좁은 배치(예: 차량 2 m, 교차점 3 m 간격) → `AGVBLOCKAUTO`가 "B001, B002 가까워 합칠까요? [Y/N] <Y>"를 묻고 Y면 사각형 하나. 합친 사각형 안에 load/standby 같은 정차 CP가 들어가면 질문 끝에 "(정차 CP … 교착 위험)"이 붙고 기본값이 N | | | | |
+| T14-6b 교차점 사이에 차량 한 대가 설 자리가 있는 배치(예: 6 m 간격) → 질문 없이 교차점마다 작은 block 하나씩 | | | | |
+| T14-6c 직접 그린 `AGV_BLOCK` 레이어 닫힌 사각형 몇 개(태그 없는 것, 이름이 뒤섞인 것 포함) → `AGVBLOCKNUM` → 원점(0,0)에서 사각형 중심까지 거리가 가까운 순으로 `B001`부터 다시 붙음(거리가 같으면 y 작은 것, 다음 x 작은 것). 태그 없던 사각형은 중심에 태그가 생기고 명령줄에 "태그 없던 n개에 태그 추가". `AGVCHECK`에 DuplicateBlockName 없음. Ctrl+Z 한 번으로 전부 되돌아감 | | | | |
 | T14-7 교차를 분할하지 않은 도면 → `AGVCHECK`가 UnsplitIntersection 보고 후 "지금 분할할까요?" Y → 분할·재검사 | | | | |
 | T14-8 standby CP 없는 그룹으로 `AGVEXPORT` → "내보내기 중단: …" 메시지, 파일 안 바뀜 | | | | |
 | T14-9 `ash.settings.tsv`에 숫자 아닌 값 → "설정 파일 오류" 메시지 | | | | |

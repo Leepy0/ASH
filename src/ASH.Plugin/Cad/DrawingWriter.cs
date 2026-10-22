@@ -126,6 +126,20 @@ public static class DrawingWriter
         return id;
     }
 
+    /// <summary>Sets one attribute of a block reference; false when it has no such tag.</summary>
+    public static bool SetAttribute(Transaction tr, ObjectId brId, string tag, string value)
+    {
+        var br = (BlockReference)tr.GetObject(brId, OpenMode.ForRead);
+        foreach (ObjectId aid in br.AttributeCollection)
+            if (tr.GetObject(aid, OpenMode.ForRead) is AttributeReference ar && !ar.IsErased && string.Equals(ar.Tag, tag, StringComparison.OrdinalIgnoreCase))
+            {
+                ar.UpgradeOpen();
+                ar.TextString = value;
+                return true;
+            }
+        return false;
+    }
+
     public static ObjectId FromHandle(Database db, string handle)
     {
         if (!long.TryParse(handle, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var h)) return ObjectId.Null;

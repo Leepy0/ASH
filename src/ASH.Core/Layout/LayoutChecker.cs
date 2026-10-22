@@ -18,8 +18,9 @@ public static class LayoutChecker
         var res = new List<Finding>();
         var g = PathGraph.Build(l);
 
+        // a two-way path's free end is a turnaround (the vehicle drives back out), like a spur: only a one-way dead end traps vehicles
         foreach (var (path, atStart) in g.DanglingEnds)
-            if (!path.IsSpur)
+            if (!path.IsSpur && !path.IsTwoWay)
                 res.Add(new Finding(FindingCode.DanglingEnd, $"Path {path.Name} has a free {(atStart ? "start" : "end")}",
                     atStart ? path.Start : path.End, path.Name));
 
