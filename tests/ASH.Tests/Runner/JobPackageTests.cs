@@ -6,13 +6,13 @@ namespace ASH.Tests.Runner;
 public class JobPackageTests
 {
     [Fact]
-    public void Create_Leaves_Out_The_Asy_Backups()
+    public void Create_Leaves_Out_The_Asy_Backups_And_The_Local_Settings()
     {
         var proj = Path.Combine(Path.GetTempPath(), "ash_pkg_" + Guid.NewGuid().ToString("N"));
         try
         {
             Directory.CreateDirectory(Path.Combine(proj, "m.arc"));
-            foreach (var p in JobPackage.Required("m").Concat(new[] { "m.arc/agv.asy.bak.20261022_120000_000", "m.arc/agv.asy.bak.20261022_120000_000_1" }))
+            foreach (var p in JobPackage.Required("m").Concat(new[] { "m.arc/agv.asy.bak.20261022_120000_000", "m.arc/agv.asy.bak.20261022_120000_000_1", "ash.settings.tsv" }))
                 File.WriteAllText(Path.Combine(proj, p.Replace('/', Path.DirectorySeparatorChar)), "x");
             var zip = Path.Combine(proj, "pkg.zip");
             var files = JobPackage.Create(proj, "m", zip);
@@ -20,6 +20,7 @@ public class JobPackageTests
             Assert.Contains(z.Entries, e => e.FullName == "m.arc/agv.asy");
             Assert.DoesNotContain(z.Entries, e => e.FullName.Contains(".bak"));
             Assert.DoesNotContain(files, f => f.Path.Contains(".bak"));
+            Assert.DoesNotContain(z.Entries, e => e.FullName == "ash.settings.tsv"); // its AmHome is this PC's: the server uses its own
         }
         finally { Directory.Delete(proj, true); }
     }

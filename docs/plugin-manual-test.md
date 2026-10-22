@@ -142,14 +142,15 @@ ZWCAD가 설치된 PC에서 실행한다. 각 항목에 결과(OK/NG), 날짜, Z
 
 ## 모델 생성 (Phase 2 Task 6)
 
-AutoMod 12.6이 있는 PC 필요(T16-2, T16-4). 검증·내보내기 탭 "Excel 양식"(`AGVEXCEL`), "모델 생성·빌드"(`AGVMODEL`).
+AutoMod 12.6이 있는 PC 필요(T16-2, T16-4), T16-5는 AutoMod가 없는 PC와 서버. 검증·내보내기 탭 "Excel 양식"(`AGVEXCEL`), "모델 생성·빌드"(`AGVMODEL`).
 
 | 항목 | 결과 | 날짜 | ZWCAD 버전 | 메모 |
 |---|---|---|---|---|
 | T16-1 저장된 도면에서 `AGVEXCEL`: `input.xlsx`가 없으면 도면 폴더에 양식을 만들고 Excel로 열림, 있으면 O/U/W를 묻고 Enter(O)는 열기만, U는 `input.bak.*.xlsx` 백업 뒤 입력 유지·새 그룹/standby/load CP만 추가(명령줄에 변경 목록), W는 한 번 더 확인 후 새 양식. Excel에서 열어 둔 채 U/W → 닫으라는 안내. 새 도면 → "도면을 먼저 저장하세요." | | | | |
 | T16-2 양식을 채우고 `AGVMODEL`: 검사 결과(오류 시 계속 여부 질문) 뒤 상태 줄 "AGVMODEL 빌드 중…" → 명령줄에 arc 폴더 경로와 "빌드 성공", 상태 줄 "AGVMODEL 완료". `input.xlsx`가 없으면 "먼저 AGVEXCEL…" 안내 | | | | |
 | T16-3 Excel에 잘못된 값(예: 없는 CP 이름, 음수 속도): 명령줄에 Excel 경고·오류가 나열되고 빌드 중단, 상태 줄 "AGVMODEL 오류" | | | | |
-| T16-4 AutoMod 빌드 실패 상황(`AmHome`을 없는 폴더로): 명령줄에 MakeErr/Am2Err 앞 20줄 또는 실행 실패 메시지, 상태 줄 "AGVMODEL 오류" | | | | |
+| T16-4 AutoMod 빌드 실패 상황(AutoMod는 있으나 모델 오류): 명령줄에 MakeErr/Am2Err 앞 20줄 또는 실행 실패 메시지, 상태 줄 "AGVMODEL 오류" | | | | |
+| T16-5 AutoMod가 없는 PC(또는 `AmHome`이 없는 폴더)에서 `AGVMODEL`: "이 PC에는 AutoMod가 없어 모델 파일만 만들었습니다…" → 서버 대기 건수와 "서버로 보낼까요? [Y/N]" → Y면 전송·작업 페이지 열림, 서버가 자기 Jobs:AmHome으로 빌드 | | | | |
 | T16-5 상태 줄·팔레트: 빌드 중 "AGVMODEL 빌드 중…", 끝나면 완료/오류. 리본 패널 "검증·내보내기"에도 두 버튼 | | | | |
 
 ## 리본 탭 (1.5 Task 3)
@@ -285,7 +286,7 @@ AutoMod 12.6이 있는 PC 필요(T16-2, T16-4). 검증·내보내기 탭 "Excel 
 | H2 `AGVMODEL` 후 `agv.asy`의 `accel`/`decel` 줄(`load Default`)이 `0.3 Meters Seconds Seconds`. AM에서 차량이 0.3 m/s²로 출발·정지 | | | |
 | H3 Kind를 Ant로 두고 자재 Form을 Box로 → 경고 "싣지 못합니다". Trolley면 경고 없음 | | | |
 | H4 Form에 `Crate` 입력 → "Materials 시트 ... 알 수 없습니다 (Box / Pallet / Trolley)" 오류 | | | |
-| H5 ash.settings.tsv의 AmHome을 없는 폴더로 두고 `AGVMODEL` → 오류 없이 "AutoMod를 찾지 못해 빌드하지 않았습니다: ...am264.exe", `<모델>.arc`는 만들어짐 | | | |
+| H5 ash.settings.tsv의 AmHome을 없는 폴더로 두고 `AGVMODEL` → 오류 없이 "이 PC에는 AutoMod가 없어 모델 파일만 만들었습니다", `<모델>.arc`는 만들어지고 서버 전송 여부를 물음. 보낸 패키지에 ash.settings.tsv 없음 | | | |
 | H6 AmHome이 맞을 때 빌드가 끝나면 `<모델>.dir` 폴더가 AutoMod에 의해 생김 | | | |
 | H7 모델 생성 중 예상 밖 오류가 나면 명령줄에 `오류: <예외 종류>: <메시지>`가 나오고 plugin.log에 전체 내용이 남음 | | | |
 

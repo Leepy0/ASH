@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using ASH.Core.AutoMod;
 using ASH.Core.Export;
 using ASH.Core.Input;
 using ASH.Core.Layout;
@@ -78,6 +79,9 @@ public sealed class ModelCommands
         if (!ExportCommands.TryLoadSettings(ed, out var s, out var dir)) return;
         var xlsx = Path.Combine(dir, ExcelFileName);
         if (!File.Exists(xlsx)) { ed.WriteMessage($"\n{ExcelFileName}이 없습니다. 먼저 AGVEXCEL로 양식을 만들어 채우세요."); return; }
+        // AutoMod on this PC is optional: without it the model files are only written, and the server builds them with the AutoMod its own settings name
+        var amHome = AmBuilder.FindBuildExe(s.AmHome) != null ? s.AmHome : null;
+        bool toServer = false;
         PathCommands.Run(doc, "AGVMODEL", (db, tr) =>
         {
             var input = LoadInput(ed, xlsx, dir);
@@ -91,9 +95,9 @@ public sealed class ModelCommands
                 // Excel wins over ash.settings.tsv Groups
                 var groups = input.Groups.Count == 0 ? SettingsFile.ParseGroups(s.Groups) : ModelBuilder.VehicleGroups(input);
                 var options = new ExportOptions(Units: s.Units, Origin: s.Origin, Scale: s.Scale, Groups: groups);
-                Ui.PaletteStatus.Set("AGVMODEL 빌드 중…");
-                ed.WriteMessage("\nAutoMod 빌드 중… 최대 10분");
-                r = ModelBuilder.Build(new ModelBuildRequest(dir, s.ModelName, input, layout, options), s.AmHome, TimeSpan.FromMinutes(10));
+                Ui.PaletteStatus.Set(amHome != null ? "AGVMODEL 빌드 중…" : "AGVMODEL 모델 생성 중…");
+                if (amHome != null) ed.WriteMessage("\nAutoMod 빌드 중… 최대 10분");
+                r = ModelBuilder.Build(new ModelBuildRequest(dir, s.ModelName, input, layout, options), amHome, TimeSpan.FromMinutes(10));
             }
             catch (ExportException ex)
             {
@@ -109,7 +113,12 @@ public sealed class ModelCommands
             foreach (var w in r.Warnings) ed.WriteMessage($"\n경고: {w}");
             ed.WriteMessage($"\narc: {r.ArcDir}");
             bool ok = r.Build?.Success ?? false;
-            if (r.Build == null) ed.WriteMessage("\n빌드하지 않았습니다(입력 오류 또는 AutoMod 경로 없음).");
+            if (r.Build == null && r.Findings.Any(f => f.Code == FindingCode.InputError)) ed.WriteMessage("\n입력 오류가 있어 모델을 만들지 않았습니다.");
+            else if (r.Build == null)
+            {
+                ed.WriteMessage("\n이 PC에는 AutoMod가 없어 모델 파일만 만들었습니다. 빌드와 대수 탐색은 서버가 서버의 AutoMod로 합니다.");
+                toServer = true;
+            }
             else
             {
                 ed.WriteMessage(ok ? "\n빌드 성공" : "\n빌드 실패");
@@ -117,9 +126,10 @@ public sealed class ModelCommands
                     foreach (var t in new[] { r.Build.MakeErrText, r.Build.Am2ErrText })
                         foreach (var line in (t ?? "").Split('\n').Take(20)) ed.WriteMessage("\n  " + line.TrimEnd());
             }
-            PathCommands.FinalStatus = ok ? "AGVMODEL 완료" : "AGVMODEL 오류";
+            PathCommands.FinalStatus = ok ? "AGVMODEL 완료" : toServer ? "AGVMODEL 모델 생성(서버 빌드)" : "AGVMODEL 오류";
             return false; // nothing in the drawing changed
         }, refreshArrows: false, unitsPerMeter: UnitScale.FromSettings(s));
+        if (toServer) ServerCommands.Command("AGVMODEL", results: false); // asks before sending, with the server's queue
     }
 
     /// <summary>input.xlsx as a ProjectInput; null (after saying why) when it cannot be had. The file is read directly; when that fails (company document encryption

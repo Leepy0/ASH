@@ -29,8 +29,7 @@ public static class JobPackage
     public static IReadOnlyList<string> Missing(string projectDir, string model) =>
         Required(model).Where(p => !File.Exists(Path.Combine(projectDir, p.Replace('/', Path.DirectorySeparatorChar)))).ToList();
 
-    /// <summary>Writes the package for a project folder to <paramref name="zipPath"/>: every file of &lt;Model&gt;.arc plus the snapshot (and ash.settings.tsv when
-    /// present); with <paramref name="includeResults"/> also ash-run's results from runs\. Throws InvalidOperationException naming the missing files when a required one is not there.</summary>
+    /// <summary>Writes the package for a project folder to <paramref name="zipPath"/>: every file of &lt;Model&gt;.arc plus the snapshot; with <paramref name="includeResults"/> also ash-run's results from runs\. Throws InvalidOperationException naming the missing files when a required one is not there.</summary>
     /// <summary>Missing files for a local result upload (ash-run's summary and search decision), as package paths; empty = ready.</summary>
     public static IReadOnlyList<string> MissingResults(string projectDir) =>
         new[] { "runs/summary.tsv", "runs/" + SearchSummaryFile.FileName }.Where(p => !File.Exists(Path.Combine(projectDir, p.Replace('/', Path.DirectorySeparatorChar)))).ToList();
@@ -47,11 +46,8 @@ public static class JobPackage
         foreach (var f in Directory.GetFiles(arc, "*", SearchOption.AllDirectories).OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
             if (Path.GetFileName(f).IndexOf(".asy.bak", StringComparison.OrdinalIgnoreCase) < 0) // ExportRunner's backups (<x>.asy.bak.<time>) stay at home
                 files.Add((model + ".arc/" + f.Substring(arc.Length + 1).Replace(Path.DirectorySeparatorChar, '/'), f));
-        foreach (var extra in new[] { CellDump.FileName, "ash.settings.tsv" })
-        {
-            var p = Path.Combine(projectDir, extra);
-            if (File.Exists(p)) files.Add((extra, p));
-        }
+        // ash.settings.tsv stays at home: the model is already baked into the .arc, and its AmHome is this PC's AutoMod, not the server's
+        files.Add((CellDump.FileName, Path.Combine(projectDir, CellDump.FileName)));
         if (includeResults)
         {
             // a local result: the summary, the decision and every run's result.tsv (the block maps); reports and AutoMod output stay at home

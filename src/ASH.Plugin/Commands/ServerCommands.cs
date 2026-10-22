@@ -29,7 +29,7 @@ public sealed class ServerCommands
     [CommandMethod("AGVRESULTUP")]
     public void AgvResultUp() => Command("AGVRESULTUP", results: true);
 
-    private static void Command(string name, bool results)
+    internal static void Command(string name, bool results)
     {
         var doc = Application.DocumentManager.MdiActiveDocument;
         if (doc == null) return;
