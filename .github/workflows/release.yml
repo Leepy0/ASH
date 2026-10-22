@@ -54,9 +54,13 @@ jobs:
         env:
           PEM: ${{ secrets.ASH_SIGNING_KEY_PEM }}
         run: |
-          if (-not $env:PEM) { throw "Secret ASH_SIGNING_KEY_PEM 이 없습니다" }
+          # 실패 원인을 annotation으로 남긴다(키 내용은 출력하지 않음)
+          function Fail($m) { Write-Host "::error title=서명 키::$m"; exit 1 }
+          if (-not $env:PEM) { Fail "Secret ASH_SIGNING_KEY_PEM 이 비어 있거나 없습니다 (Settings → Secrets and variables → Actions → Repository secrets 확인)" }
+          $pem = $env:PEM.Trim()
+          if ($pem -notmatch '^-----BEGIN PRIVATE KEY-----' -or $pem -notmatch '-----END PRIVATE KEY-----$') { Fail "Secret 형식 오류: BEGIN/END PRIVATE KEY 줄 포함 전체를 넣어야 합니다 (길이 $($pem.Length))" }
           $key = Join-Path $env:RUNNER_TEMP 'ash-signing.pem'
-          [IO.File]::WriteAllText($key, $env:PEM)
+          [IO.File]::WriteAllText($key, $pem + "`n")
           "ASH_SIGNING_KEY=$key" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: 릴리스 노트
@@ -74,7 +78,9 @@ jobs:
       - name: 빌드·테스트·서명
         if: steps.ver.outputs.skip != 'true'
         shell: pwsh
-        run: scripts\build-release.ps1 -Notes "$env:RUNNER_TEMP\notes.txt"
+        run: |
+          try { scripts\build-release.ps1 -Notes "$env:RUNNER_TEMP\notes.txt" }
+          catch { Write-Host "::error title=build-release::$($_.Exception.Message -replace '[\r\n]+',' ')"; exit 1 }
 
       - name: 서명 키 삭제
         if: always()
