@@ -16,7 +16,8 @@ public sealed class SendDialog : Form
 
     private readonly IReadOnlyList<AnalysisSummary>? _analyses;
     private readonly ComboBox _analysis = Combo(), _plan = Combo();
-    private readonly TextBox _analysisName = Box(), _planName = Box(), _note = Box();
+    // the server's NameMax/NoteMax: longer text is a 400, not a silent cut
+    private readonly TextBox _analysisName = Box(100), _planName = Box(100), _note = Box(200);
     private readonly Label _next = Theme.Caption("");
 
     public SendChoice Choice { get; private set; } = new SendChoice();
@@ -125,7 +126,7 @@ public sealed class SendDialog : Form
     }
 
     private static ComboBox Combo() => new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, Margin = new Padding(0, 2, 0, 0) };
-    private static TextBox Box() => new TextBox { BorderStyle = BorderStyle.FixedSingle, Margin = new Padding(0, 4, 0, 0) };
+    private static TextBox Box(int max) => new TextBox { BorderStyle = BorderStyle.FixedSingle, Margin = new Padding(0, 4, 0, 0), MaxLength = max };
 
     private static Button Flat(string text, Color back, Color fore)
     {
