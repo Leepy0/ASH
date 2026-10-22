@@ -55,6 +55,28 @@ public class CutTests
         finally { try { Directory.Delete(dir, true); } catch (IOException) { } }
     }
 
+    [Fact]
+    public void Corrupt_Cuts_File_Is_Set_Aside()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "ash-cut-test-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var file = Path.Combine(dir, "analyses", "a-12345678", "cuts.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+            File.WriteAllText(file, "[{garbage");
+            var st = new CutStore(dir);
+            Assert.Empty(st.Get("a-12345678"));
+            Assert.False(File.Exists(file));
+            Assert.Equal("[{garbage", File.ReadAllText(Directory.GetFiles(Path.GetDirectoryName(file)!, "cuts.json.bad-*").Single()));
+            File.WriteAllText(file, "null"); // a second bad file in the same second does not overwrite the first
+            Assert.Empty(st.Get("a-12345678"));
+            Assert.Equal(2, Directory.GetFiles(Path.GetDirectoryName(file)!, "cuts.json.bad-*").Length);
+            st.Save("a-12345678", new[] { Hold() });
+            Assert.Single(st.Get("a-12345678"));
+        }
+        finally { try { Directory.Delete(dir, true); } catch (IOException) { } }
+    }
+
     [Theory]
     [InlineData("tilt", "기울기는 0~70°")]
     [InlineData("speed", "배속은 1~600")]

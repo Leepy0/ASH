@@ -26,7 +26,7 @@ builder.Services.AddSingleton<GitHubSync>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<GitHubSync>());
 builder.Services.AddSingleton(sp => JobStore.Create(sp.GetRequiredService<IConfiguration>(), sp.GetRequiredService<ILoggerFactory>().CreateLogger<JobStore>()));
 builder.Services.AddSingleton(sp => AnalysisStore.Create(sp.GetRequiredService<IConfiguration>(), sp.GetRequiredService<ILoggerFactory>().CreateLogger<AnalysisStore>()));
-builder.Services.AddSingleton(sp => new CutStore(sp.GetRequiredService<JobStore>().Dir));
+builder.Services.AddSingleton(sp => new CutStore(sp.GetRequiredService<JobStore>().Dir, sp.GetRequiredService<ILoggerFactory>().CreateLogger<CutStore>()));
 builder.Services.AddSingleton<IJobRunner, AutoModJobRunner>();
 builder.Services.AddSingleton<JobWorker>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<JobWorker>());

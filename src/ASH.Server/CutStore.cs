@@ -14,7 +14,9 @@ public sealed class CutStore
     readonly string _dir;
     readonly object _gate = new();
 
-    public CutStore(string jobsDir) => _dir = Path.Combine(jobsDir, "analyses");
+    readonly ILogger? _log;
+
+    public CutStore(string jobsDir, ILogger? log = null) { _dir = Path.Combine(jobsDir, "analyses"); _log = log; }
 
     string FilePath(string analysisId)
     {
@@ -25,7 +27,22 @@ public sealed class CutStore
     public IReadOnlyList<CutSpec> Get(string analysisId)
     {
         var p = FilePath(analysisId);
-        lock (_gate) return File.Exists(p) ? JsonSerializer.Deserialize<List<CutSpec>>(File.ReadAllText(p), Json) ?? new() : new List<CutSpec>();
+        lock (_gate)
+        {
+            if (!File.Exists(p)) return new List<CutSpec>();
+            var text = File.ReadAllText(p); // an IOException (locked, disk) is not corruption: let it surface
+            try { return JsonSerializer.Deserialize<List<CutSpec>>(text, Json) ?? throw new JsonException("내용이 비어 있습니다."); }
+            catch (JsonException e)
+            {
+                // keep the editor usable: set the unreadable file aside (never overwriting an earlier one) and start empty, like AnalysisStore
+                var stamp = ASH.Core.SeoulTime.Now.ToString("yyyyMMdd-HHmmss", System.Globalization.CultureInfo.InvariantCulture);
+                var bad = p + ".bad-" + stamp;
+                for (var i = 2; File.Exists(bad); i++) bad = p + ".bad-" + stamp + "-" + i;
+                File.Move(p, bad);
+                _log?.LogError("컷 목록을 읽지 못해 {Bad} 로 옮기고 빈 목록으로 시작합니다: {Error}", bad, e.Message);
+                return new List<CutSpec>();
+            }
+        }
     }
 
     /// <exception cref="ArgumentException">with the Korean reason when a cut is out of range</exception>

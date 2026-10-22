@@ -63,7 +63,9 @@ public static class CutEditorPage
         {
             analysisId = a.Id, job = baseJob.Id,
             warmup = settings?.WarmupSec ?? 0, simLength = settings?.SimLengthSec ?? 0,
-            versions = jobs.Select(j => new { id = j.Id, label = Label(a, j), selected = j.Selected }),
+            // export films the selected versions (as the layout warning compares); without any, the base
+            versions = (jobs.Any(j => j.Selected) ? jobs.Where(j => j.Selected) : new[] { baseJob })
+                .Select(j => new { id = j.Id, label = Label(a, j), decided = j.Decided ?? new Dictionary<string, int>() }),
         };
         sb.Append("<script type=\"application/json\" id=\"cut-data\">").Append(JsonSerializer.Serialize(data)).Append("</script>"); // the default encoder escapes < and >
         var start = settings == null ? "0:00:00" : TimeSpan.FromSeconds(Math.Round(settings.WarmupSec)).ToString(@"h\:mm\:ss", CultureInfo.InvariantCulture);
@@ -74,6 +76,7 @@ public static class CutEditorPage
     const string Body = """
 <style>
 main{max-width:none;padding:12px 20px}[hidden]{display:none!important}
+.noload #scenes button{opacity:.5;pointer-events:none}
 .ce-top{display:flex;flex-wrap:wrap;align-items:center;gap:6px 18px;margin-bottom:10px}.ce-top h1{margin:0;font-size:20px}.ce-top .crumb{margin:0}
 .ce-top select{width:auto;max-width:260px}.ce-top .mini label{font-size:14px;color:#5f5e5a}
 .ce{display:grid;grid-template-columns:minmax(0,1fr) clamp(340px,24vw,430px);gap:12px;align-items:start}
@@ -145,7 +148,7 @@ ol.cl{list-style:none;margin:0;padding:0;display:grid;gap:6px}
   <div class="r"><label for="vd">대수 변경</label><div class="in"><input type="number" id="vd" min="-20" max="20" value="0"><span class="u">대(0 = 결론 대수)</span></div></div>
   <div class="calc" id="calc" aria-live="polite"></div>
   <div class="tb" style="margin-top:0"><button type="button" class="primary" id="save">리스트에 추가</button><button type="button" id="cancel" hidden>편집 취소</button></div>
-  <div class="st" id="msg" role="status"></div>
+  <div class="st" id="msg" role="status"></div><div><button type="button" id="reload" hidden>컷 리스트 다시 불러오기</button></div>
   <p class="help" style="margin:0">도면을 끌어 구역을 그리고, 그린 구역은 끌어서 옮기거나 모서리로 크기를 바꿉니다. 휠 = 기울기, Ctrl+휠 = 확대. 방향은 화면 위쪽이 가리키는 쪽(0° = 북, +Y).</p>
  </section>
 </div>
@@ -161,6 +164,8 @@ ol.cl{list-style:none;margin:0;padding:0;display:grid;gap:6px}
   <div class="r"><label for="out">파일</label><select id="out"><option value="each+joined">컷마다 따로 + 이어 붙인 1개</option><option value="joined">이어 붙인 1개만</option><option value="each">컷마다 따로</option></select></div>
   <div class="r"><span class="l">자막</span><div class="in"><label><input type="checkbox" id="capAll" checked> 컷 이름·시각·결론 수치</label></div></div>
   <div class="r"><label for="vdAll">대수 변경</label><div class="in"><input type="number" id="vdAll" min="-20" max="20" value="0" style="width:5.2em"><span class="u">대(모든 컷에 더함)</span></div></div>
+  <div class="r"><span class="l">같은 대수</span><div><label class="in"><input type="checkbox" id="same"> 모든 버전 같은 대수(그룹별)</label><div class="in" id="sameBox" hidden></div></div></div>
+  <div class="r"><label for="seed">시드</label><div class="in"><input type="number" id="seed" min="0" step="1" placeholder="비우면 기본" style="width:8em"><span class="u">기본 = 각 버전의 첫 시드(SeedBase), 모든 버전에 같은 값</span></div></div>
   <div><button type="button" class="primary" id="run">체크한 컷으로 영상 만들기</button></div>
   <div class="st" id="runMsg" role="status"></div></section>
 </div>
@@ -177,7 +182,7 @@ var api='/api/analyses/'+enc(D.analysisId)+'/cuts';
 var stage=$('stage'),tilter=$('tilter'),bg=$('bg'),fg=$('fg');
 var W=0,H=0,dpr=1,view={cx:0,cy:0,s:10},dw=null,layerOn=[],show={paths:true,cps:true,texts:true};
 var zones={A:null,B:null},mode='A',kind='Hold',tilt=0,dir=0,persp=true,preview=true,speed=10;
-var cuts=[],editId=null,skip={},drag=null,pollT=null;
+var cuts=[],loaded=false,editId=null,skip={},drag=null,pollT=null; // loaded: never save over a list we have not read
 var KN={Hold:'구역 고정',Move:'A→B 이동',Whole:'전체'},COL={A:'#d9822b',B:'#7a4fbf'};
 
 function hms(s){s=Math.max(0,Math.round(+s||0));var h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;return h+':'+(m<10?'0':'')+m+':'+(x<10?'0':'')+x;}
@@ -240,10 +245,10 @@ function layoutRect(){
   if(x0>x1){var b=dw.bounds;x0=b[0];y0=b[1];x1=b[2];y1=b[3];}
   return {x:r2(x0),y:r2(y0),w:r2(Math.max(x1-x0,1)),h:r2(Math.max(y1-y0,1))};
 }
-function setKind(k){kind=k;
+function setKind(k,keep){kind=k;
   Array.prototype.forEach.call(document.querySelectorAll('[data-k]'),function(b){var on=b.dataset.k===k;b.classList.toggle('on',on);b.setAttribute('aria-pressed',on);});
   $('holdSet').hidden=k==='Move';$('moveSet').hidden=k!=='Move';
-  if(k==='Whole')zones.A=layoutRect();
+  if(k==='Whole'&&(!keep||!zones.A))zones.A=layoutRect(); // an edited Whole cut keeps its saved area
   if(k==='Move'&&!zones.B&&zones.A)zones.B={x:r2(zones.A.x+zones.A.w*1.3),y:zones.A.y,w:zones.A.w,h:zones.A.h};
   if(k!=='Move'&&mode==='B')setMode('A');
   drawFg();calc();}
@@ -302,7 +307,9 @@ function fromForm(){
     holdASec:mv?num('holdA'):0,moveSec:mv?num('moveS'):0,holdBSec:mv?num('holdB'):0,speed:speed,tiltDeg:tilt,dirDeg:dir,perspective:persp,caption:$('cap').checked,vehicleDelta:Math.round(num('vd'))};
 }
 // the server checks every list; a rejected list is not kept here either
-function commit(next,ok){say('저장 중…');
+function commit(next,ok){
+  if(!loaded){say('저장된 컷 리스트를 아직 불러오지 못해 저장하지 않았습니다. "컷 리스트 다시 불러오기"를 누르세요.',true);return;}
+  say('저장 중…');
   fetch(api,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(next)}).then(function(r){return r.text().then(function(t){
     if(!r.ok){say(t||('저장하지 못했습니다(HTTP '+r.status+').'),true);return;}
     cuts=JSON.parse(t);if(ok)ok();render();var m=$('msg');m.textContent='저장했습니다 '+new Date().toLocaleTimeString('ko-KR');m.className='st ok';});})
@@ -312,7 +319,7 @@ $('save').onclick=function(){var c=fromForm();if(!c)return;var next=cuts.slice()
 $('cancel').onclick=function(){cancelEdit();say('');};
 function cancelEdit(){editId=null;$('formTitle').textContent='새 컷';$('save').textContent='리스트에 추가';$('cancel').hidden=true;render();}
 function edit(i){var c=cuts[i];editId=c.id;$('formTitle').textContent=(i+1)+'번 컷 수정';$('name').value=c.name;$('start').value=hms(c.startSec);
-  zones.A=rect(c.a);zones.B=c.b?rect(c.b):null;setKind(c.kind);
+  zones.A=rect(c.a);zones.B=c.b?rect(c.b):null;setKind(c.kind,true);
   if(c.kind!=='Move')$('dur').value=c.holdSec;else{$('holdA').value=c.holdASec;$('moveS').value=c.moveSec;$('holdB').value=c.holdBSec;}
   setSpeed(c.speed);setTilt(c.tiltDeg);setDir(c.dirDeg);persp=!!c.perspective;$('persp').checked=persp;$('cap').checked=!!c.caption;$('vd').value=c.vehicleDelta||0;
   $('save').textContent='수정 저장';$('cancel').hidden=false;setPreview(true);render();calc();say('');
@@ -330,7 +337,8 @@ function render(){var ol=$('list');ol.textContent='';var all=0,inc=0,n=0;
     [['↑','위로',function(){move(i,-1);}],['↓','아래로',function(){move(i,1);}],['수정','수정',function(){edit(i);}],['삭제','삭제',function(){if(confirm('"'+c.name+'" 컷을 지울까요?'))del(i);}]].forEach(function(a){
       var b=el('button',null,a[0]);b.type='button';b.setAttribute('aria-label',(i+1)+'번 컷 '+a[1]);b.onclick=a[2];acts.appendChild(b);});
     li.appendChild(cb);li.appendChild(el('span','no',String(i+1).padStart(2,'0')));li.appendChild(body);li.appendChild(acts);ol.appendChild(li);});
-  if(!cuts.length)ol.appendChild(el('li','muted','아직 컷이 없습니다. 도면에 구역을 그리고 오른쪽에서 "리스트에 추가"를 누르거나, 장면 후보를 누르세요.'));
+  if(!loaded)ol.appendChild(el('li','muted','저장된 컷 리스트를 불러오지 못했거나 불러오는 중입니다.'));
+  else if(!cuts.length)ol.appendChild(el('li','muted','아직 컷이 없습니다. 도면에 구역을 그리고 오른쪽에서 "리스트에 추가"를 누르거나, 장면 후보를 누르세요.'));
   var t=$('total');t.textContent='';t.appendChild(el('span',null,'컷 '+cuts.length+'개 · 영상에 넣을 컷 '+n+'개'));t.appendChild(el('span',null,'영상 합계 '+dur(inc)+(n<cuts.length?' (전체 '+dur(all)+')':'')));}
 function move(i,d){var j=i+d;if(j<0||j>=cuts.length)return;var next=cuts.slice();next.splice(j,0,next.splice(i,1)[0]);commit(next);}
 function del(i){var next=cuts.slice(),c=next.splice(i,1)[0];commit(next,function(){if(c.id===editId)cancelEdit();});}
@@ -361,15 +369,28 @@ $('sfind').onclick=function(){var box=$('scenes');
     else{box.textContent='';box.appendChild(el('p','bad',t));}});}).catch(function(){box.textContent='서버에 연결할 수 없습니다.';});};
 
 // ---- export (the film endpoint comes with the filming step)
-D.versions.forEach(function(v){var l=el('label'),cb=el('input');cb.type='checkbox';cb.value=v.id;cb.checked=v.selected||(!D.versions.some(function(x){return x.selected;})&&v.id===D.job);
-  l.appendChild(cb);l.appendChild(document.createTextNode(v.label+(v.selected?' (선정)':'')));$('vers').appendChild(l);});
+// versions = the selected ones (or the base when none is selected); groups for "same counts" come from their conclusions
+var groups={};
+D.versions.forEach(function(v){var l=el('label'),cb=el('input');cb.type='checkbox';cb.value=v.id;cb.checked=true;
+  l.appendChild(cb);l.appendChild(document.createTextNode(v.label));$('vers').appendChild(l);
+  Object.keys(v.decided||{}).forEach(function(g){if(!(g in groups))groups[g]=v.decided[g];});});
+Object.keys(groups).forEach(function(g){var l=el('label'),i=el('input');i.type='number';i.min='1';i.max='999';i.value=groups[g];i.dataset.g=g;i.style.width='4.5em';i.setAttribute('aria-label',g+' 대수');
+  l.appendChild(document.createTextNode(g));l.appendChild(i);l.appendChild(el('span','u','대'));$('sameBox').appendChild(l);});
+if(!Object.keys(groups).length){$('same').disabled=true;$('same').parentNode.appendChild(el('span','u',' (결론 대수가 있는 버전이 없음)'));}
+$('same').onchange=function(){$('sameBox').hidden=!this.checked;};
 $('run').onclick=function(){var m=$('runMsg');function out(t,bad){m.textContent=t;m.className='st'+(bad?' bad':'');}
+  if(!loaded){out('컷 리스트를 불러온 뒤에 만들 수 있습니다.',true);return;}
   var ids=cuts.filter(function(c){return !skip[c.id];}).map(function(c){return c.id;}),vs=Array.prototype.filter.call($('vers').querySelectorAll('input'),function(i){return i.checked;}).map(function(i){return i.value;});
   if(!ids.length){out('영상에 넣을 컷이 없습니다. 컷 리스트에서 하나 이상 체크하세요.',true);return;}
   if(!vs.length){out('찍을 버전을 하나 이상 고르세요.',true);return;}
+  var same=null,bad=false;
+  if($('same').checked){same={};Array.prototype.forEach.call($('sameBox').querySelectorAll('input'),function(i){var n=+i.value;if(!(n>=1&&n===Math.round(n)))bad=true;same[i.dataset.g]=n;});}
+  if(bad){out('같은 대수는 그룹마다 1 이상의 정수로 적어 주세요.',true);return;}
+  var sd=$('seed').value.trim(),seed=null;
+  if(sd){seed=+sd;if(!(seed>=0&&seed===Math.round(seed))){out('시드는 0 이상의 정수로 적거나 비워 두세요.',true);return;}}
   var res=$('res').value.split('x');
   fetch('/api/analyses/'+enc(D.analysisId)+'/films',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({cutIds:ids,jobIds:vs,width:+res[0],height:+res[1],fps:+$('fps').value,output:$('out').value,caption:$('capAll').checked,vehicleDelta:Math.round(num('vdAll'))})})
+    body:JSON.stringify({cutIds:ids,jobIds:vs,width:+res[0],height:+res[1],fps:+$('fps').value,output:$('out').value,caption:$('capAll').checked,vehicleDelta:Math.round(num('vdAll')),sameCounts:same,seed:seed})})
   .then(function(r){return r.text().then(function(t){
     if(r.status===404||r.status===405){out('영상 촬영은 다음 단계에서 연결됩니다. 컷 리스트는 저장되어 있습니다.');return;}
     if(!r.ok){out(t||('HTTP '+r.status),true);return;}
@@ -391,7 +412,13 @@ fetch('/jobs/'+enc(D.job)+'/drawing.json').then(function(r){return r.ok?r.json()
   if(note){$('hudNote').textContent=note;$('hudNote').hidden=false;}
   drawAll();calc();
 }).catch(function(e){$('hudNote').textContent='도면을 불러오지 못했습니다: '+(e.message||'');$('hudNote').hidden=false;});
-fetch(api).then(function(r){return r.json();}).then(function(x){cuts=x;render();}).catch(function(){say('컷 리스트를 불러오지 못했습니다.',true);});
+function setLoaded(on){loaded=on;$('save').disabled=!on;document.body.classList.toggle('noload',!on);$('reload').hidden=on;}
+function loadCuts(){setLoaded(false);$('reload').hidden=true;say('컷 리스트를 불러오는 중…');
+  fetch(api).then(function(r){return r.text().then(function(t){if(!r.ok)throw new Error(t||('HTTP '+r.status));return JSON.parse(t);});})
+  .then(function(x){if(!Array.isArray(x))throw new Error('형식이 다릅니다');cuts=x;setLoaded(true);render();say('');})
+  .catch(function(e){say('컷 리스트를 불러오지 못했습니다'+(e&&e.message&&!(e instanceof TypeError)?': '+e.message:'(서버 연결 실패)')+'. 불러오기 전에는 저장하지 않습니다.',true);$('reload').hidden=false;});}
+$('reload').onclick=loadCuts;
+loadCuts();
 loadScenes();
 })();
 </script>
