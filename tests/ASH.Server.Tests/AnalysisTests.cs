@@ -357,4 +357,25 @@ public class AnalysisPageTests
         Assert.Equal(HttpStatusCode.Forbidden, (await env.Http.SendAsync(req)).StatusCode);
         Assert.Contains("ZWCAD", await Get(env, "/analyses/unclassified")); // empty states say how jobs get here
     }
+
+    [Fact]
+    public async Task Back_With_Control_Character_Falls_Back()
+    {
+        using var env = new JobEnv(worker: false);
+        var a = env.Factory.Services.GetRequiredService<AnalysisStore>().CreateAnalysis("분석", "");
+        var http = env.Factory.CreateClient(new Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        async Task<string?> Location(HttpContent body)
+        {
+            var req = new HttpRequestMessage(HttpMethod.Post, $"/analyses/{a.Id}/rename") { Content = body };
+            req.Headers.Add("Origin", Ok);
+            return (await http.SendAsync(req)).Headers.Location?.OriginalString;
+        }
+        static StringContent Raw(string s) => new(s, System.Text.Encoding.UTF8, "application/x-www-form-urlencoded");
+        var fallback = "/analyses/" + a.Id;
+        Assert.Equal(fallback, await Location(Raw("name=x&back=/%09/evil.com")));
+        Assert.Equal(fallback, await Location(new FormUrlEncodedContent(new[] { new KeyValuePair<string, string>("name", "x"), new KeyValuePair<string, string>("back", "/\t/evil.com") })));
+        Assert.Equal(fallback, await Location(Raw("name=x&back=/%0d%0a/evil.com")));
+        Assert.Equal(fallback, await Location(Raw("name=x&back=//evil.com")));
+        Assert.Equal("/jobs", await Location(Raw("name=x&back=/jobs"))); // a plain path is still honored
+    }
 }

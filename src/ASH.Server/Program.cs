@@ -251,7 +251,7 @@ const string CrossSite = "다른 사이트에서 보낸 요청은 받지 않습�
 static string Back(IFormCollection? f, string fallback)
 {
     var b = f?["back"].ToString() ?? "";
-    return b.Length > 1 && b[0] == '/' && b[1] != '/' && b.IndexOfAny(new[] { '\\', '\r', '\n' }) < 0 ? b : fallback;
+    return b.Length > 1 && b[0] == '/' && b[1] != '/' && b.IndexOf('\\') < 0 && !b.Any(char.IsControl) ? b : fallback; // a tab/CR/LF is stripped by browsers: "/\t/x" would become "//x"
 }
 
 app.MapPost("/analyses", async (HttpContext ctx, AnalysisStore st) =>
