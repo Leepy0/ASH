@@ -17,7 +17,7 @@ public class LargeLayoutTests
         return l;
     }
 
-    [Fact] public void Split_Check_Export_On_40x40_Grid_Under_5s()
+    [Fact] public void Split_Check_Export_On_40x40_Grid_Under_30s()
     {
         var sw = Stopwatch.StartNew();
         var l = Grid(40);
@@ -27,7 +27,8 @@ public class LargeLayoutTests
         var findings = LayoutChecker.Check(l, new());
         l.Cps.Add(L.Cp("S1", 0, 0, "standby", "G1"));
         var sys = LayoutExporter.ToAgvs(l, ASH.Tests.Export.LayoutExporterTests.G);
-        var budget = TimeSpan.FromSeconds(8); // guard targets O(n^2) blowups, not tuning; net48 and a loaded machine need the headroom
+        // guard targets O(n^2) blowups, not tuning: ~4 s alone (net10), but 8 s flaked on a loaded machine running the whole suite (net48 + net10 in parallel)
+        var budget = TimeSpan.FromSeconds(30);
         Assert.True(sw.Elapsed < budget, sw.Elapsed.ToString());
         Assert.True(l.Cps.Count > 1000); Assert.Equal(l.Paths.Count, sys.Paths.Count);
     }
