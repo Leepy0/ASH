@@ -342,7 +342,10 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
             var c = ok[k];
             var item = films.Get(f.Id)!.Items.First(i => i.JobId == j.Id && i.CutId == c.Id);
             Phase(c.Name);
-            var res = Render(work, j.Model, CameraScript.Build(c, f0, r.Width, r.Height, r.Fps, Quality, Path.Combine(work, $"cut{k + 1:00}"), new[] { CalOff }), stop);
+            string script;
+            try { script = CameraScript.Build(c, f0, r.Width, r.Height, r.Fps, Quality, Path.Combine(work, $"cut{k + 1:00}"), new[] { CalOff }); }
+            catch (ArgumentException e) { failed = true; SetItem(f, j.Id, c.Id, false, "카메라 스크립트를 만들 수 없는 컷입니다: " + e.Message); continue; } // a cut saved before validation tightened
+            var res = Render(work, j.Model, script, stop);
             if (res.Dialogs.Count > 0) say($"{label}: 대화상자 {string.Join(", ", res.Dialogs)}");
             if (!res.Ok)
             {

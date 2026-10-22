@@ -138,9 +138,9 @@ ol.cl{list-style:none;margin:0;padding:0;display:grid;gap:6px}
   <fieldset id="holdSet"><legend>촬영 시간(시뮬레이션 초)</legend>
    <div class="r"><label for="dur">길이</label><div class="in"><input type="number" id="dur" min="1" value="600"><span class="u">초</span></div></div></fieldset>
   <fieldset id="moveSet" hidden><legend>A → B 이동(시뮬레이션 초)</legend>
-   <div class="r"><label for="holdA">A에서</label><div class="in"><input type="number" id="holdA" min="0" value="120"><span class="u">초</span></div></div>
-   <div class="r"><label for="moveS">이동</label><div class="in"><input type="number" id="moveS" min="0" value="60"><span class="u">초</span></div></div>
-   <div class="r"><label for="holdB">B에서</label><div class="in"><input type="number" id="holdB" min="0" value="120"><span class="u">초</span></div></div></fieldset>
+   <div class="r"><label for="holdA">A에서</label><div class="in"><input type="number" id="holdA" min="1" value="120"><span class="u">초</span></div></div>
+   <div class="r"><label for="moveS">이동</label><div class="in"><input type="number" id="moveS" min="1" value="60"><span class="u">초</span></div></div>
+   <div class="r"><label for="holdB">B에서</label><div class="in"><input type="number" id="holdB" min="1" value="120"><span class="u">초</span></div></div></fieldset>
   <div class="r"><label for="speedN">배속</label><div class="in"><input type="range" id="speed" min="0" max="1000" aria-label="배속 슬라이더"><input type="number" id="speedN" min="1" max="600" value="10"><span class="u">배</span></div></div>
   <div class="r"><label for="tiltN">기울기</label><div class="in"><input type="range" id="tilt" min="0" max="70" value="0" aria-label="기울기 슬라이더"><input type="number" id="tiltN" min="0" max="70" value="0"><span class="u">°</span></div></div>
   <div class="r"><label for="dirN">방향</label><div class="in"><span class="seg" id="dirs" role="group" aria-label="화면 위쪽 방향"><button type="button" data-d="0">북</button><button type="button" data-d="90">동</button><button type="button" data-d="180">남</button><button type="button" data-d="270">서</button></span><input type="number" id="dirN" min="0" max="359" value="0" aria-label="방향 각도"><span class="u">°</span></div></div>

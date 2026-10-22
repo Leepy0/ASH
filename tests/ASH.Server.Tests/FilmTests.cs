@@ -175,6 +175,22 @@ public class FilmTests
     }
 
     [Fact]
+    public async Task Cut_The_Camera_Script_Rejects_Fails_Alone()
+    {
+        using var env = new JobEnv();
+        var j1 = await Done(env, "분석", "A안");
+        var (_, aid) = Analysis(env);
+        env.Factory.Services.GetRequiredService<CutStore>().Save(aid, new[] { Hold("c1"), Move("c2") });
+        // saved by 0.19.0 before Validate wanted every Move part > 0
+        var cuts = Path.Combine(env.Dir, "jobs", "analyses", aid, "cuts.json");
+        File.WriteAllText(cuts, File.ReadAllText(cuts).Replace("\"holdASec\":120", "\"holdASec\":0"));
+        var f = await Film(env, aid, Body(new[] { "c2", "c1" }, new[] { j1 }));
+        Assert.Equal((1, 1), (f.Done, f.Failed));
+        Assert.Contains("카메라 스크립트", f.Items.Single(i => i.CutId == "c2").Error);
+        Assert.True(f.Items.Single(i => i.CutId == "c1").Ok);
+    }
+
+    [Fact]
     public async Task Hung_AutoView_Stops_The_Film_After_Two_Timeouts()
     {
         using var env = new JobEnv();

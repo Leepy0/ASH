@@ -82,6 +82,8 @@ public sealed class CutStore
             if (!(c.DirDeg >= 0 && c.DirDeg < 360)) return at + ": 방향은 0~359°입니다.";
             if (!Time(c.StartSec) || !Time(c.HoldSec) || !Time(c.HoldASec) || !Time(c.MoveSec) || !Time(c.HoldBSec)) return at + ": 시각과 시간은 0초 이상이어야 합니다.";
             if (!(c.SimSeconds > 0)) return at + ": 촬영 시간은 0초보다 길어야 합니다.";
+            // CameraScript needs every Move part: a 0 s hold would put two time statements on one instant (unverified in AutoView)
+            if (c.Kind == CutKind.Move && !(c.HoldASec > 0 && c.MoveSec > 0 && c.HoldBSec > 0)) return at + ": A에서·이동·B에서 시간은 각각 0초보다 길어야 합니다.";
             if (!Area(c.A)) return at + ": 구역 A가 없거나 크기가 0입니다.";
             if (c.Kind == CutKind.Move && c.B == null) return at + ": A → B 이동에는 구역 B가 필요합니다.";
             if (c.B != null && !Area(c.B)) return at + ": 구역 B의 크기가 0입니다.";

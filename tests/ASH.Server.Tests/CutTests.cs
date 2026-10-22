@@ -85,11 +85,17 @@ public class CutTests
     [InlineData("noB", "구역 B")]
     [InlineData("name", "이름은 1~60자")]
     [InlineData("dup", "id가 겹칩니다")]
+    [InlineData("holdA0", "각각 0초보다")]
+    [InlineData("move0", "각각 0초보다")]
+    [InlineData("holdB0", "각각 0초보다")]
     public void Validate_Gives_Korean_Reasons(string what, string reason)
     {
         var c = Hold();
         CutSpec[] list = what switch
         {
+            "holdA0" => new[] { Move() with { HoldASec = 0 } },
+            "move0" => new[] { Move() with { MoveSec = 0 } },
+            "holdB0" => new[] { Move() with { HoldBSec = 0 } },
             "tilt" => new[] { c with { TiltDeg = 80 } },
             "speed" => new[] { c with { Speed = 0.5 } },
             "dir" => new[] { c with { DirDeg = 360 } },
