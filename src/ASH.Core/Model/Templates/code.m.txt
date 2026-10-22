@@ -26,7 +26,9 @@ begin model initialization function
 	end
 	read V_tok, V_simLen, V_warmup, V_deadlockSec from V_fp
 	read V_tok, V_debug from V_fp
-	read V_tok, V_events from V_fp
+	set V_events to 0
+	read V_tok from V_fp
+	if V_tok = "EVENTS" then read V_events from V_fp
 	close V_fp
 	set V_fp to null
 	if V_events = 1 then begin

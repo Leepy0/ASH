@@ -162,6 +162,34 @@ public class ModelRunIntegrationTests
         Cleanup(run.Work);
     }
 
+    // a 0.19 model on a 0.18 server (or ash-run): params.txt ends "DEBUG n / END" with no EVENTS line, and the model must still finish
+    [SkippableFact]
+    public void Run_Accepts_Params_With_And_Without_Events_Line()
+    {
+        Skip.If(AmHome is null, "ASH_AM_HOME not set");
+        var input = LogicGeneratorTests.Sample();
+        var run = BuildAndRun(input, 1);
+        var text = ParamsFile.Render(input, new RunScenario(1, new Dictionary<string, int> { ["G1"] = 1 }, Events: true));
+        var old = string.Join("\n", text.Split('\n').Where(x => !x.StartsWith("EVENTS ")));
+        Assert.Contains("DEBUG 0\nEND", old);
+        foreach (var (p, events) in new[] { (old, false), (text, true) })
+        {
+            foreach (var n in new[] { "result.tsv", "events.tsv" }) File.Delete(Path.Combine(run.Work, n));
+            File.WriteAllText(Path.Combine(run.Work, Model + ".arc", "params.txt"), p);
+            using (var proc = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Path.Combine(run.Work, Model + ".exe"), "-w") { WorkingDirectory = run.Work, UseShellExecute = false })!)
+            using (DialogCloser.Start(proc.Id, new[] { "Authorization" }, _ => { }, "Student Version"))
+            {
+                var exited = proc.WaitForExit(120_000);
+                if (!exited) { proc.Kill(); proc.WaitForExit(5000); }
+                Assert.True(exited, "model hung with params:\n" + p);
+                Assert.Equal(0, proc.ExitCode);
+            }
+            Assert.Equal(run.Tsv, File.ReadAllText(Path.Combine(run.Work, "result.tsv")));
+            Assert.Equal(events, File.Exists(Path.Combine(run.Work, "events.tsv")));
+        }
+        Cleanup(run.Work);
+    }
+
     [SkippableFact]
     public void Run_Two_Scenarios_Concurrently_In_Separate_Work_Slots()
     {

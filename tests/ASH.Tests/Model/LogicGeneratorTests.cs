@@ -112,7 +112,7 @@ public class LogicGeneratorTests
     public void Render_Opens_Events_File_Only_When_Asked()
     {
         var t = LogicGenerator.Render(Sample(), Layout);
-        Assert.Contains("read V_tok, V_events from V_fp", t);
+        Assert.Contains("if V_tok = \"EVENTS\" then read V_events from V_fp", t); // params.txt from an older server ends DEBUG n / END
         Assert.Contains("open \"events.tsv\" for writing save result as V_ev", t);
         Assert.Contains("if V_events = 1", t);
         foreach (var line in t.Split('\n').Where(l => l.Contains("to V_ev") && !l.Contains("t\\tkind")))
