@@ -94,7 +94,8 @@ public sealed class JobEnv : IDisposable
 
     /// <summary>A project folder as AGVMODEL leaves it (model files + cell snapshot), packed the way the plugin packs it.</summary>
     /// <param name="dx">shifts the whole layout along X (metres), for versions whose layouts sit in different places</param>
-    public static string MakePackage(string root, string model = "m", double dx = 0)
+    /// <param name="addFiles">writes extra files (drawing.dxf, the frame) into the project folder before it is packed</param>
+    public static string MakePackage(string root, string model = "m", double dx = 0, Action<string>? addFiles = null)
     {
         var proj = Path.Combine(root, "proj-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(proj);
@@ -113,6 +114,7 @@ public sealed class JobEnv : IDisposable
         var r = ModelBuilder.Build(new ModelBuildRequest(proj, model, input, l, new ExportOptions(Groups: groups)), null, TimeSpan.Zero);
         Assert.DoesNotContain(r.Findings, f => f.Code == FindingCode.InputError);
         File.Delete(xlsx); // the plugin does not send the workbook
+        addFiles?.Invoke(proj);
         var zip = Path.Combine(root, "pkg-" + Guid.NewGuid().ToString("N") + ".zip");
         JobPackage.Create(proj, model, zip);
         return zip;

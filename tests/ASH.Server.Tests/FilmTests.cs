@@ -329,6 +329,56 @@ public class FilmTests
         Assert.Equal(FilmWorker.NoEvents, JsonDocument.Parse(none).RootElement.GetProperty("none").GetString());
     }
 
+    /// <summary>A wall box around the 10 m loop, a cross inside it and a long line out to the east (the drawing is bigger than the layout).</summary>
+    static void Drawing(string proj)
+    {
+        var sb = new StringBuilder("0\nSECTION\n2\nENTITIES\n");
+        void Line(double x1, double y1, double x2, double y2, string layer) =>
+            sb.Append(System.FormattableString.Invariant($"0\nLINE\n8\n{layer}\n10\n{x1}\n20\n{y1}\n11\n{x2}\n21\n{y2}\n"));
+        Line(-3, -3, 14, -3, "WALL"); Line(14, -3, 14, 13, "WALL"); Line(14, 13, -3, 13, "WALL"); Line(-3, 13, -3, -3, "WALL");
+        Line(3, 3, 7, 7, "MARK"); Line(3, 7, 7, 3, "MARK"); Line(14, 5, 30, 5, "WALL");
+        File.WriteAllText(Path.Combine(proj, "drawing.dxf"), sb.Append("0\nENDSEC\n0\nEOF\n").ToString());
+        new ASH.Core.Dxf.ModelFrame("Meters", 0, 0, 1).Write(Path.Combine(proj, ASH.Core.Dxf.ModelFrame.FileName));
+    }
+
+    // the whole film path on this PC: search, scenes, then a plan-view Hold, a Move and a tilted perspective cut with the drawing (ASH_AM_HOME; ffmpeg on PATH).
+    // ASH_FILM_OUT=dir copies the film folder there to look at.
+    [SkippableFact]
+    public async Task Real_AutoMod_Film_Hold_Move_And_Tilt()
+    {
+        var am = Environment.GetEnvironmentVariable("ASH_AM_HOME");
+        Skip.If(am is null, "ASH_AM_HOME not set");
+        using var env = new JobEnv(amHome: am);
+        var form = new MultipartFormDataContent
+        {
+            { new StringContent("Line A"), "project" }, { new StringContent("m"), "model" }, { new StringContent("tester"), "submitter" },
+            { new StringContent("필름 분석"), "analysisName" }, { new StringContent("A안"), "planName" },
+            { new ByteArrayContent(await File.ReadAllBytesAsync(JobEnv.MakePackage(env.Dir, addFiles: Drawing))), "package", "package.zip" },
+        };
+        var j1 = JsonDocument.Parse(await (await env.Http.PostAsync("/api/jobs", form)).Content.ReadAsStringAsync()).RootElement.GetProperty("id").GetString()!;
+        var j = await env.WaitFinished(j1, 1800);
+        Assert.True(j.State == JobState.Done, j.Error + "\n" + File.ReadAllText(env.Store.LogPath(j1)));
+        Console.WriteLine("scenes.json: " + File.ReadAllText(Path.Combine(env.Store.JobDir(j1), "scenes.json")));
+
+        var (_, aid) = Analysis(env);
+        var warm = InputOf(env, j1).Settings.WarmupSec;
+        env.Factory.Services.GetRequiredService<CutStore>().Save(aid, new[]
+        {
+            new CutSpec("hold", "평면 고정", CutKind.Hold, warm + 600, 300, new Rect(-1, -1, 12, 12), null, 0, 0, 0, 30, 0, 0, false, true),
+            new CutSpec("move", "L001에서 U001로", CutKind.Move, warm + 1000, 0, new Rect(7, 2, 6, 6), new Rect(-1, 7, 6, 6), 60, 60, 60, 18, 0, 0, false, true),
+            new CutSpec("tilt", "기울인 원근", CutKind.Hold, warm + 1400, 300, new Rect(-3, -3, 17, 16), null, 0, 0, 0, 30, 45, 30, true, true),
+        });
+        var f = await Film(env, aid, Body(new[] { "hold", "move", "tilt" }, new[] { j1 }));
+        var dir = env.Factory.Services.GetRequiredService<FilmStore>().FilmDir(f.Id);
+        var log = File.ReadAllText(Path.Combine(dir, "film.log"));
+        Console.WriteLine(log);
+        if (Environment.GetEnvironmentVariable("ASH_FILM_OUT") is { Length: > 0 } outDir)
+            foreach (var file in Directory.GetFiles(dir)) { Directory.CreateDirectory(outDir); File.Copy(file, Path.Combine(outDir, Path.GetFileName(file)), true); }
+        Assert.True((f.Done, f.Failed) == (3, 0), log + string.Join("\n", f.Items.Select(i => i.Label + ": " + i.Error)));
+        Assert.True(f.JoinedOk, log);
+        Assert.Contains("F0 보정", log);
+    }
+
     [Fact]
     public async Task Local_Result_Gets_No_Auto_Scene_Run()
     {
