@@ -22,7 +22,7 @@ public class CameraScriptTests
         Assert.Contains("define movie spec", l); Assert.Contains("end movie spec", l);
         Assert.Contains("format mp4", l); Assert.Contains("filename \"C:\\job\\cut01\"", l);   // guide 3.6
         Assert.Contains("width 1280", l); Assert.Contains("height 720", l); Assert.Contains("quality 80", l); Assert.Contains("framespersec 15", l);
-        int jump = Idx(l, "jump to time 400"), view = Idx(l, "view focus relative to world"), rec = Idx(l, "record movie");
+        int jump = Idx(l, "time 400"), view = Idx(l, "view focus relative to world"), rec = Idx(l, "record movie");
         Assert.True(0 < jump && jump < view && view < rec);
         Assert.True(Idx(l, "end movie spec") < jump);                               // movie spec before the first time statement
         Assert.Equal("time 420", l[rec + 1]);                                       // guide 9 (1): t1 = t0 + HoldSec (simulation seconds)
@@ -33,20 +33,20 @@ public class CameraScriptTests
     [Fact]
     public void Script_Move_Has_Pan_With_MoveSec()
     {
-        // guide 9 (2): N=3, M=4, L=5 video seconds at k=10 -> t0=400, 430, 470, 520
+        // guide 9 (2): N=3, M=4, L=5 simulation seconds -> t0=400, 403, 407, 412
         var l = Lines(Build(Move()));
-        int rec = Idx(l, "record movie"), t1 = Idx(l, "time 430");
+        int rec = Idx(l, "record movie"), t1 = Idx(l, "time 403");
         Assert.Equal(1, l.Count(x => x == "record movie"));
         Assert.True(rec > 0 && rec < t1);
         Assert.Equal("pan to next view", l[t1 + 1]);
-        Assert.Equal("time 470", l[t1 + 2]);
+        Assert.Equal("time 407", l[t1 + 2]);
         Assert.StartsWith("view focus relative to world", l[t1 + 3]);
         Assert.Contains("upvector 0, 0, 1 scale ", l[t1 + 3]);                      // tilted: up = +Z
-        Assert.Equal("time 520", l[t1 + 4]);
+        Assert.Equal("time 412", l[t1 + 4]);
         Assert.Equal("generate movie", l[t1 + 5]);
         Assert.Equal(2, l.Count(x => x.StartsWith("view focus")));
-        Assert.Equal(120.0, Move().SimSeconds);
-        Assert.Equal(12.0, Move().VideoSeconds);
+        Assert.Equal(12.0, Move().SimSeconds);
+        Assert.Equal(1.2, Move().VideoSeconds, 9);
     }
 
     [Fact]

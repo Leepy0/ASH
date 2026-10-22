@@ -73,6 +73,17 @@ public class CameraMathTests
     }
 
     [Fact]
+    public void Frame_Small_Tilt_Snaps_To_Top_View_And_Rejects_Bad_Input()
+    {
+        var v = CameraMath.Frame(A, Um, 81, 1280, 720, 3, 0);
+        Assert.Equal((0.0, 1.0, 0.0), (v.UpX, v.UpY, v.UpZ)); Assert.Equal(v.FocusX, v.CamX, 6); Assert.Equal(v.FocusY, v.CamY, 6);
+        Assert.Throws<ArgumentOutOfRangeException>(() => CameraMath.Frame(A, Um, 81, 1280, 720, -1, 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => CameraMath.Frame(A, Um, 81, 1280, 720, 71, 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => CameraMath.Frame(A, Um, 81, 720, 1280, 0, 0));
+        CameraMath.Frame(A, Um, 81, 1280, 720, 70, 0); // boundary allowed
+    }
+
+    [Fact]
     public void TimeScale_10x_15fps()
     {
         Assert.Equal(1.3333, CameraMath.TimeScale(10, 15), 4);   // guide 5.1 (m1: 1.3333 @ 15 fps = 9.97x)

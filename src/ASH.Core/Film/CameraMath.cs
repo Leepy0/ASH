@@ -16,6 +16,9 @@ public static class CameraMath
     public static View Frame(Rect r, double unitsPerMeter, double f0Metres, int width, int height, double tiltDeg, double dirDeg, double margin = 0.08,
         double heightMetres = 0, bool perspective = false)
     {
+        if (tiltDeg < 0 || tiltDeg > 70) throw new ArgumentOutOfRangeException(nameof(tiltDeg), "tilt must be 0..70");
+        if (width < height) throw new ArgumentOutOfRangeException(nameof(width), "width must be >= height (F0 is the short-side field)");
+        if (tiltDeg < 5) tiltDeg = 0; // a near-vertical sight line makes upvector (0,0,1) degenerate: use the plan view
         double th = tiltDeg * Math.PI / 180, ph = dirDeg * Math.PI / 180;
         double sT = Math.Sin(th), cT = Math.Cos(th), sP = Math.Sin(ph), cP = Math.Cos(ph);
         double[] d = { sT * sP, sT * cP, -cT }, right = { cP, -sP, 0 }, up = { cT * sP, cT * cP, sT };

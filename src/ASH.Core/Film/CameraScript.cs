@@ -11,7 +11,8 @@ public static class CameraScript
     static string N(double v, string fmt = "0.####") => (v + 0.0).ToString(fmt, CultureInfo.InvariantCulture);
 
     /// <summary>Camera script for <paramref name="cut"/> (syntax: guide 3, recipes: guide 9). <paramref name="movieFile"/> has no extension (AutoView adds .mp4).
-    /// Cut times are simulation seconds from <see cref="CutSpec.StartSec"/>; Hold records HoldSec, Move holds A, pans to B, holds B (video seconds x Speed).</summary>
+    /// Cut times are simulation seconds from <see cref="CutSpec.StartSec"/>; Hold records HoldSec, Move holds A for HoldASec, pans to B over MoveSec, holds B for HoldBSec (all simulation seconds).
+    /// The scene height is taken as Hz = 0, so tall objects (vehicles, racks) may be clipped at high tilt.</summary>
     public static string Build(CutSpec cut, double f0Metres, int width, int height, int fps, int quality, string movieFile)
     {
         bool move = cut.Kind == CutKind.Move;
@@ -42,15 +43,14 @@ public static class CameraScript
         L("end movie spec");
 
         double t0 = cut.StartSec;
-        L("jump to time " + N(t0));
+        L("time " + N(t0));
         L(V(cut.A));
         L("record movie");
         if (move)
         {
-            double k = cut.Speed;
-            L("time " + N(t0 + cut.HoldASec * k));
+            L("time " + N(t0 + cut.HoldASec));
             L("pan to next view");
-            L("time " + N(t0 + (cut.HoldASec + cut.MoveSec) * k));
+            L("time " + N(t0 + cut.HoldASec + cut.MoveSec));
             L(V(cut.B!));
             L("time " + N(t0 + cut.SimSeconds));
         }
