@@ -41,6 +41,7 @@ ASH.Server - ASH 배포 서버 (최소판)
                       params.txt, run.bat 을 zip 으로 받는다. AutoMod 가 있는 PC 에서 풀고 run.bat 을 누르면 그 실행을 창으로 본다.
                       run.bat 의 AutoMod 폴더 기본값은 이 서버의 AmHome 이다.
    를 확인한다. 환경 변수 Admin__Token 으로 토큰을 줄 수도 있다.
+   설치 뒤에는 Admin:Token 을 넣어 두면 브라우저 http://서버:8082/admin/settings 에서 위 값을 바꿀 수 있다(아래 "웹 설정").
    설치 폴더 권한을 관리자로 제한한다(토큰을 넣었다면 토큰 보호):
      icacls "C:\Program Files\ASH.Server" /inheritance:r /grant:r "Administrators:(OI)(CI)F" "SYSTEM:(OI)(CI)F"
 3. 배포 폴더(Releases:Dir)를 먼저 만들고 권한을 잠근 다음에 서비스를 등록한다(순서 필수. 서비스가 먼저 만들면
@@ -92,6 +93,22 @@ ASH.Server - ASH 배포 서버 (최소판)
   잃어버리면 새 키를 자동 업데이트로 보낼 수 없어 모든 PC 에 ASH-Setup 을 직접 다시 설치해야 한다.
 - Update:PublicKeyPem 설정은 시험/개발용 덮어쓰기다. 서명을 쓰는 운영에서는 설정하지 말 것
   (설정하면 내장 공개키를 대체하고 경고 로그가 남는다. 빈 값은 개발 환경에서만 "키 없음"으로 쓰인다).
+
+웹 설정 (/admin/settings, 상단 메뉴 "설정")
+- Admin:Token(16자 이상)이 있어야 열린다. 처음에 토큰을 한 번 입력하면 브라우저에 HttpOnly·SameSite=Strict 쿠키(서버만 아는 무작위
+  세션 ID, 8시간, 서버를 다시 시작하면 로그아웃)가 남는다. 토큰 자체는 쿠키나 페이지에 들어가지 않는다. 다른 사이트에서 온 POST 는
+  Origin 검사로 거절한다. 스크립트는 X-ASH-Admin-Token 헤더로 같은 주소에 POST 해도 된다.
+- 바꿀 수 있는 값: Jobs(Enabled, WorkerEnabled, AmHome, Parallel, DialogButton, RunTimeoutMin, BuildTimeoutMin, JobTimeoutHours,
+  KeepRunsDays, Dir), GitHub(Enabled, BaseUrl, CheckIntervalMin, UpdateServer, Proxy, Dns), Urls, Releases:Dir, Update:AllowUnsigned.
+  Admin:Token, Update:PublicKeyPem, Logging 은 웹에서 바꾸지 않는다(파일을 직접 고친다).
+- 바로 적용(저장하면 다음 작업·다음 정리부터): Jobs:Enabled, AmHome, Parallel, DialogButton, RunTimeoutMin, BuildTimeoutMin,
+  JobTimeoutHours, KeepRunsDays.  재시작 필요: 나머지 전부(Jobs:WorkerEnabled, Jobs:Dir, GitHub:*, Urls, Releases:Dir, Update:AllowUnsigned).
+- 저장은 값을 검사(정수 범위, 켬/끔, 주소 형식)한 뒤 appsettings.json 을 임시 파일로 쓰고 바꿔 넣는다. 이전 파일은
+  appsettings.json.yyyyMMdd-HHmmss.bak 으로 남는다. 모르는 키는 그대로 두지만 파일 안의 // 주석은 없어진다(.bak 에는 남음).
+  AmHome 에 AutoMod 빌드 exe 가 없으면 경고만 하고 저장한다.
+- "서비스 다시 시작"은 자동 업데이트와 같은 update\apply-update.bat 을 파일 교체 없이 돌려 sc stop / sc start 한다(update\apply.log).
+  작업이 실행 중이면 확인란을 체크해야 하고, 그 작업은 실패로 남는다. 콘솔로 실행 중이면 버튼이 없다(직접 다시 실행).
+  서비스 계정이 설치 폴더에 쓸 수 없으면(LocalService) 저장이 실패하고 파일은 그대로다.
 
 운영
 - 백업: Releases:Dir 폴더 전체와 appsettings.json. 복원: 서비스를 멈추고 복사해 넣은 뒤(폴더 권한 확인) sc start ASH.Server.

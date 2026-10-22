@@ -58,7 +58,24 @@ public sealed class ServerUpdater
             : !ServiceUsesThisExe() ? $"서비스 {ServiceCommand.ServiceName}에 등록된 exe가 지금 실행 중인 exe가 아님"
             : null;
         if (DisabledReason != null) LastResult = "자동 교체 안 함: " + DisabledReason;
+        RestartDisabledReason = !OperatingSystem.IsWindows() || !WindowsServiceHelpers.IsWindowsService() ? "Windows 서비스로 실행 중이 아님(콘솔 실행) — 직접 끄고 다시 실행하세요"
+            : !ServiceUsesThisExe() ? $"서비스 {ServiceCommand.ServiceName}에 등록된 exe가 지금 실행 중인 exe가 아님"
+            : null;
         PreviousRun = ReportPreviousRun();
+    }
+
+    /// <summary>Why the settings page cannot restart this process; null = it can (the registered service runs this exe).</summary>
+    public string? RestartDisabledReason { get; }
+
+    /// <summary>
+    /// Restarts the service the way an update does, without swapping files: apply-update.bat with stage "-" stops the service, waits for this
+    /// process to exit and starts it again. A process cannot restart its own service synchronously, so the detached batch does it.
+    /// </summary>
+    public async Task RestartAsync()
+    {
+        if (RestartDisabledReason != null) throw new InvalidOperationException(RestartDisabledReason);
+        Directory.CreateDirectory(_dir);
+        await RunBatchAsync("-", Current, apply: false);
     }
 
     [SupportedOSPlatform("windows")]
@@ -122,14 +139,15 @@ public sealed class ServerUpdater
         return $"{m.Version} 적용 중 — 서비스가 재시작됩니다(약 10초)";
     }
 
-    private async Task RunBatchAsync(string stage, string version)
+    /// <summary>apply=false: restart only (stage "-"), nothing is reported at the next start.</summary>
+    private async Task RunBatchAsync(string stage, string version, bool apply = true)
     {
         var pending = Path.Combine(_dir, "pending.txt");
         try
         {
             File.WriteAllText(Path.Combine(_dir, BatchName), BatchText.ReplaceLineEndings("\r\n"), Encoding.ASCII); // cmd breaks on non-ASCII without a BOM
             File.WriteAllText(Path.Combine(_dir, "exclude.txt"), "appsettings.json\r\n");
-            File.WriteAllText(pending, "apply " + version);
+            if (apply) File.WriteAllText(pending, "apply " + version);
             var health = HealthUrl(_server.Features.Get<IServerAddressesFeature>()?.Addresses ?? []);
             var args = Arguments(Environment.ProcessId, AppContext.BaseDirectory, stage, ServiceCommand.ServiceName, health, version);
             File.Delete(Path.Combine(_dir, StartedFile));
@@ -139,12 +157,12 @@ public sealed class ServerUpdater
             using (Process.Start(psi)) { }
             if (!await WaitStartedAsync(_dir, BatchStartTimeout))
                 throw new InvalidOperationException($"교체 배치가 {BatchStartTimeout.TotalSeconds:0}초 안에 시작되지 않음 — 서버는 그대로 실행합니다(update\\apply.log 확인)");
-            _log.LogWarning("서버 자동 업데이트: {Version} 교체 배치 시작 ({Args})", version, args);
+            _log.LogWarning(apply ? "서버 자동 업데이트: {Version} 교체 배치 시작 ({Args})" : "설정 페이지 요청: {Version} 서비스 재시작 배치 시작 ({Args})", version, args);
             _ = Task.Delay(1500).ContinueWith(_ => _life.StopApplication());
         }
         catch
         {
-            TryDeleteFile(pending); // not run: do not report it at the next start
+            if (apply) TryDeleteFile(pending); // not run: do not report it at the next start
             TryDeleteFile(Path.Combine(_dir, TicketFile)); // a batch that starts late must not claim it
             throw;
         }
@@ -287,6 +305,8 @@ public sealed class ServerUpdater
 
         :swap_files
         timeout /t 1 /nobreak >nul
+        rem stage "-" = restart only (settings page): no files to swap
+        if "%STAGE%"=="-" (>>"%LOG%" echo [%date% %time%] restart only& goto start_only)
         rem the current exe waits as .prev; the existing .old (rollback point) is replaced only after the new exe is in place
         if exist "%EXE%.prev" del /f /q "%EXE%.prev"
         ren "%EXE%" ASH.Server.exe.prev >>"%LOG%" 2>&1

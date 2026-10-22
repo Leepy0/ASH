@@ -10,19 +10,33 @@ namespace ASH.Server;
 /// nothing is loaded from another host (intranet).</summary>
 public static class JobPages
 {
-    static string H(string? t) => WebUtility.HtmlEncode(t ?? "");
+    internal static string H(string? t) => WebUtility.HtmlEncode(t ?? "");
     static string F(double d, string fmt = "0.##") => double.IsNaN(d) || double.IsInfinity(d) ? "-" : d.ToString(fmt, CultureInfo.InvariantCulture);
     static string Pct(double d) => double.IsNaN(d) ? "-" : P(d) + "%";
     /// <summary>Percent without the sign, for table cells whose header carries "(%)".</summary>
     static string P(double d) => double.IsNaN(d) ? "-" : (d * 100).ToString("0.0", CultureInfo.InvariantCulture);
-    static string When(DateTime? utc) => utc is { } t ? SeoulTime.Text(t) : "-";
-    static string Dur(TimeSpan? d) => d is { } x ? (x.TotalHours >= 1 ? $"{(int)x.TotalHours}시간 {x.Minutes}분" : x.TotalMinutes >= 1 ? $"{(int)x.TotalMinutes}분 {x.Seconds}초" : $"{x.Seconds}초") : "-";
+    internal static string When(DateTime? utc) => utc is { } t ? SeoulTime.Text(t) : "-";
+    internal static string Dur(TimeSpan? d) => d is { } x ? (x.TotalHours >= 1 ? $"{(int)x.TotalHours}시간 {x.Minutes}분" : x.TotalMinutes >= 1 ? $"{(int)x.TotalMinutes}분 {x.Seconds}초" : $"{x.Seconds}초") : "-";
 
     const string Css = @"
-body{font-family:'Malgun Gothic','Segoe UI',sans-serif;margin:0;color:#2c2c2a;background:#fafaf7}
-header{background:#1f3a5f;color:#fff;padding:12px 24px}header a{color:#fff;text-decoration:none;margin-right:18px}
-main{padding:20px 24px;max-width:1200px}
+body{font-family:'Malgun Gothic','Segoe UI',sans-serif;margin:0;color:#2c2c2a;background:#fafaf7;line-height:1.45}
+header{background:#1f3a5f;color:#fff;padding:12px 24px}header a{color:#fff;text-decoration:none;margin-right:18px}header a:hover{text-decoration:underline}
+main{padding:20px 24px;max-width:1200px;overflow-x:auto}
 h1{font-size:22px;font-weight:600;margin:0 0 12px}h2{font-size:17px;margin:24px 0 8px}
+a{color:#185fa5}code{font-family:Consolas,monospace;font-size:12px;color:#5f5e5a}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-top:16px}
+.box{background:#fff;border:1px solid #d3d1c7;border-radius:10px;padding:14px 18px;margin-top:16px}.grid .box{margin-top:0}.box h2{margin:0 0 10px}
+.box-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+dl.kv{display:grid;grid-template-columns:max-content 1fr;gap:6px 14px;margin:0;font-size:14px}dl.kv dt{color:#5f5e5a}dl.kv dd{margin:0;overflow-wrap:anywhere}
+details summary{cursor:pointer;color:#185fa5;font-size:14px;margin-top:10px}
+.msg{padding:10px 14px;border-radius:8px;margin:10px 0}.msg.ok{background:#eaf3de}.msg.bad{background:#fcebeb}.msg.warn{background:#faeeda;color:#633806}
+.field{display:grid;grid-template-columns:200px 1fr;gap:4px 16px;padding:10px 0;border-top:1px solid #eeede8}.field:first-of-type{border-top:none}
+.field label{font-weight:600;font-size:14px;padding-top:6px}.help{font-size:13px;color:#5f5e5a;margin-top:4px}
+input[type=text],input[type=number],input[type=password],select{font:inherit;padding:6px 8px;border:1px solid #b4b2a9;border-radius:6px;width:100%;max-width:420px;box-sizing:border-box;background:#fff}
+.tag{display:inline-block;font-size:12px;padding:1px 7px;border-radius:8px;background:#eaf3de;color:#27500a;margin-left:6px}.tag.rs{background:#faeeda;color:#633806}
+.actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px}
+button.primary{background:#1f3a5f;color:#fff;border:1px solid #1f3a5f;border-radius:6px;padding:7px 16px;font:inherit;cursor:pointer}
+.scroll{overflow-x:auto;max-width:100%}.scroll td,.scroll th{white-space:nowrap}.box,.grid>*{min-width:0}
 table{border-collapse:collapse;background:#fff}td,th{border:1px solid #d3d1c7;padding:6px 10px;text-align:left;font-size:14px}th{background:#f1efe8}
 .num{text-align:right}.muted{color:#888780}.bad{color:#a32d2d}.ok{color:#3b6d11}
 .cards{display:flex;gap:14px;flex-wrap:wrap}.card{background:#fff;border:1px solid #d3d1c7;border-radius:10px;padding:14px 18px;min-width:200px}
@@ -36,7 +50,9 @@ table{border-collapse:collapse;background:#fff}td,th{border:1px solid #d3d1c7;pa
 pre{background:#f1efe8;padding:10px;overflow:auto;max-height:420px;font-size:12px}
 button{padding:6px 14px}
 th button{all:unset;cursor:pointer}th button:focus-visible{outline:2px solid #185fa5}
-th[aria-sort=ascending] button::after{content:' ▲'}th[aria-sort=descending] button::after{content:' ▼'}";
+th[aria-sort=ascending] button::after{content:' ▲'}th[aria-sort=descending] button::after{content:' ▼'}
+@media (max-width:640px){header{padding:10px 16px}header a{margin-right:12px}main{padding:16px}.card{min-width:0;flex:1 1 130px;padding:10px 14px}.card .big{font-size:22px}
+.grid{grid-template-columns:1fr}dl.kv,.field{grid-template-columns:1fr}dl.kv dt{margin-top:6px}.field label{padding-top:0}}";
 
     /// <summary>Click a header button of a table.sort to sort its rows; numbers as numbers ("-" last), text in Korean order with digits as numbers.</summary>
     const string SortScript = @"<script>
@@ -65,10 +81,11 @@ document.querySelectorAll('table.sort').forEach(function(t){
     static string Th(string label) => $"<th aria-sort=\"none\"><button type=\"button\">{label}</button></th>";
 
     public static string Page(string title, string body, bool refresh = false) =>
-        "<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\"><title>" + H(title) + "</title>" + (refresh ? "<meta http-equiv=\"refresh\" content=\"10\">" : "") +
-        "<style>" + Css + "</style></head><body><header><a href=\"/jobs\"><b>ASH 서버</b></a><a href=\"/jobs\">작업 대기열</a><a href=\"/\">배포</a></header><main>" + body + "</main></body></html>";
+        "<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" + H(title) + "</title>" +
+        (refresh ? "<meta http-equiv=\"refresh\" content=\"10\">" : "") +
+        "<style>" + Css + "</style></head><body><header><a href=\"/\"><b>ASH 서버</b></a><a href=\"/\">홈</a><a href=\"/jobs\">작업</a><a href=\"/admin/settings\">설정</a></header><main>" + body + "</main></body></html>";
 
-    static string State(JobInfo j) => $"<span class=\"state s-{H(j.State)}\">{H(JobState.Korean(j.State))}</span>";
+    internal static string State(JobInfo j) => $"<span class=\"state s-{H(j.State)}\">{H(JobState.Korean(j.State))}</span>";
 
     public static string List(IReadOnlyList<JobInfo> jobs, (int Ahead, DateTime? Start, TimeSpan? Typical) q, bool workerEnabled)
     {
@@ -76,7 +93,14 @@ document.querySelectorAll('table.sort').forEach(function(t){
         sb.Append("<p>").Append(workerEnabled ? "" : "<b class=\"bad\">이 서버는 작업을 실행하지 않습니다(Jobs:WorkerEnabled=false).</b> ")
           .Append($"대기 {q.Ahead}건").Append(q.Typical is { } t ? $" · 보통 한 작업 {Dur(t)}" : "").Append(q.Start is { } s ? $" · 지금 보내면 시작 예상 {H(SeoulTime.Text(s))}" : "").Append("</p>");
         sb.Append("<p class=\"muted\">작업은 ZWCAD의 ASH에서 \"서버로 보내기\"로 올립니다. 먼저 온 순서로 하나씩 실행합니다.</p>");
-        sb.Append("<table><tr><th>작업</th><th>상태</th><th>프로젝트 / 안</th><th>모델</th><th>보낸 사람</th><th>보낸 시각(서울)</th><th>실행(회)</th><th>권장 총 대수(대)</th></tr>");
+        JobTable(sb, jobs);
+        return Page("ASH 작업 대기열", sb.ToString(), jobs.Any(j => !j.Finished));
+    }
+
+    /// <summary>The job table of /jobs, also the "최근 작업" box of the home page.</summary>
+    internal static void JobTable(StringBuilder sb, IReadOnlyList<JobInfo> jobs)
+    {
+        sb.Append("<div class=\"scroll\"><table><tr><th>작업</th><th>상태</th><th>프로젝트 / 안</th><th>모델</th><th>보낸 사람</th><th>보낸 시각(서울)</th><th>실행(회)</th><th>권장 총 대수(대)</th></tr>");
         foreach (var j in jobs)
         {
             var total = j.Decided?.Values.Sum();
@@ -85,8 +109,7 @@ document.querySelectorAll('table.sort').forEach(function(t){
                 $"<td class=\"num\">{(total is { } n ? n.ToString(CultureInfo.InvariantCulture) : "-")}</td></tr>");
         }
         if (jobs.Count == 0) sb.Append("<tr><td colspan=\"8\" class=\"muted\">아직 작업이 없습니다.</td></tr>");
-        sb.Append("</table>");
-        return Page("ASH 작업 대기열", sb.ToString(), jobs.Any(j => !j.Finished));
+        sb.Append("</table></div>");
     }
 
     public static string Job(JobInfo j, JobView? v, string tab, string logTail, (int Ahead, DateTime? Start, TimeSpan? Typical) q, bool canCancel)

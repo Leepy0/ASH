@@ -30,6 +30,8 @@ builder.Services.AddSingleton<JobWorker>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<JobWorker>());
 builder.Services.AddSingleton<JobRetention>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<JobRetention>());
+builder.Services.AddSingleton(sp => new AppSettingsFile(Path.Combine(sp.GetRequiredService<IHostEnvironment>().ContentRootPath, "appsettings.json")));
+builder.Services.AddSingleton<AdminSessions>();
 
 var app = builder.Build();
 app.Services.GetRequiredService<ReleaseStore>(); // bad key/folder/GitHub URL fails at start, not at the first request
@@ -97,32 +99,6 @@ app.MapPost("/api/admin/releases", async (HttpContext ctx, ReleaseStore s, Cance
     catch (InvalidDataException e) { return Msg(400, e.Message); } // malformed multipart
 });
 
-app.MapGet("/", (ReleaseStore s, GitHubSync g, ServerUpdater u, RunnerStore r) =>
-{
-    static string H(string? t) => WebUtility.HtmlEncode(t ?? "");
-    var cur = s.GetCurrent()?.Manifest;
-    var sb = new StringBuilder("<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\"><title>ASH Server</title></head><body><h1>ASH 배포 서버</h1><p><a href=\"/jobs\">작업 대기열과 결과 보기</a></p>");
-    if (cur == null) sb.Append("<p>게시된 버전이 없습니다.</p>");
-    else sb.Append($"<table border=\"1\" cellpadding=\"4\"><tr><th>현재 버전</th><td>{H(cur.Version)}</td></tr><tr><th>최소 지원</th><td>{H(cur.MinSupported)}</td></tr>" +
-        $"<tr><th>게시 시각(서울)</th><td>{H(SeoulTime.FromIso(cur.Published))}</td></tr><tr><th>설치 파일</th><td>{H(cur.File)} ({cur.Size:N0} bytes)</td></tr></table>");
-    sb.Append("<p>무결성 확인: ").Append(s.Key == null
-        ? (s.AllowUnsigned ? "없음 — PC가 github.com 릴리스와 대조해 확인" : "<b>서명 키 없음 — 업로드 거절(Update:AllowUnsigned=false)</b>")
-        : H(s.Key.KeyId)).Append("</p>");
-    sb.Append("<p>GitHub 가져오기: ").Append(g.BaseUrl == null ? "꺼짐" : H(g.BaseUrl) + $" ({g.Interval.TotalMinutes:0}분마다, DNS {(g.DnsServers.Count == 0 ? "PC 기본" : string.Join(", ", g.DnsServers))})")
-      .Append("<br>마지막 확인(서울): ").Append(g.LastCheckUtc is { } t ? H(SeoulTime.Text(t)) + " — " + H(g.LastResult) : H(g.LastResult)).Append("</p>");
-    sb.Append("<p>Runner(ash-run): ").Append(r.Current is { } rc ? H(rc.Version) + $" ({rc.Size:N0} bytes)" : "게시된 버전 없음").Append(" — 마지막 확인: ").Append(H(g.RunnerResult)).Append("</p>");
-    sb.Append("<p>서버 프로그램: ").Append(H(u.Current)).Append(" — 자동 업데이트: ").Append(H(u.LastResult));
-    if (u.PreviousRun != null) sb.Append("<br>지난 업데이트: ").Append(H(u.PreviousRun));
-    sb.Append("</p>");
-    // the clock behind every time on this page: if it differs from the wall clock the PC's own date and time is wrong
-    sb.Append("<p>서버 시각(서울): ").Append(H(SeoulTime.NowText)).Append(" · PC 표준 시간대: ").Append(H(TimeZoneInfo.Local.Id)).Append("</p>");
-    sb.Append("<p>수동 업로드: ").Append(s.UploadsEnabled ? "가능" : "꺼짐(Admin:Token 미설정 또는 짧음, GitHub 가져오기만 사용)").Append("</p><h2>이전 버전</h2><ul>");
-    foreach (var h in s.History()) sb.Append($"<li>{H(h.Version)} ({H(SeoulTime.FromIso(h.Published))})</li>");
-    sb.Append("</ul></body></html>");
-    return Results.Content(sb.ToString(), "text/html; charset=utf-8");
-});
-
-// ---- jobs: the plugin sends a model, the worker builds it and searches the vehicle counts, the pages show the result ----
 static string ClientIp(HttpContext ctx)
 {
     var a = ctx.Connection.RemoteIpAddress;
@@ -131,6 +107,95 @@ static string ClientIp(HttpContext ctx)
 }
 static bool AcceptsJobs(IConfiguration cfg) => cfg.GetValue("Jobs:Enabled", true);
 static bool WorkerOn(IConfiguration cfg) => cfg.GetValue("Jobs:Enabled", true) && cfg.GetValue("Jobs:WorkerEnabled", true);
+static IResult Html(string html, int status = 200) => Results.Content(html, "text/html; charset=utf-8", Encoding.UTF8, status);
+
+app.MapGet("/", (ReleaseStore s, GitHubSync g, ServerUpdater u, RunnerStore r, JobStore js, IConfiguration cfg) =>
+    Html(ServerPages.Home(new(s, g, u, r, js.All(), js.QueueInfo(), WorkerOn(cfg)))));
+
+// ---- admin pages: settings (appsettings.json) and service restart ----
+// Auth: the X-ASH-Admin-Token header (scripts), or the browser session cookie set by /admin/login after the token was typed once.
+// Forms post with the cookie only from this site: the cookie is SameSite=Strict and every POST must carry an Origin (or Referer) of this host.
+static bool SameOrigin(HttpContext ctx)
+{
+    var o = ctx.Request.Headers.Origin.ToString();
+    if (o.Length == 0) o = ctx.Request.Headers.Referer.ToString();
+    return Uri.TryCreate(o, UriKind.Absolute, out var u) && string.Equals(u.Authority, ctx.Request.Host.Value, StringComparison.OrdinalIgnoreCase);
+}
+static bool HeaderAdmin(HttpContext ctx, ReleaseStore rs) => rs.TokenMatches(ctx.Request.Headers[ReleaseStore.HeaderName].FirstOrDefault());
+static bool CookieAdmin(HttpContext ctx, AdminSessions sessions) => sessions.Valid(ctx.Request.Cookies[AdminSessions.CookieName]);
+// null = allowed, else the answer to send
+static IResult? DenyPost(HttpContext ctx, ReleaseStore rs, AdminSessions sessions)
+{
+    if (!rs.UploadsEnabled) return Msg(403, $"웹 설정이 꺼져 있습니다(Admin:Token이 비어 있거나 {ReleaseStore.MinTokenLength}자 미만).");
+    if (HeaderAdmin(ctx, rs)) return null;
+    if (!CookieAdmin(ctx, sessions)) return Msg(401, "관리자 로그인이 필요합니다(/admin/settings).");
+    return SameOrigin(ctx) ? null : Msg(403, "다른 사이트에서 보낸 요청은 받지 않습니다.");
+}
+static Func<string, string?> FormLookup(IFormCollection f) => k => f.TryGetValue(k, out var v) ? v.ToString() : null;
+static ServerPages.SettingsView View(AppSettingsFile file, ServerUpdater u, JobStore js, Func<string, string?>? submitted = null, SettingsSave? saved = null) =>
+    new(file.Load(), file.Path, submitted, saved, u.RestartDisabledReason, js.All().FirstOrDefault(j => j.State == JobState.Running));
+
+app.MapGet("/admin/settings", (HttpContext ctx, ReleaseStore rs, AdminSessions sessions, AppSettingsFile file, ServerUpdater u, JobStore js) =>
+{
+    ctx.Response.Headers.CacheControl = "no-store";
+    if (!rs.UploadsEnabled || !(HeaderAdmin(ctx, rs) || CookieAdmin(ctx, sessions))) return Html(ServerPages.Login(rs.UploadsEnabled), rs.UploadsEnabled ? 401 : 403);
+    try { return Html(ServerPages.Settings(View(file, u, js))); }
+    catch (Exception e) when (e is System.Text.Json.JsonException or InvalidDataException or IOException)
+    { return Html(ServerPages.Message("서버 설정", $"<div class=\"msg bad\">appsettings.json을 읽을 수 없습니다: {WebUtility.HtmlEncode(e.Message)}</div>"), 500); }
+});
+
+app.MapPost("/admin/login", async (HttpContext ctx, ReleaseStore rs, AdminSessions sessions) =>
+{
+    if (!rs.UploadsEnabled) return Html(ServerPages.Login(false), 403);
+    if (!SameOrigin(ctx)) return Msg(403, "다른 사이트에서 보낸 요청은 받지 않습니다.");
+    var token = ctx.Request.HasFormContentType ? (await ctx.Request.ReadFormAsync())["token"].ToString() : "";
+    if (!rs.TokenMatches(token))
+    {
+        await Task.Delay(1000); // slows guessing; the token is 16+ random characters anyway
+        return Html(ServerPages.Login(true, "토큰이 틀립니다."), 401);
+    }
+    ctx.Response.Cookies.Append(AdminSessions.CookieName, sessions.Create(), new CookieOptions
+    { HttpOnly = true, SameSite = SameSiteMode.Strict, Secure = ctx.Request.IsHttps, Path = "/admin", MaxAge = AdminSessions.Lifetime });
+    return Results.Redirect("/admin/settings");
+});
+
+app.MapPost("/admin/logout", (HttpContext ctx, AdminSessions sessions) =>
+{
+    if (SameOrigin(ctx)) sessions.End(ctx.Request.Cookies[AdminSessions.CookieName]);
+    ctx.Response.Cookies.Delete(AdminSessions.CookieName, new CookieOptions { Path = "/admin" });
+    return Results.Redirect("/");
+});
+
+app.MapPost("/admin/settings", async (HttpContext ctx, ReleaseStore rs, AdminSessions sessions, AppSettingsFile file, ServerUpdater u, JobStore js) =>
+{
+    if (DenyPost(ctx, rs, sessions) is { } deny) return deny;
+    if (!ctx.Request.HasFormContentType) return Msg(400, "폼 데이터가 필요합니다.");
+    var form = FormLookup(await ctx.Request.ReadFormAsync());
+    SettingsSave saved;
+    try { saved = file.Save(form); }
+    catch (Exception e) when (e is System.Text.Json.JsonException or InvalidDataException or IOException or UnauthorizedAccessException)
+    { return Html(ServerPages.Message("서버 설정", $"<div class=\"msg bad\">appsettings.json을 저장하지 못했습니다(바뀐 것 없음): {WebUtility.HtmlEncode(e.Message)}</div><p><a href=\"/admin/settings\">돌아가기</a></p>"), 500); }
+    if (saved.Changed.Count > 0) app.Logger.LogWarning("설정 저장(웹, {Ip}): {Keys}", ClientIp(ctx), string.Join(", ", saved.Changed.Select(d => d.Key)));
+    return Html(ServerPages.Settings(View(file, u, js, saved.Errors.Count > 0 ? form : null, saved)), saved.Errors.Count > 0 ? 400 : 200);
+});
+
+app.MapPost("/admin/restart", async (HttpContext ctx, ReleaseStore rs, AdminSessions sessions, ServerUpdater u, JobStore js) =>
+{
+    if (DenyPost(ctx, rs, sessions) is { } deny) return deny;
+    var confirm = ctx.Request.HasFormContentType && (await ctx.Request.ReadFormAsync())["confirm"] == "1";
+    var back = "<p><a href=\"/admin/settings\">설정으로 돌아가기</a></p>";
+    if (u.RestartDisabledReason != null)
+        return Html(ServerPages.Message("서비스 다시 시작", $"<div class=\"msg bad\">여기서는 다시 시작할 수 없습니다: {WebUtility.HtmlEncode(u.RestartDisabledReason)}</div>{back}"), 409);
+    if (js.All().FirstOrDefault(j => j.State == JobState.Running) is { } running && !confirm)
+        return Html(ServerPages.Message("서비스 다시 시작", $"<div class=\"msg warn\">작업 {WebUtility.HtmlEncode(running.Id)}이(가) 실행 중이라 다시 시작하지 않았습니다. 중단해도 되면 설정 페이지에서 확인란을 체크하고 다시 누르세요.</div>{back}"), 409);
+    try { await u.RestartAsync(); }
+    catch (Exception e) when (e is InvalidOperationException or IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
+    { return Html(ServerPages.Message("서비스 다시 시작", $"<div class=\"msg bad\">다시 시작하지 못했습니다(서버는 그대로 실행 중): {WebUtility.HtmlEncode(e.Message)}</div>{back}"), 500); }
+    app.Logger.LogWarning("서비스 재시작 요청(웹, {Ip})", ClientIp(ctx));
+    return Html(ServerPages.Message("서비스 다시 시작", "<div class=\"msg ok\">다시 시작하는 중입니다. 15초 뒤 홈으로 이동합니다. 열리지 않으면 잠시 뒤 새로 고치세요(결과: 서버 폴더 update\\apply.log).</div>", "/"));
+});
+
+// ---- jobs: the plugin sends a model, the worker builds it and searches the vehicle counts, the pages show the result ----
 
 app.MapGet("/api/jobs/queue", (JobStore js, IConfiguration cfg) =>
 {

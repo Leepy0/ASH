@@ -395,6 +395,6 @@ public class UnitTests
         Assert.Contains("2026-10-21 09:57:15", html);           // published, converted from UTC to Seoul
         Assert.DoesNotContain("2026-10-21T00:57:15Z", html);
         Assert.Contains("서버 시각(서울)", html);                 // the clock behind the page, to spot a wrong PC clock
-        Assert.Matches(@"서버 시각\(서울\): \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", html);
+        Assert.Matches(@"서버 시각\(서울\)</dt><dd>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}", html);
     }
 }

@@ -156,6 +156,25 @@ SYSTEM으로 실행해도 로그온한 대화형 사용자가 있고 그 사용�
 
 ## 5. 서버 운영
 
+홈(`http://<서버>:8082/`)은 위에서부터 지금 실행 중인 작업·대기 건수·배포 버전·서버 버전 카드, 최근 작업 5건(전체는 `/jobs`), 배포(현재 버전, 설치 파일 받기, Runner, 이전 버전), 서버 상태(자동 업데이트, GitHub 가져오기, 무결성 확인, 수동 업로드, 서버 시각) 순서다. 상단 메뉴는 홈 · 작업 · 설정.
+
+### 웹 설정과 서비스 재시작 (`/admin/settings`)
+
+`appsettings.json`의 값을 브라우저에서 바꾼다. `Admin:Token`(16자 이상)이 비어 있으면 페이지가 꺼져 있다.
+
+- **로그인:** 토큰을 한 번 입력하면 서버가 무작위 세션 ID를 만들어 `HttpOnly`, `SameSite=Strict`, `Path=/admin` 쿠키로 준다(8시간, 서버 메모리에만 있어 재시작하면 다시 로그인). 토큰 자체는 브라우저에 저장되지 않고 페이지에 다시 나오지 않는다. 틀리면 1초 늦게 거절한다.
+- **위조 방지:** 저장·재시작·로그인 POST는 `Origin`(없으면 `Referer`)이 이 서버 주소일 때만 받는다. 스크립트는 `X-ASH-Admin-Token` 헤더로 같은 주소에 POST할 수 있다(`/api/admin/releases`와 같은 토큰).
+- **바꿀 수 있는 값과 적용 시점:**
+
+| 바로 적용(다음 작업·다음 정리부터) | 서비스 재시작 필요 |
+|---|---|
+| `Jobs:Enabled`, `Jobs:AmHome`, `Jobs:Parallel`, `Jobs:DialogButton`, `Jobs:RunTimeoutMin`, `Jobs:BuildTimeoutMin`, `Jobs:JobTimeoutHours`, `Jobs:KeepRunsDays` | `Jobs:WorkerEnabled`, `Jobs:Dir`, `GitHub:Enabled`, `GitHub:BaseUrl`, `GitHub:CheckIntervalMin`, `GitHub:UpdateServer`, `GitHub:Proxy`, `GitHub:Dns`, `Urls`, `Releases:Dir`, `Update:AllowUnsigned` |
+
+  `Admin:Token`, `Update:PublicKeyPem`, `Logging`은 웹에서 바꾸지 않는다(서버 PC에서 파일을 직접 고친다).
+- **저장:** 모든 값을 먼저 검사한다(정수 범위, 켬/끔, `Urls`·`GitHub:BaseUrl`·`GitHub:Proxy`·`GitHub:Dns` 형식). 하나라도 틀리면 아무것도 쓰지 않는다. 통과하면 파일을 다시 읽어 바뀐 키만 고치고(모르는 키는 그대로) 임시 파일로 쓴 뒤 `File.Replace`로 바꿔 넣으며, 이전 파일은 `appsettings.json.yyyyMMdd-HHmmss.bak`으로 남는다. 파일 안의 `//` 주석은 저장 때 없어진다(.bak에는 남음). `Jobs:AmHome`에 AutoMod 빌드 exe가 없으면 경고만 한다.
+- **재시작:** "서비스 다시 시작"은 자동 업데이트의 `update\apply-update.bat`을 파일 교체 없이(stage `-`) 실행해 `sc stop` → 이 프로세스가 끝나기를 기다림 → `sc start`를 한다(기록은 `update\apply.log`). 서비스는 자기 자신을 동기적으로 다시 시작할 수 없어서 분리된 배치가 한다. 실행 중인 작업이 있으면 확인란을 체크해야 하며 그 작업은 "서버가 다시 시작되어 중단되었습니다"로 실패 처리된다. 콘솔로 실행 중이거나 등록된 서비스의 exe가 다르면 버튼 대신 이유가 나온다.
+- 서비스 계정이 설치 폴더에 쓸 수 없으면(LocalService) 저장이 실패하고 파일은 바뀌지 않는다.
+
 ### 서버 자동 업데이트 (AGV_FOTA_GATEWAY와 같은 방식)
 
 서버는 GitHub 확인 때마다(`CheckIntervalMin`) 자기 버전도 확인해 새 버전이면 스스로 바꾼다.
