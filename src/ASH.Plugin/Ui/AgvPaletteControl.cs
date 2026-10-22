@@ -34,40 +34,50 @@ public sealed class AgvPaletteControl : UserControl
         var s = CpSettings.Current;
         var detailed = new CheckBox { Text = "상세 모드", Checked = s.DetailedMode, AutoSize = true, Margin = new Padding(2, 4, 0, 4) };
         detailed.CheckedChanged += (o, e) => s.DetailedMode = detailed.Checked;
-        var type = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, DrawMode = DrawMode.OwnerDrawFixed, ItemHeight = 22 };
-        type.Items.AddRange(CpTypes.All);
-        type.SelectedItem = s.Type;
-        type.DrawItem += DrawCpType;
         var prefix = Box(s.Prefix);
         var hint = new Label { Font = Theme.Small, ForeColor = Theme.Muted, AutoSize = true, Margin = new Padding(2, 2, 0, 0) };
         var group = Field(s.Group, v => s.Group = v);
         var cap = Field(CpTypes.FormatCap(s.Cap), v => { if (CpTypes.TryParseCap(v, out var c)) s.Cap = c; });
         void ShowType()
         {
-            hint.Text = $"이름 {AutoNamer.PatternFor(s.Type)} · CAP {CpTypes.FormatCap(s.Cap)} · 레이어 {Conventions.LayerCpFor(s.Type)}";
+            hint.Text = $"{s.Type} · 이름 {AutoNamer.PatternFor(s.Type)} · CAP {CpTypes.FormatCap(s.Cap)} · 레이어 {Conventions.LayerCpFor(s.Type)}";
             hint.ForeColor = Theme.CpColor(s.Type);
         }
-        // SelectedIndexChanged, not TextChanged: Text can still hold the previous item when TextChanged fires on a drop-down list
-        type.SelectedIndexChanged += (o, e) =>
-        {
-            if (!(type.SelectedItem is string t)) return;
-            s.Type = t; // also resets Prefix and Cap to the type's defaults
-            prefix.Text = s.Prefix;
-            cap.Text = CpTypes.FormatCap(s.Cap);
-            ShowType();
-        };
         prefix.TextChanged += (o, e) => { s.Prefix = prefix.Text.Trim(); ShowType(); };
         cap.Leave += (o, e) => { cap.Text = CpTypes.FormatCap(s.Cap); ShowType(); }; // show the value AGVCP will actually use
         ShowType();
-        tabs.TabPages.Add(Page("CP", Theme.Section("CP 속성"), detailed,
-            Theme.Caption("TYPE  (색 · 이름 규칙)"), type, hint,
+        // one button per TYPE, glyph in the type's colour; the type is set only once AGVCP was really sent (not while a command blocks it)
+        // fixed height, width from Page's stretch (AutoSize would shrink the columns to the text)
+        var place = new TableLayoutPanel { ColumnCount = 2, RowCount = (CpTypes.All.Length + 1) / 2, Height = (CpTypes.All.Length + 1) / 2 * 38, Margin = Padding.Empty };
+        place.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        place.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        for (int i = 0; i < place.RowCount; i++) place.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
+        foreach (var t in CpTypes.All)
+        {
+            var b = Theme.Make(t, GlyphKind.Cp, "");
+            b.Image = Glyphs.Draw(GlyphKind.Cp, 20, Theme.CpColor(t));
+            b.Dock = DockStyle.Fill;
+            b.Margin = new Padding(0, 0, 2, 2);
+            new ToolTip().SetToolTip(b, $"{t} CP 배치 · 이름 {AutoNamer.PatternFor(t)} (AGVCP)");
+            b.Click += (o, e) =>
+            {
+                // SendStringToExecute only queues AGVCP, so it still reads the type set below
+                if (!AgvPalette.Send("AGVCP") || s.Type == t) return; // same type again keeps an edited prefix/CAP
+                s.Type = t; // also resets Prefix and Cap to the type's defaults
+                prefix.Text = s.Prefix;
+                cap.Text = CpTypes.FormatCap(s.Cap);
+                ShowType();
+            };
+            place.Controls.Add(b);
+        }
+        tabs.TabPages.Add(Page("CP", Theme.Section("CP 배치  (TYPE별 버튼)"), place, hint,
+            Theme.Caption("traffic CP는 교통제어 탭에서 block과 함께 자동 생성"),
+            Theme.Section("CP 속성"), detailed,
             Theme.Caption("GROUP"), group,
-            Theme.Caption("접두어"), prefix, Theme.Caption("CAP  (숫자 또는 INF = 무제한)"), cap,
-            Theme.Section("배치"), Theme.Make("CP 배치", GlyphKind.Cp, "AGVCP"),
-            Theme.Caption("traffic CP는 교통제어 탭에서 block과 함께 자동 생성")));
+            Theme.Caption("접두어  (마지막 TYPE에 적용)"), prefix, Theme.Caption("CAP  (숫자 또는 INF = 무제한)"), cap));
 
         tabs.TabPages.Add(Page("교통제어", Theme.Section("자동 생성"),
-            Theme.Make("block 자동 생성", GlyphKind.Block, "AGVBLOCKAUTO"), Theme.Make("교통제어 자동 생성", GlyphKind.Traffic, "AGVTRAFFIC")));
+            Theme.Make("block 자동 생성", GlyphKind.Block, "AGVBLOCKAUTO"), Theme.Make("블록 채번", GlyphKind.BlockNum, "AGVBLOCKNUM"), Theme.Make("교통제어 자동 생성", GlyphKind.Traffic, "AGVTRAFFIC")));
 
         var settings = Theme.Make("Settings 열기", GlyphKind.Settings, "");
         settings.Click += (o, e) => Commands.ExportCommands.OpenSettings();
@@ -187,20 +197,6 @@ public sealed class AgvPaletteControl : UserControl
         // the first visit fills the list by itself
         tabs.SelectedIndexChanged += (o, e) => { if (tabs.SelectedTab == page && !loaded) AgvPalette.Send("AGVFIND"); };
         return page;
-    }
-
-    // a colour swatch, the type, and its name pattern on the right
-    private static void DrawCpType(object sender, DrawItemEventArgs e)
-    {
-        if (e.Index < 0) return;
-        var t = (string)((ComboBox)sender).Items[e.Index];
-        e.DrawBackground();
-        using (var b = new SolidBrush(Theme.CpColor(t))) e.Graphics.FillRectangle(b, e.Bounds.Left + 5, e.Bounds.Top + 5, 12, 12);
-        TextRenderer.DrawText(e.Graphics, t, Theme.Base, new Point(e.Bounds.Left + 24, e.Bounds.Top + 2), e.ForeColor);
-        var pattern = AutoNamer.PatternFor(t);
-        var size = TextRenderer.MeasureText(pattern, Theme.Small);
-        TextRenderer.DrawText(e.Graphics, pattern, Theme.Small, new Point(e.Bounds.Right - size.Width - 8, e.Bounds.Top + 4), Theme.Muted);
-        e.DrawFocusRectangle();
     }
 
     private static void DrawTab(object sender, DrawItemEventArgs e)

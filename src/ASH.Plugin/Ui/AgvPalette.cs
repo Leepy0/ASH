@@ -42,19 +42,26 @@ public sealed class AgvPalette
             Application.DocumentManager.MdiActiveDocument?.Editor.WriteMessage("\n리본이 아직 없습니다. 리본 화면(작업공간)으로 바꾼 뒤 다시 실행하세요.");
     }
 
-    /// <summary>Sends "cmd " to the active document unless a command is running.</summary>
-    internal static void Send(string cmd)
+    /// <summary>Sends "cmd " to the active document unless a command is running; false when nothing was sent.
+    /// Either way keyboard focus goes back to the drawing.</summary>
+    internal static bool Send(string cmd)
     {
         var doc = Application.DocumentManager.MdiActiveDocument;
-        if (doc == null) { PluginLog.Write("send " + cmd + ": no active drawing"); return; }
+        if (doc == null) { PluginLog.Write("send " + cmd + ": no active drawing"); return false; }
         try
         {
             // a command waiting for input would take the command name as its answer
             var running = Application.GetSystemVariable("CMDNAMES") as string;
-            if (!string.IsNullOrEmpty(running)) { PluginLog.Write("send " + cmd + ": blocked by running command " + running); doc.Editor.WriteMessage("\n실행 중인 명령을 먼저 끝내세요."); return; }
+            if (!string.IsNullOrEmpty(running)) { PluginLog.Write("send " + cmd + ": blocked by running command " + running); doc.Editor.WriteMessage("\n실행 중인 명령을 먼저 끝내세요."); return false; }
             doc.SendStringToExecute(cmd + " ", true, false, true);
             PluginLog.Write("sent " + cmd);
+            return true;
         }
-        catch (System.Exception ex) { PluginLog.Write("send " + cmd + " failed", ex); doc.Editor.WriteMessage("\nASH: " + ex.Message); } // never let it reach the WinForms/WPF click handler
+        catch (System.Exception ex) { PluginLog.Write("send " + cmd + " failed", ex); doc.Editor.WriteMessage("\nASH: " + ex.Message); return false; } // never let it reach the WinForms/WPF click handler
+        finally
+        {
+            // the clicked palette button keeps focus otherwise, so the next Enter clicks it again (and hits the guard above) instead of answering the command
+            try { ZwSoft.ZwCAD.Internal.Utils.SetFocusToDwgView(); } catch (System.Exception ex) { PluginLog.Write("focus to drawing failed", ex); }
+        }
     }
 }

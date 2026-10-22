@@ -54,9 +54,8 @@ public sealed class ExportCommands
             var m = r.Summary;
             ed.WriteMessage($"\n경로 +{m.PathsAdded} −{m.PathsRemoved} ~{m.PathsMoved}, CP +{m.CpsAdded} −{m.CpsRemoved} ~{m.CpsMoved}");
             foreach (var w in r.Warnings) ed.WriteMessage($"\n경고: {w}");
+            // path only: the .asy is not opened (its associated program would launch on every export)
             ed.WriteMessage($"\nasy: {r.AsyPath}\ntraffic: {r.TrafficTsvPath}{(r.BackupPath != null ? "\n백업: " + r.BackupPath : "")}");
-            try { Process.Start(new ProcessStartInfo(r.AsyPath) { UseShellExecute = true }); }
-            catch (System.ComponentModel.Win32Exception ex) { ed.WriteMessage($"\nasy 파일을 열지 못했습니다(연결 프로그램 없음?): {ex.Message}"); }
             PathCommands.FinalStatus = "AGVEXPORT 완료";
             return false; // nothing in the drawing changed
         }, refreshArrows: false, unitsPerMeter: UnitScale.FromSettings(s));
