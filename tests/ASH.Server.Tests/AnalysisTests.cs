@@ -251,3 +251,110 @@ public class AnalysisApiTests
         Assert.Null(st.Get(empty.Id));
     }
 }
+
+public class AnalysisPageTests
+{
+    const string Ok = "http://localhost";
+
+    static async Task<string> Get(JobEnv env, string path) => await (await env.Http.GetAsync(path)).Content.ReadAsStringAsync();
+
+    static Task<HttpResponseMessage> Post(JobEnv env, string path, params (string, string)[] kv)
+    {
+        var req = new HttpRequestMessage(HttpMethod.Post, path) { Content = new FormUrlEncodedContent(kv.Select(x => new KeyValuePair<string, string>(x.Item1, x.Item2))) };
+        req.Headers.Add("Origin", Ok);
+        return env.Http.SendAsync(req);
+    }
+
+    static async Task<string> Send(JobEnv env, params (string, string)[] extra)
+    {
+        var form = new MultipartFormDataContent
+        {
+            { new StringContent("Line A"), "project" }, { new StringContent("m"), "model" }, { new StringContent("tester"), "submitter" },
+            { new ByteArrayContent(await File.ReadAllBytesAsync(JobEnv.MakePackage(env.Dir))), "package", "package.zip" },
+        };
+        foreach (var (k, v) in extra) form.Add(new StringContent(v), k);
+        var r = await env.Http.PostAsync("/api/jobs", form);
+        return JsonDocument.Parse(await r.Content.ReadAsStringAsync()).RootElement.GetProperty("id").GetString()!;
+    }
+
+    [Fact]
+    public async Task Analysis_Page_Shows_Plans_Versions_And_Selection()
+    {
+        using var env = new JobEnv(worker: false);
+        await Send(env, ("analysisName", "라인 증설"), ("planName", "A안"), ("versionNote", "첫 시도"));
+        await Send(env, ("analysisName", "라인 증설"), ("planName", "A안"), ("versionNote", "버퍼 늘림"));
+        var a = env.Factory.Services.GetRequiredService<AnalysisStore>().All().Single();
+        var html = await Get(env, "/analyses/" + a.Id);
+        Assert.Contains("A안", html); Assert.Contains("v2", html); Assert.Contains("버퍼 늘림", html);
+        Assert.Contains("권장 총 대수(대)", html); Assert.Contains("가동률(%)", html); Assert.Contains("결품 시간(초)", html);
+        Assert.Contains($"/analyses/{a.Id}/cuts", html);
+        Assert.Contains("선정한 버전이 없습니다", html);
+        Assert.Contains("아직 만든 영상이 없습니다", html);
+        Assert.Equal(HttpStatusCode.NotFound, (await env.Http.GetAsync("/analyses/a-nope")).StatusCode);
+        Assert.Contains("라인 증설", await Get(env, "/analyses"));
+    }
+
+    [Fact]
+    public async Task Selected_Versions_Appear_In_Compare_Table()
+    {
+        using var env = new JobEnv();
+        var id1 = await Send(env, ("analysisName", "분석"), ("planName", "A안"));
+        var id2 = await Send(env, ("analysisName", "분석"), ("planName", "B안"));
+        await env.WaitFinished(id1); await env.WaitFinished(id2);
+        var a = env.Factory.Services.GetRequiredService<AnalysisStore>().All().Single();
+        Assert.True((int)(await Post(env, $"/jobs/{id2}/select", ("on", "1"), ("back", "/analyses/" + a.Id))).StatusCode < 400);
+        var html = await Get(env, "/analyses/" + a.Id);
+        var compare = html[html.IndexOf("선정 버전 비교", StringComparison.Ordinal)..];
+        compare = compare[..compare.IndexOf("</table>", StringComparison.Ordinal)];
+        Assert.Contains("B안", compare); Assert.DoesNotContain("A안", compare);
+        Assert.Contains("G1", compare); Assert.Contains("권장(대)", compare); Assert.Contains("최소 재고/안전재고(배)", compare); Assert.Contains("결품(초)", compare); Assert.Contains("교착(회)", compare);
+        Assert.Contains("<td class=\"num\">2</td>", compare); // G1 recommended 2
+        // the form returns to the analysis page
+        var r = await env.Http.SendAsync(new HttpRequestMessage(HttpMethod.Post, $"/jobs/{id2}/select") { Content = new FormUrlEncodedContent(new[] { new KeyValuePair<string, string>("on", "0"), new KeyValuePair<string, string>("back", "/analyses/" + a.Id) }), Headers = { { "Origin", Ok } } });
+        Assert.StartsWith("/analyses/", r.RequestMessage!.RequestUri!.AbsolutePath);
+    }
+
+    [Fact]
+    public async Task Unclassified_Lists_Jobs_Without_Analysis()
+    {
+        using var env = new JobEnv(worker: false);
+        var loose = await Send(env);
+        var filed = await Send(env, ("analysisName", "분석"), ("planName", "A안"));
+        var html = await Get(env, "/analyses/unclassified");
+        Assert.Contains(loose, html); Assert.DoesNotContain(filed, html);
+        // moving it files it under the plan and it leaves the list
+        var a = env.Factory.Services.GetRequiredService<AnalysisStore>().All().Single();
+        Assert.True((int)(await Post(env, $"/jobs/{loose}/move", ("target", a.Id + "|" + a.Plans[0].Id), ("back", "/analyses/unclassified"))).StatusCode < 400);
+        Assert.Equal(2, env.Store.Get(loose)!.Version);
+        Assert.DoesNotContain(loose, await Get(env, "/analyses/unclassified"));
+        Assert.Contains("› A안 › v1", await Get(env, "/jobs/" + filed)); // the job page shows where it is filed
+    }
+
+    [Fact]
+    public async Task Names_Are_Escaped()
+    {
+        using var env = new JobEnv(worker: false);
+        await Send(env, ("analysisName", "<테스트>"), ("planName", "<안>"), ("versionNote", "<메모>"));
+        var a = env.Factory.Services.GetRequiredService<AnalysisStore>().All().Single();
+        foreach (var path in new[] { "/analyses", "/analyses/" + a.Id, "/jobs/" + env.Store.All().Single().Id })
+        {
+            var html = await Get(env, path);
+            Assert.Contains("&lt;테스트&gt;", html); Assert.DoesNotContain("<테스트>", html); Assert.DoesNotContain("<안>", html); Assert.DoesNotContain("<메모>", html);
+        }
+    }
+
+    [Fact]
+    public async Task New_Analysis_And_Plan_Forms_Work()
+    {
+        using var env = new JobEnv(worker: false);
+        var r = await Post(env, "/analyses", ("name", "새 분석"), ("note", "메모"));
+        var st = env.Factory.Services.GetRequiredService<AnalysisStore>();
+        var a = st.All().Single();
+        Assert.Equal("/analyses/" + a.Id, r.RequestMessage!.RequestUri!.AbsolutePath);
+        Assert.True((int)(await Post(env, $"/analyses/{a.Id}/plans", ("name", "A안"), ("note", ""))).StatusCode < 400);
+        Assert.Equal("A안", st.Get(a.Id)!.Plans.Single().Name);
+        var req = new HttpRequestMessage(HttpMethod.Post, "/analyses") { Content = new FormUrlEncodedContent(new[] { new KeyValuePair<string, string>("name", "x") }) };
+        Assert.Equal(HttpStatusCode.Forbidden, (await env.Http.SendAsync(req)).StatusCode);
+        Assert.Contains("ZWCAD", await Get(env, "/analyses/unclassified")); // empty states say how jobs get here
+    }
+}

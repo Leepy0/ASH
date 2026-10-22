@@ -247,36 +247,64 @@ app.MapPost("/api/analyses/{id}/plans", async (string id, HttpContext ctx, Analy
 static async Task<IFormCollection?> FormFrom(HttpContext ctx) => ctx.Request.HasFormContentType ? await ctx.Request.ReadFormAsync() : null;
 const string CrossSite = "다른 사이트에서 보낸 요청은 받지 않습니다.";
 
+// where a form goes after it is done: its "back" field when that is a path on this site, else the fallback
+static string Back(IFormCollection? f, string fallback)
+{
+    var b = f?["back"].ToString() ?? "";
+    return b.Length > 1 && b[0] == '/' && b[1] != '/' && b.IndexOfAny(new[] { '\\', '\r', '\n' }) < 0 ? b : fallback;
+}
+
+app.MapPost("/analyses", async (HttpContext ctx, AnalysisStore st) =>
+{
+    if (!SameOrigin(ctx)) return Msg(403, CrossSite);
+    if (await NameNote(ctx) is not { } v) return Msg(400, NameNoteError);
+    try { return Results.Redirect("/analyses/" + st.CreateAnalysis(v.Name, v.Note).Id); }
+    catch (ArgumentException e) { return Msg(400, e.Message); }
+});
+
+app.MapPost("/analyses/{id}/plans", async (string id, HttpContext ctx, AnalysisStore st) =>
+{
+    if (!SameOrigin(ctx)) return Msg(403, CrossSite);
+    if (await NameNote(ctx) is not { } v) return Msg(400, NameNoteError);
+    try { st.CreatePlan(id, v.Name, v.Note); return Results.Redirect(Back(await FormFrom(ctx), "/analyses/" + id)); }
+    catch (ArgumentException e) { return Msg(400, e.Message); }
+});
+
 app.MapPost("/analyses/{id}/rename", async (string id, HttpContext ctx, AnalysisStore st) =>
 {
     if (!SameOrigin(ctx)) return Msg(403, CrossSite);
-    var name = (await FormFrom(ctx))?["name"].ToString().Trim() ?? "";
+    var f = await FormFrom(ctx);
+    var name = f?["name"].ToString().Trim() ?? "";
     if (name.Length > NameMax) return Msg(400, "이름은 100자까지입니다.");
-    try { st.Rename(id, null, name); return Results.Redirect("/jobs"); }
+    try { st.Rename(id, null, name); return Results.Redirect(Back(f, "/analyses/" + id)); }
     catch (ArgumentException e) { return Msg(400, e.Message); }
 });
 
 app.MapPost("/analyses/{id}/plans/{pid}/rename", async (string id, string pid, HttpContext ctx, AnalysisStore st) =>
 {
     if (!SameOrigin(ctx)) return Msg(403, CrossSite);
-    var name = (await FormFrom(ctx))?["name"].ToString().Trim() ?? "";
+    var f = await FormFrom(ctx);
+    var name = f?["name"].ToString().Trim() ?? "";
     if (name.Length > NameMax) return Msg(400, "이름은 100자까지입니다.");
-    try { st.Rename(id, pid, name); return Results.Redirect("/jobs"); }
+    try { st.Rename(id, pid, name); return Results.Redirect(Back(f, "/analyses/" + id)); }
     catch (ArgumentException e) { return Msg(400, e.Message); }
 });
 
 app.MapPost("/analyses/{id}/delete", (string id, HttpContext ctx, AnalysisStore st, JobStore js) =>
 {
     if (!SameOrigin(ctx)) return Msg(403, CrossSite);
-    return st.DeleteIfEmpty(id, js) ? Results.Redirect("/jobs") : Msg(409, "작업이 있거나 없는 분석은 지울 수 없습니다.");
+    return st.DeleteIfEmpty(id, js) ? Results.Redirect("/analyses") : Msg(409, "작업이 있거나 없는 분석은 지울 수 없습니다.");
 });
 
+// analysisId + planId, or one "target" field "analysisId|planId" (what the page's select sends)
 app.MapPost("/jobs/{id}/move", async (string id, HttpContext ctx, AnalysisStore st, JobStore js) =>
 {
     if (!SameOrigin(ctx)) return Msg(403, CrossSite);
     if (!JobStore.IsValidId(id) || js.Get(id) == null) return Msg(404, "작업이 없습니다.");
     var f = await FormFrom(ctx);
-    try { st.Move(js, id, f?["analysisId"].ToString() ?? "", f?["planId"].ToString() ?? ""); return Results.Redirect("/jobs/" + id); }
+    var target = (f?["target"].ToString() ?? "").Split('|');
+    string aid = target.Length == 2 ? target[0] : f?["analysisId"].ToString() ?? "", pid = target.Length == 2 ? target[1] : f?["planId"].ToString() ?? "";
+    try { st.Move(js, id, aid, pid); return Results.Redirect(Back(f, "/jobs/" + id)); }
     catch (ArgumentException e) { return Msg(400, e.Message); }
 });
 
@@ -284,9 +312,15 @@ app.MapPost("/jobs/{id}/select", async (string id, HttpContext ctx, AnalysisStor
 {
     if (!SameOrigin(ctx)) return Msg(403, CrossSite);
     if (!JobStore.IsValidId(id) || js.Get(id) == null) return Msg(404, "작업이 없습니다.");
-    st.SetSelected(js, id, (await FormFrom(ctx))?["on"].ToString() == "1");
-    return Results.Redirect("/jobs/" + id);
+    var f = await FormFrom(ctx);
+    st.SetSelected(js, id, f?["on"].ToString() == "1");
+    return Results.Redirect(Back(f, "/jobs/" + id));
 });
+
+app.MapGet("/analyses", (AnalysisStore st, JobStore js) => Html(AnalysisPages.Index(st.All(), js.All())));
+app.MapGet("/analyses/unclassified", (AnalysisStore st, JobStore js) => Html(AnalysisPages.Unclassified(js.All(), st.All())));
+app.MapGet("/analyses/{id}", (string id, AnalysisStore st, JobStore js) =>
+    st.Get(id) is { } a ? Html(AnalysisPages.Detail(a, js.All(), js)) : Msg(404, "분석이 없습니다."));
 
 app.MapPost("/api/jobs", async (HttpContext ctx, JobStore js, AnalysisStore analyses, IConfiguration cfg, CancellationToken ct) =>
 {
@@ -390,12 +424,12 @@ static string Tail(string path, int lines)
 static bool CanCancel(HttpContext ctx, JobInfo j, ReleaseStore rs, string? token) =>
     ClientIp(ctx) == j.Ip || (rs.UploadsEnabled && rs.TokenMatches(token ?? ctx.Request.Headers[ReleaseStore.HeaderName]));
 
-app.MapGet("/jobs/{id}", (string id, string? tab, HttpContext ctx, JobStore js, ReleaseStore rs) =>
+app.MapGet("/jobs/{id}", (string id, string? tab, HttpContext ctx, JobStore js, ReleaseStore rs, AnalysisStore analyses) =>
 {
     if (!JobStore.IsValidId(id) || js.Get(id) is not { } j) return Msg(404, "작업이 없습니다.");
     var view = j.State == JobState.Queued ? null : JobView.For(js, j);
     var t = tab is "detail" or "input" or "files" ? tab : "summary";
-    return Results.Content(JobPages.Job(j, view, t, t == "files" ? Tail(js.LogPath(id), 200) : "", js.QueueInfo(id), CanCancel(ctx, j, rs, null)), "text/html; charset=utf-8");
+    return Results.Content(JobPages.Job(j, view, t, t == "files" ? Tail(js.LogPath(id), 200) : "", js.QueueInfo(id), CanCancel(ctx, j, rs, null), analyses.All()), "text/html; charset=utf-8");
 });
 
 app.MapPost("/jobs/{id}/cancel", async (string id, HttpContext ctx, JobStore js, JobWorker worker, ReleaseStore rs) =>

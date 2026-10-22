@@ -54,6 +54,8 @@ public sealed class JobView
     public IReadOnlyList<MaterialView> Materials { get; private set; } = Array.Empty<MaterialView>();
     public IReadOnlyList<ImpactRow> Impact { get; private set; } = Array.Empty<ImpactRow>();
     public double UtilMax => Input?.Settings.UtilMax ?? 0.75;
+    /// <summary>Deadlocks summed over the confirm runs (each run's count is model-wide, repeated per group row).</summary>
+    public int Deadlocks { get; private set; }
 
     /// <summary>Active count per group of every run, from its summary rows (a group without a row ran at MinCount, as in ModelRunner.RunId).</summary>
     public IReadOnlyDictionary<string, Dictionary<string, int>> RunCounts() =>
@@ -90,6 +92,7 @@ public sealed class JobView
         catch (Exception e) when (e is IOException or InvalidDataException) { v.InputError ??= e.Message; }
 
         var confirm = new HashSet<string>(job.ConfirmRunIds, StringComparer.Ordinal);
+        v.Deadlocks = v.Rows.Where(r => confirm.Contains(r.RunId)).GroupBy(r => r.RunId).Sum(g => g.First().Deadlocks);
         if (v.Input != null)
         {
             v.Groups = v.Input.Groups.Select(g =>

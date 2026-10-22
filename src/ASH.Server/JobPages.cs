@@ -11,10 +11,10 @@ namespace ASH.Server;
 public static class JobPages
 {
     internal static string H(string? t) => WebUtility.HtmlEncode(t ?? "");
-    static string F(double d, string fmt = "0.##") => double.IsNaN(d) || double.IsInfinity(d) ? "-" : d.ToString(fmt, CultureInfo.InvariantCulture);
+    internal static string F(double d, string fmt = "0.##") => double.IsNaN(d) || double.IsInfinity(d) ? "-" : d.ToString(fmt, CultureInfo.InvariantCulture);
     static string Pct(double d) => double.IsNaN(d) ? "-" : P(d) + "%";
     /// <summary>Percent without the sign, for table cells whose header carries "(%)".</summary>
-    static string P(double d) => double.IsNaN(d) ? "-" : (d * 100).ToString("0.0", CultureInfo.InvariantCulture);
+    internal static string P(double d) => double.IsNaN(d) ? "-" : (d * 100).ToString("0.0", CultureInfo.InvariantCulture);
     internal static string When(DateTime? utc) => utc is { } t ? SeoulTime.Text(t) : "-";
     internal static string Dur(TimeSpan? d) => d is { } x ? (x.TotalHours >= 1 ? $"{(int)x.TotalHours}시간 {x.Minutes}분" : x.TotalMinutes >= 1 ? $"{(int)x.TotalMinutes}분 {x.Seconds}초" : $"{x.Seconds}초") : "-";
 
@@ -38,6 +38,7 @@ input[type=text],input[type=number],input[type=password],select{font:inherit;pad
 button.primary{background:#1f3a5f;color:#fff;border:1px solid #1f3a5f;border-radius:6px;padding:7px 16px;font:inherit;cursor:pointer}
 .scroll{overflow-x:auto;max-width:100%}.scroll td,.scroll th{white-space:nowrap}.box,.grid>*{min-width:0}
 table{border-collapse:collapse;background:#fff}td,th{border:1px solid #d3d1c7;padding:6px 10px;text-align:left;font-size:14px}th{background:#f1efe8}
+.crumb{font-size:14px;color:#5f5e5a;margin:0 0 10px}.mini{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.mini input[type=text],.mini select{width:auto;flex:1 1 160px;min-width:0}
 .num{text-align:right}.muted{color:#888780}.bad{color:#a32d2d}.ok{color:#3b6d11}
 .cards{display:flex;gap:14px;flex-wrap:wrap}.card{background:#fff;border:1px solid #d3d1c7;border-radius:10px;padding:14px 18px;min-width:200px}
 .card .big{font-size:30px;font-weight:600}.card .sub{color:#5f5e5a;font-size:13px}
@@ -55,7 +56,7 @@ th[aria-sort=ascending] button::after{content:' ▲'}th[aria-sort=descending] bu
 .grid{grid-template-columns:1fr}dl.kv,.field{grid-template-columns:1fr}dl.kv dt{margin-top:6px}.field label{padding-top:0}}";
 
     /// <summary>Click a header button of a table.sort to sort its rows; numbers as numbers ("-" last), text in Korean order with digits as numbers.</summary>
-    const string SortScript = @"<script>
+    internal const string SortScript = @"<script>
 document.querySelectorAll('table.sort').forEach(function(t){
   var hs=t.tHead.rows[0].cells;
   Array.prototype.forEach.call(hs,function(th,i){
@@ -78,12 +79,12 @@ document.querySelectorAll('table.sort').forEach(function(t){
 </script>";
 
     /// <summary>A header cell the sort script can sort by.</summary>
-    static string Th(string label) => $"<th aria-sort=\"none\"><button type=\"button\">{label}</button></th>";
+    internal static string Th(string label) => $"<th aria-sort=\"none\"><button type=\"button\">{label}</button></th>";
 
     public static string Page(string title, string body, bool refresh = false) =>
         "<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" + H(title) + "</title>" +
         (refresh ? "<meta http-equiv=\"refresh\" content=\"10\">" : "") +
-        "<style>" + Css + "</style></head><body><header><a href=\"/\"><b>ASH 서버</b></a><a href=\"/\">홈</a><a href=\"/jobs\">작업</a><a href=\"/admin/settings\">설정</a></header><main>" + body + "</main></body></html>";
+        "<style>" + Css + "</style></head><body><header><a href=\"/\"><b>ASH 서버</b></a><a href=\"/\">홈</a><a href=\"/jobs\">작업</a><a href=\"/analyses\">분석</a><a href=\"/admin/settings\">설정</a></header><main>" + body + "</main></body></html>";
 
     internal static string State(JobInfo j) => $"<span class=\"state s-{H(j.State)}\">{H(JobState.Korean(j.State))}</span>";
 
@@ -112,9 +113,10 @@ document.querySelectorAll('table.sort').forEach(function(t){
         sb.Append("</table></div>");
     }
 
-    public static string Job(JobInfo j, JobView? v, string tab, string logTail, (int Ahead, DateTime? Start, TimeSpan? Typical) q, bool canCancel)
+    public static string Job(JobInfo j, JobView? v, string tab, string logTail, (int Ahead, DateTime? Start, TimeSpan? Typical) q, bool canCancel, IReadOnlyList<ASH.Core.Analysis.AnalysisInfo>? analyses = null)
     {
         var sb = new StringBuilder();
+        if (analyses != null) AnalysisPages.JobHeader(sb, j, analyses);
         sb.Append($"<h1>{H(j.Project)} / {H(j.Plan)} <span class=\"muted\">· 모델 {H(j.Model)}</span></h1>");
         if (j.Source == JobSource.Local) sb.Append("<p><span class=\"state s-cancelled\">내 PC에서 실행한 결과</span> ash-run으로 돌린 결과를 올린 것입니다. 서버에서 다시 실행하지 않았습니다.</p>");
         sb.Append($"<p>{State(j)} {(j.Phase != null ? H(j.Phase) + " · " : "")}작업 {H(j.Id)} · 보낸 사람 {H(j.Submitter)} ({H(j.Ip)}) · 보낸 시각 {H(When(j.CreatedUtc))}");
