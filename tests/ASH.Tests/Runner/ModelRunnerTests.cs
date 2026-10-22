@@ -35,6 +35,7 @@ public class ModelRunnerTests
         var two = LogicGeneratorTests.TwoGroups();
         Assert.Equal("n1-2_s3", ModelRunner.RunId(two, new RunScenario(3, new Dictionary<string, int> { ["G2"] = 2 }))); // G1 missing -> MinCount 1
         Assert.Equal("n3-1_s4_dbg", ModelRunner.RunId(two, new RunScenario(4, new Dictionary<string, int> { ["G1"] = 3, ["G2"] = 1 }, true)));
+        Assert.Equal("n3-1_s4_dbg_ev", ModelRunner.RunId(two, new RunScenario(4, new Dictionary<string, int> { ["G1"] = 3, ["G2"] = 1 }, true, true)));
         Assert.Equal("G1=1;G2=2", ModelRunner.ScenarioText(two, new RunScenario(3, new Dictionary<string, int> { ["G2"] = 2 })));
     }
 

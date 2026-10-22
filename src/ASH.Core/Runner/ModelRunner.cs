@@ -30,9 +30,9 @@ public sealed record RunOutcome(string RunId, bool Success, string RunDir, TimeS
 
 public static class ModelRunner
 {
-    /// <summary>n&lt;active count per group in Input.Groups row order, joined by '-'&gt;_s&lt;seed&gt;[_dbg]; a group missing from the scenario counts as MinCount.</summary>
+    /// <summary>n&lt;active count per group in Input.Groups row order, joined by '-'&gt;_s&lt;seed&gt;[_dbg][_ev]; a group missing from the scenario counts as MinCount.</summary>
     public static string RunId(ProjectInput input, RunScenario s) =>
-        "n" + string.Join("-", input.Groups.Select(g => Count(g, s))) + "_s" + s.Seed + (s.Debug ? "_dbg" : "");
+        "n" + string.Join("-", input.Groups.Select(g => Count(g, s))) + "_s" + s.Seed + (s.Debug ? "_dbg" : "") + (s.Events ? "_ev" : "");
 
     /// <summary>e.g. "G1=1;G2=2" (all groups, row order) for the summary's scenario column.</summary>
     public static string ScenarioText(ProjectInput input, RunScenario s) =>
@@ -104,7 +104,7 @@ public static class ModelRunner
         if (!File.Exists(exe) && r.ExeOverride == null) return new RunOutcome(id, false, runDir, sw.Elapsed, "exe not found: " + exe);
         if (Directory.Exists(runDir)) Directory.Delete(runDir, true); // a rerun must not inherit old files
         Directory.CreateDirectory(runDir);
-        var names = new[] { "result.tsv", r.ModelName + ".report", r.ModelName + ".message", r.ModelName + ".print" };
+        var names = new[] { "result.tsv", "events.tsv", r.ModelName + ".report", r.ModelName + ".message", r.ModelName + ".print" };
         foreach (var n in names) File.Delete(Path.Combine(workDir, n)); // stale output must not pass for this run's
         ParamsFile.Write(r.Input, r.Scenario, Path.Combine(workDir, r.ModelName + ".arc", "params.txt"));
 

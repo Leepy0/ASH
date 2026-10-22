@@ -10,5 +10,6 @@
 	/* wait = leg time minus time the vehicle was moving (AM has no per-vehicle blocked-time attribute); includes decel/accel at the stop */
 	set A_w to ac - A_t0 - ((A_veh percent time in motion) / 100 * ac - A_mv0)
 	if A_w < 0 then set A_w to 0
+	if V_events = 1 and ac >= V_warmup then print ac "\twait\t{{NAME}}\t{{TO}}\t" A_w to V_ev
 	if V_debug = 1 then print "ASH: leg m={{M}} to {{TO}} dur " (ac - A_t0) " wait " A_w to message
 {{FAIL}}

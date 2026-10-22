@@ -108,7 +108,7 @@ public static class LogicGenerator
             string loadedSpeed = speeds ? "\tset A_veh defined velocity to specification" : "";
             // leg slot = mi for supply legs, mi + nm for return legs (a return can overlap the next supply of the same material)
             string Leg(string to, int slot) => Fill(Res("code_leg.m.txt"), ("M", mi.ToString()), ("SLOT", slot.ToString()), ("SYS", sys),
-                ("TO", Cp(layout, to)), ("FAIL", Fail("ac")));
+                ("TO", Cp(layout, to)), ("NAME", Lit(m.Material)), ("FAIL", Fail("ac")));
             var legs = new StringBuilder();
             if (!string.IsNullOrEmpty(r.BufferCP))
             {
@@ -141,7 +141,7 @@ public static class LogicGenerator
             matLogic.Append(Fill(Res("code_material.m.txt"), ("M", mi.ToString()), ("NAME", Lit(m.Material)), ("SYS", sys),
                 ("SET_TYPE", $"\tset load type to L_m{mi}"), ("EMPTY_TYPE", emptyType),
                 ("G", GroupIndex(input, m.Group).ToString()),
-                ("FROM", Cp(layout, r.SupplyFromCP)), ("LOAD_TIME", N(t.LoadTime)), ("UNLOAD_TIME", N(t.UnloadTime)),
+                ("FROM", Cp(layout, r.SupplyFromCP)), ("TO_CP", Cp(layout, r.SupplyToCP)), ("LOAD_TIME", N(t.LoadTime)), ("UNLOAD_TIME", N(t.UnloadTime)),
                 ("SUPPLY_LEGS", legs.ToString().TrimEnd('\n')), ("RETURN_LEGS", ret.ToString().TrimEnd('\n')),
                 ("FINISH", finish.TrimEnd('\n')), ("FINISH_AT_HOME", finishAtHome), ("HOME", home), ("VID_OFFSET", vidOffset.ToString()),
                 ("CAPACITY", Math.Max(1, t.Capacity).ToString()), ("FAIL_IDLE", Fail("V_vNextFail(A_vid)")), ("FAIL_LEG", Fail("ac")),
@@ -256,8 +256,8 @@ public static class LogicGenerator
         m.Orders.Add("OL_forever");
         m.Atts.Add(new("A_index", "Integer")); m.Atts.Add(new("A_grp", "Integer"));
         m.Atts.Add(new("A_veh", "VehiclePtr")); m.Atts.Add(new("A_mv0", "Real")); m.Atts.Add(new("A_w", "Real")); m.Atts.Add(new("A_t0", "Real"));
-        m.Vars.Add(new("V_fp", "FilePtr")); m.Vars.Add(new("V_out", "FilePtr")); m.Vars.Add(new("V_tok", "String"));
-        foreach (var v in new[] { "V_seed", "V_n", "V_i", "V_tmp", "V_deadlock", "V_extMat", "V_debug" }) m.Vars.Add(new(v, "Integer"));
+        m.Vars.Add(new("V_fp", "FilePtr")); m.Vars.Add(new("V_out", "FilePtr")); m.Vars.Add(new("V_ev", "FilePtr")); m.Vars.Add(new("V_tok", "String"));
+        foreach (var v in new[] { "V_seed", "V_n", "V_i", "V_tmp", "V_deadlock", "V_extMat", "V_debug", "V_events" }) m.Vars.Add(new(v, "Integer"));
         foreach (var v in new[] { "V_simLen", "V_warmup", "V_x", "V_y" }) m.Vars.Add(new(v, "Real"));
         m.Vars.Add(new("V_deadlockSec", "Real", 0, "600"));
         foreach (var v in new[] { "V_active", "V_vehCount", "V_parked" }) m.Vars.Add(new(v, "Integer", gs));

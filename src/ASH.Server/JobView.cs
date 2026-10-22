@@ -67,7 +67,7 @@ public sealed class JobView
         if (Input == null) return null;
         var rows = Rows.Where(r => r.RunId == runId && Input.Groups.Any(g => g.Group == r.Group)).ToList();
         if (rows.Count == 0) return null;
-        var s = new RunScenario(rows[0].Seed, rows.GroupBy(r => r.Group).ToDictionary(g => g.Key, g => g.First().Active, StringComparer.Ordinal), runId.EndsWith("_dbg", StringComparison.Ordinal));
+        var s = new RunScenario(rows[0].Seed, rows.GroupBy(r => r.Group).ToDictionary(g => g.Key, g => g.First().Active, StringComparer.Ordinal), runId.Contains("_dbg"), runId.EndsWith("_ev", StringComparison.Ordinal));
         return ModelRunner.RunId(Input, s) == runId ? s : null;
     }
 

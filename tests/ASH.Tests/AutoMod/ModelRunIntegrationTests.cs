@@ -143,6 +143,26 @@ public class ModelRunIntegrationTests
     }
 
     [SkippableFact]
+    public void Run_With_Events_Writes_Events_Tsv()
+    {
+        Skip.If(AmHome is null, "ASH_AM_HOME not set");
+        var input = LogicGeneratorTests.Sample();
+        var run = BuildAndRun(input, 1);
+        Assert.False(File.Exists(Path.Combine(run.Result.RunDir, "events.tsv"))); // EVENTS 0: no file
+        var o = ModelRunner.Run(new RunRequest(run.Work, Model, input, new RunScenario(1, new Dictionary<string, int> { ["G1"] = 1 }, Events: true), TimeSpan.FromMinutes(2), "Student Version"));
+        Assert.True(o.Success, o.Error);
+        Assert.EndsWith("_ev", o.RunId);
+        Assert.Equal(run.Tsv, File.ReadAllText(Path.Combine(o.RunDir, "result.tsv"))); // same KPIs with or without events
+        var ev = EventLog.Read(Path.Combine(o.RunDir, "events.tsv"));
+        Assert.Contains(ev, e => e.Kind == "deliver" && e.Material == "M1" && e.Cp == "U001" && e.Value > 0);
+        Assert.Contains(ev, e => e.Kind == "call");
+        Assert.Contains(ev, e => e.Kind == "pick" && e.Cp == "L001");
+        Assert.Contains(ev, e => e.Kind == "wait" && e.Material == "M1");
+        Assert.All(ev, e => Assert.True(e.T >= 360));
+        Cleanup(run.Work);
+    }
+
+    [SkippableFact]
     public void Run_Two_Scenarios_Concurrently_In_Separate_Work_Slots()
     {
         Skip.If(AmHome is null, "ASH_AM_HOME not set");

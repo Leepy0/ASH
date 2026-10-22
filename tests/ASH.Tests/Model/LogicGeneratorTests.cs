@@ -109,6 +109,19 @@ public class LogicGeneratorTests
     }
 
     [Fact]
+    public void Render_Opens_Events_File_Only_When_Asked()
+    {
+        var t = LogicGenerator.Render(Sample(), Layout);
+        Assert.Contains("read V_tok, V_events from V_fp", t);
+        Assert.Contains("open \"events.tsv\" for writing save result as V_ev", t);
+        Assert.Contains("if V_events = 1", t);
+        foreach (var line in t.Split('\n').Where(l => l.Contains("to V_ev") && !l.Contains("t\\tkind")))
+            Assert.Contains("V_events = 1", line);
+        foreach (var k in new[] { "call", "pick", "deliver", "stockout", "stockin", "wait" })
+            Assert.Contains("\\t" + k + "\\tM1\\t", t);
+    }
+
+    [Fact]
     public void Breakdowns_EmptySpeed_And_Capacity_Are_Generated_Only_When_Set()
     {
         var plain = LogicGenerator.Render(Sample(), Layout);
@@ -131,7 +144,7 @@ public class LogicGeneratorTests
         Assert.Contains("if ac >= V_warmup then inc V_vDown(A_vid) by A_rep", t);
         // empty to the pickup and after the unload, loaded speed in between and before the load leaves
         Assert.Contains("set A_veh defined velocity to 1.5\n\ttravel to agv:L001", t);
-        Assert.Contains("set A_veh defined velocity to specification\n\tif ac >= V_warmup then tabulate ac - A_tCall in T_pick_1", t);
+        Assert.Contains("set A_veh defined velocity to specification\n\tif ac >= V_warmup then begin\n\t\ttabulate ac - A_tCall in T_pick_1", t);
         Assert.Contains("V_vDown(1) \"\\t0\\t0\" to V_out", t);
         var pm = LogicGenerator.BuildProcessModel(p, Layout, "Meters");
         Assert.Equal("RS_fail", Assert.Single(pm.RnStreams).Name);

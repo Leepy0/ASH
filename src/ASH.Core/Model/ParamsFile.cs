@@ -48,6 +48,7 @@ public static class ParamsFile
         }
         L("SIM " + N(st.SimLengthSec) + " " + N(st.WarmupSec) + " " + N(st.DeadlockSec));
         L("DEBUG " + (s.Debug ? 1 : 0));
+        L("EVENTS " + (s.Events ? 1 : 0));
         L("END");
         return sb.ToString();
     }

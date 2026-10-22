@@ -26,8 +26,13 @@ begin model initialization function
 	end
 	read V_tok, V_simLen, V_warmup, V_deadlockSec from V_fp
 	read V_tok, V_debug from V_fp
+	read V_tok, V_events from V_fp
 	close V_fp
 	set V_fp to null
+	if V_events = 1 then begin
+		open "events.tsv" for writing save result as V_ev
+		print "t\tkind\tmat\tcp\tvalue" to V_ev
+	end
 {{FAIL_INIT}}
 	if V_debug = 1 then print "ASH: params ok, groups " {{GROUP_COUNT}} " materials " {{MATERIAL_COUNT}} " sim " V_simLen " warmup " V_warmup to message
 {{CREATE_CONSUMERS}}
@@ -47,5 +52,9 @@ begin model snap function
 	if V_debug = 1 then print "ASH: snap written at " V_x to message
 	close V_out
 	set V_out to null
+	if V_events = 1 then begin
+		close V_ev
+		set V_ev to null
+	end
 	return true
 end

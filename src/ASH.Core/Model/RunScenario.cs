@@ -2,4 +2,4 @@ using System.Collections.Generic;
 
 namespace ASH.Core.Model;
 
-public sealed record RunScenario(int Seed, IReadOnlyDictionary<string, int> ActiveByGroup, bool Debug = false);
+public sealed record RunScenario(int Seed, IReadOnlyDictionary<string, int> ActiveByGroup, bool Debug = false, bool Events = false);
