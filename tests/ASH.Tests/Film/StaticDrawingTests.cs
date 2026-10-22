@@ -70,6 +70,42 @@ public class StaticDrawingTests
     }
 
     [Fact]
+    public void Second_Call_Replaces_Or_Removes_The_Drawing()
+    {
+        var arc = Arc();
+        StaticDrawing.AddTo(arc, Dr(S(0, 0, 1, 0, "A")), "Meters", null);
+        var first = Asy(arc);
+        StaticDrawing.AddTo(arc, Dr(S(0, 0, 7, 0, "A"), S(0, 1, 7, 1, "B")), "Meters", null);
+        Assert.NotEqual(first, Asy(arc));
+        Assert.Equal(2, Polylines(Asy(arc)));
+        Assert.Single(Regex.Matches(File.ReadAllText(Path.Combine(arc, "model.amo")), "STATIC name ash_drw"));
+
+        StaticDrawing.AddTo(arc, Dr(S(0, 0, 7, 0, "A")), "Meters", new[] { "a" });
+        Assert.False(File.Exists(Path.Combine(arc, "ash_drw.asy")));
+        var amo = File.ReadAllText(Path.Combine(arc, "model.amo"));
+        Assert.DoesNotContain("STATIC", amo);
+        Assert.Contains("MOVESYS name agv\n\tSYSPOS endx 1\nPROCSYS name m~", amo);
+    }
+
+    [Fact]
+    public void Hmf_Has_The_Two_Level_Structure_Of_The_Guide()
+    {
+        var arc = Arc();
+        StaticDrawing.AddTo(arc, Dr(S(0, 0, 1, 0, "A")), "Meters", null);
+        Assert.Contains("(Segment \"\" (\r\n  (Line_Weight 3)\r\n  (Segment \"floor\" ((Color_By_Value \"Line\" \"RGB\" 0.6 0.6 0.6)\r\n    (Polyline ((0 0 0) (1 0 0)))\r\n  ))\r\n))\r\n#HMF END", Asy(arc));
+    }
+
+    [Fact]
+    public void Link_Goes_Before_The_PROCSYS_Line_Not_A_Mention_Of_It()
+    {
+        var arc = Arc();
+        var p = Path.Combine(arc, "model.amo");
+        File.WriteAllText(p, "UNITS Meters Seconds\nMOVESYS name xPROCSYS\n\tSYSPOS endx 1\nPROCSYS name m~\n\tSYSPOS endx 1\n");
+        StaticDrawing.AddTo(arc, Dr(S(0, 0, 1, 0, "A")), "Meters", null);
+        Assert.Equal("UNITS Meters Seconds\nMOVESYS name xPROCSYS\n\tSYSPOS endx 1\nSTATIC name ash_drw\n\tSYSPOS endx 1\nPROCSYS name m~\n\tSYSPOS endx 1\n", File.ReadAllText(p));
+    }
+
+    [Fact]
     public void Second_Call_Does_Not_Duplicate_The_Model_Line_And_Unknown_Units_Throw()
     {
         var arc = Arc();

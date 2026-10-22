@@ -22,7 +22,7 @@ public class FilmIntegrationTests
         var l = L.Of(L.Line("p1", 0, 0, 10, 0), L.Line("p2", 10, 0, 10, 10), L.Line("p3", 10, 10, 0, 10), L.Line("p4", 0, 10, 0, 0));
         l.Cps.Add(L.Cp("S001", 5, 0, "standby", "G1")); l.Cps.Add(L.Cp("L001", 10, 5, "load")); l.Cps.Add(L.Cp("B001", 6, 10, "buffer")); l.Cps.Add(L.Cp("U001", 2, 10, "unload"));
         var work = Path.Combine(Path.GetTempPath(), "ash_film_" + Guid.NewGuid().ToString("N"));
-        var gen = ModelBuilder.Build(new ModelBuildRequest(work, Model, input, l, new ExportOptions(Groups: ModelBuilder.VehicleGroups(input))), null, TimeSpan.FromMinutes(5)); // generate only
+        var gen = ModelBuilder.Build(new ModelBuildRequest(work, Model, input, l, new ExportOptions(Groups: ModelBuilder.VehicleGroups(input)), AutoView: true), null, TimeSpan.FromMinutes(5)); // generate only
         Assert.Null(gen.Build);
 
         // a wall box around the loop (one chained run) + a hidden dimension layer + a free line
@@ -39,6 +39,8 @@ public class FilmIntegrationTests
         Console.WriteLine($"{work} dialogs [{string.Join("|", b.ClosedDialogTitles)}]");
         Assert.True(b.Success, work + "\n" + b.MakeErrText + b.Am2ErrText);
         Assert.True(File.Exists(Path.Combine(work, Model + ".dir", Model + "64.dll")));
+        var o = ASH.Core.Runner.ModelRunner.Run(new ASH.Core.Runner.RunRequest(work, Model, input, new RunScenario(1, new Dictionary<string, int> { ["G1"] = 1 }), TimeSpan.FromMinutes(2), "Student Version"));
+        Assert.True(o.Success, o.Error); // the model with the drawing still runs (and records the .avw when AutoView is on)
         if (Environment.GetEnvironmentVariable("ASH_KEEP_TEMP") != "1") Directory.Delete(work, true);
     }
 }

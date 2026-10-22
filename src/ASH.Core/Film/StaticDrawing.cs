@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
 using ASH.Core.Asy;
 using ASH.Core.Dxf;
 using ASH.Core.Export;
@@ -19,13 +20,21 @@ public static class StaticDrawing
 
     /// <param name="drawingInModelMetres">DxfLite.ToModel output (metres, ArcLayout frame).</param>
     /// <param name="units">The model's UNITS (ExportOptions.Units); ArgumentException for one ASH cannot convert.</param>
-    /// <remarks>Nothing is written (model.amo is left alone) when no segment survives the hidden layers.</remarks>
+    /// <remarks>When no segment survives the hidden layers, an earlier call's ash_drw.asy and STATIC lines are removed instead.</remarks>
     public static void AddTo(string arcDir, DxfDrawing drawingInModelMetres, string units, IEnumerable<string>? hiddenLayers)
     {
         var upm = new ExportOptions(Units: units).UnitsPerMeter;
         var hidden = new HashSet<string>(hiddenLayers ?? new string[0], StringComparer.OrdinalIgnoreCase); // IReadOnlySet does not exist on netstandard2.0
         var segs = drawingInModelMetres.Segs.Where(s => !hidden.Contains(s.Layer)).ToList();
-        if (segs.Count == 0) return;
+        var amoPath = Path.Combine(arcDir, "model.amo");
+        var asyPath = Path.Combine(arcDir, SystemName + ".asy");
+        const string Link = "STATIC name " + SystemName + "\n\tSYSPOS endx 1\n";
+        if (segs.Count == 0) // nothing to draw: undo an earlier call so the model has no stale drawing
+        {
+            if (File.Exists(asyPath)) File.Delete(asyPath);
+            if (File.Exists(amoPath)) File.WriteAllText(amoPath, File.ReadAllText(amoPath).Replace(Link, ""), new UTF8Encoding(false));
+            return;
+        }
 
         string N(double v) => AsyWriter.Num(v * upm);
         var runs = new List<List<(double X, double Y)>>(); string? layer = null;
@@ -43,16 +52,16 @@ public static class StaticDrawing
         L("SYSTYPE Static"); L($"UNITS {units} Seconds"); L("SYSDEF"); L("FLAGS"); L("\tSystem Inherit"); L("STATICDEF UserId 9");
         L(" IND 0 display picpos endx 1"); L("\ttemplate " + units);
         L("511 81"); L($"{N(xs.Min())} {N(xs.Max())} {N(ys.Min())} {N(ys.Max())} 0 0"); L("-1 -1 0 1 1 " + SystemName);
-        L(";; HMF V1.25 TEXT"); L("(Segment \"\" ("); L("  (Line_Weight 3)"); L("  (Color_By_Value \"Line\" \"RGB\" 0.6 0.6 0.6)");
-        foreach (var r in runs) L("  (Polyline (" + string.Join(" ", r.Select(p => $"({N(p.X)} {N(p.Y)} 0)")) + "))");
-        L("))"); L("#HMF END"); sb.Append("end");
-        File.WriteAllText(Path.Combine(arcDir, SystemName + ".asy"), sb.ToString(), new UTF8Encoding(false));
+        L(";; HMF V1.25 TEXT"); L("(Segment \"\" ("); L("  (Line_Weight 3)");
+        L("  (Segment \"floor\" ((Color_By_Value \"Line\" \"RGB\" 0.6 0.6 0.6)"); // two levels as in guide 11.2
+        foreach (var r in runs) L("    (Polyline (" + string.Join(" ", r.Select(p => $"({N(p.X)} {N(p.Y)} 0)")) + "))");
+        L("  ))"); L("))"); L("#HMF END"); sb.Append("end");
+        File.WriteAllText(asyPath, sb.ToString(), new UTF8Encoding(false));
 
-        var amoPath = Path.Combine(arcDir, "model.amo");
         var amo = File.ReadAllText(amoPath);
-        if (amo.Contains("STATIC name " + SystemName + "\n")) return;
-        var at = amo.IndexOf("PROCSYS", StringComparison.Ordinal);
-        if (at < 0) throw new InvalidDataException("model.amo에 PROCSYS 줄이 없습니다: " + amoPath);
-        File.WriteAllText(amoPath, amo.Insert(at, "STATIC name " + SystemName + "\n\tSYSPOS endx 1\n"), new UTF8Encoding(false));
+        if (amo.Contains(Link)) return;
+        var m = Regex.Match(amo, "^PROCSYS ", RegexOptions.Multiline);
+        if (!m.Success) throw new InvalidDataException("model.amo에 PROCSYS 줄이 없습니다: " + amoPath);
+        File.WriteAllText(amoPath, amo.Insert(m.Index, Link), new UTF8Encoding(false));
     }
 }
