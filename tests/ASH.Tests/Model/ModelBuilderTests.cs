@@ -88,7 +88,7 @@ public class ModelBuilderTests
         var proc = File.ReadAllText(Path.Combine(r.ArcDir, "m~.asy"));
         // rect (8,-1)-(11,2) -> (14,-4)-(20,2): centre 17,-1; size 6x6
         Assert.Contains("begx 17 begy -1 ", proc);
-        Assert.Contains("scx 6 scy 6", proc);
+        Assert.Contains("scx 1.5 scy 1.5", proc); // AutoMod's default block box is 4 x 4
         Assert.True(File.Exists(Path.Combine(r.ArcDir, "user_ext.m")));
         Assert.Contains("1 1\n", File.ReadAllText(Path.Combine(r.ArcDir, "params.txt"))); // G1 MinCount 1
         Directory.Delete(dir, true);

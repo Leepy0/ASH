@@ -29,6 +29,9 @@ public static class LogicGenerator
 
     static string N(double d) => AsyWriter.Num(d);
 
+    // a load shows only between a pickup and its set-down (code_material shrinks it at the start and shows it at the supply pickup)
+    const string Show = "\tscale to x 1, y 1, z 1\n", Hide = "\tscale to x 0.001, y 0.001, z 0.001\n";
+
     /// <summary>Text placed inside an AM string literal or used as an entity name. Last guard only: InputValidator reports bad names
     /// with their Excel row first.</summary>
     static string Lit(string s)
@@ -119,8 +122,8 @@ public static class LogicGenerator
             if (m.EmptyReturn)
             {
                 // empty container: picked up at ReturnFrom (LoadTime), set down at ReturnTo (UnloadTime)
-                if (returnPick) ret.Append(Leg(r.ReturnFromCP!, mi + nm)).Append(extra).Append($"\twait for {N(t.LoadTime)} sec\n").Append(loadedSpeed + "\n");
-                if (!string.IsNullOrEmpty(r.ReturnToCP)) ret.Append(Leg(r.ReturnToCP!, mi + nm)).Append($"\twait for {N(t.UnloadTime)} sec\n").Append(emptySpeed + "\n");
+                if (returnPick) ret.Append(Leg(r.ReturnFromCP!, mi + nm)).Append(extra).Append(Show).Append($"\twait for {N(t.LoadTime)} sec\n").Append(loadedSpeed + "\n");
+                if (!string.IsNullOrEmpty(r.ReturnToCP)) ret.Append(Leg(r.ReturnToCP!, mi + nm)).Append($"\twait for {N(t.UnloadTime)} sec\n").Append(Hide).Append(emptySpeed + "\n");
             }
             if (!returnPick) ret.Insert(0, extra);
             // without a return pickup the empty container rides on from the unload CP to ReturnTo: still loaded until there
@@ -132,9 +135,8 @@ public static class LogicGenerator
             if (!string.IsNullOrEmpty(g.FinishCP)) finish = Leg(g.FinishCP!, mi + nm) + "\tset A_fin to ac";
             else { finish = ""; finishAtHome = "\tset A_fin to ac"; }
             int vidOffset = input.Groups.TakeWhile(x => x.Group != g.Group).Sum(x => x.MaxCount);
-            // the supply load shows as the material's own picture; a box goes back empty (other forms are the same picture on the way back)
-            var form = MaterialForms.Normalize(m.Form) ?? MaterialForms.Box;
-            var emptyType = m.EmptyReturn && form == MaterialForms.Box && ret.Length > 0 ? $"\tset load type to L_m{mi}e" : "";
+            // the supply load shows as the material's own picture, the container goes back as its empty picture
+            var emptyType = m.EmptyReturn && ret.Length > 0 ? $"\tset load type to L_m{mi}e" : "";
             matLogic.Append(Fill(Res("code_material.m.txt"), ("M", mi.ToString()), ("NAME", Lit(m.Material)), ("SYS", sys),
                 ("SET_TYPE", $"\tset load type to L_m{mi}"), ("EMPTY_TYPE", emptyType),
                 ("G", GroupIndex(input, m.Group).ToString()),
@@ -142,7 +144,8 @@ public static class LogicGenerator
                 ("SUPPLY_LEGS", legs.ToString().TrimEnd('\n')), ("RETURN_LEGS", ret.ToString().TrimEnd('\n')),
                 ("FINISH", finish.TrimEnd('\n')), ("FINISH_AT_HOME", finishAtHome), ("HOME", home), ("VID_OFFSET", vidOffset.ToString()),
                 ("CAPACITY", Math.Max(1, t.Capacity).ToString()), ("FAIL_IDLE", Fail("V_vNextFail(A_vid)")), ("FAIL_LEG", Fail("ac")),
-                ("EMPTY_SPEED", emptySpeed), ("LOADED_SPEED", loadedSpeed), ("AFTER_UNLOAD_SPEED", carriesOn ? "" : emptySpeed), ("SPEC_SPEED", loadedSpeed)));
+                ("EMPTY_SPEED", emptySpeed), ("LOADED_SPEED", loadedSpeed), ("AFTER_UNLOAD_SPEED", carriesOn ? "" : emptySpeed),
+                ("AFTER_UNLOAD_HIDE", carriesOn ? "" : Hide.TrimEnd('\n')), ("SPEC_SPEED", loadedSpeed)));
             create.Append($"\tcreate 1 load of type L_ctl to P_consume_{mi}\n");
 
             // a stop still running at the end of the run counts up to the snap
@@ -240,7 +243,7 @@ public static class LogicGenerator
             m.LoadTypes.Add($"L_m{i}");
             var full = LoadGeometry.Build(form, false, len, wid, hei, units);
             if (full != null) m.LoadGraphics[$"L_m{i}"] = full;
-            if (form == MaterialForms.Box && mat.EmptyReturn)
+            if (mat.EmptyReturn)
             {
                 m.LoadTypes.Add($"L_m{i}e");
                 var empty = LoadGeometry.Build(form, true, len, wid, hei, units);

@@ -48,7 +48,7 @@ public static class VehicleGeometry
     static IEnumerable<string> Prim(string name, int color, double x, double y, double z, double bx, double by, double tx, double ty, double h, string flag = "21")
     {
         yield return "310 " + flag;
-        yield return color + " " + color + " 0 1 0 " + name;
+        yield return color + " " + color + " 0 1 1 " + name; // display 1 = solid (0 draws the outline only)
         yield return F(x) + "  " + F(y) + "  " + F(z);
         yield return "0" + (char)9 + "0.00" + (char)9 + "0.00" + (char)9 + "0.00";
         yield return (char)9 + "1.00" + (char)9 + "1.00" + (char)9 + "1.00";

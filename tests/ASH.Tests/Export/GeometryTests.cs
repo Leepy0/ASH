@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using ASH.Core.Export;
 using ASH.Core.Input;
 using ASH.Core.Model;
@@ -96,7 +97,7 @@ public class GeometryTests
             Assert.Contains(g, x => x.EndsWith(" Lamp" + end + "R")); Assert.Contains(g, x => x.EndsWith(" Lamp" + end + "Y")); Assert.Contains(g, x => x.EndsWith(" Lamp" + end + "G"));
         }
         // red 1, yellow 3, green 2
-        Assert.Contains("1 1 0 1 0 LampFR", g); Assert.Contains("3 3 0 1 0 LampFY", g); Assert.Contains("2 2 0 1 0 LampFG", g);
+        Assert.Contains("1 1 0 1 1 LampFR", g); Assert.Contains("3 3 0 1 1 LampFY", g); Assert.Contains("2 2 0 1 1 LampFG", g); // display 1: solid
         // the two faces are mirror images: same height, opposite sides along the travel axis
         double yF = Num(g[g.ToList().FindIndex(x => x.EndsWith(" LampFY")) + 1], 1), yR = Num(g[g.ToList().FindIndex(x => x.EndsWith(" LampRY")) + 1], 1);
         Assert.Equal(-yF, yR, 6); Assert.True(yF > 0);
@@ -122,7 +123,7 @@ public class GeometryTests
         // the highest surface of any part is the load surface at 600 mm
         double high = double.NegativeInfinity;
         for (int i = 0; i < g.Count - 5; i++)
-            if ((g[i] == "310 21") && g[i + 1].Contains(" 0 1 0 ") && !g[i + 1].Contains("Lamp") && !g[i + 1].Contains("Bump") && !g[i + 1].Contains("one") && !g[i + 1].Contains("two") && !g[i + 1].Contains("three") && !g[i + 1].Contains("four"))
+            if ((g[i] == "310 21") && g[i + 1].Contains(" 0 1 1 ") && !g[i + 1].Contains("Lamp") && !g[i + 1].Contains("Bump") && !g[i + 1].Contains("one") && !g[i + 1].Contains("two") && !g[i + 1].Contains("three") && !g[i + 1].Contains("four"))
                 high = System.Math.Max(high, Num(g[i + 2], 2) + Num(g[i + 5], 4));
         Assert.Equal(topZ, high, 4);
         // loads are attached on that surface
@@ -192,6 +193,38 @@ public class GeometryTests
         Assert.Contains("L_m1", m.LoadTypes); Assert.Contains("L_m1e", m.LoadTypes);
         Assert.True(m.LoadGraphics.ContainsKey("L_m1") && m.LoadGraphics.ContainsKey("L_m1e"));
         Assert.Contains("set load type to L_m1" + (char)10, m.LogicSource);
+        Assert.Contains("set load type to L_m1e", m.LogicSource);
+    }
+
+    [Fact]
+    public void Load_Shows_From_Each_Pickup_To_Its_Set_Down_Only()
+    {
+        var t = ASH.Core.Model.LogicGenerator.Render(LogicGeneratorTests(), ASH.Tests.Model.LogicGeneratorTests.Layout);
+        var s = t.Substring(t.IndexOf("begin P_supply_1"), t.IndexOf("begin P_consume_2") - t.IndexOf("begin P_supply_1"));
+        const string hide = @"scale to x 0\.001, y 0\.001, z 0\.001", show = @"scale to x 1, y 1, z 1";
+        // hidden while the call waits and the vehicle runs to L001; full from L001 to U001; empty from the return pickup (U001) to the set-down (L001)
+        Assert.Matches(hide + @"[\s\S]*?move into agv:S001[\s\S]*?travel to agv:L001[\s\S]*?" + show + @"\n\twait for[\s\S]*?travel to agv:U001[\s\S]*?" +
+            @"set load type to L_m1e\n\t" + hide + @"[\s\S]*?travel to agv:U001[\s\S]*?" + show + @"\n\twait for[\s\S]*?travel to agv:L001[\s\S]*?wait for [\d.]+ sec\n\t" + hide +
+            @"[\s\S]*?travel to agv:S001", s);
+        Assert.Equal(2, Regex.Matches(s, show).Count); Assert.Equal(3, Regex.Matches(s, hide).Count);
+        // no return pickup: the empty container rides on from U001 to ReturnTo, shown until it is set down there
+        var p = LogicGeneratorTests(); p.Routes[0] = p.Routes[0] with { ReturnFromCP = null };
+        var c = ASH.Core.Model.LogicGenerator.Render(p, ASH.Tests.Model.LogicGeneratorTests.Layout);
+        c = c.Substring(c.IndexOf("begin P_supply_1"), c.IndexOf("begin P_consume_2") - c.IndexOf("begin P_supply_1"));
+        Assert.Matches(@"set load type to L_m1e\n(?:(?!scale to)[\s\S])*?travel to agv:L001[\s\S]*?wait for [\d.]+ sec\n\t" + hide, c);
+        Assert.Equal(2, Regex.Matches(c, hide).Count);
+    }
+
+    [Theory]
+    [InlineData("Pallet")] [InlineData("Trolley")]
+    public void Pallet_And_Trolley_Go_Back_Grey(string form)
+    {
+        var full = Load(form, false, 1.0, 0.7, 0.25); var empty = Load(form, true, 1.0, 0.7, 0.25);
+        Assert.Equal(full.Count, empty.Count);
+        Assert.DoesNotContain(full, x => x.StartsWith("8 8 ")); Assert.Contains(empty, x => x.StartsWith("8 8 0 1 1 ")); // light grey
+        var p = LogicGeneratorTests(); p.Materials[0] = p.Materials[0] with { Form = form };
+        var m = ASH.Core.Model.LogicGenerator.BuildProcessModel(p, ASH.Tests.Model.LogicGeneratorTests.Layout, "Meters");
+        Assert.True(m.LoadGraphics.ContainsKey("L_m1e"));
         Assert.Contains("set load type to L_m1e", m.LogicSource);
     }
 

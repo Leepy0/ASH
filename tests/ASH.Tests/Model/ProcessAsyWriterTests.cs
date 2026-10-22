@@ -32,7 +32,7 @@ public class ProcessAsyWriterTests
         var m = new ProcessModel();
         m.Blocks.Add(new("B001", 1, new Rect2(new Point2(0, 0), new Point2(4, 2))));
         var t = Render(m);
-        Assert.Contains("BLOCK name B001 0 cap 1\n dis 0 picpos begx 2 begy 1 endx 3 endy 1 scx 4 scy 2 scz 1\n\n\tUserDef\ttemplate Feet\n310 0\n1 1 1 1 1 0 0\nend\n", t);
+        Assert.Contains("BLOCK name B001 0 cap 1\n dis 0 picpos begx 2 begy 1 endx 3 endy 1 scx 1 scy 0.5 scz 0.25\n\n\tUserDef\ttemplate Feet\n310 0\n4 4 4 4 4 0 0\nend\n", t);
     }
 
     [Fact]
@@ -58,7 +58,7 @@ public class ProcessAsyWriterTests
     {
         var m = new ProcessModel();
         m.Blocks.Add(new("B1", 1, new Rect2(new Point2(4, 2), new Point2(0, 0))));
-        Assert.Contains("begx 2 begy 1 endx 3 endy 1 scx 4 scy 2", Render(m));
+        Assert.Contains("begx 2 begy 1 endx 3 endy 1 scx 1 scy 0.5", Render(m));
         var z = new ProcessModel(); z.Blocks.Add(new("B2", 1, new Rect2(new Point2(0, 0), new Point2(0, 2))));
         Assert.Throws<ArgumentException>(() => Render(z));
     }

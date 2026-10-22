@@ -68,14 +68,14 @@ public static class ProcessAsyWriter
         foreach (var b in m.Blocks)
         {
             // AM segfaults on `BLOCK n 1` (1-element array); a single block is `0` + `dis 0`.
-            // The template is a 1 x 1 box centred on picpos beg (310 primitive: bottom x, bottom y, top x, top y, height), so scx/scy are the rect size.
-            // AutoMod's traffic block is this graphic: a box drawn bigger than the rect (the demo's 4 x 4 box did, before) swallows standby and
-            // load CPs, a vehicle waiting there holds the block for good, and everything locks up (seen in CrossingScenarioTests).
+            // The template is AutoMod's default block shape, a 4 x 4 x 4 box centred on picpos beg (310 primitive: bottom x, bottom y, top x, top y, height),
+            // so scx/scy are a quarter of the rect size. AutoMod's traffic block is this graphic: a box drawn bigger than the rect (unscaled 4 x 4 did, once)
+            // swallows standby and load CPs, a vehicle waiting there holds the block for good, and everything locks up (seen in CrossingScenarioTests).
             double x0 = Math.Min(b.Rect.Min.X, b.Rect.Max.X), x1 = Math.Max(b.Rect.Min.X, b.Rect.Max.X), y0 = Math.Min(b.Rect.Min.Y, b.Rect.Max.Y), y1 = Math.Max(b.Rect.Min.Y, b.Rect.Max.Y);
             if (x1 - x0 <= 0 || y1 - y0 <= 0) throw new ArgumentException("block " + b.Name + " has zero width or height");
             double cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
             w.WriteLine($"BLOCK name {b.Name} 0 cap {b.Cap}");
-            w.WriteLine($" dis 0 picpos begx {N(cx)} begy {N(cy)} endx {N(cx + 1)} endy {N(cy)} scx {N(x1 - x0)} scy {N(y1 - y0)} scz 1");
+            w.WriteLine($" dis 0 picpos begx {N(cx)} begy {N(cy)} endx {N(cx + 1)} endy {N(cy)} scx {N((x1 - x0) / 4)} scy {N((y1 - y0) / 4)} scz 0.25");
             w.WriteLine();
             w.Write(Res("block_template.txt", m.Units));
         }

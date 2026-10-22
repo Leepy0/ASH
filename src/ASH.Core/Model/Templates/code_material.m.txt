@@ -44,6 +44,8 @@ end
 begin P_supply_{{M}} arriving procedure
 	set A_grp to {{G}}
 {{SET_TYPE}}
+	/* a call is no container yet: AutoMod cannot hide a load, so it is shrunk out of sight until the pickup CP */
+	scale to x 0.001, y 0.001, z 0.001
 	set A_tCall to ac
 	set V_extMat to {{M}}
 	set V_tmp to F_ext_select_vehicle()
@@ -61,6 +63,7 @@ begin P_supply_{{M}} arriving procedure
 {{FAIL_LEG}}
 {{LOADED_SPEED}}
 	if ac >= V_warmup then tabulate ac - A_tCall in T_pick_{{M}}
+	scale to x 1, y 1, z 1
 	wait for {{LOAD_TIME}} sec
 {{SUPPLY_LEGS}}
 	set V_extMat to {{M}}
@@ -73,6 +76,7 @@ begin P_supply_{{M}} arriving procedure
 	end
 	dec V_pending({{M}}) by A_qty
 {{EMPTY_TYPE}}
+{{AFTER_UNLOAD_HIDE}}
 {{AFTER_UNLOAD_SPEED}}
 {{RETURN_LEGS}}
 {{FINISH}}

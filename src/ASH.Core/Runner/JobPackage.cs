@@ -45,7 +45,8 @@ public static class JobPackage
         var files = new List<(string Rel, string Full)>();
         var arc = Path.Combine(projectDir, model + ".arc");
         foreach (var f in Directory.GetFiles(arc, "*", SearchOption.AllDirectories).OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
-            files.Add((model + ".arc/" + f.Substring(arc.Length + 1).Replace(Path.DirectorySeparatorChar, '/'), f));
+            if (Path.GetFileName(f).IndexOf(".asy.bak", StringComparison.OrdinalIgnoreCase) < 0) // ExportRunner's backups (<x>.asy.bak.<time>) stay at home
+                files.Add((model + ".arc/" + f.Substring(arc.Length + 1).Replace(Path.DirectorySeparatorChar, '/'), f));
         foreach (var extra in new[] { CellDump.FileName, "ash.settings.tsv" })
         {
             var p = Path.Combine(projectDir, extra);
