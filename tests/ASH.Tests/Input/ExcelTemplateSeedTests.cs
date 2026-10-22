@@ -83,7 +83,7 @@ public class ExcelTemplateSeedTests
             ExcelTemplate.Write(path, Drawing());
             using (var wb = ExcelReader.Open(path)) // an older workbook: EmptyReturn column, old description
             {
-                var m = wb.Worksheet("Materials"); m.Cell(1, 17).Value = "EmptyReturn"; m.Cell(3, 17).Value = "Y"; m.Cell(2, 2).Value = "공정명(선택·메모)";
+                var m = wb.Worksheet("Materials"); m.Cell(1, 19).Value = "EmptyReturn"; m.Cell(3, 19).Value = "Y"; m.Cell(2, 2).Value = "공정명(선택·메모)";
                 wb.Worksheet("Routes").Delete();
                 wb.Save();
             }
@@ -99,12 +99,18 @@ public class ExcelTemplateSeedTests
                     case AddSheetEdit a: replay.AddWorksheet(a.Sheet); break;
                     case DeleteColumnEdit d: replay.Worksheet(d.Sheet).Column(d.Col).Delete(); break;
                     case CellEdit c: replay.Worksheet(c.Sheet).Cell(c.Row, c.Col).Value = c.Value; break;
+                    case FormulaEdit f: replay.Worksheet(f.Sheet).Range(f.FirstRow, f.Col, f.LastRow, f.Col).FormulaR1C1 = f.FormulaR1C1; break;
                 }
             Assert.Contains(log, e => e is ListEdit x && x.Sheet == "AGV_Groups" && x.Formula == "=AGV_Types!$A$3:$A$1000");
             foreach (var ws in updated.Worksheets)
             {
                 var r = replay.Worksheet(ws.Name);
-                foreach (var cell in ws.CellsUsed(XLCellsUsedOptions.Contents)) Assert.Equal(cell.GetString(), r.Cell(cell.Address.RowNumber, cell.Address.ColumnNumber).GetString());
+                foreach (var cell in ws.CellsUsed(XLCellsUsedOptions.Contents))
+                {
+                    var other = r.Cell(cell.Address.RowNumber, cell.Address.ColumnNumber);
+                    if (cell.HasFormula) Assert.Equal(cell.FormulaA1, other.FormulaA1); // not evaluated: the totals are for Excel to compute
+                    else Assert.Equal(cell.GetString(), other.GetString());
+                }
                 Assert.Equal(ws.CellsUsed(XLCellsUsedOptions.Contents).Count(), r.CellsUsed(XLCellsUsedOptions.Contents).Count());
             }
         }
@@ -120,10 +126,10 @@ public class ExcelTemplateSeedTests
             ExcelTemplate.Write(path, Drawing());
             ExcelTemplate.Update(path, Drawing()); // re-applied lists must not pile up
             using var wb = ExcelReader.Open(path);
-            var form = wb.Worksheet("Materials").Cell(3, 13).GetDataValidation();
+            var form = wb.Worksheet("Materials").Cell(3, 15).GetDataValidation();
             Assert.Equal("\"Box,Pallet,Trolley\"", form.Value);
             Assert.Contains("AGV_Types", wb.Worksheet("AGV_Groups").Cell(5, 2).GetDataValidation().Value);
-            Assert.Single(wb.Worksheet("Materials").DataValidations, v => v.Ranges.Any(r => r.RangeAddress.FirstAddress.ColumnNumber == 13));
+            Assert.Single(wb.Worksheet("Materials").DataValidations, v => v.Ranges.Any(r => r.RangeAddress.FirstAddress.ColumnNumber == 15));
         }
         finally { File.Delete(path); }
     }

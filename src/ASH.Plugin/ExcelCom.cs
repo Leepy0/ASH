@@ -47,6 +47,7 @@ internal static class ExcelCom
                     if (double.TryParse(c.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var num)) sheet.Cells[c.Row, c.Col].Value2 = num;
                     else sheet.Cells[c.Row, c.Col].Value2 = c.Value;
                     break;
+                case FormulaEdit f: sheet.Range[sheet.Cells[f.FirstRow, f.Col], sheet.Cells[f.LastRow, f.Col]].FormulaR1C1 = f.FormulaR1C1; break;
                 case ListEdit l:
                     dynamic v = sheet.Range[sheet.Cells[l.FirstRow, l.Col], sheet.Cells[l.LastRow, l.Col]].Validation;
                     v.Delete();

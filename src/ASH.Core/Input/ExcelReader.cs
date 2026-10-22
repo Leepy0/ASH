@@ -58,8 +58,9 @@ public static class ExcelReader
         for (int c = 1; c <= lastCol; c++) { var h = ws.Cell(1, c).GetString().Trim(); if (h.Length > 0) cols[h] = c; }
         var list = new List<Row>();
         int lastRow = ws.LastRowUsed()?.RowNumber() ?? 0;
+        // formula cells (the template's helper totals) neither make a row nor get evaluated
         for (int r = 3; r <= lastRow; r++)
-            if (Enumerable.Range(1, lastCol).Any(c => ws.Cell(r, c).GetString().Trim().Length > 0)) list.Add(new Row(ws, cols, r));
+            if (Enumerable.Range(1, lastCol).Any(c => !ws.Cell(r, c).HasFormula && ws.Cell(r, c).GetString().Trim().Length > 0)) list.Add(new Row(ws, cols, r));
         return list;
     }
 

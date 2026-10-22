@@ -46,6 +46,7 @@ public static class CellDump
                 foreach (var ws in wb.Worksheets)
                     foreach (var cell in ws.CellsUsed())
                     {
+                        if (cell.HasFormula) continue; // the template's helper totals: nothing the reader uses, and evaluating them is not needed
                         string kind, text;
                         if (cell.DataType == XLDataType.Number) { kind = "N"; text = cell.GetDouble().ToString("R", CultureInfo.InvariantCulture); }
                         else { kind = "S"; text = cell.GetString(); }

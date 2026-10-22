@@ -22,9 +22,9 @@ public static class ExcelTemplate
             new[] { "G_EX", "T_EX", "1", "3", "CP_STBY", "Nearest", "" }),
         // thresholds are containers + units (each may be blank: ExcelReader adds them up in containers); EmptyReturn follows the route's return CPs
         ("Materials",
-            new[] { "Material", "Station", "Group", "TaktTime", "UnitsPerCycle", "UnitsPerContainer", "CallThreshold", "CallThresholdQty", "UnloadThreshold", "UnloadThresholdQty", "InitStock", "SafetyStock", "Form", "LoadLength", "LoadWidth", "LoadHeight" },
-            new[] { "자재명", "공정명(메모)", "운반 그룹", "T/T(초)", "소요 원수", "용기당 자재 수량", "호출 임계(용기)", "호출 임계(자재)", "언로딩 임계(용기)", "언로딩 임계(자재)", "초기재고(- : 기본값)", "안전재고(- : 기본값)", "형태(목록에서 선택)", "적재물 길이(m, - : 기본값)", "적재물 폭(m, - : 기본값)", "적재물 높이(m, - : 기본값)" },
-            new[] { "M001", "", "G_EX", "60", "1", "10", "4", "", "1", "", "", "", "Box", "", "", "" }), // Call 4 > Settings SafetyStock 2
+            new[] { "Material", "Station", "Group", "TaktTime", "UnitsPerCycle", "UnitsPerContainer", "CallThreshold", "CallThresholdQty", "CallThresholdTotal", "UnloadThreshold", "UnloadThresholdQty", "UnloadThresholdTotal", "InitStock", "SafetyStock", "Form", "LoadLength", "LoadWidth", "LoadHeight" },
+            new[] { "자재명", "공정명(메모)", "운반 그룹", "T/T(초)", "소요 원수", "용기당 자재 수량", "호출 임계(용기)", "호출 임계(자재)", "호출 임계 합계(용기, 자동)", "언로딩 임계(용기)", "언로딩 임계(자재)", "언로딩 임계 합계(용기, 자동)", "초기재고(- : 기본값)", "안전재고(- : 기본값)", "형태(목록에서 선택)", "적재물 길이(m, - : 기본값)", "적재물 폭(m, - : 기본값)", "적재물 높이(m, - : 기본값)" },
+            new[] { "M001", "", "G_EX", "60", "1", "10", "4", "", "", "1", "", "", "", "", "Box", "", "", "" }), // Call 4 > Settings SafetyStock 2
         ("Routes",
             new[] { "Material", "SupplyFromCP", "SupplyToCP", "BufferCP", "ReturnFromCP", "ReturnToCP", "ExtraTime" },
             new[] { "자재명", "load CP", "unload CP", "buffer CP(선택)", "rtnload CP(선택)", "rtnunload CP(선택)", "추가 시간(초)" },
@@ -51,6 +51,14 @@ public static class ExcelTemplate
     };
 
     const int LastListRow = 1000;
+
+    /// <summary>Read-only helper columns: a threshold in containers as ExcelReader adds it up (boxes + units / units per container), as an Excel formula
+    /// over rows 3..LastListRow. R1C1 with absolute columns, so one formula fits the whole range wherever the columns are. The reader ignores them.</summary>
+    static readonly (string Sheet, string Col, string Box, string Qty)[] Totals =
+    {
+        ("Materials", "CallThresholdTotal", "CallThreshold", "CallThresholdQty"),
+        ("Materials", "UnloadThresholdTotal", "UnloadThreshold", "UnloadThresholdQty"),
+    };
 
     public static readonly (string Key, string Value, string Desc)[] SettingsDefaults =
     {
@@ -185,6 +193,7 @@ public static class ExcelTemplate
             for (int c = 1; c <= cols.Length; c++) FitWidth(ws, c, lastRow);
         }
         ApplyLists(wb);
+        ApplyTotals(wb);
         Save(wb, path);
     }
 
@@ -287,6 +296,7 @@ public static class ExcelTemplate
             }
         }
         ApplyLists(wb, log);
+        ApplyTotals(wb, log);
         return changes;
     }
 
@@ -314,7 +324,7 @@ public static class ExcelTemplate
     {
         var r = new List<string>();
         if (!Columns(ws).TryGetValue(col, out var c)) return r;
-        int last = ws.LastRowUsed()?.RowNumber() ?? 0;
+        int last = LastDataRow(ws);
         for (int i = 3; i <= last; i++) { var v = ws.Cell(i, c).GetString().Trim(); if (v.Length > 0) r.Add(v); }
         return r;
     }
@@ -322,7 +332,7 @@ public static class ExcelTemplate
     static int RowOf(IXLWorksheet ws, string col, string value)
     {
         if (!Columns(ws).TryGetValue(col, out var c)) return 0;
-        int last = ws.LastRowUsed()?.RowNumber() ?? 0;
+        int last = LastDataRow(ws);
         for (int i = 3; i <= last; i++) if (ws.Cell(i, c).GetString().Trim() == value) return i;
         return 0;
     }
@@ -331,9 +341,28 @@ public static class ExcelTemplate
     static void Append(IXLWorksheet ws, string[] cols, string[] values, List<ExcelEdit>? log)
     {
         var at = Columns(ws);
-        int r = Math.Max(3, (ws.LastRowUsed()?.RowNumber() ?? 0) + 1);
+        int r = Math.Max(3, LastDataRow(ws) + 1);
         for (int i = 0; i < cols.Length && i < values.Length; i++)
             if (values[i].Length > 0 && at.TryGetValue(cols[i], out var c)) Set(ws, r, c, values[i], log);
+    }
+
+    /// <summary>The last row holding a typed value (formula cells, such as the totals, do not count).</summary>
+    static int LastDataRow(IXLWorksheet ws) =>
+        ws.CellsUsed(XLCellsUsedOptions.Contents).Where(c => !c.HasFormula && c.GetString().Length > 0).Select(c => c.Address.RowNumber).DefaultIfEmpty(0).Max();
+
+    static void ApplyTotals(XLWorkbook wb, List<ExcelEdit>? log = null)
+    {
+        foreach (var (sheet, col, box, qty) in Totals)
+        {
+            if (!wb.TryGetWorksheet(sheet, out var ws)) continue;
+            var at = Columns(ws);
+            if (!at.TryGetValue(col, out var c) || !at.TryGetValue(box, out var b) || !at.TryGetValue(qty, out var q)
+                || !at.TryGetValue("Material", out var m) || !at.TryGetValue("UnitsPerContainer", out var per)) continue;
+            // N() reads a blank or "-" as 0, like the reader; blank when the row has no material
+            var f = $"=IF(RC{m}=\"\",\"\",N(RC{b})+N(RC{q})/IF(N(RC{per})>0,RC{per},1))";
+            ws.Range(3, c, LastListRow, c).FormulaR1C1 = f;
+            log?.Add(new FormulaEdit(sheet, c, 3, LastListRow, f));
+        }
     }
 
     static void ApplyLists(XLWorkbook wb, List<ExcelEdit>? log = null)
@@ -398,5 +427,7 @@ public abstract record ExcelEdit(string Sheet);
 public sealed record AddSheetEdit(string Sheet) : ExcelEdit(Sheet);
 public sealed record DeleteColumnEdit(string Sheet, int Col) : ExcelEdit(Sheet);
 public sealed record CellEdit(string Sheet, int Row, int Col, string Value) : ExcelEdit(Sheet);
+/// <summary>One R1C1 formula over rows FirstRow..LastRow of a column.</summary>
+public sealed record FormulaEdit(string Sheet, int Col, int FirstRow, int LastRow, string FormulaR1C1) : ExcelEdit(Sheet);
 /// <summary>A drop-down over rows FirstRow..LastRow: Formula is a sheet range ("=AGV_Types!$A$3:$A$1000") or a comma list ("Box,Pallet").</summary>
 public sealed record ListEdit(string Sheet, int Col, int FirstRow, int LastRow, string Formula, string Title, string Message) : ExcelEdit(Sheet);

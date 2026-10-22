@@ -26,7 +26,7 @@
 |---|---|
 | AGV_Types | Type, SpeedLoaded(m/s), SpeedEmpty(m/s), Accel(m/s²), Decel(m/s²), Capacity(용기 수), LoadTime(초), UnloadTime(초), MTBF(초, 0=없음), MTTR(초), Length(m), Width(m), Color, Kind(목록: Standard / Conveyor / Ant / Magnet) |
 | AGV_Groups | Group, Type(AGV_Types 목록에서 선택, 여러 그룹이 같은 타입을 써도 된다), MinCount(≥1), MaxCount(≥MinCount), StandbyCPs(쉼표 구분), Dispatch(Nearest / FIFO), FinishCP(선택) |
-| Materials | Material, Station(공정명, 메모), Group(운반 그룹, AGV_Groups 목록), TaktTime(초, >0), UnitsPerCycle(소요 원수), UnitsPerContainer(용기당 자재 수량, ≥1), CallThreshold(호출 임계, 용기) + CallThresholdQty(호출 임계, 자재), UnloadThreshold(언로딩 임계, 용기) + UnloadThresholdQty(언로딩 임계, 자재), InitStock / SafetyStock(용기, `-` 또는 빈칸 = Settings 기본값), Form(목록: Box / Pallet / Trolley), LoadLength / LoadWidth / LoadHeight(m, `-` 또는 빈칸 = 형태별 기본값) |
+| Materials | Material, Station(공정명, 메모), Group(운반 그룹, AGV_Groups 목록), TaktTime(초, >0), UnitsPerCycle(소요 원수), UnitsPerContainer(용기당 자재 수량, ≥1), CallThreshold(호출 임계, 용기) + CallThresholdQty(호출 임계, 자재) → CallThresholdTotal(합계, 자동), UnloadThreshold(언로딩 임계, 용기) + UnloadThresholdQty(언로딩 임계, 자재) → UnloadThresholdTotal(합계, 자동), InitStock / SafetyStock(용기, `-` 또는 빈칸 = Settings 기본값), Form(목록: Box / Pallet / Trolley), LoadLength / LoadWidth / LoadHeight(m, `-` 또는 빈칸 = 형태별 기본값) |
 | Routes | Material, SupplyFromCP, SupplyToCP, BufferCP(선택), ReturnFromCP(선택), ReturnToCP(선택), ExtraTime(초) |
 
 ## 도면 값으로 채운 양식
@@ -64,7 +64,7 @@ U·W 모두 원래 파일을 `input.bak.<날짜_시각>.xlsx`로 먼저 복사�
 
 ## 임계값과 빈 용기 회수
 
-- 호출·언로딩 임계는 용기 열과 자재 열을 더한 값이다. 임계(용기) + 임계(자재) ÷ 용기당 자재 수량. 예: 용기 1, 자재 5, 용기당 10 → 1.5 용기. 한쪽은 비워도 되지만 둘 다 비우면 오류이다.
+- 호출·언로딩 임계는 용기 열과 자재 열을 더한 값이다. 임계(용기) + 임계(자재) ÷ 용기당 자재 수량. 예: 용기 1, 자재 5, 용기당 10 → 1.5 용기. 한쪽은 비워도 되지만 둘 다 비우면 오류이다. 합계는 바로 옆 "임계 합계(용기, 자동)" 열에 Excel 수식으로 보인다(참고용, 읽지 않음, 3~1000행).
 - 숫자 칸의 `-`는 빈칸과 같다(기본값 사용).
 - 빈 용기 회수 여부는 따로 입력하지 않는다. Routes에 rtnload(ReturnFromCP) 또는 rtnunload(ReturnToCP)가 있으면 회수한다. 예전 양식의 EmptyReturn 열은 읽지 않고, 갱신(U)하면 지워진다.
 

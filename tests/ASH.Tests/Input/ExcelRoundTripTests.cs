@@ -43,7 +43,7 @@ public class ExcelRoundTripTests
             {
                 SetSetting(wb, "SimLength", "2.5");
                 var m = wb.Worksheet("Materials");
-                m.Cell(3, 1).Value = "M9"; m.Cell(3, 4).Value = "45.5"; m.Cell(3, 11).Value = 3; m.Cell(3, 12).Value = "-";
+                m.Cell(3, 1).Value = "M9"; m.Cell(3, 4).Value = "45.5"; m.Cell(3, 13).Value = 3; m.Cell(3, 14).Value = "-";
                 wb.Worksheet("AGV_Groups").Cell(3, 5).Value = "A, B";
                 wb.Worksheet("Routes").Cell(3, 4).Value = "CP_BUF";
                 wb.Save();
@@ -143,7 +143,7 @@ public class ExcelRoundTripTests
             using (var wb = new XLWorkbook(path))
             {
                 var r = wb.Worksheet("Routes"); r.Cell(3, 5).Value = from; r.Cell(3, 6).Value = to;
-                var m = wb.Worksheet("Materials"); m.Cell(1, 17).Value = "EmptyReturn"; m.Cell(3, 17).Value = "Y"; // an old column is ignored
+                var m = wb.Worksheet("Materials"); m.Cell(1, 19).Value = "EmptyReturn"; m.Cell(3, 19).Value = "Y"; // an old column is ignored
                 wb.Save();
             }
             Assert.Equal(expected, ExcelReader.Read(path).Materials[0].EmptyReturn);
@@ -161,7 +161,7 @@ public class ExcelRoundTripTests
             ExcelTemplate.Write(path); // UnitsPerContainer 10
             using (var wb = new XLWorkbook(path))
             {
-                var m = wb.Worksheet("Materials"); m.Cell(3, 7).Value = boxes; m.Cell(3, 8).Value = units; m.Cell(3, 9).Value = boxes; m.Cell(3, 10).Value = units;
+                var m = wb.Worksheet("Materials"); m.Cell(3, 7).Value = boxes; m.Cell(3, 8).Value = units; m.Cell(3, 10).Value = boxes; m.Cell(3, 11).Value = units;
                 wb.Save();
             }
             var mat = ExcelReader.Read(path).Materials[0];
