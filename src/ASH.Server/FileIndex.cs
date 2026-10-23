@@ -22,7 +22,7 @@ public static class FileIndex
                 if (f.Length < 5 || f[0] != "Materials" || !int.TryParse(f[1], out var r) || !int.TryParse(f[2], out var c)) continue;
                 var v = f[4].Replace("\\\\", "\\");
                 if (r == 1) { if (col == 0 && v == "Material") col = c; }
-                else if (v.Length > 0) cells.Add((r, c, v));
+                else if (r >= 3 && v.Length > 0) cells.Add((r, c, v));
             }
             return col == 0 ? Array.Empty<string>() : cells.Where(x => x.Col == col).OrderBy(x => x.Row).Select(x => x.Value).ToList();
         }
@@ -44,7 +44,7 @@ public static class FileIndex
             File.WriteAllText(path + ".tmp", JsonSerializer.Serialize(new Doc(list.ToList()), Opt));
             File.Move(path + ".tmp", path, true);
         }
-        catch (IOException) { }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         return list;
     }
 
