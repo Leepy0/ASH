@@ -93,6 +93,7 @@ public static class ServerPages
     {
         var sb = new StringBuilder("<h1>서버 설정</h1>");
         sb.Append(statusHtml);
+        sb.Append("<p><a href=\"/admin/types\">타입·투자비 관리</a></p>");
         sb.Append($"<p class=\"muted\">파일: <code>{H(v.FilePath)}</code> · <span class=\"tag\">바로 적용</span> 저장하면 다음 작업·다음 확인부터 적용 · <span class=\"tag rs\">재시작 필요</span> 서비스를 다시 시작해야 적용</p>");
         if (v.Saved is { } r)
         {

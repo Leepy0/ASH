@@ -23,7 +23,7 @@ internal static partial class Routes
             if (!rs.UploadsEnabled || !(HeaderAdmin(ctx, rs) || CookieAdmin(ctx, sessions)))
                 return Html(ServerPages.Login(rs.UploadsEnabled, null, "/admin/types", "타입·투자비(관리자)"), rs.UploadsEnabled ? 401 : 403);
             CatalogType? editing = null;
-            string? msg = store.LoadError is { } le ? Bad($"types.json을 읽을 수 없습니다(저장은 막혀 있습니다): {le}") : null;
+            string? msg = store.LoadError is { } le ? Bad($"types.json을 읽을 수 없습니다(저장은 막혀 있습니다): {WebUtility.HtmlEncode(le)}") : null;
             if (ctx.Request.Query["edit"].ToString() is { Length: > 0 } en) editing = store.Get(en);
             else if (ctx.Request.Query["clone"].ToString() is { Length: > 0 } cn && store.Get(cn) is { } src)
                 editing = new CatalogType { Label = src.Label, Category = src.Category, Kind = src.Kind, Defaults = Copy(src.Defaults), Hidden = src.Hidden };

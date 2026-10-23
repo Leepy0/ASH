@@ -209,6 +209,20 @@ public class ExcelTemplateSeedTests
     }
 
     [Fact]
+    public void Write_Without_Layout_But_With_Catalog_Points_Example_Group_At_First_Type()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "seed-" + System.Guid.NewGuid().ToString("N") + ".xlsx");
+        try
+        {
+            ExcelTemplate.Write(path, null, new[] { Cat("T_A", 1), Cat("T_B", 2) });
+            var p = ExcelReader.Read(path);
+            Assert.Equal(new[] { "T_A", "T_B" }, p.AgvTypes.Select(t => t.Type));
+            Assert.Equal("T_A", Assert.Single(p.Groups).Type);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
     public void Update_Keeps_User_Values_And_Appends_Missing_Types()
     {
         var path = Path.Combine(Path.GetTempPath(), "seed-" + System.Guid.NewGuid().ToString("N") + ".xlsx");

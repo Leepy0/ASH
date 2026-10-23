@@ -34,7 +34,12 @@ public sealed class CatalogStore
     {
         LoadError = null;
         if (!File.Exists(TypesFile)) return new();
-        try { return JsonSerializer.Deserialize<CatalogTypes>(File.ReadAllText(TypesFile, Encoding.UTF8), Json)?.Types ?? new(); }
+        try
+        {
+            var all = JsonSerializer.Deserialize<CatalogTypes>(File.ReadAllText(TypesFile, Encoding.UTF8), Json)?.Types ?? new();
+            if (all.RemoveAll(t => t == null || string.IsNullOrEmpty(t.Name)) > 0) _log.LogWarning("types.json: entries without a name were dropped: {File}", TypesFile);
+            return all;
+        }
         catch (JsonException e)
         {
             LoadError = e.Message;
@@ -114,7 +119,9 @@ public sealed class CatalogStore
             if (c.Count == 4 && c[3].Contains((char)10)) { errors.Add((i + 1, "비고에 줄바꿈을 쓸 수 없습니다")); ok = false; }
             if (!names.Contains(c[0])) { errors.Add((i + 1, $"타입 {c[0]} 없음")); ok = false; }
             if (!decimal.TryParse(c[1].Replace(",", ""), NumberStyles.Number, CultureInfo.InvariantCulture, out var p)) { errors.Add((i + 1, "숫자가 아닙니다")); ok = false; }
-            if (ok) seen[c[0]] = new PriceRow(c[0], p, c[2].Length == 0 ? "KRW" : c[2], c[3]);
+            else if (p < 0) { errors.Add((i + 1, "음수 단가")); ok = false; }
+            if (c[2].Length > 0 && c[2] != "KRW" && c[2] != "원") { errors.Add((i + 1, "통화는 KRW(원)만 쓸 수 있습니다")); ok = false; }
+            if (ok) seen[c[0]] = new PriceRow(c[0], p, "KRW", c[3]);
         }
         if (errors.Count > 0) return new PriceSave(0, errors, null);
         lock (_lock)

@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using ASH.Core.AutoMod;
 using ASH.Core.Cel;
+using ASH.Core.Catalog;
 using ASH.Core.Export;
 using ASH.Core.Input;
 using ASH.Core.Layout;
@@ -54,12 +55,21 @@ public sealed class ModelCommands
                     File.Copy(path, bak, true);
                     ed.WriteMessage($"\n기존 파일 백업: {bak}");
                 }
-                ExcelTemplate.AssetListFormula = AssetClient.AssetListFormula(UserSettings.Load().ServerUrl); // "" (server unset/down) = no drop-down
-                if (mode == "W") ExcelTemplate.Write(path, layout);
+                // one asset-name read serves the drop-down and the unknown-asset warning; null = server unset/down (no drop-down, no warning)
+                var assetNames = AssetClient.AssetNames(UserSettings.Load().ServerUrl);
+                ExcelTemplate.AssetListFormula = assetNames == null ? "" : string.Join(",", assetNames);
+
+                // 3 s cap, any failure = null: the template then keeps its one T_AGV row
+                var catalog = CatalogFetch.TryGet(UserSettings.Load().ServerUrl);
+                // said after the write succeeds, per mode: W builds a new form, U keeps the existing AGV_Types
+                string Filled() => catalog != null ? $"\n카탈로그 타입 {catalog.Count}개로 AGV_Types를 채웠습니다."
+                    : mode == "W" ? "\n서버 카탈로그를 읽지 못해 T_AGV 한 행으로 만들었습니다(AGVSERVER로 주소 확인)."
+                    : "\n서버 카탈로그를 읽지 못해 AGV_Types는 그대로 둡니다(AGVSERVER로 주소 확인).";
+                if (mode == "W") { ExcelTemplate.Write(path, layout, catalog); ed.WriteMessage(Filled()); }
                 else
                 {
                     List<string> changes;
-                    try { changes = ExcelTemplate.Update(path, layout); }
+                    try { changes = ExcelTemplate.Update(path, layout, catalog); }
                     catch (System.Exception ex) when (!(ex is OperationCanceledException))
                     {
                         // company document encryption (NASCA) lets only Excel read and write the file, and an Excel that has it open locks it:
@@ -67,11 +77,17 @@ public sealed class ModelCommands
                         ed.WriteMessage("\n파일을 직접 고치지 못해(" + ex.GetType().Name + ") Excel로 갱신합니다…");
                         PluginLog.Write("AGVEXCEL direct update failed", ex);
                         var log = new List<ExcelEdit>();
-                        using (var wb = ExcelCom.Read(path, out _)) changes = ExcelTemplate.Update(wb, layout, log);
+                        using (var wb = ExcelCom.Read(path, out _)) changes = ExcelTemplate.Update(wb, layout, log, catalog);
                         ExcelCom.Apply(path, log);
                     }
+                    ed.WriteMessage(Filled());
                     foreach (var c in changes) ed.WriteMessage($"\n  {c}");
                     if (changes.Count == 0) ed.WriteMessage("\n  추가할 내용이 없습니다(드롭다운 목록만 다시 설정).");
+                    if (catalog != null)
+                    {
+                        try { foreach (var w in InputValidator.CatalogDiff(ExcelReader.Read(path, out _), catalog, assetNames)) ed.WriteMessage($"\n  경고: {w.Message}"); }
+                        catch (System.Exception ex) when (!(ex is OperationCanceledException)) { PluginLog.Write("AGVEXCEL catalog diff", ex); } // Excel may still hold the file: only the form was updated
+                    }
                 }
             }
             ed.WriteMessage(mode == "O" ? $"\n기존 Excel 입력을 엽니다: {path}" : mode == "U" ? $"\nExcel 입력을 갱신했습니다: {path}" : $"\nExcel 양식을 만들었습니다: {path}");
