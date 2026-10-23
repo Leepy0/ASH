@@ -11,7 +11,7 @@ public class AnalysisTabsTests
     {
         using var env = new JobEnv(); env.Runner.Gate.Reset();
         var id = await env.SendFiled("라인 증설", "A안");
-        await JobEnv.Until(() => env.Store.Get(id) is { State: JobState.Running } x ? x : null);
+        await JobEnv.Until(() => env.Store.Get(id) is { State: JobState.Running, Phase: "탐색 시작" } x ? x : null); // the fake's first progress callback has run; the Gate holds it there
         env.Store.Update(id, j => { j.Partial = new() { ["G1"] = 2 }; j.Phase = "확정 G1"; });
         var aid = env.Factory.Services.GetRequiredService<AnalysisStore>().All().Single().Id;
         var html = await env.Http.GetStringAsync("/analyses/" + aid);

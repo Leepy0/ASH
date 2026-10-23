@@ -281,13 +281,15 @@ document.querySelectorAll('table.sort').forEach(function(t){
         if (j.Decided == null || v.Input == null) { sb.Append("<p class=\"muted\">결과가 없습니다.</p>"); return; }
         int total = j.Decided.Values.Sum(), min = v.Input.Groups.Sum(g => g.MinCount), max = v.Input.Groups.Sum(g => g.MaxCount);
         var top = v.Groups.Where(g => !double.IsNaN(g.Util)).OrderByDescending(g => g.Util).FirstOrDefault();
-        var worst = v.Blocks.Count > 0 ? v.Blocks.OrderByDescending(b => b.AvgWaitSec).First() : null;
-        var id = H(j.Id); bool occ = metric == "occ";
+        bool occ = metric == "occ";
+        double Val(BlockView b) => occ ? b.Utilization : b.AvgWaitSec;
+        var worst = v.Blocks.Where(b => !double.IsNaN(Val(b))).OrderByDescending(Val).FirstOrDefault();
+        var id = H(j.Id);
         sb.Append("<div class=\"grid2\"><div>");
         sb.Append("<div class=\"cards\">");
         sb.Append($"<div class=\"card\"><div class=\"sub\">권장 총 대수</div><div class=\"big\">{total}대</div><div class=\"sub\">시험 범위 {min}~{max}대</div></div>");
         sb.Append($"<div class=\"card\"><div class=\"sub\">최대 가동률</div><div class=\"big\">{(top == null ? "-" : Pct(top.Util))}</div><div class=\"sub\">상한 {Pct(v.UtilMax)} · 그룹 {H(top?.Group ?? "-")}</div></div>");
-        sb.Append($"<div class=\"card\"><div class=\"sub\">최대 병목</div><div class=\"big\">{H(worst?.Name ?? "-")}</div><div class=\"sub\">평균 대기 {(worst == null ? "-" : F(worst.AvgWaitSec, "0.0"))}초</div></div>");
+        sb.Append($"<div class=\"card\"><div class=\"sub\">최대 병목</div><div class=\"big\">{H(worst?.Name ?? "-")}</div><div class=\"sub\">{(occ ? "점유율" : "평균 대기")} {(worst == null ? "-" : occ ? Pct(worst.Utilization) : F(worst.AvgWaitSec, "0.0") + "초")}</div></div>");
         sb.Append("</div>");
         ClusterBars(sb, j, v);
         sb.Append("<h3>서로 영향이 큰 그룹</h3>");
@@ -328,7 +330,7 @@ document.querySelectorAll('table.sort').forEach(function(t){
         foreach (var c in j.Clusters)
         {
             sb.Append($"<h3>묶음: {H(string.Join(", ", c))}</h3>");
-            foreach (var g in v.Groups.Where(g => c.Contains(g.Group))) { Row(g); shown.Add(g.Group); }
+            foreach (var g in v.Groups.Where(g => c.Contains(g.Group) && shown.Add(g.Group))) Row(g);
         }
         foreach (var g in v.Groups.Where(g => !shown.Contains(g.Group))) Row(g);
     }

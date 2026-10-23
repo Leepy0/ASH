@@ -143,12 +143,14 @@ public static class AnalysisPages
         if (plans)
         {
             foreach (var p in a.Plans)
-                if (Pick(d.Jobs.Where(j => j.PlanId == p.Id)) is { } j)
+            {
+                if (Pick(d.Jobs.Where(j => j.PlanId == p.Id)) is not { } j) { sb.Append($"<section class=\"box\"><h2>{H(p.Name)}</h2><p class=\"muted\">완료된 버전 없음</p></section>"); continue; }
                 {
                     sb.Append($"<section class=\"box\"><h2>{H(p.Name)} · <a href=\"/jobs/{H(j.Id)}\">v{j.Version}</a>{(j.Selected ? " <span class=\"tag\">선정</span>" : "")}</h2>");
                     Conclusion(sb, j, JobView.For(d.Store, j), true, metric);
                     sb.Append("</section>");
                 }
+            }
             return;
         }
         var cur = done.FirstOrDefault(j => j.Id == q["job"].ToString()) ?? Pick(done)!;
