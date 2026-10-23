@@ -39,7 +39,7 @@ public sealed class CatalogType
     [DataMember(Name = "updatedUtc", EmitDefaultValue = false)] public string UpdatedUtc { get; set; } = "";
     [DataMember(Name = "updatedBy", EmitDefaultValue = false)] public string UpdatedBy { get; set; } = "";
 
-    static string N(double v) => v.ToString("0.###", CultureInfo.InvariantCulture);
+    internal static string N(double v) => v.ToString("0.###", CultureInfo.InvariantCulture);
     static string Curve(double curve, double straight) => curve == 0 || curve == straight ? "" : N(curve);
 
     /// <summary>Strings in the AGV_Types column order of ExcelTemplate (a curve equal to the straight speed or 0 stays blank; Asset stays blank).</summary>

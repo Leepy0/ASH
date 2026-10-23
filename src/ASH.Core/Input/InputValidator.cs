@@ -41,12 +41,10 @@ public static class InputValidator
         return f;
     }
 
-    /// <summary>supplyLength (optional) enables the SupplyCapacity warnings.</summary>
     /// <summary>One warning per AGV_Types row whose numeric columns differ from the catalog type of the same name (unknown names are skipped).</summary>
     public static List<Finding> CatalogDiff(ProjectInput input, IReadOnlyList<CatalogType> catalog)
     {
         var f = new List<Finding>();
-        static string N(double v) => v.ToString("0.###", CultureInfo.InvariantCulture);
         for (int i = 0; i < input.AgvTypes.Count; i++)
         {
             var t = input.AgvTypes[i];
@@ -58,7 +56,7 @@ public static class InputValidator
             double eL = t.SpeedLoaded, eE = t.SpeedEmpty > 0 ? t.SpeedEmpty : t.SpeedLoaded;
             double cE = d.SpeedEmptyStraight > 0 ? d.SpeedEmptyStraight : d.SpeedLoadedStraight;
             var diffs = new List<string>();
-            void Cmp(string col, double mine, double cat) { if (Math.Abs(mine - cat) > 1e-9) diffs.Add($"{col} {N(mine)} ≠ 카탈로그 {N(cat)}"); }
+            void Cmp(string col, double mine, double cat) { if (Math.Abs(mine - cat) > 1e-9) diffs.Add($"{col} {CatalogType.N(mine)} ≠ 카탈로그 {CatalogType.N(cat)}"); }
             Cmp("SpeedLoaded", eL, d.SpeedLoadedStraight); Cmp("SpeedLoadedCurve", Eff(t.SpeedLoadedCurve, eL), Eff(d.SpeedLoadedCurve, d.SpeedLoadedStraight));
             Cmp("SpeedEmpty", eE, cE); Cmp("SpeedEmptyCurve", Eff(t.SpeedEmptyCurve, eE), Eff(d.SpeedEmptyCurve, cE));
             Cmp("Accel", t.Accel, d.Accel); Cmp("Decel", t.Decel, d.Decel); Cmp("Capacity", t.Capacity, d.Capacity);
@@ -70,6 +68,7 @@ public static class InputValidator
         return f;
     }
 
+    /// <summary>supplyLength (optional) enables the SupplyCapacity warnings.</summary>
     public static List<Finding> Validate(ProjectInput input, IReadOnlyCollection<string>? layoutCpNames, IReadOnlyDictionary<string, double>? supplyLength = null)
     {
         var f = new List<Finding>();
