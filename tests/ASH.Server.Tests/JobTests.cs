@@ -138,6 +138,25 @@ public sealed class JobEnv : IDisposable
         return await Http.PostAsync("/api/jobs", form);
     }
 
+    /// <summary>Sends a job filed under analysis/plan (by name) and returns its id.</summary>
+    public async Task<string> SendFiled(string analysis, string plan, string submitter = "tester", Action<string>? addFiles = null)
+    {
+        var form = new MultipartFormDataContent
+        {
+            { new StringContent("Line A"), "project" }, { new StringContent("m"), "model" }, { new StringContent(submitter), "submitter" },
+            { new StringContent(analysis), "analysisName" }, { new StringContent(plan), "planName" },
+            { new ByteArrayContent(await File.ReadAllBytesAsync(MakePackage(Dir, addFiles: addFiles))), "package", "package.zip" },
+        };
+        return System.Text.Json.JsonDocument.Parse(await (await Http.PostAsync("/api/jobs", form)).Content.ReadAsStringAsync()).RootElement.GetProperty("id").GetString()!;
+    }
+
+    public static async Task<T> Until<T>(Func<T?> get, int seconds = 60) where T : class
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        while (sw.Elapsed < TimeSpan.FromSeconds(seconds)) { if (get() is { } v) return v; await Task.Delay(100); }
+        throw new TimeoutException("기다린 상태가 오지 않았습니다");
+    }
+
     public async Task<JobInfo> WaitFinished(string id, int seconds = 10)
     {
         for (int i = 0; i < seconds * 20; i++)

@@ -61,28 +61,6 @@ public static class AnalysisPages
         $"<form method=\"post\" action=\"/jobs/{H(j.Id)}/select\" class=\"mini\"><input type=\"hidden\" name=\"on\" value=\"{(j.Selected ? 0 : 1)}\"><input type=\"hidden\" name=\"back\" value=\"{H(back)}\">" +
         $"<button>{(j.Selected ? "선정 해제" : "선정")}</button></form>";
 
-    public static string Index(IReadOnlyList<AnalysisInfo> analyses, IReadOnlyList<JobInfo> jobs)
-    {
-        var sb = new StringBuilder("<h1>분석</h1>");
-        sb.Append("<p class=\"muted\">분석은 한 가지 검토(예: 라인 증설)이고, 그 안에 여러 안(A안, B안)이 있습니다. 같은 안을 고쳐 다시 보낼 때마다 버전(v1, v2…)이 올라갑니다.</p>");
-        int loose = jobs.Count(j => j.AnalysisId == null);
-        sb.Append($"<p><a href=\"/analyses/unclassified\">분석에 넣지 않은 작업 {loose}건 →</a></p>");
-        sb.Append("<div class=\"scroll\"><table><tr><th>분석</th><th>메모</th><th>안(개)</th><th>버전(개)</th><th>선정(개)</th><th>마지막 보낸 시각(서울)</th></tr>");
-        foreach (var a in analyses.OrderByDescending(x => jobs.Where(j => j.AnalysisId == x.Id).Select(j => j.CreatedUtc).DefaultIfEmpty(x.CreatedUtc).Max()))
-        {
-            var js = jobs.Where(j => j.AnalysisId == a.Id).ToList();
-            sb.Append($"<tr><td><a href=\"/analyses/{H(a.Id)}\">{H(a.Name)}</a></td><td>{H(a.Note)}</td><td class=\"num\">{a.Plans.Count}</td><td class=\"num\">{js.Count}</td><td class=\"num\">{js.Count(j => j.Selected)}</td>" +
-                $"<td>{H(When(js.Count == 0 ? null : js.Max(j => j.CreatedUtc)))}</td></tr>");
-        }
-        if (analyses.Count == 0)
-            sb.Append("<tr><td colspan=\"6\" class=\"muted\">아직 분석이 없습니다. ZWCAD의 ASH에서 \"서버로 보내기\"를 할 때 분석과 안을 고르면 자동으로 만들어지고, 아래 \"새 분석\"에서 미리 만들 수도 있습니다.</td></tr>");
-        sb.Append("</table></div>");
-        sb.Append("<section class=\"box\"><h2>새 분석</h2><form method=\"post\" action=\"/analyses\" class=\"mini\">" +
-            "<input type=\"text\" name=\"name\" required maxlength=\"100\" placeholder=\"분석 이름(100자까지)\" aria-label=\"분석 이름\">" +
-            "<input type=\"text\" name=\"note\" maxlength=\"200\" placeholder=\"메모(선택, 200자까지)\" aria-label=\"메모\"><button class=\"primary\">만들기</button></form></section>");
-        return Page("ASH 분석", sb.ToString());
-    }
-
     public static string Unclassified(IReadOnlyList<JobInfo> jobs, IReadOnlyList<AnalysisInfo> analyses)
     {
         var sb = new StringBuilder("<p class=\"crumb\"><a href=\"/analyses\">분석</a> › 분석에 넣지 않은 작업</p><h1>분석에 넣지 않은 작업</h1>");

@@ -82,24 +82,10 @@ public class FilmTests
     static CutSpec Hold(string id, string name = "입구", double start = 7200) => new(id, name, CutKind.Hold, start, 600, new Rect(1, 2, 30, 18), null, 0, 0, 0, 10, 30, 0, true, true);
     static CutSpec Move(string id) => new(id, "L001 → U001", CutKind.Move, 9000, 0, new Rect(0, 0, 10, 10), new Rect(20, 5, 12, 8), 120, 60, 90, 20, 45, 90, false, true);
 
-    static async Task<T> Until<T>(Func<T?> get, int seconds = 60) where T : class
-    {
-        var sw = Stopwatch.StartNew();
-        while (sw.Elapsed < TimeSpan.FromSeconds(seconds)) { if (get() is { } v) return v; await Task.Delay(100); }
-        throw new TimeoutException("기다린 상태가 오지 않았습니다");
-    }
+    static Task<T> Until<T>(Func<T?> get, int seconds = 60) where T : class => JobEnv.Until(get, seconds);
 
     /// <summary>Sends a job filed under analysis/plan and waits until the fake search finished it.</summary>
-    static async Task<string> Send(JobEnv env, string analysis, string plan, Action<string>? addFiles = null)
-    {
-        var form = new MultipartFormDataContent
-        {
-            { new StringContent("Line A"), "project" }, { new StringContent("m"), "model" }, { new StringContent("tester"), "submitter" },
-            { new StringContent(analysis), "analysisName" }, { new StringContent(plan), "planName" },
-            { new ByteArrayContent(await File.ReadAllBytesAsync(JobEnv.MakePackage(env.Dir, addFiles: addFiles))), "package", "package.zip" },
-        };
-        return JsonDocument.Parse(await (await env.Http.PostAsync("/api/jobs", form)).Content.ReadAsStringAsync()).RootElement.GetProperty("id").GetString()!;
-    }
+    static async Task<string> Send(JobEnv env, string analysis, string plan, Action<string>? addFiles = null) => await env.SendFiled(analysis, plan, addFiles: addFiles);
 
     static async Task<string> Done(JobEnv env, string analysis, string plan)
     {

@@ -132,7 +132,11 @@ internal static partial class Routes
             return Results.Redirect(Back(f, "/jobs/" + id));
         });
 
-        app.MapGet("/analyses", (AnalysisStore st, JobStore js) => Html(AnalysisPages.Index(st.All(), js.All())));
+        app.MapGet("/analyses", (HttpContext ctx, string? q, JobStore js, AnalysisStore st, FilmStore fs, FilmWorker fw, IConfiguration cfg) =>
+        {
+            var v = HomeView.Build(st.All(), js.All(), fs.All(), null, Queue(js, fw), WorkerOn(cfg), JobProgress.Parallel(cfg), ClientIp(ctx), false, DateTime.UtcNow);
+            return Html(HomePages.Analyses(v.InProgress.Concat(v.Finished).ToList(), q?.Trim() ?? "", v.Unclassified));
+        });
         app.MapGet("/analyses/unclassified", (AnalysisStore st, JobStore js) => Html(AnalysisPages.Unclassified(js.All(), st.All())));
         app.MapGet("/analyses/{id}", (string id, AnalysisStore st, JobStore js, FilmStore fs) =>
             st.Get(id) is { } a ? Html(AnalysisPages.Detail(a, js.All(), js, fs.All())) : Msg(404, "분석이 없습니다."));

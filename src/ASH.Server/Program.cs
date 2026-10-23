@@ -104,7 +104,13 @@ app.MapPost("/api/admin/releases", async (HttpContext ctx, ReleaseStore s, Cance
     catch (InvalidDataException e) { return Msg(400, e.Message); } // malformed multipart
 });
 
-app.MapGet("/", () => Results.Redirect("/analyses")); // temporary until the new home (plan A task 6)
+app.MapGet("/", (HttpContext ctx, string? me, JobStore js, AnalysisStore st, FilmStore fs, FilmWorker fw, IConfiguration cfg) =>
+{
+    var films = fs.All();
+    var v = HomeView.Build(st.All(), js.All(), films, films.FirstOrDefault(f => f.State == JobState.Running), Routes.Queue(js, fw), Routes.WorkerOn(cfg),
+        JobProgress.Parallel(cfg), Routes.ClientIp(ctx), me switch { "1" => true, "0" => false, _ => null }, DateTime.UtcNow);
+    return Routes.Html(HomePages.Home(v, null));
+});
 
 static string StatusHtml(HttpContext ctx)
 {
