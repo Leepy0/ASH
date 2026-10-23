@@ -7,11 +7,11 @@ namespace ASH.Server;
 public static class HomePages
 {
     // Remembers the toggle in localStorage.ashMe; opened without ?me it jumps to the saved side. Inline, nothing external.
-    const string ToggleScript = @"<script>
+    static string ToggleScript(bool me) => @"<script>
 (function(){
   try{
     var s=localStorage.getItem('ashMe');
-    if(s&&!/[?&]me=/.test(location.search)&&(s==='0'||s==='1')) location.replace('/?me='+s);
+    if((s==='0'||s==='1')&&!/[?&]me=/.test(location.search)&&s!=='" + (me ? "1" : "0") + @"') location.replace('/?me='+s);
   }catch(e){}
   document.querySelectorAll('a[data-me]').forEach(function(a){
     a.addEventListener('click',function(){ try{ localStorage.setItem('ashMe',a.getAttribute('data-me')); }catch(e){} });
@@ -42,9 +42,9 @@ public static class HomePages
     internal static void AnalysisList(StringBuilder sb, IReadOnlyList<AnalysisRow> rows)
     {
         if (rows.Count == 0) { sb.Append("<p class=\"muted\">분석이 없습니다.</p>"); return; }
-        sb.Append("<ul style=\"list-style:none;padding:0;margin:0\">");
+        sb.Append("<ul class=\"alist\">");
         foreach (var r in rows)
-            sb.Append($"<li style=\"padding:6px 0;border-top:1px solid var(--line)\"><a href=\"/analyses/{H(r.Id)}\">{H(r.Name)}</a> · <span class=\"chip\">{(r.Active ? "진행 중" : "완료")}</span> " +
+            sb.Append($"<li><a href=\"/analyses/{H(r.Id)}\">{H(r.Name)}</a> · <span class=\"chip\">{(r.Active ? "진행 중" : "완료")}</span> " +
                 $"안 {r.Plans} · 버전 {r.Versions} · 선정 {r.Selected} · 영상 {r.Films} · <span class=\"muted\">{H(When(r.LastSentUtc))}</span> " +
                 string.Concat(r.Chips.Select(Chip)) + "</li>");
         sb.Append("</ul>");
@@ -52,7 +52,8 @@ public static class HomePages
 
     public static string Home(HomeView v, string? pollScript)
     {
-        var sb = new StringBuilder("<h1>ASH</h1>");
+        var sb = new StringBuilder(ToggleScript(v.Me)); // first, so a saved choice redirects before the lists are painted
+        sb.Append("<h1>ASH</h1>");
         if (v.Running is { } r) RunningCard(sb, r, "running");
         else sb.Append($"<div class=\"box\">실행 중인 작업 없음 · 작업 실행 {(v.WorkerOn ? "켜짐" : "꺼짐")}</div>");
 
@@ -65,7 +66,7 @@ public static class HomePages
         sb.Append("<h2>진행 중</h2>"); AnalysisList(sb, v.InProgress);
         sb.Append("<h2>완료</h2>"); AnalysisList(sb, v.Finished);
         sb.Append($"<details><summary>분석에 넣지 않은 작업 {v.Unclassified}건</summary><p><a href=\"/analyses/unclassified\">분석에 넣지 않은 작업 보기 →</a></p></details>");
-        return Page("ASH", sb.ToString(), ToggleScript + pollScript);
+        return Page("ASH", sb.ToString(), pollScript);
     }
 
     public static string Analyses(IReadOnlyList<AnalysisRow> rows, string q, int unclassified)

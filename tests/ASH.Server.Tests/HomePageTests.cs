@@ -24,7 +24,8 @@ public class HomePageTests
         env.Store.Update(env.Store.All()[0].Id, j => j.Ip = "10.9.9.9"); // 테스트 클라이언트 IP가 아님
         var html = await env.Http.GetStringAsync("/");
         Assert.Contains("남의 분석", html); Assert.Contains("class=\"chip sel\">전체", html);
-        Assert.DoesNotContain("남의 분석", await env.Http.GetStringAsync("/?me=1"));
+        var forced = await env.Http.GetStringAsync("/?me=1");
+        Assert.Contains("남의 분석", forced); Assert.Contains("class=\"chip sel\">전체", forced);
     }
 
     [Fact] public async Task Analyses_List_Searches_Name_And_Submitter()

@@ -26,7 +26,7 @@ public sealed record HomeView(RunningCard? Running, bool WorkerOn, int QueuedCou
     {
         var names = Mine.Names(jobs, ip);
         var hasMine = jobs.Any(j => Mine.Is(j, ip, names));
-        var onlyMine = me ?? hasMine;
+        var onlyMine = (me ?? true) && hasMine; // nothing mine (even with me=1) shows everything
 
         string Title(JobInfo j)
         {

@@ -32,5 +32,7 @@ public class HomeViewTests
         Assert.Single(all.Finished); Assert.Equal("B", all.Finished[0].Name);
         var nobody = HomeView.Build(analyses, jobs, [], null, (1, null, null), true, 2, "10.9.9.9", me: null, now);
         Assert.False(nobody.Me); Assert.Equal(2, nobody.InProgress.Count + nobody.Finished.Count);
+        var forced = HomeView.Build(analyses, jobs, [], null, (1, null, null), true, 2, "10.9.9.9", me: true, now);
+        Assert.False(forced.Me); Assert.Equal(2, forced.InProgress.Count + forced.Finished.Count);
     }
 }

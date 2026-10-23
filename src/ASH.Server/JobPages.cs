@@ -57,6 +57,7 @@ th[aria-sort=ascending] button::after,th[aria-sort=descending] button::after{vis
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}@media(max-width:1024px){.grid2{grid-template-columns:1fr}}
 .prog{background:#e6f1fb;height:10px;border-radius:5px;overflow:hidden}.prog i{display:block;height:10px;background:var(--blue)}
 .chip{display:inline-block;padding:1px 8px;border-radius:10px;background:var(--chip);font-size:13px;margin-right:4px}.chip.sel{background:var(--navy);color:#fff}
+.alist{list-style:none;padding:0;margin:0}.alist li{padding:6px 0;border-top:1px solid var(--line)}
 #reload-bar{display:none;position:sticky;top:0;background:#faeeda;padding:8px 24px}#net{font-size:12px;color:var(--muted)}
 @media (max-width:640px){header{padding:10px 16px}header a{margin-right:12px}main{padding:16px}.card{min-width:0;flex:1 1 130px;padding:10px 14px}.card .big{font-size:22px}
 .grid{grid-template-columns:1fr}dl.kv,.field{grid-template-columns:1fr}dl.kv dt{margin-top:6px}.field label{padding-top:0}}";
