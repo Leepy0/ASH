@@ -397,6 +397,7 @@ document.querySelectorAll('table.sort').forEach(function(t){
             sb.Append($"<tr><th>시뮬레이션 / 워밍업</th><td>{F(s.SimLengthSec / 3600)}시간 / {F(s.WarmupSec / 3600)}시간</td></tr>");
             sb.Append($"<tr><th>가동률 상한 / 안전재고</th><td>{Pct(s.UtilMax)} / {F(s.SafetyStock)}용기</td></tr>");
             sb.Append($"<tr><th>영향표</th><td>{(j.Impact ? "켬" : "끔")}</td></tr>");
+            sb.Append($"<tr><th>곡선 속도</th><td>{H(ASH.Core.Model.CurveSpeed.Note)}</td></tr>");
         }
         else if (v?.InputError != null) sb.Append($"<tr><th>입력</th><td class=\"bad\">{H(v.InputError)}</td></tr>");
         sb.Append("</table>");
@@ -407,6 +408,12 @@ document.querySelectorAll('table.sort').forEach(function(t){
         {
             sb.Append("<h2>그룹</h2><table><tr><th>그룹</th><th>타입</th><th>최소(대)</th><th>최대(대)</th><th>대기 CP</th></tr>");
             foreach (var g in v.Input.Groups) sb.Append($"<tr><td>{H(g.Group)}</td><td>{H(g.Type)}</td><td class=\"num\">{g.MinCount}</td><td class=\"num\">{g.MaxCount}</td><td>{H(string.Join(", ", g.StandbyCPs))}</td></tr>");
+            var curved = v.Input.AgvTypes.Where(t => t.SpeedLoadedCurve > 0 || t.SpeedEmptyCurve > 0).ToList();
+            if (curved.Count > 0)
+            {
+                sb.Append("</table><h2>곡선 속도</h2><table><tr><th>타입</th><th>적재 곡선(m/s)</th><th>공차 곡선(m/s)</th></tr>");
+                foreach (var t in curved) sb.Append($"<tr><td>{H(t.Type)}</td><td class=\"num\">{(t.SpeedLoadedCurve > 0 ? F(t.SpeedLoadedCurve!.Value) : "직선과 같음")}</td><td class=\"num\">{(t.SpeedEmptyCurve > 0 ? F(t.SpeedEmptyCurve!.Value) : "직선과 같음")}</td></tr>");
+            }
             sb.Append("</table><h2>자재</h2><table><tr><th>자재</th><th>그룹</th><th>형태</th><th>T/T(초)</th><th>용기당 수량(개)</th><th>호출 임계(용기)</th></tr>");
             foreach (var m in v.Input.Materials) sb.Append($"<tr><td>{H(m.Material)}</td><td>{H(m.Group)}</td><td>{H(m.Form.Length == 0 ? "Box" : m.Form)}</td><td class=\"num\">{F(m.TaktTime)}</td><td class=\"num\">{F(m.UnitsPerContainer)}</td><td class=\"num\">{F(m.CallThreshold)}</td></tr>");
             sb.Append("</table>");
