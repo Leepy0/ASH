@@ -169,7 +169,7 @@ SYSTEM으로 실행해도 로그온한 대화형 사용자가 있고 그 사용�
 
 | 바로 적용(다음 작업·다음 정리부터) | 서비스 재시작 필요 |
 |---|---|
-| `Jobs:Enabled`, `Jobs:AmHome`, `Jobs:Parallel`, `Jobs:DialogButton`, `Jobs:RunTimeoutMin`, `Jobs:BuildTimeoutMin`, `Jobs:JobTimeoutHours`, `Jobs:KeepRunsDays`, `Film:CutTimeoutMin` | `Jobs:WorkerEnabled`, `Jobs:Dir`, `Film:FfmpegPath`, `Film:AviewExe`, `GitHub:Enabled`, `GitHub:BaseUrl`, `GitHub:CheckIntervalMin`, `GitHub:UpdateServer`, `GitHub:Proxy`, `GitHub:Dns`, `Urls`, `Releases:Dir`, `Update:AllowUnsigned` |
+| `Jobs:Enabled`, `Jobs:AmHome`, `Jobs:Parallel`, `Jobs:DialogButton`, `Jobs:RunTimeoutMin`, `Jobs:BuildTimeoutMin`, `Jobs:JobTimeoutHours`, `Jobs:KeepRunsDays`, `Film:CutTimeoutMin`, `Film:CalibrationTimeoutMin`, `Film:DialogTitles` | `Jobs:WorkerEnabled`, `Jobs:Dir`, `Film:FfmpegPath`, `Film:AviewExe`, `GitHub:Enabled`, `GitHub:BaseUrl`, `GitHub:CheckIntervalMin`, `GitHub:UpdateServer`, `GitHub:Proxy`, `GitHub:Dns`, `Urls`, `Releases:Dir`, `Update:AllowUnsigned` |
 
   `Admin:Token`, `Update:PublicKeyPem`, `Logging`은 웹에서 바꾸지 않는다(서버 PC에서 파일을 직접 고친다).
 - **저장:** 모든 값을 먼저 검사한다(정수 범위, 켬/끔, `Urls`·`GitHub:BaseUrl`·`GitHub:Proxy`·`GitHub:Dns` 형식). 하나라도 틀리면 아무것도 쓰지 않는다. 통과하면 파일을 다시 읽어 바뀐 키만 고치고(모르는 키는 그대로) 임시 파일로 쓴 뒤 `File.Replace`로 바꿔 넣으며, 이전 파일은 `appsettings.json.yyyyMMdd-HHmmss.bak`으로 남는다. 파일 안의 `//` 주석은 저장 때 없어진다(.bak에는 남음). `Jobs:AmHome`에 AutoMod 빌드 exe가 없으면 경고만 한다.
@@ -225,15 +225,42 @@ sc start ASH.Server
 1. **ffmpeg** — libx264와 drawtext(libfreetype)가 들어 있는 최신 빌드(gyan.dev의 full/essentials 등). 서버 서비스 계정의 `PATH`에 두거나 `Film:FfmpegPath`에 전체 경로를 적는다. AutoView도 MP4 변환에 PATH의 ffmpeg를 쓰므로, 전체 경로를 적으면 서버가 그 폴더를 AutoView 실행 환경의 PATH에 붙여 준다. 확인: `ffmpeg -hide_banner -encoders | findstr libx264`, `ffmpeg -hide_banner -filters | findstr drawtext` (둘 다 한 줄 이상 나와야 한다).
 2. **AutoView** — AutoMod 폴더의 `bin` 안에서 찾는다: AutoMod 12.6 이상은 `aview64.exe`, 12.4는 `aview.exe`(둘 다 있으면 `aview64.exe`). 다른 곳에 있으면 `Film:AviewExe`에 전체 경로를 적는다. AutoView 라이선스가 모델 실행과 같은 라이선스를 쓰므로 서버 PC에서 AutoMod 라이선스가 AutoView도 허용하는지 확인한다.
 3. **서비스 세션 렌더 확인(최초 1회)** — AutoView가 서비스(세션 0, 로그온 없음)에서 화면 없이 그려지는지는 PC마다 다를 수 있다. 영상을 한 편 만들어 완료되는지 본다. 컷이 "AutoView가 MP4를 만들지 않았습니다"로 실패하면 AutoView가 서비스에서 그리지 못하는 것이니 둘 중 하나를 쓴다. (a) 서비스를 로그온 가능한 계정으로 바꾸고(`sc config ASH.Server obj= ".\<계정>" password= "<암호>"`) 서버 PC에 그 계정이 로그온해 둔다. (b) 서비스 대신 작업 스케줄러에 `ASH.Server.exe`를 "사용자가 로그온한 경우에만 실행"으로 등록한다(자동 업데이트·복구 설정은 서비스일 때만 동작).
-4. 컷 하나가 `Film:CutTimeoutMin`(기본 20분)을 넘으면 AutoView를 끊고 그 컷만 실패한다. 영상 페이지 `/films/{id}`에 컷별 상태와 `film.log`가 나온다. F0(화면 배율 기준값)는 영상마다 자동 보정 컷으로 정한다.
+4. 컷 하나가 `Film:CutTimeoutMin`(기본 20분)을 넘으면 AutoView를 끊고 그 컷만 실패한다. 영상 페이지 `/films/{id}`에 컷별 상태와 `film.log`가 나온다. F0(화면 배율 기준값)는 영상마다 자동 보정 컷(1프레임 렌더 2번)으로 정한다. 보정 렌더 한 번의 제한은 `Film:CalibrationTimeoutMin`(기본 3분)이다. 넘으면 영상을 멈추지 않고 추정값으로 계속하며, 영상 페이지에 "주의: 화면 배율 보정 실패, 추정값 사용 — <진단>" 경고가 붙는다. AutoView가 정말 멈춘 상태면 바로 다음 컷도 시간 초과가 되고, 연속 2회 시간 초과 규칙으로 영상이 멈춘다("AutoView가 응답하지 않아 중단했습니다").
+5. **대화상자 자동 클릭** — AutoView가 띄우는 창 가운데 제목에 `Film:DialogTitles`(쉼표 구분, 제목의 일부, 대소문자 무시)가 든 창의 OK(한글 Windows는 `확인`)를 누른다. 취소는 누르지 않는다. 기본값은 `Attention,비디오 압축,Video Compression`이다. AutoView 12.4는 동영상을 만들 때 `Attention!`("…Your AVI file will be generated…") 다음에 Windows의 `비디오 압축`(영문 Windows: `Video Compression`, 압축 프로그램 Microsoft Video 1) 창을 띄운다. 0.19.1까지는 `Attention`만 눌러 이 둘째 창에서 멈춘 것으로 보인다("화면 배율 보정 중 시간 제한 초과", 서버 화면 사진으로 확인). 다른 창에 걸리면 아래 진단의 `창 "제목"`을 보고 그 제목을 더한다(재시작 없이 다음 렌더부터 적용).
+6. **AutoView 12.4(AVI)** — 12.4는 MP4가 아니라 AVI를 만든다. 서버는 `<컷>.mp4`가 없으면 `<컷>.avi`, 그것도 없으면 그 실행 동안 작업 폴더에 새로 생긴 AVI(12.4 창에는 `model.avi`로 나옴)를 받아 ffmpeg로 MP4(H.264 yuv420p)로 바꾼다. `film.log`에 "AutoView가 AVI를 만들었습니다"가 남는다. **이 AVI 경로는 12.4가 없는 개발 PC에서 확인하지 못했다**(14.5의 AVI 출력은 빈 화면이었다). 12.4 서버에서 영상을 한 편 만들어 화면이 제대로 나오는지, 크기가 요청한 해상도(예: 1280×720)인지 확인한다. 12.4가 영상 크기 설정을 무시하고 640×480으로 만들면 컷의 화면 범위와 F0 보정이 어긋날 수 있다. 12.4의 `aview.exe`가 `-n`(스크립트 끝나면 종료) 옵션을 받는지도 확인되지 않았다. 바로 끝나면 진단의 `출력 "…"`(AutoView의 표준 출력)과 `aviewout.dat`를 본다.
+
+**진단 읽는 법.** AutoView 실행이 시간 제한에 걸리거나 동영상 없이 끝나면 오류 끝에 `진단:` 한 줄이 붙는다(영상 페이지의 컷 오류·경고와 `film.log`). `film.log` 첫머리에는 영상마다 `AutoView: <경로> (버전 x)`가 남는다. 예:
+
+```
+시간 제한(3분)을 넘어 AutoView를 끊었습니다(대화상자에 걸렸거나 너무 긴 컷). 창 제목이 보이면 설정 Film:DialogTitles에 더합니다.
+진단: AutoView C:\AutoMod\12_4\bin\aview.exe (버전 12.4.0.0) · 창 "비디오 압축" [#32770] 버튼 확인/취소/구성(F).../정보(A)... (aview.exe) / "AutoView - m" [...] (aview.exe)
+· 서버 세션 1 · camera.des 있음 · aviewerr.dat 없음 · aviewout.dat "…Camera script duration is 1 seconds" · cal_on.mp4 없음 · avi 없음
+· convert.bat 없음 · 프레임 JPG 0개 · ffmpeg C:\ffmpeg\bin\ffmpeg.exe · 누른 창 Attention!
+```
+(실제로는 한 줄. 버전 숫자는 예시다.)
+
+| 항목 | 뜻과 조치 |
+|---|---|
+| `AutoView <경로> (버전 …)` | 실제로 실행한 AutoView. 12.4면 `aview.exe`. 버전이 "정보 없음"이면 다른 파일이다. |
+| `창 "제목" [클래스] 버튼 … 내용 "…" (exe)` | 끊을 때 AutoView(와 자식 프로세스)에 떠 있던 창. 대화상자 제목을 `Film:DialogTitles`에 더한다. `보이는 창 없음`이면 창 없이 멈춘 것(서비스 세션 등). |
+| `서버 세션 0(서비스: 화면 없음)` | 서버가 서비스(세션 0)로 돈다. 3번의 로그온 계정 실행을 쓴다. |
+| `aviewerr.dat "…"` | 카메라 스크립트 오류(그 버전의 AutoView가 모르는 문장 등). |
+| `aviewout.dat "…"` | AutoView의 스크립트 해석 기록 끝부분. |
+| `<컷>.mp4 있음/없음`, `avi …` | AutoView가 만든 동영상. |
+| `convert.bat`, `프레임 JPG N개` | 14.x의 MP4 변환 단계(프레임 JPG → convert.bat → ffmpeg). JPG는 있는데 MP4가 없으면 변환(ffmpeg·PATH)이 실패한 것. |
+| `ffmpeg <경로>` / `ffmpeg 없음` | AutoView 실행 환경의 PATH에서 찾은 ffmpeg. |
+| `누른 창 …` | 이번 실행에서 서버가 OK를 누른 창. |
+| `출력 "…"` | AutoView 자신의 표준 출력·오류(사용법 안내 등). |
 
 | 설정 | 기본 | 뜻 | 적용 |
 |---|---|---|---|
 | `Film:FfmpegPath` | `ffmpeg` | ffmpeg 실행 파일(PATH에서 찾거나 전체 경로) | 바로 |
 | `Film:AviewExe` | (빈칸 = `<Jobs:AmHome>\bin`에서 `aview64.exe`, 없으면 `aview.exe`) | AutoView 실행 파일 | 바로 |
 | `Film:CutTimeoutMin` | 20 | 컷 하나의 AutoView 시간 제한(분, 1~600) | 바로 |
+| `Film:CalibrationTimeoutMin` | 3 | 화면 배율 보정 렌더 한 번의 시간 제한(분, 1~60). 넘으면 추정값으로 계속 | 바로 |
+| `Film:DialogTitles` | `Attention,비디오 압축,Video Compression` | OK(확인)를 누를 AutoView 창 제목(쉼표 구분, 제목의 일부, 2글자 이상) | 바로 |
 
-세 값 모두 웹 설정 페이지의 "영상 촬영" 구역에서 바꾼다.
+모두 웹 설정 페이지의 "영상 촬영" 구역에서 바꾼다.
 
 ### 백업과 복원
 
@@ -261,7 +288,8 @@ sc start ASH.Server
 | 업로드가 403 "업로드가 꺼져 있습니다" | `Admin:Token`이 비었거나 16자 미만. 서비스 재시작 필요. |
 | 업로드가 401 | 토큰이 다름(`$env:ASH_ADMIN_TOKEN` 확인). |
 | (서명 키를 다시 쓸 때만) 경고 "서명 키 미설정", 업로드 400 "서명 키 없음"/서명 거절, `build-release.ps1` 중단, "업데이트 확인 실패(서명 확인 실패)", 상태 페이지 "거절: 서명이 맞지 않습니다" | `update-key.pub`와 `ASH_SIGNING_KEY`(개인키)가 짝이 맞는지, 서버·플러그인·ash-run이 그 공개키로 빌드된 판인지 확인한다. 키 교체 중이면 4절. |
-| 영상 컷이 "AutoView가 MP4를 만들지 않았습니다"로 실패 | 서버 PATH에 ffmpeg가 없거나 AutoView가 서비스 세션에서 그리지 못함. 5절 "영상 촬영"의 확인 명령으로 ffmpeg를 보고, 안 되면 로그온 계정으로 실행한다. `/films/{id}`의 `film.log`와 작업 폴더의 `aviewerr.dat`를 본다. |
+| 영상 컷이 "AutoView가 동영상(MP4/AVI)을 만들지 않았습니다"로 실패 | 서버 PATH에 ffmpeg가 없거나 AutoView가 서비스 세션에서 그리지 못함, 또는 이전 AutoView(12.4)가 다른 방식으로 만듦. 오류 끝의 `진단:`(5절 "영상 촬영"의 "진단 읽는 법")에서 AutoView 버전·창·파일·ffmpeg를 본다. |
+| 영상이 "시간 제한…"이나 "화면 배율 보정 실패, 추정값 사용"으로 끝남 | AutoView가 대화상자에 걸렸을 가능성이 크다. `진단:`의 `창 "제목"`을 `Film:DialogTitles`에 더하고 다시 찍는다. |
 | 다른 PC에서 접속이 안 되고 서버 PC 자신에서는 됨 | 방화벽 규칙이 Public 프로필 NIC에 적용되지 않음. 1절 5번의 함정 참고. |
 | 서비스 로그가 이벤트 뷰어에 없음 | LocalService는 이벤트 원본을 못 만든다. 1절 "로그 위치" 참고. |
 | "업데이트 확인 실패(서버 응답 없음)" | 서비스가 꺼졌거나(`sc query ASH.Server`) 방화벽·주소·포트 오류. 사용자 PC에서 `curl http://<서버>:8082/healthz`가 `ok`인지 본다. 3초 안에 답이 없으면 이 메시지가 나온다. |
