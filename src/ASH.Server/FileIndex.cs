@@ -36,7 +36,7 @@ public static class FileIndex
         {
             if (File.Exists(path)) return JsonSerializer.Deserialize<Doc>(File.ReadAllText(path), Opt)?.Materials ?? new();
         }
-        catch (Exception e) when (e is IOException or JsonException) { }
+        catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException) { }
         var list = MaterialsFromCells(Path.Combine(js.ProjectDir(id), ASH.Core.Input.CellDump.FileName));
         try
         {

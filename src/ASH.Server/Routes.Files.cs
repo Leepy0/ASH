@@ -56,6 +56,9 @@ public static class FileRoutes
                 ? DateTime.SpecifyKind(d.AddDays(addDays) - SeoulTime.Offset, DateTimeKind.Utc) : null;
             return new FileQuery(S("q"), S("material"), D("from", 0), D("to", 1), S("corp"), S("productLine"), S("line"));
         }
+
+        /// <summary>The tag part of a query string ("&amp;corp=…"), so links and polling keep the filter.</summary>
+        public string TagQuery() => string.Concat(new[] { ("corp", Corp), ("productLine", ProductLine), ("line", Line) }.Where(t => t.Item2.Length > 0).Select(t => "&" + t.Item1 + "=" + Uri.EscapeDataString(t.Item2)));
     }
 
     static bool Has(string? text, string needle) => (text ?? "").Contains(needle, StringComparison.CurrentCultureIgnoreCase);
@@ -138,9 +141,9 @@ public static class FileRoutes
             using var fs = new FileStream(tmp, FileMode.Create, FileAccess.ReadWrite);
             using (var zip = new ZipArchive(fs, ZipArchiveMode.Create, leaveOpen: true))
             {
-                void Add(string entry, string file) { if (File.Exists(file)) zip.CreateEntryFromFile(file, entry, CompressionLevel.Optimal); }
+                void Add(string entry, string file, CompressionLevel lv = CompressionLevel.Optimal) { if (File.Exists(file)) zip.CreateEntryFromFile(file, entry, lv); }
                 Add("input.xlsx", xlsx);
-                if (hasDwg) Add("layout.dwg", dwg); else Add("drawing.dxf", dxf);
+                if (hasDwg) Add("layout.dwg", dwg, CompressionLevel.Fastest); else Add("drawing.dxf", dxf, CompressionLevel.Fastest);
                 if (hasSettings) Add(JobPackage.SettingsInPackage, set);
                 using var w = new StreamWriter(zip.CreateEntry("README.txt").Open(), new UTF8Encoding(true));
                 w.Write(ReadmeText(a, p, j, hasDwg, hasSettings, hasDxf));

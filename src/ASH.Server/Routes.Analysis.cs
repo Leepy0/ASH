@@ -14,7 +14,7 @@ internal static partial class Routes
         {
             var films = fs.All();
             var v = HomeView.Build(st.All(), js.All(), films, films.FirstOrDefault(f => f.State == JobState.Running), Queue(js, fw), WorkerOn(cfg),
-                JobProgress.Parallel(cfg), ClientIp(ctx), me is { } m ? m == 1 : null, DateTime.UtcNow);
+                JobProgress.Parallel(cfg), ClientIp(ctx), me is { } m ? m == 1 : null, DateTime.UtcNow, FileRoutes.FileQuery.From(ctx.Request.Query));
             var l = LiveFields.OfHome(v);
             return Results.Json(new { v.Running, v.WorkerOn, v.QueuedCount, v.Queued, v.Me, v.InProgress, v.Finished, v.Unclassified, active = l.Active, fields = l.Fields, watch = l.Watch });
         });
@@ -28,7 +28,8 @@ internal static partial class Routes
         app.MapPost("/api/analyses", async (HttpContext ctx, AnalysisStore st) =>
         {
             if (CrossSiteBrowser(ctx)) return Msg(403, "다른 사이트에서 보낸 요청은 받지 않습니다.");
-            if (await NameNote(ctx) is not { } v || Tags(await ctx.Request.ReadFormAsync()) is not { } t) return Msg(400, NameNoteError);
+            if (await NameNote(ctx) is not { } v) return Msg(400, NameNoteError);
+            if (Tags(await ctx.Request.ReadFormAsync()) is not { } t) return Msg(400, TagError);
             try { return Results.Json(new { st.CreateAnalysis(v.Name, v.Note, t.Corp, t.ProductLine, t.Line).Id }); }
             catch (ArgumentException e) { return Msg(400, e.Message); }
         });
@@ -44,7 +45,8 @@ internal static partial class Routes
         app.MapPost("/analyses", async (HttpContext ctx, AnalysisStore st) =>
         {
             if (!SameOrigin(ctx)) return Msg(403, CrossSite);
-            if (await NameNote(ctx) is not { } v || Tags(await ctx.Request.ReadFormAsync()) is not { } t) return Msg(400, NameNoteError);
+            if (await NameNote(ctx) is not { } v) return Msg(400, NameNoteError);
+            if (Tags(await ctx.Request.ReadFormAsync()) is not { } t) return Msg(400, TagError);
             try { return Results.Redirect("/analyses/" + st.CreateAnalysis(v.Name, v.Note, t.Corp, t.ProductLine, t.Line).Id); }
             catch (ArgumentException e) { return Msg(400, e.Message); }
         });

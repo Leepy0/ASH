@@ -18,6 +18,24 @@ public class FileIndexTests : IDisposable
         Assert.Empty(FileIndex.MaterialsFromCells(Path.Combine(_dir, "none.tsv")));
     }
 
+    [Fact, System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    public void Ensure_Survives_An_Unreadable_Index_Json()
+    {
+        var js = new JobStore(Path.Combine(_dir, "jobs"), NullLogger.Instance);
+        const string id = "20260101-000000-cccc";
+        js.Add(new JobInfo { Id = id, State = JobState.Done, CreatedUtc = DateTime.UtcNow });
+        Directory.CreateDirectory(js.ProjectDir(id));
+        File.WriteAllText(Path.Combine(js.ProjectDir(id), "input.cells.tsv"), "#ASH-CELLS 1\nMaterials\t1\t1\tS\tMaterial\nMaterials\t2\t1\tS\tdesc\nMaterials\t3\t1\tS\tM7\n");
+        var path = Path.Combine(js.JobDir(id), FileIndex.FileName);
+        File.WriteAllText(path, "{}");
+        var fi = new FileInfo(path);
+        var sec = fi.GetAccessControl();
+        var deny = new System.Security.AccessControl.FileSystemAccessRule(System.Security.Principal.WindowsIdentity.GetCurrent().User!, System.Security.AccessControl.FileSystemRights.Read, System.Security.AccessControl.AccessControlType.Deny);
+        sec.AddAccessRule(deny); fi.SetAccessControl(sec);
+        try { Assert.Equal(new[] { "M7" }, FileIndex.Ensure(js, id)); } // read denied: falls back to the cells instead of throwing
+        finally { sec.RemoveAccessRule(deny); fi.SetAccessControl(sec); }
+    }
+
     [Fact]
     public void Ensure_Writes_Index_Once_And_BuildMissing_Fills_Old_Jobs()
     {

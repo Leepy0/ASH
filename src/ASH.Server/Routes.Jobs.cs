@@ -37,7 +37,7 @@ internal static partial class Routes
             var analysisId = Field("analysisId", 64); var planId = Field("planId", 64);
             var analysisName = form["analysisName"].ToString().Trim(); var planName = form["planName"].ToString().Trim(); var versionNote = form["versionNote"].ToString().Trim();
             if (analysisName.Length > NameMax || planName.Length > NameMax) return Msg(400, "분석·안 이름은 100자까지입니다.");
-            if (Tags(form) is not { } tags) return Msg(400, "법인·제품군·라인은 100자까지입니다.");
+            if (Tags(form) is not { } tags) return Msg(400, TagError);
             if (versionNote.Length > NoteMax) return Msg(400, "버전 메모는 200자까지입니다.");
             var classify = analysisId.Length + planId.Length + analysisName.Length + planName.Length > 0;
             if (classify && (analysisId.Length == 0 && analysisName.Length == 0 || planId.Length == 0 && planName.Length == 0))

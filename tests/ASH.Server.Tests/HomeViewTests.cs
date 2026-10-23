@@ -51,7 +51,7 @@ public class HomeViewTests
     {
         var j = J("r1", "10.0.0.5", "kim", "running", "a1", "p1", 2, expected: 10, runs: 3); j.VersionNote = "게이트 변경"; j.LastLine = "run 3";
         var v = HomeView.Build(analyses, [j], [], null, (1, null, null), true, 1, "10.0.0.5", null, now);
-        Assert.Equal("게이트 변경", v.Running!.Note); Assert.Contains("게이트 변경", HomePages.Home(v, "", null));
+        Assert.Equal("게이트 변경", v.Running!.Note); Assert.Contains("게이트 변경", HomePages.Home(v, "", "", null));
         j.VersionNote = ""; Assert.Equal("run 3", HomeView.Build(analyses, [j], [], null, (1, null, null), true, 1, "10.0.0.5", null, now).Running!.Note);
     }
 

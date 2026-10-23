@@ -76,6 +76,22 @@ public class HomePageTests
         env.Runner.Gate.Set(); await env.WaitFinished(a); await env.WaitFinished(b);
     }
 
+    [Fact] public async Task Home_Tag_Filter_Applies_To_Poll_Api_And_Chips()
+    {
+        using var env = new JobEnv(); env.Runner.Gate.Reset();
+        var a = await env.SendFiled("라인 증설", "A안");
+        await JobEnv.Until(() => env.Store.Get(a) is { State: JobState.Running } x ? x : null);
+        var b = await env.SendFiled("창고 이전", "A안");
+        var an = env.Factory.Services.GetRequiredService<AnalysisStore>();
+        foreach (var x in an.All()) an.SetTags(x.Id, x.Name == "라인 증설" ? "P법인" : "Q법인", "", "");
+        var api = JsonDocument.Parse(await env.Http.GetStringAsync("/api/home?me=1&corp=P%EB%B2%95%EC%9D%B8")).RootElement.GetProperty("fields"); // the running card and queue are global; the analysis chips are what the filter drops
+        Assert.True(api.TryGetProperty($"chip.{a}.text", out _)); Assert.False(api.TryGetProperty($"chip.{b}.text", out _));
+        var html = await env.Http.GetStringAsync("/?corp=P%EB%B2%95%EC%9D%B8");
+        Assert.Contains("fetch('/api/home?me=1&amp;corp=P%EB%B2%95%EC%9D%B8", html.Replace("&corp", "&amp;corp"));
+        Assert.Contains("href=\"/?me=0&amp;corp=P%EB%B2%95%EC%9D%B8\"", html);
+        env.Runner.Gate.Set(); await env.WaitFinished(a); await env.WaitFinished(b);
+    }
+
     [Fact] public async Task Home_Falls_Back_To_All_When_Nothing_Is_Mine()
     {
         using var env = new JobEnv(); await env.WaitFinished(await env.SendFiled("남의 분석", "A안", submitter: "other"));

@@ -11,7 +11,7 @@ public static class HomePages
 (function(){
   try{
     var s=localStorage.getItem('ashMe');
-    if((s==='0'||s==='1')&&!/[?&]me=/.test(location.search)&&s!=='" + (me ? "1" : "0") + @"') location.replace('/?me='+s);
+    if((s==='0'||s==='1')&&!/[?&]me=/.test(location.search)&&s!=='" + (me ? "1" : "0") + @"') location.replace('/?me='+s+(location.search?'&'+location.search.slice(1):''));
   }catch(e){}
 })();
 </script>";
@@ -55,7 +55,7 @@ document.querySelectorAll('a[data-me]').forEach(function(a){
         sb.Append("</ul>");
     }
 
-    public static string Home(HomeView v, string tagFilter, string? pollScript)
+    public static string Home(HomeView v, string tagFilter, string tagQuery, string? pollScript)
     {
         var sb = new StringBuilder(PollSlots + ToggleScript(v.Me)); // first, so a saved choice redirects before the lists are painted
         sb.Append("<h1>ASH</h1>");
@@ -67,7 +67,7 @@ document.querySelectorAll('a[data-me]').forEach(function(a){
         else sb.Append($"대기 <span data-field=\"queued.count\">{v.QueuedCount}</span>건: " + string.Join(" · ", v.Queued.Select(q => $"<a href=\"/jobs/{H(q.JobId)}\">{H(q.Title)}</a>{(q.Start != null ? " (" + H(q.Start) + " 시작 예상)" : "")}")));
         sb.Append("</p>");
 
-        sb.Append($"<p><a href=\"/?me=1\" data-me=\"1\" class=\"chip{(v.Me ? " sel" : "")}\">내 것만</a> | <a href=\"/?me=0\" data-me=\"0\" class=\"chip{(v.Me ? "" : " sel")}\">전체</a></p>").Append(SaveScript);
+        sb.Append($"<p><a href=\"/?me=1{H(tagQuery)}\" data-me=\"1\" class=\"chip{(v.Me ? " sel" : "")}\">내 것만</a> | <a href=\"/?me=0{H(tagQuery)}\" data-me=\"0\" class=\"chip{(v.Me ? "" : " sel")}\">전체</a></p>").Append(SaveScript);
         sb.Append($"<form class=\"mini\"><input type=\"hidden\" name=\"me\" value=\"{(v.Me ? 1 : 0)}\">{tagFilter}<button>거르기</button></form>");
         sb.Append("<h2>진행 중</h2>"); AnalysisList(sb, v.InProgress);
         sb.Append("<h2>완료</h2>"); AnalysisList(sb, v.Finished);

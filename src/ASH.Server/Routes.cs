@@ -8,6 +8,7 @@ internal static partial class Routes
     internal const long UploadLimit = 512L * 1024 * 1024;
     internal const int NameMax = 100, NoteMax = 200, DeltaMax = 20;
     internal const string CrossSite = "다른 사이트에서 보낸 요청은 받지 않습니다.";
+    internal const string TagError = "법인·제품군·라인은 100자까지입니다.";
     internal const string NameNoteError = "이름은 100자, 메모는 200자까지이며 폼 데이터(name, note)가 필요합니다.";
     internal const string WorkerOff = "이 서버는 작업을 실행하지 않습니다(Jobs:Enabled 또는 Jobs:WorkerEnabled가 false).";
 

@@ -215,6 +215,15 @@ public class AnalysisApiTests
     }
 
     [Fact]
+    public async Task Over_Long_Tag_Gets_The_Tag_Message()
+    {
+        using var env = new JobEnv(worker: false);
+        var r = await Post(env, "/api/analyses", null, ("name", "t"), ("corp", new string('x', 101)));
+        Assert.Equal(HttpStatusCode.BadRequest, r.StatusCode);
+        Assert.Contains("법인·제품군·라인은 100자까지입니다.", await r.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
     public async Task Tags_Over_Api_And_Jobs()
     {
         using var env = new JobEnv(worker: false);
