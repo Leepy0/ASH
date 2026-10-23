@@ -312,7 +312,7 @@ document.querySelectorAll('table.sort').forEach(function(t){
             sb.Append($"<p class=\"mini\">기준: <a href=\"?tab=conclusion&amp;view={view}&amp;job={id}&amp;metric=wait\"{(occ ? "" : " class=\"chip sel\"")}>평균 대기</a> <a href=\"?tab=conclusion&amp;view={view}&amp;job={id}&amp;metric=occ\"{(occ ? " class=\"chip sel\"" : "")}>점유율</a></p>");
         }
         sb.Append("</div></div>");
-        sb.Append($"<p><a href=\"/jobs/{id}?tab=detail\">상세 보기</a> · <a href=\"/jobs/{id}/files/report.xlsx\">Excel 보고서</a> · <a href=\"?tab=films\">이 버전의 영상</a></p>");
+        sb.Append($"<p><a href=\"/jobs/{id}?tab=detail\">상세 보기</a> · <a href=\"/jobs/{id}/files/report.xlsx\">Excel 보고서</a> · <a href=\"/jobs/{id}\">이 버전의 영상</a></p>");
     }
 
     /// <summary>One bar line per group (utilisation vs the limit, recommended count in bold), under a "묶음: G1, G2" heading per cluster; flat when the job has none.</summary>
@@ -326,13 +326,17 @@ document.querySelectorAll('table.sort').forEach(function(t){
                 (g.AllOk ? "" : $" · <span class=\"bad\">실패: {H(g.Reason)}</span>") + "</div>");
         }
         if (j.Clusters is not { Count: > 0 }) { foreach (var g in v.Groups) Row(g); return; }
-        var shown = new HashSet<string>(StringComparer.Ordinal);
+        var shown = new HashSet<string>(StringComparer.Ordinal); var single = new List<GroupView>();
         foreach (var c in j.Clusters)
         {
+            var mine = v.Groups.Where(g => c.Contains(g.Group) && shown.Add(g.Group)).ToList();
+            if (mine.Count == 1) { single.Add(mine[0]); continue; } // a cluster of one is no cluster: gathered under one heading below
+            if (mine.Count == 0) continue;
             sb.Append($"<h3>묶음: {H(string.Join(", ", c))}</h3>");
-            foreach (var g in v.Groups.Where(g => c.Contains(g.Group) && shown.Add(g.Group))) Row(g);
+            foreach (var g in mine) Row(g);
         }
-        foreach (var g in v.Groups.Where(g => !shown.Contains(g.Group))) Row(g);
+        single.AddRange(v.Groups.Where(g => !shown.Contains(g.Group)));
+        if (single.Count > 0) { sb.Append("<h3>단독</h3>"); foreach (var g in single) Row(g); }
     }
 
     static string Heat(double t)

@@ -19,11 +19,23 @@ public class ConclusionTests
         var j = env.Store.Get(id)!; var v = JobView.For(env.Store, j);
         Set(v, "Groups", Enumerable.Range(1, 20).Select(i => new GroupView($"G{i}", "T", 1, 4, 2, 0.5, 1, i != 7, i == 7 ? "가동률 초과" : null)).ToList());
         var sb = new StringBuilder(); JobPages.ClusterBars(sb, j, v);
-        Assert.Equal(4, Regex.Matches(sb.ToString(), "<h3>묶음:").Count); Assert.Equal(20, Regex.Matches(sb.ToString(), "<span class=\"bar\">").Count);
+        // the 4 clusters hold 5/6/5/5 groups; no singleton here, so no "단독" heading
+        Assert.Equal(4, Regex.Matches(sb.ToString(), "<h3>묶음:").Count); Assert.DoesNotContain("<h3>단독", sb.ToString()); Assert.Equal(20, Regex.Matches(sb.ToString(), "<span class=\"bar\">").Count);
         Assert.Contains("실패: 가동률 초과", sb.ToString()); Assert.Contains("background:var(--bad)", sb.ToString());
         var page = new StringBuilder(); JobPages.Conclusion(page, j, v, small: false);
         Assert.Equal(1, Regex.Matches(page.ToString(), "<svg").Count);
         foreach (var s in new[] { "권장 총 대수", "최대 가동률", "최대 병목", "상세 보기", "?tab=detail", "/files/report.xlsx", "class=\"grid2\"" }) Assert.Contains(s, page.ToString());
+    }
+
+    [Fact] public async Task Singleton_And_Duplicate_Clusters_Get_No_Heading()
+    {
+        using var env = new JobEnv(); var id = await env.SendFiled("라인 증설", "A안"); await env.WaitFinished(id);
+        env.Store.Update(id, x => x.Clusters = new() { new() { "G1", "G2" }, new() { "G1", "G2" }, new() { "G3" }, new() { "G4" } });
+        var j = env.Store.Get(id)!; var v = JobView.For(env.Store, j);
+        Set(v, "Groups", Enumerable.Range(1, 6).Select(i => new GroupView($"G{i}", "T", 1, 4, 2, 0.5, 1, true, null)).ToList());
+        var sb = new StringBuilder(); JobPages.ClusterBars(sb, j, v); var s = sb.ToString();
+        Assert.Single(Regex.Matches(s, "<h3>묶음:")); Assert.Single(Regex.Matches(s, "<h3>단독</h3>")); Assert.Equal(6, Regex.Matches(s, "<span class=\"bar\">").Count);
+        Assert.Equal(2, Regex.Matches(s, "<h3>").Count);
     }
 
     [Fact] public async Task Bottleneck_Card_Follows_The_Metric()
