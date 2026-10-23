@@ -8,7 +8,7 @@ namespace ASH.Server;
 
 /// <summary>The analysis pages: the list (/analyses), one analysis with its plans' versions and the compare table of the selected ones
 /// (/analyses/{id}), the jobs not filed anywhere (/analyses/unclassified), and the "where is this job filed" header of a job page.</summary>
-public sealed record AnalysisPageData(AnalysisInfo A, IReadOnlyList<JobInfo> Jobs, IReadOnlyList<FilmInfo> Films, JobStore Store, (int Ahead, DateTime? Start, TimeSpan? Typical) Queue, int Parallel, int CutCount);
+public sealed record AnalysisPageData(AnalysisInfo A, IReadOnlyList<JobInfo> Jobs, IReadOnlyList<FilmInfo> Films, JobStore Store, (int Ahead, DateTime? Start, TimeSpan? Typical) Queue, int Parallel, int CutCount, FilmStore? Fs = null);
 
 public static class AnalysisPages
 {
@@ -113,9 +113,7 @@ public static class AnalysisPages
         {
             case "conclusion": ConclusionTab(sb, d, q); break;
             case "compare": CompareTab(sb, d, q); break;
-            case "films": // Task 11 replaces this
-                FilmList(sb, d.Films.Where(f => f.Request.AnalysisId == a.Id).ToList(), a.Id);
-                break;
+            case "films": FilmsTab(sb, d); break;
             default: StatusTab(sb, d); break;
         }
         sb.Append("</div>");
@@ -234,16 +232,43 @@ public static class AnalysisPages
 
     internal static string FileUrl(FilmInfo f, string name) => $"/films/{H(f.Id)}/files/{H(Uri.EscapeDataString(name))}";
 
-    static void FilmList(StringBuilder sb, List<FilmInfo> films, string analysisId)
+    /// <summary>영상 tab: the new-film button, the films being made (progress bar, estimate, cancel) and the finished ones (thumbnail, player, per-cut links, zip).</summary>
+    internal static void FilmsTab(StringBuilder sb, AnalysisPageData d)
     {
-        sb.Append("<section class=\"box\"><h2>만든 영상</h2>");
-        if (films.Count == 0) { sb.Append($"<p class=\"muted\">아직 만든 영상이 없습니다. <a href=\"/analyses/{H(analysisId)}/cuts\">컷 영상</a>에서 만들면 여기에 목록이 생깁니다.</p></section>"); return; }
-        sb.Append("<div class=\"scroll\"><table><tr><th>요청 시각(서울)</th><th>상태</th><th>컷 × 버전</th><th>만든 컷</th><th>이어 붙인 영상</th></tr>");
-        foreach (var f in films)
-            sb.Append($"<tr><td><a href=\"/films/{H(f.Id)}\">{H(When(f.CreatedUtc))}</a></td><td><span class=\"state s-{H(f.State)}\">{H(JobState.Korean(f.State))}</span>{(f.Phase != null ? " " + H(f.Phase) : "")}</td>" +
-                $"<td class=\"num\">{f.Cuts.Count} × {f.Request.JobIds.Count}</td><td class=\"num\">{f.Done}{(f.Failed > 0 ? $" <span class=\"bad\">(실패 {f.Failed})</span>" : "")}</td>" +
-                $"<td>{(f.JoinedOk ? $"<a href=\"{FileUrl(f, f.Joined!)}\">{H(f.Joined)}</a>" : "-")}</td></tr>");
-        sb.Append("</table></div></section>");
+        var id = H(d.A.Id);
+        sb.Append($"<p><a class=\"primary\" href=\"/analyses/{id}/cuts\">새 영상 만들기</a> · 컷 리스트 {d.CutCount}개</p>");
+        var films = d.Films.OrderByDescending(f => f.CreatedUtc).ToList();
+        if (films.Count == 0) { sb.Append("<p class=\"muted\">아직 만든 영상이 없습니다.</p>"); return; }
+        foreach (var f in films.Where(f => !f.Finished))
+        {
+            var k = "film." + H(f.Id); var total = f.Items.Count;
+            sb.Append($"<section class=\"box\"><div class=\"box-head\"><h2><a href=\"/films/{H(f.Id)}\">{H(When(f.CreatedUtc))}</a></h2>" +
+                $"<span class=\"state s-{H(f.State)}\" data-state=\"{k}.state\" data-field=\"{k}.statetext\">{H(JobState.Korean(f.State))}</span></div>");
+            sb.Append($"<p><span data-field=\"{k}.phase\">{H(f.Phase)}</span> · <span data-field=\"{k}.done\">{LiveFields.FilmDone(f)}</span></p>");
+            sb.Append($"<div class=\"prog\"><i data-bar=\"{k}.bar\" style=\"width:{LiveFields.FilmPct(f)}%\"></i></div>");
+            sb.Append($"<p>완료 예상 <span data-field=\"{k}.eta\">{H(LiveFields.FilmEta(f))}</span></p>");
+            sb.Append(f.CancelRequested ? "<p class=\"muted\">취소하는 중입니다.</p>"
+                : $"<form method=\"post\" action=\"/films/{H(f.Id)}/cancel\"><button>{(f.State == JobState.Queued ? "대기 취소" : "취소")}</button></form>");
+            sb.Append("</section>");
+        }
+        foreach (var f in films.Where(f => f.Finished))
+        {
+            var r = f.Request; var fid = H(f.Id);
+            sb.Append($"<section class=\"box\"><h2><a href=\"/films/{fid}\">{H(When(f.CreatedUtc))}</a>{(f.State != JobState.Done ? $" <span class=\"state s-{H(f.State)}\">{H(JobState.Korean(f.State))}</span>" : "")}</h2>" +
+                $"<p class=\"muted\">{H(When(f.CreatedUtc))} · 컷 {f.Cuts.Count} × 버전 {r.JobIds.Count} · {r.Width}×{r.Height} · {r.Fps} fps</p>");
+            sb.Append(d.Fs != null && File.Exists(Path.Combine(d.Fs.FilmDir(f.Id), "thumb.jpg")) ? $"<img src=\"/films/{fid}/files/thumb.jpg\" width=\"320\" alt=\"\">" : "<div class=\"thumb-none\"></div>");
+            var main = f.JoinedOk && f.Joined != null ? f.Joined : f.Items.FirstOrDefault(i => i.Ok)?.Name;
+            if (main != null) sb.Append($"<div><video controls preload=\"none\" src=\"{FileUrl(f, main)}\" style=\"width:100%;max-width:720px;background:#000\"></video></div>");
+            var oks = f.Items.Where(i => i.Ok).ToList();
+            if (oks.Count > 0)
+            {
+                sb.Append("<ul>");
+                foreach (var i in oks) sb.Append($"<li><a href=\"{FileUrl(f, i.Name)}\">{H(i.Label)}</a></li>");
+                sb.Append("</ul>");
+            }
+            if (f.Error != null) sb.Append($"<p class=\"bad\">{H(f.Error)}</p>");
+            sb.Append((oks.Count > 0 || f.JoinedOk ? $"<a href=\"/films/{fid}/files/all.zip\">전체 zip 받기</a> · " : "") + $"<a href=\"/films/{fid}\">자세히</a></section>");
+        }
     }
 
     /// <summary>/films/{id}: progress while it runs, then the players and downloads. <paramref name="exists"/> tells which files are still on disk.</summary>

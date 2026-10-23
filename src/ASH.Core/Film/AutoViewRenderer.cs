@@ -27,6 +27,9 @@ public interface IFilmRenderer
     /// Returns <paramref name="outPath"/>; InvalidOperationException with ffmpeg's message on failure.</summary>
     string Finish(IReadOnlyList<string> mp4s, IReadOnlyList<string> captions, string outPath, bool join, CancellationToken ct = default);
 
+    /// <summary>One JPEG (320 px wide) of <paramref name="mp4"/> at <paramref name="atSec"/>; InvalidOperationException with ffmpeg's message on failure.</summary>
+    void Thumbnail(string mp4, string outJpg, double atSec, CancellationToken ct = default);
+
     /// <summary>Pixel width and height of what differs between the first frames of two renders of the same view (the F0 calibration mark, guide 10.4); null when nothing differs.</summary>
     (double W, double H)? MarkSize(string mp4With, string mp4Without, int width, int height, CancellationToken ct = default);
 }
@@ -141,6 +144,13 @@ public sealed class AutoViewRenderer(string aviewExe, string? amHome, string ffm
             return outPath;
         }
         finally { try { Directory.Delete(tmp, true); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
+    }
+
+    public void Thumbnail(string mp4, string outJpg, double atSec, CancellationToken ct = default)
+    {
+        var r = Ffmpeg(new[] { "-v", "error", "-y", "-ss", atSec.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture), "-i", Path.GetFullPath(mp4), "-frames:v", "1", "-vf", "scale=320:-2", "-q:v", "4", Path.GetFullPath(outJpg) },
+            Path.GetDirectoryName(Path.GetFullPath(outJpg))!, TimeSpan.FromMinutes(2), ct);
+        if (r.Exit != 0 || !File.Exists(outJpg) || new FileInfo(outJpg).Length == 0) throw new InvalidOperationException("ffmpeg 실패: " + Tail(r.Err, 600));
     }
 
     public (double W, double H)? MarkSize(string mp4With, string mp4Without, int width, int height, CancellationToken ct = default)

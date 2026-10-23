@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -21,6 +22,7 @@ public sealed class FakeFilm : IFilmAutoMod, IFilmRenderer
     /// <summary>The time limit each render got, in the order of <see cref="Scripts"/>.</summary>
     public readonly List<TimeSpan> Timeouts = new();
     public readonly List<(IReadOnlyList<string> Mp4s, IReadOnlyList<string> Captions, string Out, bool Join)> Finishes = new();
+    public readonly List<(string Mp4, string Jpg, double At)> Thumbnails = new();
     public (double W, double H)? Mark = (640, 360);
     public bool WriteEvents = true;
     /// <summary>Every render hits the time limit at once (a hung AutoView).</summary>
@@ -70,6 +72,12 @@ public sealed class FakeFilm : IFilmAutoMod, IFilmRenderer
         Assert.All(mp4s, m => Assert.True(File.Exists(m), m));
         File.WriteAllText(outPath, join ? "joined" : "mp4");
         return outPath;
+    }
+
+    public void Thumbnail(string mp4, string outJpg, double atSec, CancellationToken ct = default)
+    {
+        lock (Thumbnails) Thumbnails.Add((mp4, outJpg, atSec));
+        File.WriteAllText(outJpg, "jpg");
     }
 
     public (double W, double H)? MarkSize(string mp4With, string mp4Without, int width, int height, CancellationToken ct = default) => Mark;
@@ -157,6 +165,31 @@ public class FilmTests
         Assert.Equal(HttpStatusCode.OK, file.StatusCode); Assert.Equal("video/mp4", file.Content.Headers.ContentType!.MediaType);
         Assert.Contains(f.Id, await env.Http.GetStringAsync("/analyses/" + aid + "?tab=films"));
         Assert.Contains("이 버전의 영상", await env.Http.GetStringAsync("/jobs/" + j2));
+    }
+
+    [Fact] public async Task Films_Tab_Shows_Thumbnail_Player_And_All_Zip()
+    {
+        using var env = new JobEnv(); var j1 = await Done(env, "라인 증설", "A안"); var (st, aid) = Analysis(env);
+        env.Factory.Services.GetRequiredService<CutStore>().Save(aid, new[] { Hold("c1"), Hold("c2", "출구") });
+        var f = await Film(env, aid, Body(new[] { "c1", "c2" }, new[] { j1 }));
+        Assert.Single(env.Film.Thumbnails); Assert.True(File.Exists(Path.Combine(env.Factory.Services.GetRequiredService<FilmStore>().FilmDir(f.Id), "thumb.jpg")));
+        var tab = await env.Http.GetStringAsync($"/analyses/{aid}?tab=films");
+        foreach (var s in new[] { "새 영상 만들기", "컷 리스트 2개", $"/films/{f.Id}/files/thumb.jpg", "<video", $"/films/{f.Id}/files/all.zip", $"href=\"/films/{f.Id}\"" }) Assert.Contains(s, tab);
+        var zip = await env.Http.GetAsync($"/films/{f.Id}/files/all.zip");
+        Assert.Equal("application/zip", zip.Content.Headers.ContentType!.MediaType);
+        using var z = new ZipArchive(await zip.Content.ReadAsStreamAsync());
+        Assert.Equal(3, z.Entries.Count); // 컷 2 + 이어 붙인 1
+        Assert.Equal(HttpStatusCode.OK, (await env.Http.GetAsync($"/films/{f.Id}/files/thumb.jpg")).StatusCode);
+    }
+    [Fact] public async Task Films_Tab_Polls_While_Filming()
+    {
+        using var env = new JobEnv(); var j1 = await Done(env, "라인 증설", "A안"); var (st, aid) = Analysis(env);
+        env.Factory.Services.GetRequiredService<CutStore>().Save(aid, new[] { Hold("c1") }); env.Film.BlockOn = "time 7200";
+        var res = await Post(env, aid, Body(new[] { "c1" }, new[] { j1 })); var fid = JsonDocument.Parse(await res.Content.ReadAsStringAsync()).RootElement.GetProperty("id").GetString()!;
+        var fs = env.Factory.Services.GetRequiredService<FilmStore>(); await JobEnv.Until(() => fs.Get(fid) is { State: "running" } x ? x : null);
+        var tab = await env.Http.GetStringAsync($"/analyses/{aid}?tab=films");
+        Assert.Contains($"data-bar=\"film.{fid}.bar\"", tab); Assert.Contains("fetch('/api/analyses/", tab); Assert.Contains("취소", tab);
+        await env.Http.SendAsync(new HttpRequestMessage(HttpMethod.Post, $"/films/{fid}/cancel") { Headers = { { "Origin", Ok } } });
     }
 
     [Fact]

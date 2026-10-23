@@ -37,6 +37,11 @@ public static class LiveFields
         return Make(f, new() { [j.Id] = j.State });
     }
 
+    internal static string FilmDone(FilmInfo f) => $"컷 {f.Done} / {f.Items.Count}";
+    internal static string FilmPct(FilmInfo f) => f.Items.Count == 0 ? "0" : Math.Round(100.0 * f.Done / f.Items.Count).ToString("0", CultureInfo.InvariantCulture);
+    /// <summary>now + (cuts left) × (elapsed ÷ cuts done); "-" until one cut is done.</summary>
+    internal static string FilmEta(FilmInfo f) => f.StartedUtc is { } s && f.Done > 0 ? Hm(DateTime.UtcNow + (DateTime.UtcNow - s) * (f.Items.Count - f.Done) / Math.Max(1, f.Done)) : "-";
+
     public static Live OfFilm(FilmInfo f)
     {
         var total = f.Items.Count;
@@ -79,7 +84,12 @@ public static class LiveFields
             JobKeys(f, "running", r, typical, parallel);
             f["partial.text"] = AnalysisPages.PartialText(store, r);
         }
-        foreach (var fm in films.Where(x => x.Request.AnalysisId == a.Id)) w[fm.Id] = fm.State;
+        foreach (var fm in films.Where(x => x.Request.AnalysisId == a.Id))
+        {
+            w[fm.Id] = fm.State; var p = "film." + fm.Id;
+            f[p + ".state"] = fm.State; f[p + ".statetext"] = JobState.Korean(fm.State); f[p + ".phase"] = fm.Phase ?? "";
+            f[p + ".done"] = FilmDone(fm); f[p + ".bar"] = FilmPct(fm); f[p + ".eta"] = FilmEta(fm);
+        }
         return Make(f, w);
     }
 }

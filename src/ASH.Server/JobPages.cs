@@ -40,7 +40,7 @@ button.primary{background:var(--navy);color:#fff;border:1px solid var(--navy);bo
 .scroll{overflow-x:auto;max-width:100%}.scroll td,.scroll th{white-space:nowrap}.box,.grid>*{min-width:0}
 table{border-collapse:collapse;background:#fff}td,th{border:1px solid var(--line);padding:6px 10px;text-align:left;font-size:14px}th{background:var(--chip)}
 .crumb{font-size:14px;color:var(--muted);margin:0 0 10px}.mini{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.mini input[type=text],.mini select{width:auto;flex:1 1 160px;min-width:0}
-.num{text-align:right}.muted{color:#888780}.bad{color:var(--bad)}.ok{color:var(--ok)}
+.thumb-none{width:320px;height:180px;background:var(--chip)}.num{text-align:right}.muted{color:#888780}.bad{color:var(--bad)}.ok{color:var(--ok)}
 .cards{display:flex;gap:14px;flex-wrap:wrap}.card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px 18px;min-width:200px}
 .card .big{font-size:30px;font-weight:600}.card .sub{color:var(--muted);font-size:13px}
 .tabs a{display:inline-block;padding:8px 14px;border:1px solid var(--line);border-bottom:none;border-radius:8px 8px 0 0;background:var(--chip);color:var(--ink);text-decoration:none;margin-right:4px}

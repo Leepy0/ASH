@@ -140,22 +140,22 @@ internal static partial class Routes
             return Html(HomePages.Analyses(v.InProgress.Concat(v.Finished).ToList(), q?.Trim() ?? "", v.Unclassified));
         });
         app.MapGet("/analyses/unclassified", (AnalysisStore st, JobStore js) => Html(AnalysisPages.Unclassified(js.All(), st.All())));
-        static (AnalysisPageData D, Live L)? PageOf(string id, AnalysisStore st, JobStore js, FilmStore fs, FilmWorker fw, IConfiguration cfg)
+        static (AnalysisPageData D, Live L)? PageOf(string id, AnalysisStore st, JobStore js, FilmStore fs, FilmWorker fw, IConfiguration cfg, CutStore cs)
         {
             if (st.Get(id) is not { } a) return null;
             var jobs = js.All().Where(j => j.AnalysisId == id).ToList();
             var q = Queue(js, fw);
-            var d = new AnalysisPageData(a, jobs, fs.All().Where(f => f.Request.AnalysisId == id).ToList(), js, q, JobProgress.Parallel(cfg), 0);
+            var d = new AnalysisPageData(a, jobs, fs.All().Where(f => f.Request.AnalysisId == id).ToList(), js, q, JobProgress.Parallel(cfg), cs.Get(id).Count, fs);
             return (d, LiveFields.OfAnalysis(a, jobs, d.Films, q.Typical, d.Parallel, js));
         }
 
-        app.MapGet("/analyses/{id}", (string id, string? tab, HttpContext ctx, AnalysisStore st, JobStore js, FilmStore fs, FilmWorker fw, IConfiguration cfg) =>
-            PageOf(id, st, js, fs, fw, cfg) is { } p
-                ? Html(AnalysisPages.Detail(p.D, tab ?? "status", ctx.Request.Query, (tab ?? "status") == "status" && p.L.Active ? JobPages.PollScript("/api/analyses/" + id + "/status", p.L.Watch) : null))
+        app.MapGet("/analyses/{id}", (string id, string? tab, HttpContext ctx, AnalysisStore st, JobStore js, FilmStore fs, FilmWorker fw, IConfiguration cfg, CutStore cs) =>
+            PageOf(id, st, js, fs, fw, cfg, cs) is { } p
+                ? Html(AnalysisPages.Detail(p.D, tab ?? "status", ctx.Request.Query, (tab ?? "status") is "status" or "films" && p.L.Active ? JobPages.PollScript("/api/analyses/" + id + "/status", p.L.Watch) : null))
                 : Msg(404, "분석이 없습니다."));
 
-        app.MapGet("/api/analyses/{id}/status", (string id, AnalysisStore st, JobStore js, FilmStore fs, FilmWorker fw, IConfiguration cfg) =>
-            PageOf(id, st, js, fs, fw, cfg) is { } p
+        app.MapGet("/api/analyses/{id}/status", (string id, AnalysisStore st, JobStore js, FilmStore fs, FilmWorker fw, IConfiguration cfg, CutStore cs) =>
+            PageOf(id, st, js, fs, fw, cfg, cs) is { } p
                 ? Results.Json(new { active = p.L.Active, fields = p.L.Fields, watch = p.L.Watch,
                     analysis = new { plans = p.D.A.Plans.Count, versions = p.D.Jobs.Count, selected = p.D.Jobs.Count(j => j.Selected), films = p.D.Films.Count } })
                 : Msg(404, "분석이 없습니다."));
@@ -244,6 +244,28 @@ internal static partial class Routes
         app.MapGet("/films/{id}/files/{name}", (string id, string name, FilmStore fs) =>
         {
             if (!JobStore.IsValidId(id) || fs.Get(id) is not { } f) return Msg(404, "영상이 없습니다.");
+            if (name == "thumb.jpg")
+            {
+                var jpg = Path.Combine(fs.FilmDir(id), name);
+                return File.Exists(jpg) ? Results.File(jpg, "image/jpeg") : Msg(404, "썸네일이 없습니다.");
+            }
+            if (name == "all.zip")
+            {
+                if (!f.Finished) return Msg(409, "영상이 끝난 뒤에 받을 수 있습니다.");
+                var dir = fs.FilmDir(id); var zipPath = Path.Combine(dir, "all.zip");
+                var names = f.Items.Where(i => i.Ok).Select(i => i.Name).Concat(f.JoinedOk && f.Joined != null ? new[] { f.Joined } : Array.Empty<string>()).Where(n => File.Exists(Path.Combine(dir, n))).Distinct().ToList();
+                if (names.Count == 0) return Msg(404, "받을 영상이 없습니다.");
+                // made on first request; a film that changed afterwards gets a fresh one
+                if (!File.Exists(zipPath) || File.GetLastWriteTimeUtc(zipPath) < File.GetLastWriteTimeUtc(Path.Combine(dir, "film.json")))
+                {
+                    var tmp = zipPath + ".tmp";
+                    if (File.Exists(tmp)) File.Delete(tmp);
+                    using (var z = System.IO.Compression.ZipFile.Open(tmp, System.IO.Compression.ZipArchiveMode.Create))
+                        foreach (var n in names) System.IO.Compression.ZipFileExtensions.CreateEntryFromFile(z, Path.Combine(dir, n), n, System.IO.Compression.CompressionLevel.NoCompression); // MP4 does not shrink
+                    File.Move(tmp, zipPath, true);
+                }
+                return Results.File(new FileStream(zipPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete), "application/zip", $"{ASH.Core.Analysis.AnalysisNames.SafeFileName(f.AnalysisName)}-{id}.zip");
+            }
             if (name != "film.log" && name != f.Joined && f.Items.All(i => i.Name != name)) return Msg(404, "그런 파일은 없습니다.");
             var path = Path.Combine(fs.FilmDir(id), name);
             if (!File.Exists(path)) return Msg(404, "파일이 아직 없거나 지워졌습니다.");
