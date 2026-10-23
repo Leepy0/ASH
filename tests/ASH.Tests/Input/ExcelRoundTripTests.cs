@@ -4,6 +4,7 @@ using InSettings = ASH.Core.Input.Settings;
 
 namespace ASH.Tests.Input;
 
+[Xunit.Collection("ExcelTemplateStatics")]
 public class ExcelRoundTripTests
 {
     static string Tmp() => Path.Combine(Path.GetTempPath(), "ash_" + Guid.NewGuid().ToString("N") + ".xlsx");

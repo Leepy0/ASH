@@ -9,6 +9,7 @@ namespace ASH.Tests.Input;
 /// AGVEXCEL threw a TypeInitializationException (SixLabors.Fonts TableLoader) inside ZWCAD: ClosedXML creates its font-parsing text engine
 /// the moment a workbook is created. ASH installs an engine that never touches a font.
 /// </summary>
+[Xunit.Collection("ExcelTemplateStatics")]
 public class ExcelTemplateFontTests
 {
     private static string Tmp() => Path.Combine(Path.GetTempPath(), "ash-tpl-" + Guid.NewGuid().ToString("N") + ".xlsx");

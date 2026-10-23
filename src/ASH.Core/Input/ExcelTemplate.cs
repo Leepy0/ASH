@@ -396,12 +396,15 @@ public static class ExcelTemplate
     /// <summary>The comma list of the Asset drop-down (asset names; empty = no drop-down; Excel caps a list at 255 chars). Set by the plugin from the catalog before Write/Update.</summary>
     public static string AssetListFormula { get; set; } = "";
 
+    const string AssetMsg = "카탈로그에 없는 에셋 이름입니다. 그대로 쓰려면 예";
+
     static void ApplyLists(XLWorkbook wb, List<ExcelEdit>? log = null)
     {
         var all = AssetListFormula.Length == 0 ? Lists : Lists.Concat(new[] { ("AGV_Types", "Asset", AssetListFormula) }).ToArray();
         foreach (var (sheet, col, source) in all)
         {
             if (!wb.TryGetWorksheet(sheet, out var ws) || !Columns(ws).TryGetValue(col, out var c)) continue;
+            bool isAsset = sheet == "AGV_Types" && col == "Asset";
             var v = ws.Range(3, c, LastListRow, c).CreateDataValidation();
             if (wb.TryGetWorksheet(source, out var src))
             {
@@ -409,14 +412,25 @@ public static class ExcelTemplate
                 v.ErrorMessage = $"{source} 시트의 이름 중에서 고르세요.";
                 log?.Add(new ListEdit(sheet, c, 3, LastListRow, $"={source}!$A$3:$A${LastListRow}", col, v.ErrorMessage));
             }
+            else if (isAsset && source.Length > 253) // Excel caps an inline list at 255 chars: names go to a hidden sheet
+            {
+                var names = source.Split(',');
+                var ls = wb.TryGetWorksheet("_lists", out var ex) ? ex : wb.AddWorksheet("_lists");
+                if (log != null) log.Add(new AddSheetEdit("_lists"));
+                for (int i = 0; i < names.Length; i++) Set(ls, i + 1, 1, names[i], log);
+                ls.Visibility = XLWorksheetVisibility.Hidden;
+                v.List(ls.Range(1, 1, names.Length, 1), true);
+                v.ErrorMessage = AssetMsg;
+                log?.Add(new ListEdit(sheet, c, 3, LastListRow, $"=_lists!$A$1:$A${names.Length}", col, v.ErrorMessage, true));
+            }
             else
             {
                 v.List("\"" + source + "\"", true);
-                v.ErrorMessage = source.Replace(",", " / ") + " 중에서 고르세요.";
-                log?.Add(new ListEdit(sheet, c, 3, LastListRow, source, col, v.ErrorMessage));
+                v.ErrorMessage = isAsset ? AssetMsg : source.Replace(",", " / ") + " 중에서 고르세요.";
+                log?.Add(new ListEdit(sheet, c, 3, LastListRow, source, col, v.ErrorMessage, isAsset));
             }
             v.IgnoreBlanks = true;
-            v.ErrorStyle = XLErrorStyle.Stop;
+            v.ErrorStyle = isAsset ? XLErrorStyle.Warning : XLErrorStyle.Stop;
             v.ErrorTitle = col;
             v.ShowErrorMessage = true;
         }
@@ -464,4 +478,4 @@ public sealed record FormulaEdit(string Sheet, int Col, int FirstRow, int LastRo
 /// <summary>A background colour (RGB, 0xRRGGBB) over rows FirstRow..LastRow of a column: the cells that need no input.</summary>
 public sealed record FillEdit(string Sheet, int Col, int FirstRow, int LastRow, int Rgb) : ExcelEdit(Sheet);
 /// <summary>A drop-down over rows FirstRow..LastRow: Formula is a sheet range ("=AGV_Types!$A$3:$A$1000") or a comma list ("Box,Pallet").</summary>
-public sealed record ListEdit(string Sheet, int Col, int FirstRow, int LastRow, string Formula, string Title, string Message) : ExcelEdit(Sheet);
+public sealed record ListEdit(string Sheet, int Col, int FirstRow, int LastRow, string Formula, string Title, string Message, bool Warn = false) : ExcelEdit(Sheet);

@@ -6,6 +6,7 @@ using Xunit;
 
 namespace ASH.Tests.Input;
 
+[Xunit.Collection("ExcelTemplateStatics")]
 public class KindAndFormTests
 {
     static readonly string[] Cps = { "S", "L", "U" };

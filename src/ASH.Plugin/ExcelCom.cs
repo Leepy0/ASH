@@ -54,7 +54,7 @@ internal static class ExcelCom
                 case ListEdit l:
                     dynamic v = sheet.Range[sheet.Cells[l.FirstRow, l.Col], sheet.Cells[l.LastRow, l.Col]].Validation;
                     v.Delete();
-                    v.Add(3, 1, 1, l.Formula); // xlValidateList, xlValidAlertStop, xlBetween
+                    v.Add(3, l.Warn ? 2 : 1, 1, l.Formula); // xlValidateList, xlValidAlertWarning/Stop, xlBetween
                     v.IgnoreBlank = true; v.InCellDropdown = true; v.ShowError = true; v.ErrorTitle = l.Title; v.ErrorMessage = l.Message;
                     break;
             }

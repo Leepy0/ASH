@@ -8,6 +8,7 @@ using Xunit;
 
 namespace ASH.Tests.Input;
 
+[Xunit.Collection("ExcelTemplateStatics")]
 public class ExcelTemplateSeedTests
 {
     static LayoutCp Cp(string name, string type, string group) => new LayoutCp { Name = name, Type = type, Group = group };

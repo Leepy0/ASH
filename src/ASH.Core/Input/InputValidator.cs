@@ -42,12 +42,14 @@ public static class InputValidator
     }
 
     /// <summary>One warning per AGV_Types row whose numeric columns differ from the catalog type of the same name (unknown names are skipped).</summary>
-    public static List<Finding> CatalogDiff(ProjectInput input, IReadOnlyList<CatalogType> catalog)
+    public static List<Finding> CatalogDiff(ProjectInput input, IReadOnlyList<CatalogType> catalog, IReadOnlyCollection<string>? assetNames = null)
     {
         var f = new List<Finding>();
         for (int i = 0; i < input.AgvTypes.Count; i++)
         {
             var t = input.AgvTypes[i];
+            if (assetNames != null && t.Asset.Length > 0 && !assetNames.Contains(t.Asset))
+                f.Add(new Finding(FindingCode.InputWarning, $"Asset '{t.Asset}'가 카탈로그에 없습니다(직접 만든 에셋이면 무시)", default(Point2), $"AGV_Types!{(t.Row > 0 ? t.Row : i + 3)}"));
             var c = catalog.FirstOrDefault(x => x.Name == t.Type);
             if (c == null) continue;
             var d = c.Defaults;
