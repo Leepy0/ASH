@@ -44,6 +44,20 @@ static class Program
             d.ShowDialog();
             return 0;
         }
+        if (Array.IndexOf(args, "--lite") >= 0) // the AGVLITE dialog with made-up layers (about 12 MB checked, so the over-10 MB warning shows)
+        {
+            using var d = new ASH.Plugin.Ui.LiteDialog(new ASH.Core.Lite.LitePlan(LiteSample()), "공장A_레이아웃.dwg", @"lite\공장A_레이아웃_lite.dxf", 10) { StartPosition = FormStartPosition.Manual, Location = new Point(-2000, 0) };
+            d.Shown += (s, e) =>
+            {
+                Application.DoEvents();
+                using var bmp = new Bitmap(d.Width, d.Height);
+                d.DrawToBitmap(bmp, new Rectangle(0, 0, d.Width, d.Height));
+                bmp.Save(args[0], ImageFormat.Png);
+                d.Close();
+            };
+            d.ShowDialog();
+            return 0;
+        }
         var f = new Form { ClientSize = new Size(width, 900), FormBorderStyle = FormBorderStyle.None, StartPosition = FormStartPosition.Manual, Location = new Point(-2000, 0), ShowInTaskbar = false };
         var c = new ASH.Plugin.Ui.AgvPaletteControl { Dock = DockStyle.Fill };
         f.Controls.Add(c);
@@ -67,6 +81,27 @@ static class Program
         };
         Application.Run(f);
         return 0;
+    }
+
+    static ASH.Core.Lite.LiteSource LiteSample()
+    {
+        var s = new ASH.Core.Lite.LiteSource { InsUnits = 4, Tolerance = 10, XrefRefs = 2, Solids3d = 340 };
+        var rnd = new Random(1);
+        void Add(string layer, int lines, ASH.Core.Lite.LiteFlags flags = ASH.Core.Lite.LiteFlags.None, bool off = false, bool frozen = false)
+        {
+            s.Layers[layer] = new ASH.Core.Lite.LiteLayerState(7, off, frozen);
+            for (int i = 0; i < lines; i++)
+                s.Items.Add(new ASH.Core.Lite.LiteItem(new ASH.Core.Lite.LiteLine(layer, 1200000 + rnd.NextDouble() * 250000, 400000 + rnd.NextDouble() * 120000, 1200000 + rnd.NextDouble() * 250000, 400000 + rnd.NextDouble() * 120000), flags));
+        }
+        Add("A-WALL", 52000); Add("A-COLUMN", 9000); Add("설비_라인", 38000); Add("통로", 4000); Add("A-GRID", 1500);
+        Add("A-DIM", 21000); Add("문자", 6000); Add("HATCH-FLOOR", 30000); Add("표제란", 2500); Add("AGV_PATH", 800);
+        Add("3D-EQUIP", 340, ASH.Core.Lite.LiteFlags.Footprint);
+        Add("XREF-BASE|A-WALL", 15000, ASH.Core.Lite.LiteFlags.Xref);
+        Add("OLD_LAYOUT", 7000, ASH.Core.Lite.LiteFlags.Hidden, frozen: true);
+        Add("0", 300);
+        ASH.Core.Lite.LiteSource.Count(s.Removed, "해치", 1800);
+        ASH.Core.Lite.LiteSource.Count(s.Removed, "문자", 9200);
+        return s;
     }
 
     // sample rows for the check table and the finder, so the tabs can be shown without a drawing
