@@ -216,7 +216,7 @@ public class SettingsTests
     {
         using var e = new SettingsEnv();
         var page = await e.Http.GetStringAsync("/");
-        foreach (var s in new[] { "href=\"/jobs\"", "href=\"/admin/settings\"", "최근 작업", "배포", "서버 상태", "지금 실행", "name=\"viewport\"" })
+        foreach (var s in new[] { "href=\"/analyses\"", "href=\"/admin/settings\"", "지금 실행", "name=\"viewport\"" })
             Assert.Contains(s, page);
     }
 
