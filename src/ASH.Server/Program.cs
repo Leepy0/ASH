@@ -163,15 +163,17 @@ app.MapPost("/admin/login", async (HttpContext ctx, ReleaseStore rs, AdminSessio
 {
     if (!rs.UploadsEnabled) return Html(ServerPages.Login(false), 403);
     if (!SameOrigin(ctx)) return Msg(403, "다른 사이트에서 보낸 요청은 받지 않습니다.");
-    var token = ctx.Request.HasFormContentType ? (await ctx.Request.ReadFormAsync())["token"].ToString() : "";
+    var form = ctx.Request.HasFormContentType ? await ctx.Request.ReadFormAsync() : null;
+    var token = form?["token"].ToString() ?? "";
+    var back = Back(form, "/admin/settings"); // an /admin page that asked for the login (e.g. the analysis delete page)
     if (!rs.TokenMatches(token))
     {
         await Task.Delay(1000); // slows guessing; the token is 16+ random characters anyway
-        return Html(ServerPages.Login(true, "토큰이 틀립니다."), 401);
+        return Html(ServerPages.Login(true, "토큰이 틀립니다.", back == "/admin/settings" ? null : back), 401);
     }
     ctx.Response.Cookies.Append(AdminSessions.CookieName, sessions.Create(), new CookieOptions
     { HttpOnly = true, SameSite = SameSiteMode.Strict, Secure = ctx.Request.IsHttps, Path = "/admin", MaxAge = AdminSessions.Lifetime });
-    return Results.Redirect("/admin/settings");
+    return Results.Redirect(back);
 });
 
 app.MapPost("/admin/logout", (HttpContext ctx, AdminSessions sessions) =>
@@ -312,6 +314,36 @@ app.MapPost("/analyses/{id}/delete", (string id, HttpContext ctx, AnalysisStore 
 {
     if (!SameOrigin(ctx)) return Msg(403, CrossSite);
     return st.DeleteIfEmpty(id, js) ? Results.Redirect("/analyses") : Msg(409, "작업이 있거나 없는 분석은 지울 수 없습니다.");
+});
+
+// admin delete of any analysis (under /admin because only there the admin cookie is sent): the jobs stay as unclassified, the rest of it goes
+app.MapGet("/admin/analyses/{id}/delete", (string id, HttpContext ctx, ReleaseStore rs, AdminSessions sessions, AnalysisStore st, JobStore js, FilmStore fs, CutStore cs) =>
+{
+    ctx.Response.Headers.CacheControl = "no-store";
+    if (!rs.UploadsEnabled || !(HeaderAdmin(ctx, rs) || CookieAdmin(ctx, sessions)))
+        return Html(ServerPages.Login(rs.UploadsEnabled, null, ctx.Request.Path.Value, "분석 삭제(관리자)"), rs.UploadsEnabled ? 401 : 403);
+    if (st.Get(id) is not { } a) return Msg(404, "분석이 없습니다.");
+    return Html(AnalysisPages.DeleteConfirm(a, js.All().Count(j => j.AnalysisId == id), fs.All().Where(f => f.Request.AnalysisId == id).ToList(), cs.Get(id).Count));
+});
+
+app.MapPost("/admin/analyses/{id}/delete", async (string id, HttpContext ctx, ReleaseStore rs, AdminSessions sessions, AnalysisStore st, JobStore js, FilmStore fs, CutStore cs) =>
+{
+    if (DenyPost(ctx, rs, sessions) is { } deny) return deny;
+    if (st.Get(id) is not { } a) return Msg(404, "분석이 없습니다.");
+    var back = $"<p><a href=\"/admin/analyses/{WebUtility.HtmlEncode(id)}/delete\">돌아가기</a></p>";
+    if ((await FormFrom(ctx))?["name"].ToString().Trim() != a.Name)
+        return Html(ServerPages.Message("분석 삭제", $"<div class=\"msg bad\">입력한 이름이 분석 이름과 다릅니다. 아무것도 지우지 않았습니다.</div>{back}"), 400);
+    try
+    {
+        if (fs.RemoveByAnalysis(id) is not { } films)
+            return Html(ServerPages.Message("분석 삭제", $"<div class=\"msg bad\">이 분석의 영상이 대기 중이거나 만드는 중이라 지우지 않았습니다. 영상 페이지에서 먼저 취소한 뒤 다시 시도하세요.</div>{back}"), 409);
+        cs.Delete(id);
+        var jobs = st.DeleteAnalysis(id, js) ?? 0;
+        app.Logger.LogWarning("분석 삭제(웹, {Ip}): {Id} '{Name}', 작업 {Jobs}건 분류 해제, 영상 {Films}건 삭제", ClientIp(ctx), id, a.Name, jobs, films);
+    }
+    catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+    { return Html(ServerPages.Message("분석 삭제", $"<div class=\"msg bad\">지우는 중 파일 오류가 났습니다(영상을 재생 중이면 닫고 다시 시도하세요): {WebUtility.HtmlEncode(e.Message)}</div>{back}"), 500); }
+    return Results.Redirect("/analyses");
 });
 
 // analysisId + planId, or one "target" field "analysisId|planId" (what the page's select sends)

@@ -151,7 +151,30 @@ public static class AnalysisPages
             sb.Append($"<form method=\"post\" action=\"/analyses/{H(a.Id)}/delete\" style=\"margin-top:12px\"><button>이 분석 지우기</button> <span class=\"muted\">보낸 작업이 없을 때만 지울 수 있습니다.</span></form>");
         else sb.Append("<p class=\"muted\">보낸 작업이 있는 분석은 지울 수 없습니다.</p>");
         sb.Append("</div></details>");
+        sb.Append($"<p class=\"muted\" style=\"font-size:13px\"><a href=\"/admin/analyses/{H(a.Id)}/delete\">관리자: 분석 삭제…</a></p>");
         return Page("ASH 분석 " + a.Name, sb.ToString(), jobs.Any(j => !j.Finished));
+    }
+
+    /// <summary>/admin/analyses/{id}/delete: what the delete does, and the form that needs the analysis name typed.</summary>
+    public static string DeleteConfirm(AnalysisInfo a, int jobCount, IReadOnlyList<FilmInfo> films, int cutCount)
+    {
+        var active = films.Where(f => !f.Finished).ToList();
+        var sb = new StringBuilder($"<p class=\"crumb\"><a href=\"/analyses\">분석</a> › <a href=\"/analyses/{H(a.Id)}\">{H(a.Name)}</a> › 삭제</p><h1>분석 삭제(관리자)</h1>");
+        sb.Append($"<section class=\"box\"><h2>{H(a.Name)}</h2><p>이 분석을 지우면 다음과 같이 됩니다. 되돌릴 수 없습니다.</p><ul>" +
+            $"<li><b>보낸 작업 {jobCount}건은 그대로 남고</b> \"분석에 넣지 않은 작업\"이 됩니다(안·버전·선정은 해제, 버전 메모는 유지).</li>" +
+            $"<li>분석과 안 {a.Plans.Count}개가 지워집니다.</li>" +
+            $"<li>컷 목록({cutCount}개)이 지워집니다.</li>" +
+            $"<li>만든 영상 {films.Count}건의 기록과 영상 파일이 지워집니다.</li></ul></section>");
+        if (active.Count > 0)
+        {
+            sb.Append("<div class=\"msg bad\">대기 중이거나 만드는 중인 영상이 있어 지울 수 없습니다. 먼저 취소하세요: ");
+            sb.Append(string.Join(", ", active.Select(f => $"<a href=\"/films/{H(f.Id)}\">{H(When(f.CreatedUtc))}</a>"))).Append("</div>");
+            return Page("ASH 분석 삭제", sb.ToString());
+        }
+        sb.Append($"<form method=\"post\" action=\"/admin/analyses/{H(a.Id)}/delete\" class=\"box\"><div class=\"field\"><label for=\"name\">분석 이름 입력</label><div>" +
+            $"<input type=\"text\" id=\"name\" name=\"name\" required autocomplete=\"off\" maxlength=\"100\"><div class=\"help\">지울 분석의 이름 <b>{H(a.Name)}</b> 을(를) 그대로 입력하세요.</div></div></div>" +
+            "<div class=\"actions\"><button class=\"primary\">분석 지우기</button><a href=\"/analyses/" + H(a.Id) + "\">취소</a></div></form>");
+        return Page("ASH 분석 삭제", sb.ToString());
     }
 
     internal static string FileUrl(FilmInfo f, string name) => $"/films/{H(f.Id)}/files/{H(Uri.EscapeDataString(name))}";

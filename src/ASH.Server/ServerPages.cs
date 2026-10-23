@@ -69,9 +69,10 @@ public static class ServerPages
     public static string Message(string title, string html, string? refreshTo = null) =>
         Page(title, $"<h1>{H(title)}</h1>{html}" + (refreshTo != null ? $"<script>setTimeout(function(){{location.href='{refreshTo}'}},15000)</script>" : ""));
 
-    public static string Login(bool uploadsEnabled, string? error = null)
+    /// <param name="back">a path on this site to go to after the login (default: the settings page)</param>
+    public static string Login(bool uploadsEnabled, string? error = null, string? back = null, string title = "서버 설정")
     {
-        var sb = new StringBuilder("<h1>서버 설정</h1>");
+        var sb = new StringBuilder($"<h1>{H(title)}</h1>");
         if (!uploadsEnabled)
         {
             sb.Append("<div class=\"msg warn\">웹 설정이 꺼져 있습니다. 서버 PC의 appsettings.json에 <code>Admin:Token</code>(16자 이상의 무작위 문자열)을 적고 서비스를 다시 시작하면 쓸 수 있습니다.</div>");
@@ -79,6 +80,7 @@ public static class ServerPages
         }
         if (error != null) sb.Append($"<div class=\"msg bad\">{H(error)}</div>");
         sb.Append("<section class=\"box\"><h2>관리자 확인</h2><form method=\"post\" action=\"/admin/login\">")
+          .Append(back == null ? "" : $"<input type=\"hidden\" name=\"back\" value=\"{H(back)}\">")
           .Append("<div class=\"field\"><label for=\"token\">관리자 토큰</label><div><input type=\"password\" id=\"token\" name=\"token\" autocomplete=\"current-password\" required>")
           .Append("<div class=\"help\">appsettings.json의 Admin:Token 값입니다. 확인되면 이 브라우저는 8시간 동안 로그인 상태로 남습니다.</div></div></div>")
           .Append("<div class=\"actions\"><button class=\"primary\">확인</button></div></form></section>");

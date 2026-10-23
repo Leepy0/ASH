@@ -107,6 +107,21 @@ public sealed class AnalysisStore
         }
     }
 
+    /// <summary>Admin delete: every job of the analysis is kept and becomes unclassified (AnalysisId/PlanId null, Version 0, not selected; the note stays),
+    /// then the analysis and its plans go. Jobs first: a stop in between leaves an empty analysis, never a job pointing at a missing one. Null when there is no such analysis.</summary>
+    public int? DeleteAnalysis(string analysisId, JobStore jobs)
+    {
+        lock (_gate)
+        {
+            var a = _items.FirstOrDefault(x => x.Id == analysisId);
+            if (a == null) return null;
+            var mine = jobs.All().Where(j => j.AnalysisId == analysisId).ToList();
+            foreach (var j in mine) jobs.Update(j.Id, x => { x.AnalysisId = null; x.PlanId = null; x.Version = 0; x.Selected = false; });
+            _items.Remove(a); Save();
+            return mine.Count;
+        }
+    }
+
     /// <summary>Files a job under a plan as that plan's next version and stores the version note.</summary>
     public (string AnalysisId, string PlanId, int Version) Assign(JobStore jobs, string jobId, string analysisId, string planId, string note)
         => Place(jobs, jobId, analysisId, planId, j => j.VersionNote = note ?? "");

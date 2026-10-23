@@ -111,6 +111,26 @@ public sealed class FilmStore
     /// <summary>Newest first.</summary>
     public IReadOnlyList<FilmInfo> All() { lock (_gate) return _films.Values.OrderByDescending(f => f.CreatedUtc).ThenByDescending(f => f.Id, StringComparer.Ordinal).Select(Clone).ToList(); }
 
+    /// <summary>Films of the analysis that are still queued or running.</summary>
+    public IReadOnlyList<FilmInfo> Active(string analysisId) { lock (_gate) return _films.Values.Where(f => f.Request.AnalysisId == analysisId && !f.Finished).Select(Clone).ToList(); }
+
+    /// <summary>Removes the analysis' films (record and folder with its MP4s). Null, and nothing removed, while one of them is queued or running (TakeNext shares the lock).
+    /// An IOException (a file still being played) stops the removal; the films left are removed by the next try.</summary>
+    public int? RemoveByAnalysis(string analysisId)
+    {
+        lock (_gate)
+        {
+            var mine = _films.Values.Where(f => f.Request.AnalysisId == analysisId).ToList();
+            if (mine.Any(f => !f.Finished)) return null;
+            foreach (var f in mine)
+            {
+                if (Directory.Exists(FilmDir(f.Id))) Directory.Delete(FilmDir(f.Id), true);
+                _films.Remove(f.Id);
+            }
+            return mine.Count;
+        }
+    }
+
     /// <summary>Oldest queued film, now running; null when none waits.</summary>
     public FilmInfo? TakeNext()
     {

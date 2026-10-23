@@ -68,10 +68,11 @@ public sealed class JobEnv : IDisposable
     public readonly FakeFilm Film = new();
     public JobStore Store => Factory.Services.GetRequiredService<JobStore>();
 
-    public JobEnv(bool worker = true, string? amHome = null)
+    public JobEnv(bool worker = true, string? amHome = null, string? adminToken = null)
     {
         Factory = new WebApplicationFactory<Program>().WithWebHostBuilder(b =>
         {
+            if (adminToken != null) b.UseSetting("Admin:Token", adminToken);
             b.UseSetting("Releases:Dir", Path.Combine(Dir, "releases"));
             b.UseSetting("Jobs:Dir", Path.Combine(Dir, "jobs"));
             b.UseSetting("Jobs:WorkerEnabled", worker ? "true" : "false");

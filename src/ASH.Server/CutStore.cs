@@ -59,6 +59,13 @@ public sealed class CutStore
         }
     }
 
+    /// <summary>Removes the analysis' cut folder (cuts.json and any set-aside .bad copy).</summary>
+    public void Delete(string analysisId)
+    {
+        var dir = Path.GetDirectoryName(FilePath(analysisId))!;
+        lock (_gate) if (Directory.Exists(dir)) Directory.Delete(dir, true);
+    }
+
     /// <summary>Null when every cut is usable, else the first problem in Korean ("2번 컷 '이름': 기울기는 0~70°입니다.").</summary>
     public static string? Validate(IReadOnlyList<CutSpec?> cuts)
     {
