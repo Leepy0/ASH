@@ -326,4 +326,20 @@ public class ModelRunIntegrationTests
         Assert.Equal(0, ok.Kpi.StopTimeSec);
         Cleanup(run.Work);
     }
+
+    // user report: vehicles parked on one standby CP overlapped (brake distance 0 m). The built model must carry brake/stop >= 0.5 m for both
+    // load states, even without a Decel in the type, and still build and run with three vehicles of the group waiting.
+    [SkippableFact]
+    public void Parked_Vehicles_Model_Has_Brake_And_Stop_Distance_Of_Half_A_Meter()
+    {
+        Skip.If(AmHome is null, "ASH_AM_HOME not set");
+        var input = LogicGeneratorTests.Sample();
+        input.AgvTypes[0] = input.AgvTypes[0] with { Accel = 0, Decel = 0 };
+        var run = BuildAndRun(input, new Dictionary<string, int> { ["G1"] = 3 });
+        var asy = File.ReadAllLines(Path.Combine(run.Work, Model + ".arc", "agv.asy")).Select(x => x.Trim().Split('	')).ToList();
+        var d = asy.Where(x => x[0] is "brakedist" or "stopdist").ToList();
+        Assert.Equal(4 * input.Groups.Count, d.Count);                                                  // 2 states x brake/stop per vehicle type
+        Assert.All(d, x => Assert.True(double.Parse(x[1].Split(' ')[1], CultureInfo.InvariantCulture) * (x[1].EndsWith("Feet") ? 0.3048 : 1) >= 0.5 - 1e-9, string.Join(" ", x)));
+        Cleanup(run.Work);
+    }
 }
