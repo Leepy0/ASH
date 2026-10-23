@@ -292,8 +292,11 @@ A·B·C·D는 파일이 거의 겹치지 않아 병렬로 간다. 겹치는 곳�
 
 ## 관문 결과
 
-(빌더가 채움)
+### B-G1 곡선 속도 (2026-10-23)
 
+- **실행:** 데모 `agvdemo.arc`를 `base`·`slow` 두 벌로 복사. `slow`만 `agv.asy`의 `AGVSVEH … load Default` 블록에서 `crvvel`·`rcrvvel`을 `0 3` → `0 0.3 Feet Seconds`로 바꿈(`vel` 등 나머지 그대로, snap 8 h). 각각 `am264.exe -bq agvdemo` 후 `agvdemo.exe -w`. 두 `.message` 모두 "Simulation complete".
+- **수치(base → slow):** 호 구간 평균 통과 시간 path15 1.95 → 15.69 s(호 길이 4.71 ft ÷ 0.3 ft/s = 15.7 s), path20 4.02 → 36.95 s(11.0 ft ÷ 0.3 = 36.7 s). 직선 path12 18.56 → 20.04 s(혼잡 차이만). 처리량 `Tthroughput` 평균 127.75 → 72.38 /h, 배송 1025 → 581회, 배송 평균 시간 31.39 → 50.50 s.
+- **판정: 통과.** 차량 타입별 `crvvel`이 호 구간에서만 속도를 정확히 제한한다. → **Task 9A 실행, 9B 생략.**
 
 ### C-G1 `.cel` 도형 필드 (2026-10-23, 정적 분석)
 

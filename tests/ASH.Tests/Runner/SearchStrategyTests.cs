@@ -9,7 +9,7 @@ namespace ASH.Tests.Runner;
 
 public class SearchStrategyTests
 {
-    sealed class Fake : IRunExecutor
+    internal sealed class Fake : IRunExecutor
     {
         public int Calls;
         readonly HashSet<string> keys = new();
@@ -23,16 +23,16 @@ public class SearchStrategyTests
                 Fail(s, kv.Key) ? 10 : 0, 0)).ToList();
         }
     }
-    static ProjectInput Input(params (string g, int min, int max)[] gs)
+    internal static ProjectInput Input(params (string g, int min, int max)[] gs)
     {
         var p = new ProjectInput { Settings = new ASH.Core.Input.Settings { Replications = 2, SeedBase = 1 } };
         foreach (var (g, mn, mx) in gs) p.Groups.Add(new AgvGroup(g, "T", mn, mx, new(), "x"));
         return p;
     }
     // G1+G2 must reach 5 together; G3 needs 2 on its own
-    static bool ClusterRule(RunScenario s, string g) =>
+    internal static bool ClusterRule(RunScenario s, string g) =>
         g == "G3" ? s.ActiveByGroup["G3"] < 2 : s.ActiveByGroup["G1"] + s.ActiveByGroup["G2"] < 5;
-    static (ProjectInput, GroupClusters, Fake) Case()
+    internal static (ProjectInput, GroupClusters, Fake) Case()
     {
         var p = Input(("G1", 1, 4), ("G2", 1, 4), ("G3", 1, 3));
         var c = new GroupClusters { Clusters = new IReadOnlyList<string>[] { new[] { "G1", "G2" }, new[] { "G3" } } };
@@ -137,7 +137,7 @@ public class SearchStrategyTests
         Assert.Equal("group\tplusOne\totherGroup\tutilDelta\tminStockDelta\nG1\t2\tG2\t-0.01\t0.5\n", System.IO.File.ReadAllText(path));
         System.IO.File.Delete(path);
     }
-    sealed class Batching : IBatchRunExecutor
+    internal sealed class Batching : IBatchRunExecutor
     {
         public readonly Fake Inner = new();
         public readonly List<int> BatchSizes = new();

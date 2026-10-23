@@ -55,3 +55,21 @@ User's Guide(`amvol1and2.pdf`, Path Mover Systems, p.526) 확인. Path Mover 시
 - `ALTERNATE NONE ignore ResumeSpeedWhenClaimed` — 토큰 없음 = approaching block / trailing edge; ResumeSpeedWhenClaimed = 재가속 옵션; `ignore`는 Runtime Warning Messages=Off로 추정.
 
 **사용자가 원하는 "CP 목적지 이동 시 경로상 block 선점" = `OldBlockClaim`.** 모듈 C는 `AGVSDEF … ALTERNATE NONE ignore OldBlockClaim ResumeSpeedWhenClaimed`로 생성한다(OldBlockRelease는 trailing edge가 더 안전하므로 넣지 않음). 토큰 의미는 추정이므로 2차 시작 때 AM 편집기에서 옵션을 바꿔 저장한 파일과 대조해 확정한다.
+
+## 관문 B-G1 곡선 속도 (2026-10-23)
+
+질문: 차량 타입 줄 `crvvel`/`rcrvvel`(`agvs_veh.txt` 11행)이 호(arc) 구간에서 실제로 속도를 제한하는가.
+
+- 바꾼 줄: `%TEMP%\gateB\slow\agvdemo.arc\agv.asy`의 `load Default` 블록 `crvvel 0 3 Feet Seconds`, `rcrvvel 0 3 Feet Seconds` → `0 0.3`. `base`는 원본. 둘 다 snap 8 h.
+- 실행: 각 폴더에서 `am264.exe -bq agvdemo`("Entity Limit Status" OK 클릭) → `agvdemo.exe -w`(이번에는 Authorization 창이 뜨지 않음). `.message` 둘 다 "Simulation complete".
+
+| 항목 | base (crvvel 3) | slow (crvvel 0.3) |
+|---|---|---|
+| path15 호(4.71 ft) 평균 시간 | 1.95 s | 15.69 s |
+| path20 호(11.0 ft) 평균 시간 | 4.02 s | 36.95 s |
+| path12 직선 평균 시간 | 18.56 s | 20.04 s |
+| Tthroughput 평균(/h) | 127.75 | 72.38 |
+| 배송 횟수 / 평균 시간 | 1025 / 31.39 s | 581 / 50.50 s |
+| Delivering 비율 | 0.223 | 0.204 |
+
+판정: **통과.** 호 통과 시간이 호 길이 ÷ 0.3 ft/s와 맞고 직선은 그대로다. Task 9A(차량 타입의 곡선 속도를 `agvs_veh.txt`에 반영) 실행.

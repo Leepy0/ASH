@@ -126,7 +126,8 @@ public static class ExcelReader
 
         foreach (var r in Rows(wb, "AGV_Types"))
             p.AgvTypes.Add(new AgvType(r.Str("Type"), r.Num("SpeedLoaded"), r.Num("SpeedEmpty"), r.Num("Accel"), r.Num("Decel"),
-                r.Int("Capacity"), r.Num("LoadTime", 0), r.Num("UnloadTime", 0), r.Num("MTBF", 0), r.Num("MTTR", 0), r.Num("Length"), r.Num("Width"), r.Str("Color"), r.RowNum, r.StrIfColumn("Kind")));
+                r.Int("Capacity"), r.Num("LoadTime", 0), r.Num("UnloadTime", 0), r.Num("MTBF", 0), r.Num("MTTR", 0), r.Num("Length"), r.Num("Width"), r.Str("Color"), r.RowNum, r.StrIfColumn("Kind"),
+                r.OptNumIfColumn("SpeedLoadedCurve"), r.OptNumIfColumn("SpeedEmptyCurve"), r.StrIfColumn("Category"), r.StrIfColumn("Asset")));
         foreach (var r in Rows(wb, "AGV_Groups"))
             p.Groups.Add(new AgvGroup(r.Str("Group"), r.Str("Type"), r.Int("MinCount"), r.Int("MaxCount"),
                 r.Str("StandbyCPs").Split(',').Select(s => s.Trim()).Where(s => s.Length > 0).ToList(), r.Str("Dispatch"), r.RowNum,
