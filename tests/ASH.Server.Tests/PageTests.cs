@@ -12,6 +12,7 @@ public class PageTests
         Assert.Contains("href=\"/analyses\"", html); Assert.Contains("href=\"/admin/settings\"", html);
         Assert.DoesNotContain("href=\"/jobs\"", html);
         Assert.Contains("--navy:#1f3a5f", html); Assert.Contains(".grid2", html);
+        Assert.Contains("max-width:1600px", html);
         Assert.EndsWith("<script>1</script></body></html>", html);
     }
 }

@@ -22,7 +22,7 @@ public static class JobPages
 :root{--ink:#2c2c2a;--bg:#fafaf7;--line:#d3d1c7;--navy:#1f3a5f;--link:#185fa5;--muted:#5f5e5a;--ok:#3b6d11;--bad:#a32d2d;--chip:#f1efe8;--blue:#378add}
 body{font-family:'Malgun Gothic','Segoe UI',sans-serif;margin:0;color:var(--ink);background:var(--bg);line-height:1.45}
 header{background:var(--navy);color:#fff;padding:12px 24px}header a{color:#fff;text-decoration:none;margin-right:18px}header a:hover{text-decoration:underline}
-main{padding:20px 24px;max-width:1200px;overflow-x:auto}
+main{padding:20px 24px;max-width:1600px;overflow-x:auto}
 h1{font-size:22px;font-weight:600;margin:0 0 12px}h2{font-size:17px;margin:24px 0 8px}
 a{color:var(--link)}code{font-family:Consolas,monospace;font-size:12px;color:var(--muted)}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-top:16px}

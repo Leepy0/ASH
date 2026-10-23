@@ -191,7 +191,7 @@ public static class AnalysisPages
         sb.Append("</table></div></section>");
     }
 
-    /// <summary>/films/{id}: progress while it runs (10 s refresh), then the players and downloads. <paramref name="exists"/> tells which files are still on disk.</summary>
+    /// <summary>/films/{id}: progress while it runs, then the players and downloads. <paramref name="exists"/> tells which files are still on disk.</summary>
     public static string Film(FilmInfo f, Func<string, bool> exists, string logTail)
     {
         var r = f.Request;
