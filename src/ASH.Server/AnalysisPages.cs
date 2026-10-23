@@ -92,11 +92,13 @@ public static class AnalysisPages
         var done = j.Partial ?? new();
         var trying = Trying(j);
         var names = groups.Select(g => g.Name).ToList();
-        var next = trying.Length > 0 ? trying.Where(names.Contains).ToList() : names.Where(n => !done.ContainsKey(n)).ToList();
+        var next = trying.Where(names.Contains).ToList(); // a phase like "탐색 2패스" names no group
+        var cluster = next.Count > 0;
+        if (!cluster) next = names.Where(n => !done.ContainsKey(n)).ToList();
         string Show(List<string> l)
         {
             int a = names.IndexOf(l[0]), b = names.IndexOf(l[^1]);
-            if (trying.Length > 0 && l.Count >= 3 && b - a + 1 == l.Count && l.SequenceEqual(names.GetRange(a, l.Count))) return $"{l[0]}~{l[^1]}"; // a cluster of neighbours
+            if (cluster && l.Count >= 3 && b - a + 1 == l.Count && l.SequenceEqual(names.GetRange(a, l.Count))) return $"{l[0]}~{l[^1]}"; // a cluster of neighbours
             return string.Join(", ", l.Take(4)) + (l.Count > 4 ? $" 외 {l.Count - 4}개" : "");
         }
         return $"확정 {names.Count(done.ContainsKey)} / {names.Count} 그룹" + (next.Count > 0 ? $" · 탐색 중: {Show(next)}" : "");

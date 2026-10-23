@@ -119,6 +119,7 @@ public class ManyGroupsTests
         Assert.Equal("확정 12 / 20 그룹 · 탐색 중: G13~G16", AnalysisPages.PartialText(null!, j));
         Assert.StartsWith("G01 3 · ", AnalysisPages.PartialDetail(null!, j)); Assert.Contains("G13 6 시험 중", AnalysisPages.PartialDetail(null!, j));
         Assert.Equal("확정 12 / 20 그룹 · 탐색 중: G13, G14, G15, G16 외 4개", AnalysisPages.PartialText(null!, Partial(20, 12, "확정 G12")));
+        Assert.Equal("확정 2 / 4 그룹 · 탐색 중: G03, G04", AnalysisPages.PartialText(null!, Partial(4, 2, "탐색 2패스")));
         Assert.Equal("확정 4 / 4 그룹", AnalysisPages.PartialText(null!, Partial(4, 4, null)));
         var three = Partial(3, 1, "탐색 G02");
         Assert.Equal("G01 3 · G02 6 시험 중 · G03 탐색 중", AnalysisPages.PartialText(null!, three)); Assert.Null(AnalysisPages.PartialDetail(null!, three));
