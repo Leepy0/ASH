@@ -12,7 +12,7 @@ public static class Mine
     public static bool Is(JobInfo j, string ip, ISet<string> names) => j.Ip == ip || names.Contains(j.Submitter);
 }
 
-public sealed record RunningCard(string JobId, string Title, string State, string? Phase, double? Progress, int RunsDone, int? ExpectedRuns, string? AvgRun, string? Eta, string Note, string? Film);
+public sealed record RunningCard(string JobId, string Title, string State, string? Phase, double? Progress, int RunsDone, int? ExpectedRuns, string? AvgRun, string? Eta, string Note, string? Film, string? Href = null);
 public sealed record QueuedLine(string JobId, string Title, string? Start);
 public sealed record PlanChip(string PlanId, string PlanName, string JobId, int Version, string State, int? Total, double? Progress, bool Selected);
 public sealed record AnalysisRow(string Id, string Name, bool Active, bool Mine, int Plans, int Versions, int Selected, int Films, DateTime? LastSentUtc, IReadOnlyList<PlanChip> Chips, IReadOnlyList<string> Submitters);
@@ -40,13 +40,23 @@ public sealed record HomeView(RunningCard? Running, bool WorkerOn, int QueuedCou
         {
             var eta = JobProgress.Eta(r, queue.Typical, parallel, nowUtc);
             running = new(r.Id, Title(r), r.State, r.Phase, JobProgress.Ratio(r), r.RunsDone, r.ExpectedRuns, r.RunsDone > 0 ? JobPages.Dur(JobProgress.AvgRun(r)) : null,
-                eta is { } e ? Hm(e) : null, r.LastLine ?? "",
+                eta is { } e ? Hm(e) : null, r.VersionNote.Length > 0 ? r.VersionNote : r.LastLine ?? "",
                 filming is { Cuts.Count: > 0 } f ? $"촬영 {f.Done}/{f.Cuts.Count * f.Request.JobIds.Count}" : null);
+        }
+        // the worker runs jobs and films one at a time, so a film is never "running" beside a job: show it in the card
+        DateTime? filmFree = null;
+        if (running == null && filming is { State: JobState.Running } fm)
+        {
+            var total = Math.Max(1, fm.Items.Count);
+            if (fm.StartedUtc is { } fs0 && fm.Done > 0) filmFree = nowUtc + (nowUtc - fs0) * (total - fm.Done) / fm.Done;
+            running = new(fm.Id, $"{fm.AnalysisName} › 영상", fm.State, fm.Phase, (double)fm.Done / total, fm.Done, fm.Items.Count, null,
+                filmFree is { } ff ? Hm(ff) : null, "", LiveFields.FilmDone(fm), "/films/" + fm.Id);
+            filmFree ??= nowUtc;
         }
 
         var queuedJobs = jobs.Where(j => j.State == JobState.Queued).OrderBy(j => j.CreatedUtc).ToList();
         var queued = queuedJobs.Take(3).Select((j, i) => new QueuedLine(j.Id, Title(j),
-            queue.Start is { } s && queue.Typical is { } t ? Hm(s + t * i) : null)).ToList();
+            queue.Typical is { } t && (filmFree ?? queue.Start - t * queuedJobs.Count) is { } first ? Hm(first + t * i) : null)).ToList();
 
         var rows = new List<AnalysisRow>();
         foreach (var a in analyses)

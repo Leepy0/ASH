@@ -16,7 +16,7 @@ public static class LiveFields
 
     /// <summary>The plan chip's text, shared by the home page and the poll.</summary>
     internal static string ChipText(PlanChip p) => $"{p.PlanName} v{p.Version}" +
-        (p.State == JobState.Running ? " 진행률 " + (p.Progress is { } r ? Pct(r) + "%" : "-") : p.State == JobState.Queued ? " 대기" : p.Total is { } n ? $" {n}대" : "");
+        (p.State == JobState.Running ? " 진행률 " + (p.Progress is { } r ? Pct(r) + "%" : "-") : p.State == JobState.Queued ? " 대기" : p.State == JobState.Failed ? " 실패" : p.State == JobState.Cancelled ? " 취소" : p.Total is { } n ? $" {n}대" : "");
 
     static Live Make(Dictionary<string, string> fields, Dictionary<string, string> watch) => new(watch.Values.Any(Open), fields, watch);
 
@@ -48,7 +48,7 @@ public static class LiveFields
         var k = new Dictionary<string, string>
         {
             ["film.state"] = f.State, ["film.statetext"] = JobState.Korean(f.State), ["film.phase"] = f.Phase ?? "",
-            ["film.sep"] = f.Phase != null ? " · " : "", ["film.done"] = $"컷 {total}개 중 {f.Done}개 완료",
+            ["film.sep"] = f.Phase != null ? " · " : "", ["film.done"] = $"컷 {total}개 중 {f.Done}개 완료", ["film.bar"] = FilmPct(f),
         };
         return Make(k, new() { [f.Id] = f.State });
     }
@@ -62,7 +62,7 @@ public static class LiveFields
             f["running.state"] = r.State; f["running.statetext"] = JobState.Korean(r.State); f["running.phase"] = r.Phase ?? "";
             f["running.runs"] = $"{r.RunsDone}{(r.ExpectedRuns is { } e ? "/" + e : "")}회";
             f["running.progress"] = r.Progress is { } p ? Pct(p) + "%" : "-"; f["running.bar"] = Pct(r.Progress);
-            f["running.eta"] = r.Eta ?? "-"; f["running.avg"] = r.AvgRun ?? "-"; f["running.film"] = r.Film ?? "";
+            f["running.eta"] = r.Eta ?? "-"; f["running.avg"] = r.AvgRun ?? "-"; f["running.film"] = r.Film ?? ""; f["running.note"] = r.Note;
             w[r.JobId] = r.State;
         }
         foreach (var q in v.Queued) w[q.JobId] = JobState.Queued;

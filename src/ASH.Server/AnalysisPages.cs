@@ -92,7 +92,7 @@ public static class AnalysisPages
         if (!GroupCache.TryGetValue(j.Id, out var groups))
         {
             try { groups = SearchJob.ReadInput(store.ProjectDir(j.Id), TextWriter.Null, new List<string>(), out _)?.Groups.Select(g => (g.Group, g.MaxCount)).ToList(); }
-            catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException) { }
+            catch (Exception e) { Console.Error.WriteLine($"PartialText {j.Id}: {e.Message}"); }
             if (groups != null) GroupCache[j.Id] = groups;
         }
         if (groups == null || groups.Count == 0) return string.Join(" · ", done.Select(kv => $"{kv.Key} {kv.Value}"));
@@ -291,6 +291,7 @@ public static class AnalysisPages
         sb.Append($"<h1>영상 <span class=\"muted\">· {H(When(f.CreatedUtc))}</span></h1>");
         sb.Append($"<p><span class=\"state s-{H(f.State)}\" data-state=\"film.state\" data-field=\"film.statetext\">{H(JobState.Korean(f.State))}</span> <span data-field=\"film.phase\">{H(f.Phase)}</span><span data-field=\"film.sep\">{(f.Phase != null ? " · " : "")}</span><span data-field=\"film.done\">컷 {f.Items.Count}개 중 {f.Done}개 완료</span>" +
             $"{(f.Failed > 0 ? $" · <span class=\"bad\">실패 {f.Failed}개</span>" : "")}{(f.StartedUtc != null ? " · 걸린 시간 " + Dur((f.FinishedUtc ?? DateTime.UtcNow) - f.StartedUtc.Value) : "")}</p>");
+        sb.Append($"<div class=\"prog\"><i data-bar=\"film.bar\" style=\"width:{LiveFields.FilmPct(f)}%\"></i></div>");
         if (f.State == JobState.Queued) sb.Append("<p class=\"muted\">작업 대기열에서 차례를 기다립니다. 대수 탐색 작업 사이에 하나씩 찍습니다.</p>");
         if (!f.Finished)
             sb.Append(f.CancelRequested ? "<p class=\"muted\">취소하는 중입니다. 지금 단계가 끝나면 멈춥니다.</p>"

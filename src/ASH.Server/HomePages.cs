@@ -29,9 +29,10 @@ document.querySelectorAll('a[data-me]').forEach(function(a){
     internal static void RunningCard(StringBuilder sb, RunningCard c, string keyPrefix)
     {
         var k = H(keyPrefix);
-        sb.Append($"<div class=\"box\"><div class=\"box-head\"><h2><a href=\"/jobs/{H(c.JobId)}\">{H(c.Title)}</a></h2>" +
+        sb.Append($"<div class=\"box\"><div class=\"box-head\"><h2><a href=\"{H(c.Href ?? "/jobs/" + c.JobId)}\">{H(c.Title)}</a></h2>" +
             $"<span class=\"state s-{H(c.State)}\" data-state=\"{k}.state\" data-field=\"{k}.statetext\">{H(JobState.Korean(c.State))}</span></div>");
         sb.Append($"<p><span data-field=\"{k}.phase\">{H(c.Phase ?? "")}</span> · 실행 <span data-field=\"{k}.runs\">{c.RunsDone}{(c.ExpectedRuns is { } e ? "/" + e : "")}회</span></p>");
+        if (c.Film == null || c.Note.Length > 0) sb.Append($"<p class=\"muted\">메모 <span data-field=\"{k}.note\">{H(c.Note)}</span></p>");
         sb.Append($"<div class=\"prog\"><i data-bar=\"{k}.bar\" style=\"width:{Math.Round((c.Progress ?? 0) * 100)}%\"></i></div>");
         sb.Append($"<p>진행률 <b data-field=\"{k}.progress\">{Pct(c.Progress)}</b> · 끝날 예상 <span data-field=\"{k}.eta\">{H(c.Eta ?? "-")}</span> · 한 번 평균 <span data-field=\"{k}.avg\">{H(c.AvgRun ?? "-")}</span>" +
             $" · <span data-field=\"{k}.film\">{H(c.Film ?? "")}</span></p></div>");

@@ -1,5 +1,6 @@
 using System.Text.Json;
 using ASH.Server;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace ASH.Server.Tests;
@@ -17,6 +18,32 @@ public class HomePageTests
         Assert.True(api.GetProperty("active").GetBoolean()); Assert.Equal("running", api.GetProperty("fields").GetProperty("running.state").GetString());
         env.Runner.Gate.Set(); await env.WaitFinished(id);
         Assert.DoesNotContain("fetch(", await env.Http.GetStringAsync("/")); Assert.DoesNotContain("fetch(", await env.Http.GetStringAsync("/jobs/" + id));
+    }
+
+    [Fact] public async Task Home_Shows_A_Running_Film_When_No_Job_Runs()
+    {
+        using var env = new JobEnv();
+        var id = await env.SendFiled("라인 증설", "A안"); await env.WaitFinished(id);
+        var fs = env.Factory.Services.GetRequiredService<FilmStore>();
+        fs.Add(new FilmInfo { Request = new("20261023-000000-aaaa", "x", ["c1"], [id], 640, 480, 10, "joined", false, null, 0, null), AnalysisName = "라인 증설",
+            State = JobState.Running, StartedUtc = DateTime.UtcNow.AddMinutes(-2), CreatedUtc = DateTime.UtcNow, Done = 1, Items = { new FilmItem(), new FilmItem() } });
+        var html = await env.Http.GetStringAsync("/");
+        Assert.Contains("라인 증설 › 영상", html); Assert.Contains("href=\"/films/20261023-000000-aaaa\"", html); Assert.Contains("컷 1 / 2", html); Assert.DoesNotContain("실행 중인 작업 없음", html);
+        Assert.Contains("fetch('/api/home", html);
+        var api = JsonDocument.Parse(await env.Http.GetStringAsync("/api/home?me=0")).RootElement;
+        Assert.Equal("running", api.GetProperty("watch").GetProperty("20261023-000000-aaaa").GetString()); Assert.Equal("50%", api.GetProperty("fields").GetProperty("running.progress").GetString());
+        var film = await env.Http.GetStringAsync("/films/20261023-000000-aaaa");
+        Assert.Contains("data-bar=\"film.bar\"", film);
+        Assert.Equal("50", JsonDocument.Parse(await env.Http.GetStringAsync("/api/films/20261023-000000-aaaa")).RootElement.GetProperty("fields").GetProperty("film.bar").GetString());
+    }
+
+    [Fact] public async Task PartialText_Survives_A_Corrupt_Workbook()
+    {
+        using var env = new JobEnv();
+        var id = await env.SendFiled("라인 증설", "A안"); await env.WaitFinished(id);
+        foreach (var f in Directory.GetFiles(env.Store.ProjectDir(id), "*", SearchOption.AllDirectories).Where(f => f.EndsWith(".xlsx") || f.EndsWith(".xlsm") || f.Contains("cells"))) File.WriteAllText(f, "not a workbook");
+        var j = env.Store.Get(id)!; j.Partial = new() { ["G1"] = 2 };
+        Assert.Equal("G1 2", AnalysisPages.PartialText(env.Store, j));
     }
 
     [Fact] public async Task Home_Shows_Running_Card_And_My_Analyses()
