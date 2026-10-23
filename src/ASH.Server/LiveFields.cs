@@ -14,12 +14,16 @@ public static class LiveFields
     static string Pct(double? r) => r is { } v ? Math.Round(v * 100).ToString("0", CultureInfo.InvariantCulture) : "0";
     static string Hm(DateTime utc) => SeoulTime.FromUtc(utc).ToString("HH:mm");
 
+    /// <summary>The plan chip's text, shared by the home page and the poll.</summary>
+    internal static string ChipText(PlanChip p) => $"{p.PlanName} v{p.Version}" +
+        (p.State == JobState.Running ? " 진행률 " + (p.Progress is { } r ? Pct(r) + "%" : "-") : p.State == JobState.Queued ? " 대기" : p.Total is { } n ? $" {n}대" : "");
+
     static Live Make(Dictionary<string, string> fields, Dictionary<string, string> watch) => new(watch.Values.Any(Open), fields, watch);
 
     static void JobKeys(Dictionary<string, string> f, string p, JobInfo j, TimeSpan? typical, int parallel)
     {
         var ratio = JobProgress.Ratio(j);
-        f[p + ".state"] = j.State; f[p + ".statetext"] = JobState.Korean(j.State); f[p + ".phase"] = j.Phase ?? "";
+        f[p + ".sep"] = j.Phase != null ? " · " : ""; f[p + ".state"] = j.State; f[p + ".statetext"] = JobState.Korean(j.State); f[p + ".phase"] = j.Phase ?? "";
         f[p + ".runs"] = $"{j.RunsDone}{(j.ExpectedRuns is { } e ? "/" + e : "")}회";
         f[p + ".progress"] = ratio is { } r ? Pct(r) + "%" : "-";
         f[p + ".eta"] = JobProgress.Eta(j, typical, parallel, DateTime.UtcNow) is { } t ? Hm(t) : "-";
@@ -39,7 +43,7 @@ public static class LiveFields
         var k = new Dictionary<string, string>
         {
             ["film.state"] = f.State, ["film.statetext"] = JobState.Korean(f.State), ["film.phase"] = f.Phase ?? "",
-            ["film.done"] = $"컷 {total}개 중 {f.Done}개 완료", ["film.bar"] = total > 0 ? Math.Round(100.0 * f.Done / total).ToString("0", CultureInfo.InvariantCulture) : "0",
+            ["film.sep"] = f.Phase != null ? " · " : "", ["film.done"] = $"컷 {total}개 중 {f.Done}개 완료",
         };
         return Make(k, new() { [f.Id] = f.State });
     }
@@ -59,8 +63,7 @@ public static class LiveFields
         foreach (var q in v.Queued) w[q.JobId] = JobState.Queued;
         foreach (var c in v.InProgress.Concat(v.Finished).SelectMany(a => a.Chips))
         {
-            f[$"chip.{c.JobId}.text"] = $"{c.PlanName} v{c.Version}" + (c.State == JobState.Running ? " 진행률 " + Pct(c.Progress) + "%" : c.State == JobState.Queued ? " 대기" : c.Total is { } n ? $" {n}대" : "");
-            f[$"chip.{c.JobId}.state"] = c.State; w[c.JobId] = c.State;
+            f[$"chip.{c.JobId}.text"] = ChipText(c); w[c.JobId] = c.State;
         }
         return Make(f, w);
     }

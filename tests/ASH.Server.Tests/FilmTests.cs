@@ -227,8 +227,11 @@ public class FilmTests
         Assert.False(fs.Get(id)!.Finished);
 
         Assert.Contains("촬영 취소", await env.Http.GetStringAsync("/films/" + id));
+        Assert.Contains("fetch('/api/films/" + id, await env.Http.GetStringAsync("/films/" + id));
+        Assert.True(JsonDocument.Parse(await env.Http.GetStringAsync("/api/films/" + id)).RootElement.GetProperty("active").GetBoolean());
         await env.Http.SendAsync(Cancel(id));
         var f = await Until(() => fs.Get(id) is { Finished: true } x ? x : null, 30);
+        Assert.DoesNotContain("fetch(", await env.Http.GetStringAsync("/films/" + id));
         Assert.Equal(JobState.Cancelled, f.State);
         Assert.True(f.Items[0].Ok);                       // made before the cancel: kept
         Assert.True(File.Exists(Path.Combine(fs.FilmDir(id), f.Items[0].Name)));

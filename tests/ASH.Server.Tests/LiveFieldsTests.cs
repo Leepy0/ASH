@@ -18,5 +18,6 @@ public class LiveFieldsTests
     {
         var s = JobPages.PollScript("/api/home?me=1");
         Assert.Contains("textContent", s); Assert.DoesNotContain("innerHTML", s); Assert.Contains("10000", s); Assert.Contains("60000", s); Assert.Contains("연결 끊김 · 다시 시도 중", s);
+        Assert.Contains("prev[id]==='queued'&&w[id]==='running'", s); Assert.Contains("location.reload()", s);
     }
 }

@@ -32,6 +32,18 @@ public class HomePageTests
         Assert.Contains("실행 중인 작업 없음", done); Assert.Contains("<h2>완료</h2>", done); Assert.Contains("A안 v1 2대", done);
     }
 
+    [Fact] public async Task Home_Watch_Carries_The_Queued_Job()
+    {
+        using var env = new JobEnv(); env.Runner.Gate.Reset();
+        var a = await env.SendFiled("라인 증설", "A안");
+        await JobEnv.Until(() => env.Store.Get(a) is { State: JobState.Running } x ? x : null);
+        var b = await env.SendFiled("라인 증설", "B안");
+        var api = JsonDocument.Parse(await env.Http.GetStringAsync("/api/home?me=1")).RootElement;
+        Assert.Equal("queued", api.GetProperty("watch").GetProperty(b).GetString());
+        Assert.Equal("running", api.GetProperty("watch").GetProperty(a).GetString());
+        env.Runner.Gate.Set(); await env.WaitFinished(a); await env.WaitFinished(b);
+    }
+
     [Fact] public async Task Home_Falls_Back_To_All_When_Nothing_Is_Mine()
     {
         using var env = new JobEnv(); await env.WaitFinished(await env.SendFiled("남의 분석", "A안", submitter: "other"));

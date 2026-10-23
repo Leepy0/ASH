@@ -110,7 +110,7 @@ document.querySelectorAll('table.sort').forEach(function(t){
         document.querySelectorAll(sel('data-field',k)).forEach(function(e){ e.textContent=v; });
       });
       var w=d.watch||{}, ended=false;
-      if(prev) Object.keys(w).forEach(function(id){ if((prev[id]==='queued'||prev[id]==='running')&&w[id]!=='queued'&&w[id]!=='running') ended=true; });
+      if(prev) Object.keys(w).forEach(function(id){ if(prev[id]==='queued'&&w[id]==='running'){ location.reload(); return; } if((prev[id]==='queued'||prev[id]==='running')&&w[id]!=='queued'&&w[id]!=='running') ended=true; });
       prev=w;
       if(ended&&!reloading){
         reloading=true;
@@ -156,23 +156,22 @@ document.querySelectorAll('table.sort').forEach(function(t){
     }
 
     public static string Job(JobInfo j, JobView? v, string tab, string logTail, (int Ahead, DateTime? Start, TimeSpan? Typical) q, bool canCancel, IReadOnlyList<ASH.Core.Analysis.AnalysisInfo>? analyses = null,
-        IReadOnlyList<FilmInfo>? films = null, string? busy = null)
+        IReadOnlyList<FilmInfo>? films = null, string? busy = null, int parallel = 1)
     {
         var sb = new StringBuilder(PollSlots);
         if (analyses != null) AnalysisPages.JobHeader(sb, j, analyses);
         sb.Append($"<h1>{H(j.Project)} / {H(j.Plan)} <span class=\"muted\">· 모델 {H(j.Model)}</span></h1>");
         if (j.Source == JobSource.Local) sb.Append("<p><span class=\"state s-cancelled\">내 PC에서 실행한 결과</span> ash-run으로 돌린 결과를 올린 것입니다. 서버에서 다시 실행하지 않았습니다.</p>");
-        sb.Append($"<p><span class=\"state s-{H(j.State)}\" data-state=\"job.state\" data-field=\"job.statetext\">{H(JobState.Korean(j.State))}</span> <span data-field=\"job.phase\">{H(j.Phase)}</span>{(j.Phase != null ? " · " : "")}작업 {H(j.Id)} · 보낸 사람 {H(j.Submitter)} ({H(j.Ip)}) · 보낸 시각 {H(When(j.CreatedUtc))}");
+        sb.Append($"<p><span class=\"state s-{H(j.State)}\" data-state=\"job.state\" data-field=\"job.statetext\">{H(JobState.Korean(j.State))}</span> <span data-field=\"job.phase\">{H(j.Phase)}</span><span data-field=\"job.sep\">{(j.Phase != null ? " · " : "")}</span>작업 {H(j.Id)} · 보낸 사람 {H(j.Submitter)} ({H(j.Ip)}) · 보낸 시각 {H(When(j.CreatedUtc))}");
         if (j.StartedUtc != null) sb.Append($" · 실행 시간 {Dur(j.Duration)}");
         sb.Append($" · 모델 실행 <span data-field=\"job.runs\">{j.RunsDone}{(j.ExpectedRuns is { } er ? "/" + er : "")}회</span>{(j.RunsFailed > 0 ? $" <span class=\"bad\">(실패 {j.RunsFailed})</span>" : "")}</p>");
         if (j.State == JobState.Queued) sb.Append($"<p>{(q.Ahead == 0 ? "다음 차례입니다" : $"앞에 {q.Ahead}건이 있습니다")}{(busy != null ? $"({H(busy)}: 끝나야 시작합니다)" : "")}{(q.Start is { } s ? $" · 시작 예상 {H(SeoulTime.Text(s))}" : "")}.</p>");
         if (!j.Finished)
         {
-            var ratio = JobProgress.Ratio(j);
-            var eta = JobProgress.Eta(j, q.Typical, 1, DateTime.UtcNow);
-            sb.Append($"<div class=\"prog\"><i data-bar=\"job.bar\" style=\"width:{Math.Round((ratio ?? 0) * 100)}%\"></i></div>");
-            sb.Append($"<p>진행률 <b data-field=\"job.progress\">{(ratio is { } rr ? Math.Round(rr * 100) + "%" : "-")}</b> · 끝날 예상 <span data-field=\"job.eta\">{(eta is { } ee ? SeoulTime.FromUtc(ee).ToString("HH:mm") : "-")}</span> · 한 번 평균 <span data-field=\"job.avg\">{(j.RunsDone > 0 ? Dur(JobProgress.AvgRun(j)) : "-")}</span></p>");
-            sb.Append($"<p class=\"muted\">마지막 출력: <span data-field=\"job.last\">{H(j.LastLine)}</span></p>");
+            var lf = LiveFields.OfJob(j, q.Typical, parallel).Fields; // same texts the poll sets, so first paint and live never drift
+            sb.Append($"<div class=\"prog\"><i data-bar=\"job.bar\" style=\"width:{lf["job.bar"]}%\"></i></div>");
+            sb.Append($"<p>진행률 <b data-field=\"job.progress\">{H(lf["job.progress"])}</b> · 끝날 예상 <span data-field=\"job.eta\">{H(lf["job.eta"])}</span> · 한 번 평균 <span data-field=\"job.avg\">{H(lf["job.avg"])}</span></p>");
+            sb.Append($"<p class=\"muted\">마지막 출력: <span data-field=\"job.last\">{H(lf["job.last"])}</span></p>");
         }
         if (j.Error != null) sb.Append($"<p class=\"bad\"><b>{(j.State == JobState.Done ? "주의" : "오류")}:</b> {H(j.Error)}</p>");
         if (canCancel && !j.Finished)
@@ -211,7 +210,7 @@ document.querySelectorAll('table.sort').forEach(function(t){
     {
         if (j.Decided == null || v?.Input == null)
         {
-            sb.Append(j.Finished ? "<p>결과가 없습니다. 다운로드·로그 탭의 로그를 확인하세요.</p>" : "<p>실행이 끝나면 결과가 나옵니다. 이 페이지는 10초마다 새로 고칩니다.</p>");
+            sb.Append(j.Finished ? "<p>결과가 없습니다. 다운로드·로그 탭의 로그를 확인하세요.</p>" : "<p>실행이 끝나면 결과가 나옵니다. 실행 중에는 10초마다 진행 상황이 갱신됩니다.</p>");
             if (v?.InputError != null && j.Finished) sb.Append($"<p class=\"bad\">{H(v.InputError)}</p>");
             return;
         }

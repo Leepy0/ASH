@@ -39,7 +39,7 @@ document.querySelectorAll('a[data-me]').forEach(function(a){
 
     static string Chip(PlanChip p)
     {
-        var t = $"{H(p.PlanName)} v{p.Version}" + (p.State == JobState.Running ? " 진행률 " + Pct(p.Progress) : p.State == JobState.Queued ? " 대기" : p.Total is { } n ? $" {n}대" : "");
+        var t = H(LiveFields.ChipText(p));
         return $"<a class=\"chip{(p.Selected ? " sel" : "")}\" href=\"/jobs/{H(p.JobId)}\" data-field=\"chip.{H(p.JobId)}.text\">{t}</a>";
     }
 
