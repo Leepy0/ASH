@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using ASH.Core.AutoMod;
+using ASH.Core.Cel;
 using ASH.Core.Export;
 using ASH.Core.Input;
 using ASH.Core.Layout;
@@ -53,6 +54,7 @@ public sealed class ModelCommands
                     File.Copy(path, bak, true);
                     ed.WriteMessage($"\n기존 파일 백업: {bak}");
                 }
+                ExcelTemplate.AssetListFormula = AssetClient.AssetListFormula(UserSettings.Load().ServerUrl); // "" (server unset/down) = no drop-down
                 if (mode == "W") ExcelTemplate.Write(path, layout);
                 else
                 {
@@ -118,7 +120,17 @@ public sealed class ModelCommands
                 var options = new ExportOptions(Units: s.Units, Origin: s.Origin, Scale: s.Scale, Groups: groups);
                 Ui.PaletteStatus.Set(amHome != null ? "AGVMODEL 빌드 중…" : "AGVMODEL 모델 생성 중…");
                 if (amHome != null) ed.WriteMessage("\nAutoMod 빌드 중… 최대 10분");
-                r = ModelBuilder.Build(new ModelBuildRequest(dir, s.ModelName, input, layout, options), amHome, TimeSpan.FromMinutes(10));
+                var assetWarnings = new List<string>();
+                var ov = ModelBuilder.IsValidModelName(s.ModelName) && input.AgvTypes.Any(t => t.Asset.Length > 0)
+                    ? AssetOverrides.ForGroups(AssetOverrides.Build(input.AgvTypes, AssetOverrides.VehSegTemplate(), (ty, n) =>
+                    {
+                        var c = AssetClient.Fetch(UserSettings.Load().ServerUrl, Path.Combine(dir, s.ModelName + ".arc"), ty, n, out var why);
+                        if (c == null && why != null) throw new IOException(why);
+                        return c;
+                    }, assetWarnings), input.Groups)
+                    : new Dictionary<string, VehicleTemplateOverride>();
+                foreach (var w in assetWarnings) ed.WriteMessage("\n경고: " + w);
+                r = ModelBuilder.Build(new ModelBuildRequest(dir, s.ModelName, input, layout, options, VehicleOverrides: ov.Count > 0 ? ov : null), amHome, TimeSpan.FromMinutes(10));
             }
             catch (ExportException ex)
             {
