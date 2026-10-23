@@ -29,6 +29,14 @@ public class CatalogFetchTests
         Assert.Equal("/api/catalog/types", h.Seen!.AbsolutePath);
     }
 
+    [Fact] public void TryGet_Skips_Null_Name_And_Missing_Defaults()
+    {
+        var body = "{\"types\":[{\"name\":null,\"defaults\":{}},{\"name\":\"T_X\"},{\"name\":\"T_A\",\"defaults\":{}}]}";
+        var r = CatalogFetch.TryGet("http://srv:5000", new Fake { Body = body });
+        Assert.Equal("T_A", Assert.Single(r!).Name);
+        Assert.Null(CatalogFetch.TryGet("http://srv:5000", new Fake { Body = "{\"types\":[null]}" }));
+    }
+
     [Fact] public void TryGet_Falls_Back_On_Timeout_404_Empty_And_BadJson()
     {
         var sw = Stopwatch.StartNew();

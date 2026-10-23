@@ -131,7 +131,12 @@ public static class ExcelTemplate
             }
             seed["AGV_Types"] = new List<string[]> { t }; seed["AGV_Groups"] = gs;
         }
-        if (cat) seed["AGV_Types"] = catalog!.Select(ASH.Core.Catalog.CatalogType.ToTemplateRow).ToList();
+        if (cat)
+        {
+            seed["AGV_Types"] = catalog!.Select(ASH.Core.Catalog.CatalogType.ToTemplateRow).ToList();
+            // no drawing group: the example group must point at a type that exists
+            if (groups.Count == 0) { var g = (string[])Ex("AGV_Groups").Clone(); g[1] = catalog![0].Name; seed["AGV_Groups"] = new List<string[]> { g }; }
+        }
         var loads = new List<LayoutCpRef>();
         foreach (var c in l.Cps) if (c.Type == "load") loads.Add(new LayoutCpRef(c.Name, c.Group));
         if (loads.Count > 0)

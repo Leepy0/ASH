@@ -56,9 +56,11 @@ public sealed class ModelCommands
                 }
                 // 3 s cap, any failure = null: the template then keeps its one T_AGV row
                 var catalog = CatalogFetch.TryGet(UserSettings.Load().ServerUrl);
-                ed.WriteMessage(catalog != null ? $"\n카탈로그 타입 {catalog.Count}개로 AGV_Types를 채웠습니다."
-                    : "\n서버 카탈로그를 읽지 못해 T_AGV 한 행으로 만듭니다(AGVSERVER로 주소 확인).");
-                if (mode == "W") ExcelTemplate.Write(path, layout, catalog);
+                // said after the write succeeds, per mode: W builds a new form, U keeps the existing AGV_Types
+                string Filled() => catalog != null ? $"\n카탈로그 타입 {catalog.Count}개로 AGV_Types를 채웠습니다."
+                    : mode == "W" ? "\n서버 카탈로그를 읽지 못해 T_AGV 한 행으로 만들었습니다(AGVSERVER로 주소 확인)."
+                    : "\n서버 카탈로그를 읽지 못해 AGV_Types는 그대로 둡니다(AGVSERVER로 주소 확인).";
+                if (mode == "W") { ExcelTemplate.Write(path, layout, catalog); ed.WriteMessage(Filled()); }
                 else
                 {
                     List<string> changes;
@@ -73,6 +75,7 @@ public sealed class ModelCommands
                         using (var wb = ExcelCom.Read(path, out _)) changes = ExcelTemplate.Update(wb, layout, log, catalog);
                         ExcelCom.Apply(path, log);
                     }
+                    ed.WriteMessage(Filled());
                     foreach (var c in changes) ed.WriteMessage($"\n  {c}");
                     if (changes.Count == 0) ed.WriteMessage("\n  추가할 내용이 없습니다(드롭다운 목록만 다시 설정).");
                     if (catalog != null)

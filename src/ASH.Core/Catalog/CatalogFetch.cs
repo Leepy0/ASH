@@ -32,10 +32,10 @@ public static class CatalogFetch
                 task.ContinueWith(t => { _ = t.Exception; }, TaskContinuationOptions.OnlyOnFaulted); // observe the late failure
                 return null;
             }
-            var list = task.GetAwaiter().GetResult().Types?.Where(t => t != null && t.Name.Length > 0).ToList();
+            var list = task.GetAwaiter().GetResult().Types?.Where(t => t?.Name is { Length: > 0 } && t.Defaults != null).ToList();
             return list == null || list.Count == 0 ? null : list;
         }
-        catch (Exception e) when (e is HttpRequestException || e is OperationCanceledException || e is JobServerException || e is InvalidDataException || e is UriFormatException)
+        catch (Exception)
         {
             return null;
         }
