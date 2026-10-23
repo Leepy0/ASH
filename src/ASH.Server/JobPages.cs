@@ -19,40 +19,45 @@ public static class JobPages
     internal static string Dur(TimeSpan? d) => d is { } x ? (x.TotalHours >= 1 ? $"{(int)x.TotalHours}시간 {x.Minutes}분" : x.TotalMinutes >= 1 ? $"{(int)x.TotalMinutes}분 {x.Seconds}초" : $"{x.Seconds}초") : "-";
 
     const string Css = @"
-body{font-family:'Malgun Gothic','Segoe UI',sans-serif;margin:0;color:#2c2c2a;background:#fafaf7;line-height:1.45}
-header{background:#1f3a5f;color:#fff;padding:12px 24px}header a{color:#fff;text-decoration:none;margin-right:18px}header a:hover{text-decoration:underline}
+:root{--ink:#2c2c2a;--bg:#fafaf7;--line:#d3d1c7;--navy:#1f3a5f;--link:#185fa5;--muted:#5f5e5a;--ok:#3b6d11;--bad:#a32d2d;--chip:#f1efe8;--blue:#378add}
+body{font-family:'Malgun Gothic','Segoe UI',sans-serif;margin:0;color:var(--ink);background:var(--bg);line-height:1.45}
+header{background:var(--navy);color:#fff;padding:12px 24px}header a{color:#fff;text-decoration:none;margin-right:18px}header a:hover{text-decoration:underline}
 main{padding:20px 24px;max-width:1200px;overflow-x:auto}
 h1{font-size:22px;font-weight:600;margin:0 0 12px}h2{font-size:17px;margin:24px 0 8px}
-a{color:#185fa5}code{font-family:Consolas,monospace;font-size:12px;color:#5f5e5a}
+a{color:var(--link)}code{font-family:Consolas,monospace;font-size:12px;color:var(--muted)}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-top:16px}
-.box{background:#fff;border:1px solid #d3d1c7;border-radius:10px;padding:14px 18px;margin-top:16px}.grid .box{margin-top:0}.box h2{margin:0 0 10px}
+.box{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px 18px;margin-top:16px}.grid .box{margin-top:0}.box h2{margin:0 0 10px}
 .box-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
-dl.kv{display:grid;grid-template-columns:max-content 1fr;gap:6px 14px;margin:0;font-size:14px}dl.kv dt{color:#5f5e5a}dl.kv dd{margin:0;overflow-wrap:anywhere}
-details summary{cursor:pointer;color:#185fa5;font-size:14px;margin-top:10px}
+dl.kv{display:grid;grid-template-columns:max-content 1fr;gap:6px 14px;margin:0;font-size:14px}dl.kv dt{color:var(--muted)}dl.kv dd{margin:0;overflow-wrap:anywhere}
+details summary{cursor:pointer;color:var(--link);font-size:14px;margin-top:10px}
 .msg{padding:10px 14px;border-radius:8px;margin:10px 0}.msg.ok{background:#eaf3de}.msg.bad{background:#fcebeb}.msg.warn{background:#faeeda;color:#633806}
 .field{display:grid;grid-template-columns:200px 1fr;gap:4px 16px;padding:10px 0;border-top:1px solid #eeede8}.field:first-of-type{border-top:none}
-.field label{font-weight:600;font-size:14px;padding-top:6px}.help{font-size:13px;color:#5f5e5a;margin-top:4px}
+.field label{font-weight:600;font-size:14px;padding-top:6px}.help{font-size:13px;color:var(--muted);margin-top:4px}
 input[type=text],input[type=number],input[type=password],select{font:inherit;padding:6px 8px;border:1px solid #b4b2a9;border-radius:6px;width:100%;max-width:420px;box-sizing:border-box;background:#fff}
 .tag{display:inline-block;font-size:12px;padding:1px 7px;border-radius:8px;background:#eaf3de;color:#27500a;margin-left:6px}.tag.rs{background:#faeeda;color:#633806}
 .actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px}
-button.primary{background:#1f3a5f;color:#fff;border:1px solid #1f3a5f;border-radius:6px;padding:7px 16px;font:inherit;cursor:pointer}
+button.primary{background:var(--navy);color:#fff;border:1px solid var(--navy);border-radius:6px;padding:7px 16px;font:inherit;cursor:pointer}
 .scroll{overflow-x:auto;max-width:100%}.scroll td,.scroll th{white-space:nowrap}.box,.grid>*{min-width:0}
-table{border-collapse:collapse;background:#fff}td,th{border:1px solid #d3d1c7;padding:6px 10px;text-align:left;font-size:14px}th{background:#f1efe8}
-.crumb{font-size:14px;color:#5f5e5a;margin:0 0 10px}.mini{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.mini input[type=text],.mini select{width:auto;flex:1 1 160px;min-width:0}
-.num{text-align:right}.muted{color:#888780}.bad{color:#a32d2d}.ok{color:#3b6d11}
-.cards{display:flex;gap:14px;flex-wrap:wrap}.card{background:#fff;border:1px solid #d3d1c7;border-radius:10px;padding:14px 18px;min-width:200px}
-.card .big{font-size:30px;font-weight:600}.card .sub{color:#5f5e5a;font-size:13px}
-.tabs a{display:inline-block;padding:8px 14px;border:1px solid #d3d1c7;border-bottom:none;border-radius:8px 8px 0 0;background:#f1efe8;color:#2c2c2a;text-decoration:none;margin-right:4px}
-.tabs a.on{background:#fff;font-weight:600}.panel{background:#fff;border:1px solid #d3d1c7;padding:16px}
-.bar{background:#e6f1fb;height:14px;position:relative;width:180px;display:inline-block;vertical-align:middle}.bar i{display:block;height:14px;background:#378add}
-.bar b{position:absolute;top:-3px;bottom:-3px;width:2px;background:#a32d2d}
+table{border-collapse:collapse;background:#fff}td,th{border:1px solid var(--line);padding:6px 10px;text-align:left;font-size:14px}th{background:var(--chip)}
+.crumb{font-size:14px;color:var(--muted);margin:0 0 10px}.mini{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.mini input[type=text],.mini select{width:auto;flex:1 1 160px;min-width:0}
+.num{text-align:right}.muted{color:#888780}.bad{color:var(--bad)}.ok{color:var(--ok)}
+.cards{display:flex;gap:14px;flex-wrap:wrap}.card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px 18px;min-width:200px}
+.card .big{font-size:30px;font-weight:600}.card .sub{color:var(--muted);font-size:13px}
+.tabs a{display:inline-block;padding:8px 14px;border:1px solid var(--line);border-bottom:none;border-radius:8px 8px 0 0;background:var(--chip);color:var(--ink);text-decoration:none;margin-right:4px}
+.tabs a.on{background:#fff;font-weight:600}.panel{background:#fff;border:1px solid var(--line);padding:16px}
+.bar{background:#e6f1fb;height:14px;position:relative;width:180px;display:inline-block;vertical-align:middle}.bar i{display:block;height:14px;background:var(--blue)}
+.bar b{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--bad)}
 .state{display:inline-block;padding:2px 8px;border-radius:10px;font-size:13px}
-.s-queued{background:#faeeda;color:#633806}.s-running{background:#e6f1fb;color:#0c447c}.s-done{background:#eaf3de;color:#27500a}.s-failed{background:#fcebeb;color:#791f1f}.s-cancelled{background:#f1efe8;color:#444441}
-pre{background:#f1efe8;padding:10px;overflow:auto;max-height:420px;font-size:12px}
+.s-queued{background:#faeeda;color:#633806}.s-running{background:#e6f1fb;color:#0c447c}.s-done{background:#eaf3de;color:#27500a}.s-failed{background:#fcebeb;color:#791f1f}.s-cancelled{background:var(--chip);color:#444441}
+pre{background:var(--chip);padding:10px;overflow:auto;max-height:420px;font-size:12px}
 button{padding:6px 14px}
-th[aria-sort],table.sort td{white-space:nowrap}th button{all:unset;cursor:pointer;white-space:nowrap}th button:focus-visible{outline:2px solid #185fa5}
+th[aria-sort],table.sort td{white-space:nowrap}th button{all:unset;cursor:pointer;white-space:nowrap}th button:focus-visible{outline:2px solid var(--link)}
 th button::after{content:'▲';display:inline-block;width:1.2em;margin-left:.2em;text-align:center;visibility:hidden}
 th[aria-sort=ascending] button::after,th[aria-sort=descending] button::after{visibility:visible}th[aria-sort=descending] button::after{content:'▼'}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}@media(max-width:1024px){.grid2{grid-template-columns:1fr}}
+.prog{background:#e6f1fb;height:10px;border-radius:5px;overflow:hidden}.prog i{display:block;height:10px;background:var(--blue)}
+.chip{display:inline-block;padding:1px 8px;border-radius:10px;background:var(--chip);font-size:13px;margin-right:4px}.chip.sel{background:var(--navy);color:#fff}
+#reload-bar{display:none;position:sticky;top:0;background:#faeeda;padding:8px 24px}#net{font-size:12px;color:var(--muted)}
 @media (max-width:640px){header{padding:10px 16px}header a{margin-right:12px}main{padding:16px}.card{min-width:0;flex:1 1 130px;padding:10px 14px}.card .big{font-size:22px}
 .grid{grid-template-columns:1fr}dl.kv,.field{grid-template-columns:1fr}dl.kv dt{margin-top:6px}.field label{padding-top:0}}";
 
@@ -82,10 +87,10 @@ document.querySelectorAll('table.sort').forEach(function(t){
     /// <summary>A header cell the sort script can sort by.</summary>
     internal static string Th(string label) => $"<th aria-sort=\"none\"><button type=\"button\">{label}</button></th>";
 
-    public static string Page(string title, string body, bool refresh = false) =>
+    /// <summary>The shared shell; <paramref name="script"/> (a whole &lt;script&gt; element) goes after &lt;/main&gt;.</summary>
+    public static string Page(string title, string body, string? script = null) =>
         "<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" + H(title) + "</title>" +
-        (refresh ? "<meta http-equiv=\"refresh\" content=\"10\">" : "") +
-        "<style>" + Css + "</style></head><body><header><a href=\"/\"><b>ASH 서버</b></a><a href=\"/\">홈</a><a href=\"/jobs\">작업</a><a href=\"/analyses\">분석</a><a href=\"/admin/settings\">설정</a></header><main>" + body + "</main></body></html>";
+        "<style>" + Css + "</style></head><body><header><a href=\"/\"><b>ASH</b></a><a href=\"/\">홈</a><a href=\"/analyses\">분석</a><a href=\"/admin/settings\">설정</a></header><main>" + body + "</main>" + script + "</body></html>";
 
     internal static string State(JobInfo j) => $"<span class=\"state s-{H(j.State)}\">{H(JobState.Korean(j.State))}</span>";
 
@@ -96,7 +101,7 @@ document.querySelectorAll('table.sort').forEach(function(t){
           .Append($"대기 {q.Ahead}건").Append(q.Typical is { } t ? $" · 보통 한 작업 {Dur(t)}" : "").Append(q.Start is { } s ? $" · 지금 보내면 시작 예상 {H(SeoulTime.Text(s))}" : "").Append("</p>");
         sb.Append("<p class=\"muted\">작업은 ZWCAD의 ASH에서 \"서버로 보내기\"로 올립니다. 먼저 온 순서로 하나씩 실행합니다.</p>");
         JobTable(sb, jobs);
-        return Page("ASH 작업 대기열", sb.ToString(), jobs.Any(j => !j.Finished));
+        return Page("ASH 작업 대기열", sb.ToString());
     }
 
     /// <summary>The job table of /jobs, also the "최근 작업" box of the home page.</summary>
@@ -156,7 +161,7 @@ document.querySelectorAll('table.sort').forEach(function(t){
             default: Summary(sb, j, v); break;
         }
         sb.Append("</div>");
-        return Page($"ASH 작업 {j.Id}", sb.ToString(), !j.Finished);
+        return Page($"ASH 작업 {j.Id}", sb.ToString());
     }
 
     static void Summary(StringBuilder sb, JobInfo j, JobView? v)

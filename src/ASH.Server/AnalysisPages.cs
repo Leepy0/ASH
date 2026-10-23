@@ -152,7 +152,7 @@ public static class AnalysisPages
         else sb.Append("<p class=\"muted\">보낸 작업이 있는 분석은 지울 수 없습니다.</p>");
         sb.Append("</div></details>");
         sb.Append($"<p class=\"muted\" style=\"font-size:13px\"><a href=\"/admin/analyses/{H(a.Id)}/delete\">관리자: 분석 삭제…</a></p>");
-        return Page("ASH 분석 " + a.Name, sb.ToString(), jobs.Any(j => !j.Finished));
+        return Page("ASH 분석 " + a.Name, sb.ToString());
     }
 
     /// <summary>/admin/analyses/{id}/delete: what the delete does, and the form that needs the analysis name typed.</summary>
@@ -225,7 +225,7 @@ public static class AnalysisPages
         }
         sb.Append("</div></section>");
         sb.Append($"<details><summary>촬영 기록 (film.log)</summary><pre>{H(logTail)}</pre><a href=\"/films/{H(f.Id)}/files/film.log\">film.log 전체</a></details>");
-        return Page("ASH 영상 " + f.AnalysisName, sb.ToString(), !f.Finished);
+        return Page("ASH 영상 " + f.AnalysisName, sb.ToString());
     }
 
     /// <summary>Rows = selected versions; per group 권장(대) · 가동률(%) · 최소 재고/안전재고(배) · 결품(초), then 교착(회) once.</summary>
