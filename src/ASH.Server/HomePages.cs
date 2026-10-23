@@ -13,10 +13,14 @@ public static class HomePages
     var s=localStorage.getItem('ashMe');
     if((s==='0'||s==='1')&&!/[?&]me=/.test(location.search)&&s!=='" + (me ? "1" : "0") + @"') location.replace('/?me='+s);
   }catch(e){}
-  document.querySelectorAll('a[data-me]').forEach(function(a){
-    a.addEventListener('click',function(){ try{ localStorage.setItem('ashMe',a.getAttribute('data-me')); }catch(e){} });
-  });
 })();
+</script>";
+
+    // Must come after the toggle links: stores the clicked side.
+    const string SaveScript = @"<script>
+document.querySelectorAll('a[data-me]').forEach(function(a){
+  a.addEventListener('click',function(){ try{ localStorage.setItem('ashMe',a.getAttribute('data-me')); }catch(e){} });
+});
 </script>";
 
     static string Pct(double? r) => r is { } v ? Math.Round(v * 100).ToString("0") + "%" : "-";
@@ -62,7 +66,7 @@ public static class HomePages
         else sb.Append($"대기 {v.QueuedCount}건: " + string.Join(" · ", v.Queued.Select(q => $"<a href=\"/jobs/{H(q.JobId)}\">{H(q.Title)}</a>{(q.Start != null ? " (" + H(q.Start) + " 시작 예상)" : "")}")));
         sb.Append("</p>");
 
-        sb.Append($"<p><a href=\"/?me=1\" data-me=\"1\" class=\"chip{(v.Me ? " sel" : "")}\">내 것만</a> | <a href=\"/?me=0\" data-me=\"0\" class=\"chip{(v.Me ? "" : " sel")}\">전체</a></p>");
+        sb.Append($"<p><a href=\"/?me=1\" data-me=\"1\" class=\"chip{(v.Me ? " sel" : "")}\">내 것만</a> | <a href=\"/?me=0\" data-me=\"0\" class=\"chip{(v.Me ? "" : " sel")}\">전체</a></p>").Append(SaveScript);
         sb.Append("<h2>진행 중</h2>"); AnalysisList(sb, v.InProgress);
         sb.Append("<h2>완료</h2>"); AnalysisList(sb, v.Finished);
         sb.Append($"<details><summary>분석에 넣지 않은 작업 {v.Unclassified}건</summary><p><a href=\"/analyses/unclassified\">분석에 넣지 않은 작업 보기 →</a></p></details>");

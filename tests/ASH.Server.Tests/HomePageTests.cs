@@ -28,6 +28,13 @@ public class HomePageTests
         Assert.Contains("남의 분석", forced); Assert.Contains("class=\"chip sel\">전체", forced);
     }
 
+    [Fact] public async Task Home_Toggle_Click_Handler_Comes_After_The_Links()
+    {
+        using var env = new JobEnv();
+        var html = await env.Http.GetStringAsync("/");
+        Assert.True(html.IndexOf("setItem('ashMe'", StringComparison.Ordinal) > html.LastIndexOf("data-me=\"0\"", StringComparison.Ordinal));
+    }
+
     [Fact] public async Task Analyses_List_Searches_Name_And_Submitter()
     {
         using var env = new JobEnv();
