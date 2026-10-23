@@ -60,6 +60,24 @@ public class CatalogTests
     }
 
     [Fact]
+    public void SavePrices_Rejects_Negative_Price()
+    {
+        var s = Store(out _);
+        s.Save(T("T_A"), "me");
+        Assert.Contains(s.SavePrices("Type,UnitPrice,Currency,Note\nT_A,-5,KRW,").Errors, e => e.Row == 2 && e.Why == "음수 단가");
+        Assert.Empty(s.Prices());
+    }
+
+    [Fact]
+    public void Load_Drops_Entries_Without_Name()
+    {
+        var s = Store(out _);
+        File.WriteAllText(Path.Combine(s.Dir, "types.json"), "{\"types\":[{\"name\":null},{\"label\":\"x\"},null,{\"name\":\"T_A\",\"defaults\":{}}]}");
+        Assert.Equal(new[] { "T_A" }, s.Types(true).Select(t => t.Name));
+        Assert.Null(s.Get("nope"));
+    }
+
+    [Fact]
     public async Task Api_Types_Has_Stable_Shape()
     {
         using var env = new JobEnv();
@@ -174,5 +192,6 @@ public class CatalogTests
         Assert.DoesNotContain("단가 없음", priced);
         cat.SavePrices("Type,UnitPrice,Currency,Note\nT_OTHER,500,KRW,\n");
         Assert.Contains("단가 없음: " + type, await env.Http.GetStringAsync("/jobs/" + id));
+        Assert.Contains("<div class=\"sub\">투자비(원)</div><div class=\"big\">-</div>", await env.Http.GetStringAsync("/jobs/" + id)); // nothing the job uses is priced: "-", not "0"
     }
 }

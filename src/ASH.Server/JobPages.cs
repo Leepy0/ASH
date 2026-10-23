@@ -17,7 +17,7 @@ public static class JobPages
     /// <summary>Investment for the pages: null (shown as "-") when the price table is empty, so Summary and Compare follow one rule.</summary>
     internal static InvestmentView? InvestmentOf(ASH.Core.Input.ProjectInput input, IReadOnlyDictionary<string, int> decided, IReadOnlyDictionary<string, PriceRow> prices) =>
         prices.Count == 0 ? null : JobView.Investment(input, decided, prices);
-    internal static string Cost(InvestmentView? inv) => inv == null ? "-" : Won(inv.Total);
+    internal static string Cost(InvestmentView? inv) => inv is not { AnyPriced: true } ? "-" : Won(inv.Total);
     /// <summary>Percent without the sign, for table cells whose header carries "(%)".</summary>
     internal static string P(double d) => double.IsNaN(d) ? "-" : (d * 100).ToString("0.0", CultureInfo.InvariantCulture);
     internal static string When(DateTime? utc) => utc is { } t ? SeoulTime.Text(t) : "-";
