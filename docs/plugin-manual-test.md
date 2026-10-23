@@ -443,3 +443,5 @@ AN1~AN5는 ZWCAD가 있는 PC, AN6~AN13은 서버 PC와 PC·휴대폰 브라우�
 | DW6 "새 안…" 선택 시 안 이름 기본값이 다음 글자(기존 안이 A, B면 C). 메모 칸이 비면 회색 안내문 표시 | | | |
 | DW7 서버 `/files`에서 자재 코드로 찾아 `continue.zip` 받기 → ZWCAD에서 열고 `AGVINIT` → `AGVSEND`로 같은 분석의 다음 버전 | | | |
 | DW8 `/files`에서 되살린 `input.xlsx`를 `AGVEXCEL` "양식 갱신"이 그대로 받아들임 | | | |
+| DW9 DXF 도면(`DWGNAME`이 `.dxf`)에서 `AGVSEND` → "DXF 도면은 DWG로 동봉하지 않습니다" 안내 후 DWG 없이 전송됨 | | | |
+| DW10 ZWCAD가 DWG를 잠근 상태(다른 프로그램이 독점으로 연 경우 등)에서 `AGVSEND` → "DWG를 열 수 없어 DWG 없이 보냅니다" 후 전송 성공 | | | |
