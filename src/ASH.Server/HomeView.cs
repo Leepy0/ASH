@@ -22,7 +22,7 @@ public sealed record HomeView(RunningCard? Running, bool WorkerOn, int QueuedCou
     static string Hm(DateTime utc) => SeoulTime.FromUtc(utc).ToString("HH:mm");
 
     public static HomeView Build(IReadOnlyList<AnalysisInfo> analyses, IReadOnlyList<JobInfo> jobs, IReadOnlyList<FilmInfo> films, FilmInfo? filming,
-        (int Ahead, DateTime? Start, TimeSpan? Typical) queue, bool workerOn, int parallel, string ip, bool? me, DateTime nowUtc)
+        (int Ahead, DateTime? Start, TimeSpan? Typical) queue, bool workerOn, int parallel, string ip, bool? me, DateTime nowUtc, FileRoutes.FileQuery? tags = null)
     {
         var names = Mine.Names(jobs, ip);
         var hasMine = jobs.Any(j => Mine.Is(j, ip, names));
@@ -61,6 +61,7 @@ public sealed record HomeView(RunningCard? Running, bool WorkerOn, int QueuedCou
         var rows = new List<AnalysisRow>();
         foreach (var a in analyses)
         {
+            if (tags != null && !FileRoutes.TagMatch(a, tags)) continue; // before the 진행 중/완료 split
             var mine = jobs.Where(j => j.AnalysisId == a.Id).ToList();
             var isMine = mine.Any(j => Mine.Is(j, ip, names));
             if (onlyMine && !isMine) continue;

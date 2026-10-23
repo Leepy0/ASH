@@ -120,4 +120,24 @@ public class FileRoutesTests
     [Fact]
     public void Readme_Says_No_Drawing_When_Neither_Exists() =>
         Assert.Contains("도면 파일이 없습니다", FileRoutes.ReadmeText(null, null, new JobInfo { Id = "j1" }, false, true, hasDxf: false));
+    [Fact]
+    public async Task Tag_Filter_Applies_On_Home_And_Analyses_And_Status_Tab_Has_The_Continue_Link()
+    {
+        var (env, id) = await Upload(false);
+        using var env0 = env;
+        var an = env.Factory.Services.GetRequiredService<AnalysisStore>();
+        var a = an.CreateAnalysis("라인A", "", corp: "P"); var p = an.CreatePlan(a.Id, "안1", "");
+        var b = an.CreateAnalysis("라인B", "", corp: "Q");
+        env.Store.Update(id, j => { j.AnalysisId = a.Id; j.PlanId = p.Id; j.Version = 1; });
+        foreach (var path in new[] { "/?me=0", "/analyses" })
+        {
+            var all = await env.Http.GetStringAsync(path);
+            Assert.Contains("name=\"corp\"", all); Assert.Contains("라인A", all); Assert.Contains("라인B", all);
+            var onlyP = await env.Http.GetStringAsync(path + (path.Contains('?') ? "&" : "?") + "corp=P");
+            Assert.Contains("라인A", onlyP); Assert.DoesNotContain("라인B", onlyP);
+            var onlyQ = await env.Http.GetStringAsync(path + (path.Contains('?') ? "&" : "?") + "corp=q");
+            Assert.Contains("라인B", onlyQ); Assert.DoesNotContain("라인A", onlyQ);
+        }
+        Assert.Contains($"href=\"/jobs/{id}/files/continue.zip\"", await env.Http.GetStringAsync("/analyses/" + a.Id));
+    }
 }

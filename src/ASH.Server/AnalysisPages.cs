@@ -191,7 +191,7 @@ public static class AnalysisPages
                 else if (!j.Finished || j.State == JobState.Cancelled) parts.Add(State(j));
                 else if (m?.Total is { } t) parts.Add($"{t}대 · 가동률 {(double.IsNaN(m.Util) ? "-" : Math.Round(m.Util * 100).ToString("0", CultureInfo.InvariantCulture) + "%")} · 결품 {(double.IsNaN(m.Stop) ? "-" : Num(m.Stop, "0"))}초");
                 parts.Add(H(When(j.CreatedUtc))); parts.Add(H(j.Submitter)); if (j.VersionNote.Length > 0) parts.Add(H(j.VersionNote));
-                // plan D: the "자료 받기" link (FileRoutes.ContinueLink(j)) goes here, at the end of the version row
+                parts.Add(FileRoutes.ContinueLink(j));
                 sb.Append($"<div class=\"mini\" style=\"margin:6px 0\">{string.Join(" · ", parts.Where(x => x.Length > 0))} {SelectForm(j, back)} <a href=\"/jobs/{H(j.Id)}\">열기</a></div>");
             }
             sb.Append("</section>");

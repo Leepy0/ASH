@@ -55,7 +55,7 @@ document.querySelectorAll('a[data-me]').forEach(function(a){
         sb.Append("</ul>");
     }
 
-    public static string Home(HomeView v, string? pollScript)
+    public static string Home(HomeView v, string tagFilter, string? pollScript)
     {
         var sb = new StringBuilder(PollSlots + ToggleScript(v.Me)); // first, so a saved choice redirects before the lists are painted
         sb.Append("<h1>ASH</h1>");
@@ -68,18 +68,18 @@ document.querySelectorAll('a[data-me]').forEach(function(a){
         sb.Append("</p>");
 
         sb.Append($"<p><a href=\"/?me=1\" data-me=\"1\" class=\"chip{(v.Me ? " sel" : "")}\">내 것만</a> | <a href=\"/?me=0\" data-me=\"0\" class=\"chip{(v.Me ? "" : " sel")}\">전체</a></p>").Append(SaveScript);
+        sb.Append($"<form class=\"mini\"><input type=\"hidden\" name=\"me\" value=\"{(v.Me ? 1 : 0)}\">{tagFilter}<button>거르기</button></form>");
         sb.Append("<h2>진행 중</h2>"); AnalysisList(sb, v.InProgress);
         sb.Append("<h2>완료</h2>"); AnalysisList(sb, v.Finished);
         sb.Append($"<details><summary>분석에 넣지 않은 작업 {v.Unclassified}건</summary><p><a href=\"/analyses/unclassified\">분석에 넣지 않은 작업 보기 →</a></p></details>");
         return Page("ASH", sb.ToString(), pollScript);
     }
 
-    public static string Analyses(IReadOnlyList<AnalysisRow> rows, string q, int unclassified)
+    public static string Analyses(IReadOnlyList<AnalysisRow> rows, string q, int unclassified, string tagFilter = "")
     {
         var sb = new StringBuilder("<h1>분석</h1>");
         sb.Append("<p class=\"muted\">분석은 한 가지 검토(예: 라인 증설)이고, 그 안에 여러 안(A안, B안)이 있습니다. 같은 안을 고쳐 다시 보낼 때마다 버전(v1, v2…)이 올라갑니다.</p>");
-        sb.Append($"<form class=\"mini\"><input type=\"text\" name=\"q\" value=\"{H(q)}\" placeholder=\"이름·보낸 사람\" aria-label=\"검색\"><button>검색</button></form>");
-        // plan D: FileRoutes.TagFilterHtml (tag filters) goes here, between the search form and the list.
+        sb.Append($"<form class=\"mini\"><input type=\"text\" name=\"q\" value=\"{H(q)}\" placeholder=\"이름·보낸 사람\" aria-label=\"검색\">{tagFilter}<button>검색</button></form>");
         var shown = q.Length == 0 ? rows : rows.Where(r => r.Name.Contains(q, StringComparison.OrdinalIgnoreCase) || r.Submitters.Any(s => s.Contains(q, StringComparison.OrdinalIgnoreCase))).ToList();
         AnalysisList(sb, shown);
         sb.Append($"<p><a href=\"/analyses/unclassified\">분석에 넣지 않은 작업 {unclassified}건 →</a></p>");

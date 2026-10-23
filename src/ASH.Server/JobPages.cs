@@ -91,7 +91,7 @@ document.querySelectorAll('table.sort').forEach(function(t){
     /// <summary>The shared shell; <paramref name="script"/> (a whole &lt;script&gt; element) goes after &lt;/main&gt;.</summary>
     public static string Page(string title, string body, string? script = null) =>
         "<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" + H(title) + "</title>" +
-        "<style>" + Css + "</style></head><body><header><a href=\"/\"><b>ASH</b></a><a href=\"/\">홈</a><a href=\"/analyses\">분석</a><a href=\"/admin/settings\">설정</a></header><main>" + body + "</main>" + script + "</body></html>";
+        "<style>" + Css + "</style></head><body><header><a href=\"/\"><b>ASH</b></a><a href=\"/\">홈</a><a href=\"/analyses\">분석</a><a href=\"/files\">보관함</a><a href=\"/admin/settings\">설정</a></header><main>" + body + "</main>" + script + "</body></html>";
 
 
     /// <summary>Polls <paramref name="url"/> every 10 s and sets the data-field/data-bar/data-state elements (textContent only); shows #reload-bar when a watched job/film ends.</summary>

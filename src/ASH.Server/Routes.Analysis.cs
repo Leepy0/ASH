@@ -136,8 +136,9 @@ internal static partial class Routes
 
         app.MapGet("/analyses", (HttpContext ctx, string? q, JobStore js, AnalysisStore st, FilmStore fs, FilmWorker fw, IConfiguration cfg) =>
         {
-            var v = HomeView.Build(st.All(), js.All(), fs.All(), null, Queue(js, fw), WorkerOn(cfg), JobProgress.Parallel(cfg), ClientIp(ctx), false, DateTime.UtcNow);
-            return Html(HomePages.Analyses(v.InProgress.Concat(v.Finished).ToList(), q?.Trim() ?? "", v.Unclassified));
+            var tags = FileRoutes.FileQuery.From(ctx.Request.Query);
+            var v = HomeView.Build(st.All(), js.All(), fs.All(), null, Queue(js, fw), WorkerOn(cfg), JobProgress.Parallel(cfg), ClientIp(ctx), false, DateTime.UtcNow, tags);
+            return Html(HomePages.Analyses(v.InProgress.Concat(v.Finished).ToList(), q?.Trim() ?? "", v.Unclassified, FileRoutes.TagFilterHtml(tags, st)));
         });
         app.MapGet("/analyses/unclassified", (AnalysisStore st, JobStore js) => Html(AnalysisPages.Unclassified(js.All(), st.All())));
         static (AnalysisPageData D, Live L)? PageOf(string id, AnalysisStore st, JobStore js, FilmStore fs, FilmWorker fw, IConfiguration cfg, CutStore cs)
