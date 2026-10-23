@@ -25,6 +25,7 @@ builder.Services.AddHostedService(sp => sp.GetRequiredService<GitHubSync>());
 builder.Services.AddSingleton(sp => JobStore.Create(sp.GetRequiredService<IConfiguration>(), sp.GetRequiredService<ILoggerFactory>().CreateLogger<JobStore>()));
 builder.Services.AddSingleton(sp => AnalysisStore.Create(sp.GetRequiredService<IConfiguration>(), sp.GetRequiredService<ILoggerFactory>().CreateLogger<AnalysisStore>()));
 builder.Services.AddSingleton(sp => new CutStore(sp.GetRequiredService<JobStore>().Dir, sp.GetRequiredService<ILoggerFactory>().CreateLogger<CutStore>()));
+builder.Services.AddSingleton(sp => new CatalogStore(sp.GetRequiredService<JobStore>().Dir, sp.GetRequiredService<ILoggerFactory>().CreateLogger<CatalogStore>()));
 builder.Services.AddSingleton<IJobRunner, AutoModJobRunner>();
 builder.Services.AddSingleton(sp => new FilmStore(sp.GetRequiredService<JobStore>().Dir, sp.GetRequiredService<ILoggerFactory>().CreateLogger<FilmStore>()));
 builder.Services.AddSingleton<IFilmAutoMod, AutoModFilm>();
@@ -191,6 +192,7 @@ app.MapGet("/jobs", () => Results.Redirect("/admin/jobs", permanent: true));
 
 app.MapJobs();
 app.MapAnalysis();
+app.MapCatalog();
 
 app.Run();
 return 0;
