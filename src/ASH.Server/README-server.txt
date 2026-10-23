@@ -36,7 +36,7 @@ ASH.Server - ASH 배포 서버 (최소판)
                       요약(summary.tsv, 결과 화면, Excel 보고서), 올린 원본(upload.zip), 로그는 남는다. 한 시간마다 확인한다.
                     Enabled false 면 작업을 받지 않는다. WorkerEnabled false 면 받기만 하고 실행하지 않는다.
                     주의: 올린 모델의 로직(user_ext.m 등)이 서버에서 AutoMod 로 컴파일·실행된다. 사내망에서만 연다.
-                    작업 대기열과 결과는 http://서버:8082/jobs 에서 본다. 취소는 보낸 PC(같은 IP)나 관리자 토큰으로만 된다.
+                    작업 대기열은 http://서버:8082/admin/jobs, 결과는 홈(/)·분석(/analyses)에서 본다. 취소는 보낸 PC(같은 IP)나 관리자 토큰으로만 된다.
                     상세 탭의 실행 목록에서 "받기"를 누르면 그 실행의 모델(빌드 출력이 남아 있으면 <모델>.exe·.dir 포함)과
                       params.txt, run.bat 을 zip 으로 받는다. AutoMod 가 있는 PC 에서 풀고 run.bat 을 누르면 그 실행을 창으로 본다.
                       run.bat 의 AutoMod 폴더 기본값은 이 서버의 AmHome 이다.
@@ -78,7 +78,7 @@ ASH.Server - ASH 배포 서버 (최소판)
    (서버 자신에서는 열린다). Get-NetConnectionProfile 로 확인하고 Set-NetConnectionProfile ... -NetworkCategory Private 로 바꾼다.
    규칙에 Public 을 그냥 추가하지 말 것.
    수동 업로드의 토큰은 평문 HTTP 로 전달된다. 신뢰할 수 있는 사내망에서만 업로드하거나, 앞단에 HTTPS 프록시를 둔다.
-6. 브라우저로 http://서버:8082/ 를 열어 상태 페이지를 확인한다. 시작 10초쯤 뒤 "마지막 확인 — 가져옴: x.y.z" 와
+6. 브라우저로 http://서버:8082/admin/settings 를 열어 서버 상태를 확인한다. 시작 10초쯤 뒤 "마지막 확인 — 가져옴: x.y.z" 와
    현재 버전이 보이면 끝이다. "실패: …" 면 서버 PC 의 github.com 접속과 GitHub:Proxy 를 확인한다.
 7. 새 버전 배포: GitHub 에 정식 릴리스(ASH.json, ASH-Setup-x.y.z.exe 포함)를 만들면 서버가 60분 안에 가져간다.
    Directory.Build.props 의 <Version> 을 올려 main 에 push 하면 GitHub Actions 가 자동으로 만든다(docs\server-install.md).
@@ -94,13 +94,23 @@ ASH.Server - ASH 배포 서버 (최소판)
 
 서명 없는 업로드 (선택: 서명 키 사용)
 - 기본은 서명이 없다. 서버는 서명 없는 ASH.json, Runner, 서버 자동 업데이트를 모두 받는다(Update:AllowUnsigned 기본값 true).
-  false 로 두면 서명 없는 업로드를 거절하므로 키가 없는 빌드에서는 쓰지 말 것. 상태 페이지에는
+  false 로 두면 서명 없는 업로드를 거절하므로 키가 없는 빌드에서는 쓰지 말 것. 설정 페이지에는
   "무결성 확인: 없음 — PC가 github.com 릴리스와 대조해 확인"이 표시된다.
 - 서명을 다시 쓰려면 공개키 update-key.pub 를 저장소 루트에 두고 ASH_SIGNING_KEY(개인키 PEM)로 빌드한다(예전 서명 방식).
   공개키만 있고 개인키가 없으면 build-release.ps1 이 중단한다. 개인키는 커밋하지 않고 암호화한 오프라인 사본을 2개 보관한다.
   잃어버리면 새 키를 자동 업데이트로 보낼 수 없어 모든 PC 에 ASH-Setup 을 직접 다시 설치해야 한다.
 - Update:PublicKeyPem 설정은 시험/개발용 덮어쓰기다. 서명을 쓰는 운영에서는 설정하지 말 것
   (설정하면 내장 공개키를 대체하고 경고 로그가 남는다. 빈 값은 개발 환경에서만 "키 없음"으로 쓰인다).
+
+웹 주소 (상단 메뉴 홈 · 분석 · 설정)
+- /                          홈: 내 것만 | 전체 작업·분석, 대기·실행 상태(열려 있으면 10초마다 갱신)
+- /analyses                  분석 목록
+- /analyses/{id}?tab=        분석 하나: status(현황) · conclusion(결론) · compare(비교) · films(영상)
+- /admin/jobs                전체 작업 대기열(옛 /jobs 는 여기로 301). 작업 하나는 /jobs/{id}
+- /api/home                  홈이 쓰는 JSON(작업·분석·대기 상태)
+- /api/analyses/{id}/status  분석 현황 JSON(실행 중 진행·중간 결과)
+- /api/films/{id}            영상 한 건의 진행 JSON
+- /films/{id}/files/all.zip  그 영상의 컷 파일 전부(zip)
 
 웹 설정 (/admin/settings, 상단 메뉴 "설정")
 - Admin:Token(16자 이상)이 있어야 열린다. 처음에 토큰을 한 번 입력하면 브라우저에 HttpOnly·SameSite=Strict 쿠키(서버만 아는 무작위
@@ -128,13 +138,13 @@ ASH.Server - ASH 배포 서버 (최소판)
 - 서버 자동 업데이트(FOTA Gateway 와 같은 방식): ASH.Server.json 과 서버 zip 을 GitHub 에서 받아 크기·SHA-256 을 확인한 뒤
   update\apply-update.bat 이 서비스를 멈추고 exe 를 바꿔 다시 시작한다. appsettings.json 과 배포 파일은 그대로 둔다.
   60초 안에 새 버전이 응답하지 않으면 이전 exe 로 자동 되돌리고(실패한 exe 는 ASH.Server.exe.bad) 그 버전은 다시 시도하지 않는다.
-  결과: 상태 페이지 "지난 업데이트" 줄, update\apply.log. 이전 exe 는 ASH.Server.exe.old 로 남는다.
+  결과: 설정 페이지 "지난 업데이트" 줄, update\apply.log. 이전 exe 는 ASH.Server.exe.old 로 남는다.
   LocalService 계정으로 바꾸면 설치 폴더에 쓸 수 없어 자동 교체가 실패한다(이전 버전 유지).
   0.2.0 이하 서버는 이 기능이 없어 한 번은 손으로 바꾼다: sc stop ASH.Server, ASH.Server.exe 교체, sc start ASH.Server.
 - Runner(ash-run) 배포: GitHub 릴리스의 ASH.Runner.json 과 ASH-Runner-x.y.z-win-x64.zip 을 크기·SHA-256 확인 후 runner\ 폴더에 보관하고,
   분석 PC 의 ash-run 이 작업 시작 전에 /api/ash/runner 로 받은 매니페스트를 github.com 릴리스와 대조한 뒤(같을 때만) 스스로 교체한다.
-  github.com 에 접속할 수 없거나 내용이 다르면 "update skipped: ..." 한 줄을 내고 지금 버전으로 작업을 계속한다. 상태 페이지 "Runner(ash-run)" 줄에서 확인한다.
-- 서명 키를 다시 쓰는 경우에만: 서버 exe 를 교체한 뒤 상태 페이지의 서명 키 ID 가 교체 전과 같은지 확인한다.
+  github.com 에 접속할 수 없거나 내용이 다르면 "update skipped: ..." 한 줄을 내고 지금 버전으로 작업을 계속한다. 설정 페이지 "Runner(ash-run)" 줄에서 확인한다.
+- 서명 키를 다시 쓰는 경우에만: 서버 exe 를 교체한 뒤 설정 페이지의 서명 키 ID 가 교체 전과 같은지 확인한다.
 - 롤백: publish-release.ps1 -Force 로 낮은 버전을 올려도 이미 새 버전을 쓰는 PC 는 내려가지 않는다(서버 버전이 더 낮다는 안내만 나온다).
   되돌리려면 옛 코드를 더 높은 버전 번호로 다시 빌드해 게시한다.
 - files\ 폴더는 업로드마다 커진다. 지울 때는 현재 버전과 롤백 대상 설치 파일을 남긴다.

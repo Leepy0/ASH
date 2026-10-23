@@ -212,16 +212,16 @@ AutoMod 12.6이 있는 PC 필요(T16-2, T16-4), T16-5는 AutoMod가 없는 PC와
 | 항목 | 결과 | 날짜 | ZWCAD 버전 | 메모 |
 |---|---|---|---|---|
 | S1 서버 PC에서 zip을 풀고(`appsettings.json`은 그대로) 관리자 PowerShell에서 `ASH.Server.exe --install` → 출력에 "[SC] CreateService 성공", `sc.exe qc ASH.Server`의 `BINARY_PATH_NAME`이 `"…\ASH.Server.exe"`처럼 따옴표로 감싸짐(경로에 공백이 있어도). `sc.exe start ASH.Server` → `RUNNING`, 서버 PC 재부팅 뒤에도 자동 시작 | | | | |
-| S2 방화벽 TCP 8082 허용 후 **다른 PC**의 브라우저로 `http://<서버>:8082/` → 상태 페이지("게시된 버전이 없습니다."), `curl http://<서버>:8082/healthz` → `ok`. 허용 전에는 접속 실패, 허용 뒤 성공 | | | | |
-| S3 서비스 시작 10초쯤 뒤 상태 페이지 → "마지막 확인 — 가져옴: x.y.z"와 현재 버전·게시 시각·서명 키 ID 표시(키 내장 빌드면 "서명 키 없음" 문구가 없음). GitHub에 더 높은 버전을 릴리스한 뒤 서비스를 재시작하면 그 버전으로 바뀜. (수동 업로드 확인 시) `Admin:Token`을 넣고 `publish-release.ps1` → "200 OK", 토큰이 틀리면 401, 비었거나 16자 미만이면 403 | | | | |
+| S2 방화벽 TCP 8082 허용 후 **다른 PC**의 브라우저로 `http://<서버>:8082/admin/settings` → 서버 상태("게시된 버전이 없습니다."), `curl http://<서버>:8082/healthz` → `ok`. 허용 전에는 접속 실패, 허용 뒤 성공 | | | | |
+| S3 서비스 시작 10초쯤 뒤 설정 페이지(/admin/settings) → "마지막 확인 — 가져옴: x.y.z"와 현재 버전·게시 시각·서명 키 ID 표시(키 내장 빌드면 "서명 키 없음" 문구가 없음). GitHub에 더 높은 버전을 릴리스한 뒤 서비스를 재시작하면 그 버전으로 바뀜. (수동 업로드 확인 시) `Admin:Token`을 넣고 `publish-release.ps1` → "200 OK", 토큰이 틀리면 401, 비었거나 16자 미만이면 403 | | | | |
 | S4 사용자 PC에서 `ASH-Setup-<현재보다 낮은 버전>.exe /server:http://<서버>:8082` 설치 → ZWCAD 시작 후 3초 안에 "ASH <새 버전> 사용 가능 — AGVUPDATE로 받기"(릴리스를 `-MinSupported`/`ASH_MIN_SUPPORTED` 없이 빌드했다면 기본값이 `0.0.0`이라 "최소 지원 미만" 안내는 **뜨지 않는 것이 정상**. 그 안내를 보려면 PC 버전보다 높은 `-MinSupported <버전>`으로 빌드·게시해 U5와 맞춰 확인) → `AGVUPDATE` → 다운로드 완료·탐색기 열림. 서명 키 내장 빌드에서는 "서명 키 미설정" 경고가 없음. 서버 서비스를 중지(`sc.exe stop ASH.Server`)한 뒤 ZWCAD 시작 → "업데이트 확인 실패(서버 응답 없음)" 한 줄(멈춤 없음) | | | | |
-| S5 서버 자동 업데이트: 서버보다 높은 버전을 GitHub에 릴리스한 뒤 서비스 재시작(또는 `CheckIntervalMin` 대기) → 약 10초 뒤 상태 페이지 "서버 프로그램: <새 버전>", "지난 업데이트: 서버 <새 버전>(으)로 자동 업데이트됨". 설치 폴더에 `ASH.Server.exe.old`, `update\apply.log`에 "healthy". `appsettings.json` 값(포트·토큰)과 게시된 버전·이전 버전 목록이 그대로이고 S4 업데이트 확인이 계속 동작. 서버 PC 재부팅 뒤에도 유지 | | | | |
+| S5 서버 자동 업데이트: 서버보다 높은 버전을 GitHub에 릴리스한 뒤 서비스 재시작(또는 `CheckIntervalMin` 대기) → 약 10초 뒤 설정 페이지(/admin/settings) "서버 프로그램: <새 버전>", "지난 업데이트: 서버 <새 버전>(으)로 자동 업데이트됨". 설치 폴더에 `ASH.Server.exe.old`, `update\apply.log`에 "healthy". `appsettings.json` 값(포트·토큰)과 게시된 버전·이전 버전 목록이 그대로이고 S4 업데이트 확인이 계속 동작. 서버 PC 재부팅 뒤에도 유지 | | | | |
 
 ## Runner 자동 업데이트 (분석 PC)
 
 | 항목 | 날짜 | 결과 | 비고 |
 |---|---|---|---|
-| A1 서버가 GitHub에서 새 릴리스를 가져온 뒤 상태 페이지 "Runner(ash-run): x.y.z" 표시. 서버 `Releases:Dir\runner\files`에 zip이 있음 | | | |
+| A1 서버가 GitHub에서 새 릴리스를 가져온 뒤 설정 페이지(/admin/settings) "Runner(ash-run): x.y.z" 표시. 서버 `Releases:Dir\runner\files`에 zip이 있음 | | | |
 | A2 분석 PC에서 낮은 버전 `ash-run.exe --version` 확인 후 `ash-run --update --server http://<서버>:8082` → "ash-run a -> b", `ash-run --version`이 새 버전, 같은 폴더에 `ash-run.exe.old` | | | |
 | A3 다시 `ash-run --update` → "up to date". 서버를 끄고 실행 → "update skipped: server ... does not answer", 작업은 계속됨(3초 안) | | | |
 | A4 작업 실행(`ash-run <프로젝트> --model m`)이 업데이트 뒤 새 버전으로 이어져 끝까지 돌고 종료 코드가 같음. `--no-update`면 확인하지 않음 | | | |
@@ -249,7 +249,7 @@ AutoMod 12.6이 있는 PC 필요(T16-2, T16-4), T16-5는 AutoMod가 없는 PC와
 
 | 항목 | 날짜 | 결과 | 비고 |
 |---|---|---|---|
-| D1 서버 상태 페이지: "게시 시각(서울)"이 UTC+9로 보임(예: `...T00:57:15Z` → `09:57:15`), "마지막 확인(서울)", "서버 시각(서울)"과 PC 표준 시간대가 보임. PC 시간대를 바꿔도 서울 시각은 그대로 | | | |
+| D1 서버 설정 페이지(/admin/settings): "게시 시각(서울)"이 UTC+9로 보임(예: `...T00:57:15Z` → `09:57:15`), "마지막 확인(서울)", "서버 시각(서울)"과 PC 표준 시간대가 보임. PC 시간대를 바꿔도 서울 시각은 그대로 | | | |
 | D2 서버 PC의 "서버 시각(서울)"이 실제 시계와 같음. 다르면 PC의 날짜 및 시간(또는 시계 자체)이 틀린 것 | | | |
 | D3 `%APPDATA%\ASH\plugin.log`, 설치 로그, `agv.asy.bak.<시각>`, `runs.<시각>`의 시각이 서울 시간 | | | |
 | D4 CP 탭에 STATION 칸이 없음. 상세 모드 질문이 NAME, TYPE, GROUP, CAP. 새 CP 블록에 STATION 속성이 없음 | | | |
@@ -341,7 +341,7 @@ AutoMod 12.6이 있는 PC 필요(T16-2, T16-4), T16-5는 AutoMod가 없는 PC와
 | 항목 | 날짜 | 결과 | 비고 |
 |---|---|---|---|
 | L1 서버 PC appsettings.json의 Jobs:AmHome이 AutoMod 설치 폴더를 가리킴(체험판이면 Jobs:DialogButton "Student Version") | | | |
-| L2 `AGVSEND` 후 `http://서버:8082/jobs`에 작업이 "대기" → "실행 중(빌드 / 대수 탐색)" → "완료"로 바뀌고 실행 수가 늘어남 | | | |
+| L2 `AGVSEND` 후 `http://서버:8082/`(홈)에 작업이 "대기" → "실행 중(빌드 / 대수 탐색)" → "완료"로 바뀌고 실행 수가 늘어남 | | | |
 | L3 결론 탭: 권장 총 대수, 시험 범위, 그룹별 권장 대수·가동률 막대, block 점유율·대기 지도 2개 | | | |
 | L4 상세 탭: 그룹별 대수-가동률 곡선(권장 대수 초록선, 상한 빨간 점선), 영향표, 실행 목록 | | | |
 | L5 입력·추적 탭에 올린 파일과 SHA-256, 다운로드 탭에서 summary.tsv / runs.zip / job.log 받기 | | | |
