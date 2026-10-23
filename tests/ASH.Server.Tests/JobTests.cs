@@ -102,17 +102,17 @@ public sealed class JobEnv : IDisposable
     /// <summary>A project folder as AGVMODEL leaves it (model files + cell snapshot), packed the way the plugin packs it.</summary>
     /// <param name="dx">shifts the whole layout along X (metres), for versions whose layouts sit in different places</param>
     /// <param name="addFiles">writes extra files (ash.drawing.dxf as AGVSEND exports it, the frame) into the project folder before it is packed</param>
-    public static string MakePackage(string root, string model = "m", double dx = 0, Action<string>? addFiles = null)
+    public static string MakePackage(string root, string model = "m", double dx = 0, Action<string>? addFiles = null, double k = 1)
     {
         var proj = Path.Combine(root, "proj-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(proj);
         var l = new ASH.Core.Layout.Layout();
-        void Line(string n, double x0, double y0, double x1, double y1) { var p = new LayoutPath(n); p.Segments.Add(new LineSeg(new Point2(x0 + dx, y0), new Point2(x1 + dx, y1))); l.Paths.Add(p); }
+        void Line(string n, double x0, double y0, double x1, double y1) { var p = new LayoutPath(n); p.Segments.Add(new LineSeg(new Point2(x0 * k + dx, y0 * k), new Point2(x1 * k + dx, y1 * k))); l.Paths.Add(p); }
         Line("p1", 0, 0, 10, 0); Line("p2", 10, 0, 10, 10); Line("p3", 10, 10, 0, 10); Line("p4", 0, 10, 0, 0);
-        l.Cps.Add(new LayoutCp { Name = "S001", Type = "standby", Group = "G1", Position = new Point2(5 + dx, 0), Cap = ASH.Core.Traffic.CpTypes.DefaultCap("standby") });
-        l.Cps.Add(new LayoutCp { Name = "L001", Type = "load", Group = "G1", Position = new Point2(10 + dx, 5), Cap = ASH.Core.Traffic.CpTypes.DefaultCap("load") });
-        l.Cps.Add(new LayoutCp { Name = "U001", Type = "unload", Group = "G1", Position = new Point2(2 + dx, 10), Cap = ASH.Core.Traffic.CpTypes.DefaultCap("unload") });
-        l.Blocks.Add(new LayoutBlock { Name = "B_x1", Cap = 1, Rect = new Rect2(new Point2(8 + dx, -1), new Point2(11 + dx, 2)) });
+        l.Cps.Add(new LayoutCp { Name = "S001", Type = "standby", Group = "G1", Position = new Point2(5 * k + dx, 0), Cap = ASH.Core.Traffic.CpTypes.DefaultCap("standby") });
+        l.Cps.Add(new LayoutCp { Name = "L001", Type = "load", Group = "G1", Position = new Point2(10 * k + dx, 5 * k), Cap = ASH.Core.Traffic.CpTypes.DefaultCap("load") });
+        l.Cps.Add(new LayoutCp { Name = "U001", Type = "unload", Group = "G1", Position = new Point2(2 * k + dx, 10 * k), Cap = ASH.Core.Traffic.CpTypes.DefaultCap("unload") });
+        l.Blocks.Add(new LayoutBlock { Name = "B_x1", Cap = 1, Rect = new Rect2(new Point2(8 * k + dx, -1 * k), new Point2(11 * k + dx, 2 * k)) });
         var xlsx = Path.Combine(proj, "input.xlsx");
         ExcelTemplate.Write(xlsx, l);
         using (var wb = ExcelReader.Open(xlsx)) CellDump.Write(wb, Path.Combine(proj, CellDump.FileName));
@@ -139,13 +139,13 @@ public sealed class JobEnv : IDisposable
     }
 
     /// <summary>Sends a job filed under analysis/plan (by name) and returns its id.</summary>
-    public async Task<string> SendFiled(string analysis, string plan, string submitter = "tester", Action<string>? addFiles = null)
+    public async Task<string> SendFiled(string analysis, string plan, string submitter = "tester", Action<string>? addFiles = null, double k = 1)
     {
         var form = new MultipartFormDataContent
         {
             { new StringContent("Line A"), "project" }, { new StringContent("m"), "model" }, { new StringContent(submitter), "submitter" },
             { new StringContent(analysis), "analysisName" }, { new StringContent(plan), "planName" },
-            { new ByteArrayContent(await File.ReadAllBytesAsync(MakePackage(Dir, addFiles: addFiles))), "package", "package.zip" },
+            { new ByteArrayContent(await File.ReadAllBytesAsync(MakePackage(Dir, addFiles: addFiles, k: k))), "package", "package.zip" },
         };
         return System.Text.Json.JsonDocument.Parse(await (await Http.PostAsync("/api/jobs", form)).Content.ReadAsStringAsync()).RootElement.GetProperty("id").GetString()!;
     }

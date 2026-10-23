@@ -345,18 +345,26 @@ document.querySelectorAll('table.sort').forEach(function(t){
         return $"rgb({L(p.r, q.r)},{L(p.g, q.g)},{L(p.b, q.b)})";
     }
 
-    /// <summary>Paths in grey, blocks coloured by a value (highest = red), CPs as dots. Model coordinates, y up.</summary>
-    internal static string Map(JobView v, string title, Func<BlockView, double> value, Func<double, string> label, double w = 520, double h = 360, bool topLabels = false)
+    /// <summary>Model-coordinate bounds (x0, x1, y0, y1) of a layout's paths, blocks and CPs; null when it has nothing to draw.</summary>
+    internal static (double X0, double X1, double Y0, double Y1)? LayoutBounds(ASH.Core.Layout.Layout l)
+    {
+        var pts = l.Paths.SelectMany(p => new[] { p.Start, p.End }).Concat(l.Blocks.SelectMany(b => new[] { b.Rect.Min, b.Rect.Max })).Concat(l.Cps.Select(c => c.Position)).ToList();
+        return pts.Count == 0 ? null : (pts.Min(p => p.X), pts.Max(p => p.X), pts.Min(p => p.Y), pts.Max(p => p.Y));
+    }
+
+    /// <summary>Paths in grey, blocks coloured by a value (highest = red), CPs as dots. Model coordinates, y up.
+    /// <paramref name="bounds"/> and <paramref name="hiValue"/> replace this view's own extent and colour maximum, so several maps can share one scale.</summary>
+    internal static string Map(JobView v, string title, Func<BlockView, double> value, Func<double, string> label, double w = 520, double h = 360, bool topLabels = false,
+        (double X0, double X1, double Y0, double Y1)? bounds = null, double? hiValue = null)
     {
         var l = v.Layout!;
-        var pts = l.Paths.SelectMany(p => new[] { p.Start, p.End }).Concat(l.Blocks.SelectMany(b => new[] { b.Rect.Min, b.Rect.Max })).Concat(l.Cps.Select(c => c.Position)).ToList();
-        if (pts.Count == 0) return "<p class=\"muted\">그릴 경로가 없습니다.</p>";
-        double x0 = pts.Min(p => p.X), x1 = pts.Max(p => p.X), y0 = pts.Min(p => p.Y), y1 = pts.Max(p => p.Y);
+        if ((bounds ?? LayoutBounds(l)) is not { } bb) return "<p class=\"muted\">그릴 경로가 없습니다.</p>";
+        double x0 = bb.X0, x1 = bb.X1, y0 = bb.Y0, y1 = bb.Y1;
         double pad = 12, sx = (w - 2 * pad) / Math.Max(1e-6, x1 - x0), sy = (h - 2 * pad) / Math.Max(1e-6, y1 - y0), s = Math.Min(sx, sy);
         string X(double x) => F(pad + (x - x0) * s, "0.#");
         string Y(double y) => F(h - pad - (y - y0) * s, "0.#");
         var byName = v.Blocks.ToDictionary(b => b.Name, b => value(b), StringComparer.Ordinal);
-        double hi = byName.Values.Where(x => !double.IsNaN(x)).DefaultIfEmpty(0).Max();
+        double hi = hiValue ?? byName.Values.Where(x => !double.IsNaN(x)).DefaultIfEmpty(0).Max();
         var sb = new StringBuilder($"<div style=\"font-weight:600;margin:6px 0\">{H(title)}</div><svg width=\"{w}\" height=\"{h}\" viewBox=\"0 0 {w} {h}\" style=\"background:#fff;border:1px solid #d3d1c7\">");
         foreach (var b in l.Blocks)
         {

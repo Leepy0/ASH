@@ -303,7 +303,7 @@ public class AnalysisPageTests
     }
 
     [Fact]
-    public async Task Selected_Versions_Appear_In_Compare_Table()
+    public async Task Compare_Table_Lists_The_Chosen_Versions_With_Group_Rows()
     {
         using var env = new JobEnv();
         var id1 = await Send(env, ("analysisName", "분석"), ("planName", "A안"));

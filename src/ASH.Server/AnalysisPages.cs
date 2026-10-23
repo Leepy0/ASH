@@ -317,6 +317,7 @@ public static class AnalysisPages
         }
         sb.Append("</tr>");
         // every row is "smaller is better": a negative change against the base is ok, a positive one bad
+        // labels are trusted constants (plus H(group)); H() would turn "·" into &#183;, so they are not encoded again here
         void Row(string label /* already HTML */, Func<Metrics, double?> get, Func<Metrics, string> show)
         {
             sb.Append($"<tr><th>{label}</th>");
@@ -353,9 +354,13 @@ public static class AnalysisPages
         sb.Append("<div class=\"scroll\" style=\"margin-top:12px\">").Append(CompareChart(cols, groups, baseM?.View.UtilMax ?? cols.Select(c => c.M?.View.UtilMax).FirstOrDefault(x => x != null) ?? 0.75)).Append("</div>");
         if (q["maps"] != "1") { sb.Append($"<p><a class=\"btn\" href=\"{Url(ids, true)}\">병목 지도 나란히</a></p></section>"); return; }
         sb.Append("<h2>병목 지도(block 평균 대기, 같은 축척)</h2><div class=\"scroll\"><div style=\"display:flex;gap:12px\">");
+        // one scale for every map: the union of the layouts' bounds and the largest wait over all versions
+        var bs = cols.Where(c => c.M?.View.Layout != null).Select(c => LayoutBounds(c.M!.View.Layout!)).Where(b => b != null).Select(b => b!.Value).ToList();
+        (double, double, double, double)? shared = bs.Count == 0 ? null : (bs.Min(b => b.X0), bs.Max(b => b.X1), bs.Min(b => b.Y0), bs.Max(b => b.Y1));
+        var hiWait = cols.Where(c => c.M != null).SelectMany(c => c.M!.View.Blocks.Select(b => b.AvgWaitSec)).Where(x => !double.IsNaN(x)).DefaultIfEmpty(0).Max();
         foreach (var c in cols)
             sb.Append("<div>").Append(c.M?.View.Layout == null ? $"<div style=\"font-weight:600\">{H(c.PlanName)} v{c.Job.Version}</div><p class=\"muted\">지도가 없습니다.</p>"
-                : Map(c.M.View, $"{c.PlanName} v{c.Job.Version}", b => b.AvgWaitSec, x => F(x, "0.0") + "초", 360, 250)).Append("</div>");
+                : Map(c.M.View, $"{c.PlanName} v{c.Job.Version}", b => b.AvgWaitSec, x => F(x, "0.0") + "초", 360, 250, false, shared, hiWait)).Append("</div>");
         sb.Append("</div></div></section>");
     }
 
