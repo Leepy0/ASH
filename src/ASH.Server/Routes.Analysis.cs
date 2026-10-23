@@ -10,6 +10,13 @@ internal static partial class Routes
     /// <summary>Analyses (a study groups plans (안); a send is filed as the next version of a plan), their cut editor and films.</summary>
     public static void MapAnalysis(this WebApplication app)
     {
+        app.MapGet("/api/home", (HttpContext ctx, int? me, JobStore js, AnalysisStore st, FilmStore fs, FilmWorker fw, IConfiguration cfg) =>
+        {
+            var films = fs.All();
+            return Results.Json(HomeView.Build(st.All(), js.All(), films, films.FirstOrDefault(f => f.State == JobState.Running), Queue(js, fw), WorkerOn(cfg),
+                JobProgress.Parallel(cfg), ClientIp(ctx), me is { } m ? m == 1 : null, DateTime.UtcNow));
+        });
+
         app.MapGet("/api/analyses", (AnalysisStore st, JobStore js) =>
         {
             var jobs = js.All();
