@@ -33,13 +33,16 @@ public static class CelWriter
     }
 
     /// <summary>The AGVVEHSEG text: the template (agvs_vehseg.txt) with Geom1's children replaced by the boxes (feet), the lift joint on the top of the
-    /// highest box and the CONTAINER there (loadTopM = max(Z0 + H)); same layout as VehicleGeometry.Build.</summary>
-    public static string VehSeg(IReadOnlyList<string> template, IReadOnlyList<Box> boxes)
+    /// highest box and the CONTAINER there (loadTopM = max(Z0 + H)); same layout as VehicleGeometry.Build. A Magnet tows: its CONTAINER is on the floor
+    /// behind the rear (+y) edge of the boxes, as in VehicleGeometry.Build.</summary>
+    public static string VehSeg(IReadOnlyList<string> template, IReadOnlyList<Box> boxes, string kind = "")
     {
         if (boxes == null || boxes.Count == 0) throw new ArgumentException("no boxes", nameof(boxes));
         double top = boxes.Max(b => b.Z0 + b.H);
         var parts = boxes.Select(b => Prim(b, VehicleGeometry.FloorRel)).ToList();
-        return string.Join("\n", VehicleGeometry.Assemble(template, parts, top, 0, top));
+        bool magnet = string.Equals(kind, "Magnet", StringComparison.OrdinalIgnoreCase);
+        double rear = boxes.Max(b => b.Y + b.Dy / 2);
+        return string.Join("\n", VehicleGeometry.Assemble(template, parts, top, magnet ? -(rear + 0.10 + 0.5) : 0, magnet ? 0 : top));
     }
 
     static IEnumerable<string> Prim(Box b, double floorFt) =>
@@ -48,13 +51,14 @@ public static class CelWriter
 
 public static class CelReader
 {
-    /// <summary>The 310 boxes of a cell written by CelWriter (feet → metres); other types are skipped. FormatException on a short block.</summary>
+    /// <summary>The 310 boxes of a cell written by CelWriter (feet → metres); other types are skipped. FormatException on a short block, a non-finite number or a size ≤ 0.</summary>
     public static IReadOnlyList<Box> ReadBoxes(string celText)
     {
         if (celText == null) throw new ArgumentNullException(nameof(celText));
         var l = celText.Replace("\r\n", "\n").Split('\n');
         double[] Nums(string s) => s.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries)
-            .Select(x => double.Parse(x, NumberStyles.Float, CultureInfo.InvariantCulture) / VehicleGeometry.FtPerM).ToArray();
+            .Select(x => double.TryParse(x, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) ? v / VehicleGeometry.FtPerM
+                : throw new FormatException("bad number: " + x)).ToArray(); // TryParse: net48 throws OverflowException on 1e999, net10 gives Infinity
         var res = new List<Box>();
         for (int i = 0; i < l.Length; i++)
         {
@@ -64,6 +68,8 @@ public static class CelReader
             var pos = Nums(l[i + 2]);
             var size = Nums(l[i + 5]);
             if (name.Length < 6 || pos.Length < 3 || size.Length < 5) throw new FormatException("short 310 block at line " + (i + 1));
+            if (pos.Take(3).Concat(size.Take(5)).Any(v => double.IsNaN(v) || double.IsInfinity(v)) || !(size[0] > 0 && size[1] > 0 && size[4] > 0))
+                throw new FormatException("bad number in 310 block at line " + (i + 1));
             res.Add(new Box(name[5], pos[0], pos[1], pos[2], size[1], size[0], size[4], int.Parse(name[0], CultureInfo.InvariantCulture)));
             i += 5;
         }

@@ -30,7 +30,7 @@ public static class BoxSimplifier
     // RotateDeg (multiple of 90) is added on top with the same sign: MinusY + RotateDeg 90 sends source +y to picture -x.
     const double MinSideM = 0.001;   // flat parts (sheet, decal) still need a positive thickness
 
-    /// <summary>ArgumentException when no triangle survives.</summary>
+    /// <summary>ArgumentException when no triangle survives or a coordinate is NaN/infinite.</summary>
     public static SimplifyResult Simplify(IReadOnlyList<MeshPart> parts, SimplifyOptions o)
     {
         if (parts == null) throw new ArgumentNullException(nameof(parts));
@@ -53,6 +53,7 @@ public static class BoxSimplifier
 
         var all = Union(src.SelectMany(p => p.Tris));
         double length = all.Y1 - all.Y0, width = all.X1 - all.X0, height = all.Z1 - all.Z0;
+        if (double.IsNaN(length + width + height) || double.IsInfinity(length + width + height)) throw new ArgumentException("메시에 숫자가 아닌 좌표가 있습니다"); // binary STL NaN, ASCII 1e999
 
         var raw = new List<(string Name, Aabb B)>();
         if (src.Count == 1 && o.Grid > 1)

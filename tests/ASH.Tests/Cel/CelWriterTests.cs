@@ -59,6 +59,33 @@ public class CelWriterTests
         Assert.Equal(1.2, b[0].Dy, 6);
         Assert.Equal(-0.4, b[1].Y, 6);
         Assert.Equal(0, b[1].Color);
+        var src = new Box("lid", 0.3, 0.1, 0.25, 0.7, 0.9, 0.15, 4);
+        var r = CelReader.ReadBoxes(CelWriter.Cel("c", new[] { src })).Single();
+        Assert.Equal("lid", r.Name);
+        Assert.Equal(0.3, r.X, 6); Assert.Equal(0.25, r.Z0, 6); Assert.Equal(0.7, r.Dx, 6); Assert.Equal(0.15, r.H, 6); Assert.Equal(0.9, r.Dy, 6);
+    }
+
+    [Fact]
+    public void Reader_Rejects_NaN_And_Zero_Size()
+    {
+        var cel = CelWriter.Cel("c", Two());
+        var l = cel.Split('\n');
+        int i = Array.IndexOf(l, "310 5");
+        var nan = (string[])l.Clone(); nan[i + 2] = "NaN  0  0";
+        Assert.Throws<FormatException>(() => CelReader.ReadBoxes(string.Join("\n", nan)));
+        var inf = (string[])l.Clone(); inf[i + 5] = "1e999 1 1 1 1 0 0";
+        Assert.Throws<FormatException>(() => CelReader.ReadBoxes(string.Join("\n", inf)));
+        var zero = (string[])l.Clone(); zero[i + 5] = "1 1 1 1 0 0 0";
+        Assert.Throws<FormatException>(() => CelReader.ReadBoxes(string.Join("\n", zero)));
+    }
+
+    [Fact]
+    public void VehSeg_Magnet_Puts_Container_On_The_Floor_Behind()
+    {
+        var l = CelWriter.VehSeg(Template(), Two(), "Magnet").Split('\n');
+        // rear edge of Two() is body Y + Dy/2 = 0.6 m; trolley 0.10 + 0.5 m behind it, on the floor
+        Assert.Contains(l, x => x.Contains("trx " + F(-(0.6 + 0.10 + 0.5) * 3.280839895) + " try 0 trz 0"));
+        Assert.Contains(CelWriter.VehSeg(Template(), Two(), "Standard").Split('\n'), x => x.Contains("trx 0 try 0 trz " + F(0.5 * 3.280839895)));
     }
 
     [Fact]

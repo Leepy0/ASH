@@ -29,6 +29,15 @@ public class BoxSimplifierTests
     [Fact] public void MaxBoxes_Keeps_Largest() { var r = BoxSimplifier.Simplify(Parts(), new SimplifyOptions(MaxBoxes: 1, MinPartPct: 0)); Assert.Equal("body", r.Boxes.Single().Name); Assert.Equal(2, r.DroppedOverMax); }
     [Fact] public void Grid_Splits_Single_Part() { var r = BoxSimplifier.Simplify(new[] { Parts()[0] }, new SimplifyOptions(Grid: 2, MinPartPct: 0)); Assert.Equal(4, r.Boxes.Count); }
 
+    [Fact] public void NaN_Or_Infinite_Coordinate_Is_Rejected()
+    {
+        foreach (var bad in new[] { double.NaN, double.PositiveInfinity })
+        {
+            var p = new[] { Cuboid("body", 0, 2000, -500, 500, 0, 600), new MeshPart("bad", new[] { new Triangle(new Vec3(0, 0, 0), new Vec3(bad, 0, 0), new Vec3(0, 1, 0)) }) };
+            Assert.Contains("숫자가 아닌 좌표", Assert.Throws<ArgumentException>(() => BoxSimplifier.Simplify(p, new SimplifyOptions())).Message);
+        }
+    }
+
     // Extra: heading/rotation conventions and naming.
     [Fact] public void MinusY_Heading_Is_Identity_And_Rotate90_Turns_Ccw()
     {
