@@ -96,3 +96,32 @@ public class AssetServerDownTests
         Assert.Empty(o); Assert.Equal(1, h.Calls); Assert.Single(w); Assert.Contains("3개 타입", w[0]);
     }
 }
+
+public class AssetCelTimeoutTests
+{
+    sealed class HangOnCel : HttpMessageHandler
+    {
+        public int List, Cel;
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage r, CancellationToken ct)
+        {
+            if (r.RequestUri!.AbsolutePath == "/api/catalog/assets") { Interlocked.Increment(ref List); return new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent("{\"assets\":[{\"id\":\"1\",\"typeName\":\"A\",\"name\":\"a\"},{\"id\":\"2\",\"typeName\":\"B\",\"name\":\"b\"}]}") }; }
+            Interlocked.Increment(ref Cel); await Task.Delay(Timeout.Infinite, ct); return null!;
+        }
+    }
+    static AgvType Type(string t, string asset) => new(t, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1.2, 0.8, "", Asset: asset);
+
+    [Fact] public void Hanging_Cel_Download_Stalls_Once()
+    {
+        var h = new HangOnCel(); var c = new AssetCatalogClient(new Uri("http://srv"), h, TimeSpan.FromMilliseconds(150));
+        var w = new List<string>();
+        var o = AssetOverrides.Build(new[] { Type("A", "a"), Type("B", "b") }, new[] { "x" }, (ty, n) => c.FetchCel(ty, n), w);
+        Assert.Empty(o); Assert.Equal(1, h.List); Assert.Equal(1, h.Cel); Assert.Single(w); Assert.Contains("2개 타입", w[0]);
+    }
+
+    [Fact] public void Cancellation_From_The_Fetch_Counts_As_Server_Down()
+    {
+        var w = new List<string>(); int calls = 0;
+        AssetOverrides.Build(new[] { Type("A", "a"), Type("B", "b") }, new[] { "x" }, (_, _) => { calls++; throw new OperationCanceledException(); }, w);
+        Assert.Equal(1, calls); Assert.Single(w);
+    }
+}

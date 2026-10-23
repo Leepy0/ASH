@@ -39,7 +39,7 @@ public static class AssetOverrides
                     else { res[t.Type] = new VehicleTemplateOverride(VehSegText: CelWriter.VehSeg(template, boxes)); failed.Remove(t.Type); }
                 }
             }
-            catch (Exception e) when (e is HttpRequestException || e is TimeoutException) { down = true; downTypes++; }
+            catch (Exception e) when (e is HttpRequestException || e is TimeoutException || e is OperationCanceledException) { down = true; downTypes++; }
             catch (Exception e) when (!(e is OutOfMemoryException)) { why = e.Message; }
             if (why != null) warnings.Add($"타입 {t.Type}: 에셋 '{t.Asset}' - {why}. 기본 그림을 씁니다.");
         }
@@ -103,7 +103,7 @@ public sealed class AssetCatalogClient
         {
             if (!task.Wait(_timeout + TimeSpan.FromSeconds(1))) throw new TimeoutException();
         }
-        catch (AggregateException a) { throw a.InnerException is TaskCanceledException ? new TimeoutException() : a.InnerException ?? a; }
+        catch (AggregateException a) { throw a.InnerException is OperationCanceledException ? new TimeoutException() : a.InnerException ?? a; }
         return task.Result;
     }
 
