@@ -74,6 +74,7 @@ public sealed class JobView
         return ModelRunner.RunId(Input, s) == runId ? s : null;
     }
 
+    // The catalog only accepts KRW rows, so summing unit prices across types is safe.
     /// <summary>Sum of decided count x unit price of the group's type; types without a price are listed, not counted. Hidden types still count.</summary>
     public static InvestmentView Investment(ProjectInput input, IReadOnlyDictionary<string, int> decided, IReadOnlyDictionary<string, PriceRow> prices)
     {

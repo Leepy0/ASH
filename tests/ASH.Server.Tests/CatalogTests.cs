@@ -51,11 +51,12 @@ public class CatalogTests
         Assert.Contains(bad.Errors, e => e.Row == 3 && e.Why == "타입 T_X 없음");
         Assert.Contains(bad.Errors, e => e.Row == 3 && e.Why == "숫자가 아닙니다");
         Assert.Empty(s.Prices());
-        var ok = s.SavePrices("Type,UnitPrice,Currency,Note\nT_A,\"1,000\",,a note\nT_B,2000,USD,");
+        var ok = s.SavePrices("Type,UnitPrice,Currency,Note\nT_A,\"1,000\",,a note\nT_B,2000,KRW,");
         Assert.Equal(2, ok.Changed);
         Assert.Equal(1000m, s.Prices()["T_A"].UnitPrice);
         Assert.Equal("KRW", s.Prices()["T_A"].Currency);
-        Assert.Equal("USD", s.Prices()["T_B"].Currency);
+        Assert.Equal("KRW", s.Prices()["T_B"].Currency);
+        Assert.Contains(s.SavePrices("Type,UnitPrice,Currency,Note\nT_A,1,USD,").Errors, e => e.Why.Contains("KRW"));
     }
 
     [Fact]
@@ -162,8 +163,16 @@ public class CatalogTests
         using var env = new JobEnv();
         var body = await (await env.Send(JobEnv.MakePackage(env.Dir))).Content.ReadAsStringAsync();
         var id = JsonDocument.Parse(body).RootElement.GetProperty("id").GetString()!;
-        await env.WaitFinished(id);
-        env.Factory.Services.GetRequiredService<CatalogStore>().SavePrices("Type,UnitPrice,Currency,Note\nT_AGV,500,KRW,\n");
-        Assert.Contains("투자비(원)", await env.Http.GetStringAsync("/jobs/" + id));
+        var job = await env.WaitFinished(id);
+        var type = JobView.For(env.Store, job).Input!.Groups[0].Type;
+        var cat = env.Factory.Services.GetRequiredService<CatalogStore>();
+        cat.Save(T(type), "me"); cat.Save(T("T_OTHER"), "me");
+        var total = job.Decided!.Values.Sum() * 500m;
+        cat.SavePrices($"Type,UnitPrice,Currency,Note\n{type},500,KRW,\n");
+        var priced = await env.Http.GetStringAsync("/jobs/" + id);
+        Assert.Contains(total.ToString("N0", System.Globalization.CultureInfo.InvariantCulture), priced);
+        Assert.DoesNotContain("단가 없음", priced);
+        cat.SavePrices("Type,UnitPrice,Currency,Note\nT_OTHER,500,KRW,\n");
+        Assert.Contains("단가 없음: " + type, await env.Http.GetStringAsync("/jobs/" + id));
     }
 }

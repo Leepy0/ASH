@@ -13,8 +13,12 @@ public static class JobPages
     internal static string H(string? t) => WebUtility.HtmlEncode(t ?? "");
     internal static string F(double d, string fmt = "0.##") => double.IsNaN(d) || double.IsInfinity(d) ? "-" : d.ToString(fmt, CultureInfo.InvariantCulture);
     static string Pct(double d) => double.IsNaN(d) ? "-" : P(d) + "%";
-    /// <summary>Percent without the sign, for table cells whose header carries "(%)".</summary>
     internal static string Won(decimal d) => d.ToString("N0", CultureInfo.InvariantCulture);
+    /// <summary>Investment for the pages: null (shown as "-") when the price table is empty, so Summary and Compare follow one rule.</summary>
+    internal static InvestmentView? InvestmentOf(ASH.Core.Input.ProjectInput input, IReadOnlyDictionary<string, int> decided, IReadOnlyDictionary<string, PriceRow> prices) =>
+        prices.Count == 0 ? null : JobView.Investment(input, decided, prices);
+    internal static string Cost(InvestmentView? inv) => inv == null ? "-" : Won(inv.Total);
+    /// <summary>Percent without the sign, for table cells whose header carries "(%)".</summary>
     internal static string P(double d) => double.IsNaN(d) ? "-" : (d * 100).ToString("0.0", CultureInfo.InvariantCulture);
     internal static string When(DateTime? utc) => utc is { } t ? SeoulTime.Text(t) : "-";
     internal static string Dur(TimeSpan? d) => d is { } x ? (x.TotalHours >= 1 ? $"{(int)x.TotalHours}시간 {x.Minutes}분" : x.TotalMinutes >= 1 ? $"{(int)x.TotalMinutes}분 {x.Seconds}초" : $"{x.Seconds}초") : "-";
@@ -181,8 +185,8 @@ document.querySelectorAll('table.sort').forEach(function(t){
         sb.Append($"<div class=\"card\"><div class=\"sub\">모델 실행</div><div class=\"big\">{j.RunsDone}회</div><div class=\"sub\">실패 {j.RunsFailed}회 · 경고 {j.Warnings.Count}건 · {Dur(j.Duration)}</div></div>");
         if (prices != null)
         {
-            var inv = JobView.Investment(v.Input, j.Decided, prices);
-            sb.Append($"<div class=\"card\"><div class=\"sub\">투자비(원)</div><div class=\"big\">{(prices.Count == 0 ? "-" : Won(inv.Total))}</div><div class=\"sub\">{(inv.Unpriced.Count > 0 ? "단가 없음: " + H(string.Join(", ", inv.Unpriced)) : "&nbsp;")}</div></div>");
+            var inv = InvestmentOf(v.Input, j.Decided, prices);
+            sb.Append($"<div class=\"card\"><div class=\"sub\">투자비(원)</div><div class=\"big\">{Cost(inv)}</div><div class=\"sub\">{(inv is { Unpriced.Count: > 0 } ? "단가 없음: " + H(string.Join(", ", inv.Unpriced)) : "&nbsp;")}</div></div>");
         }
         sb.Append("</div>");
 

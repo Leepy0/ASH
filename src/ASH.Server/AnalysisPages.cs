@@ -19,7 +19,7 @@ public static class AnalysisPages
         if (v.Input == null) return null;
         var utils = v.Groups.Select(g => g.Util).Where(u => !double.IsNaN(u)).ToList();
         var stops = v.Materials.Select(m => m.StopSec).Where(s => !double.IsNaN(s)).ToList();
-        return new Metrics(j.Decided.Values.Sum(), utils.Count == 0 ? double.NaN : utils.Max(), stops.Count == 0 ? double.NaN : stops.Sum(), v, prices == null ? null : JobView.Investment(v.Input, j.Decided, prices));
+        return new Metrics(j.Decided.Values.Sum(), utils.Count == 0 ? double.NaN : utils.Max(), stops.Count == 0 ? double.NaN : stops.Sum(), v, prices == null ? null : InvestmentOf(v.Input, j.Decided, prices));
     }
 
     static string Num(double d, string fmt = "0.#") => F(d, fmt);
@@ -252,7 +252,7 @@ public static class AnalysisPages
                 var stops = m.View.Materials.Where(x => x.Group == g).Select(x => x.StopSec).Where(s => !double.IsNaN(s)).ToList();
                 sb.Append($"<td class=\"num\">{(gv.Decided?.ToString(CultureInfo.InvariantCulture) ?? "-")}</td><td class=\"num\">{P(gv.Util)}</td><td class=\"num\">{F(gv.MinStockRatio)}</td><td class=\"num\">{(stops.Count == 0 ? "-" : Num(stops.Sum(), "0"))}</td>");
             }
-            sb.Append($"<td class=\"num\">{m.View.Deadlocks}</td><td class=\"num\">{(m.Investment == null ? "-" : Won(m.Investment.Total) + (m.Investment.Unpriced.Count > 0 ? " <span class=\"muted\">(단가 없음: " + H(string.Join(", ", m.Investment.Unpriced)) + ")</span>" : ""))}</td></tr>");
+            sb.Append($"<td class=\"num\">{m.View.Deadlocks}</td><td class=\"num\">{(m.Investment == null ? "-" : Cost(m.Investment) + (m.Investment.Unpriced.Count > 0 ? " <span class=\"muted\">(단가 없음: " + H(string.Join(", ", m.Investment.Unpriced)) + ")</span>" : ""))}</td></tr>");
         }
         sb.Append("</table></div></section>");
     }
