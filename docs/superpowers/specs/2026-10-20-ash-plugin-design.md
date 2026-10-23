@@ -160,6 +160,7 @@ CP 수가 1000개 규모이므로 traffic CP의 자동 생성은 기본값을 "�
 경로 작성:
 
 - `AGVPATH`: 폴리라인을 그리면 세그먼트별로 방향 XData와 화살표를 자동 부여. 그린 순서가 진행 방향.
+- `AGVCONVERT`: 일반 도구로 그린 LINE·ARC·LWPOLYLINE·(맞춤 없는) 2D POLYLINE을 선택(또는 한 레이어 전체)해 `AGV_PATH` 레이어의 단방향 경로로 바꾼다. `AGVPATH`처럼 구간마다 경로 하나, 그린 방향이 진행 방향. 이어서 모든 경로를 `AGVSPLIT`처럼 교차 분할하고, 건너뛴 객체(SPLINE, 맞춤 폴리선, 잠긴 레이어, 이미 경로 등)와 방향·종류 변경 방법(`AGVREVERSE`, `AGVPTYPE`)을 명령줄에 안내한다. 한 번의 Ctrl+Z로 전부 되돌린다.
 - `AGVREVERSE`: 선택 경로의 방향 반전.
 - `AGVOFFSET`: 선택 경로를 간격 d로 평행 복제(양방향 통로). 방향은 반대로 설정하는 옵션.
 - `AGVARRAY`: 선택 경로·CP·block을 간격과 개수로 배열 복제. CP 이름은 접미 번호 자동 증가.

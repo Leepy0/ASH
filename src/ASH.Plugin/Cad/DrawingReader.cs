@@ -68,6 +68,24 @@ public static class DrawingReader
     /// <summary>Converts a path entity (Line/Arc/Polyline) to a LayoutPath in travel order; null for other entity types.</summary>
     public static LayoutPath? ReadPath(Entity e, (bool Spur, bool Two, bool Crab) layerKind)
     {
+        var segs = Segments(e);
+        if (segs == null || segs.Count == 0) return null;
+        var x = XData.ReadPath(e);
+        if (x?.Reversed == true)
+        {
+            segs.Reverse();
+            segs = segs.Select(s => s.Reversed()).ToList();
+        }
+        return new LayoutPath(x?.Name ?? "?" + e.Handle)
+        {
+            Id = e.Handle.ToString(), Segments = segs,
+            IsSpur = x?.IsSpur ?? layerKind.Spur, IsTwoWay = x?.IsTwoWay ?? layerKind.Two, IsCrab = x?.IsCrab ?? layerKind.Crab,
+        };
+    }
+
+    /// <summary>Line/Arc/Polyline geometry in drawing (vertex) order, XData ignored; null for other entity types.</summary>
+    public static List<Segment>? Segments(Entity e)
+    {
         var segs = new List<Segment>();
         switch (e)
         {
@@ -84,31 +102,27 @@ public static class DrawingReader
             }
             case Polyline pl:
             {
-                int n = pl.NumberOfVertices, count = pl.Closed ? n : n - 1;
                 double flip = pl.Normal.Z < 0 ? -1 : 1;
-                for (int i = 0; i < count; i++)
-                {
-                    var s = Bulge.ToSegment(Xy(pl.GetPoint3dAt(i)), Xy(pl.GetPoint3dAt((i + 1) % n)), pl.GetBulgeAt(i) * flip);
-                    if (s != null) segs.Add(s);
-                }
-                break;
+                var v = Enumerable.Range(0, pl.NumberOfVertices).Select(i => (Xy(pl.GetPoint3dAt(i)), pl.GetBulgeAt(i) * flip)).ToList();
+                return PathConvert.FromVertices(v, pl.Closed);
             }
             default:
                 return null;
         }
         segs.RemoveAll(s => s.Length <= MinLen);
-        if (segs.Count == 0) return null;
-        var x = XData.ReadPath(e);
-        if (x?.Reversed == true)
-        {
-            segs.Reverse();
-            segs = segs.Select(s => s.Reversed()).ToList();
-        }
-        return new LayoutPath(x?.Name ?? "?" + e.Handle)
-        {
-            Id = e.Handle.ToString(), Segments = segs,
-            IsSpur = x?.IsSpur ?? layerKind.Spur, IsTwoWay = x?.IsTwoWay ?? layerKind.Two, IsCrab = x?.IsCrab ?? layerKind.Crab,
-        };
+        return segs;
+    }
+
+    /// <summary>A simple (not fitted) old-style 2D POLYLINE, as <see cref="Segments(Entity)"/> does for LWPOLYLINE.</summary>
+    public static List<Segment> Segments(Polyline2d p, Transaction tr)
+    {
+        double flip = p.Normal.Z < 0 ? -1 : 1;
+        var v = new List<(Point2, double)>();
+        int i = 0;
+        foreach (ObjectId vid in p)
+            if (tr.GetObject(vid, OpenMode.ForRead) is Vertex2d vx)
+                v.Add((Xy(p.GetPointAtParameter(i++)), vx.Bulge * flip)); // vertex k sits at parameter k, in WCS
+        return PathConvert.FromVertices(v, p.Closed);
     }
 
     internal static IEnumerable<ObjectId> ModelSpace(Database db, Transaction tr, OpenMode mode)

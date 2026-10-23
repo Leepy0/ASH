@@ -88,16 +88,8 @@ public sealed class PathCommands
                 var pl = (Polyline)tr.GetObject(id, OpenMode.ForWrite);
                 var drawn = DrawingReader.ReadPath(pl, kind); // its straight lines and arcs, in the order drawn
                 if (drawn == null) continue;
-                // PLINE joins consecutive segments into one polyline; each line (or arc) becomes a path of its own so fillet, join and split work on them
-                var pieces = new List<LayoutPath>();
-                foreach (var seg in drawn.Segments)
-                {
-                    var name = AutoNamer.Next("P", names);
-                    names.Add(name);
-                    var piece = new LayoutPath(name) { IsSpur = kind.Spur, IsTwoWay = kind.Two, IsCrab = kind.Crab };
-                    piece.Segments.Add(seg);
-                    pieces.Add(piece);
-                }
+                // PLINE joins consecutive segments into one polyline; each line (or arc) becomes a path of its own
+                var pieces = PathConvert.Pieces(drawn.Segments, kind, names);
                 DrawingWriter.ReplacePaths(d, tr, new[] { pl.Handle.ToString() }, pieces);
                 made += pieces.Count;
                 ed.WriteMessage(pieces.Count == 1
@@ -107,6 +99,74 @@ public sealed class PathCommands
             return made > 0;
         });
     }
+
+    // ---------- AGVCONVERT: lines/polylines drawn with ordinary tools -> one-way paths, then split at every crossing ----------
+
+    [CommandMethod("AGVCONVERT", CommandFlags.UsePickSet)]
+    public void AgvConvert() => Run(Doc, "AGVCONVERT", (db, tr) =>
+    {
+        var ids = ConvertTargets(Ed, db, tr);
+        if (ids == null) return false;
+        var names = DrawingReader.Read(db, tr).Paths.Select(p => p.Name).ToList();
+        var skipped = new Dictionary<string, int>();
+        var sources = new List<string>();
+        var made = new List<LayoutPath>();
+        foreach (var id in ids)
+        {
+            if (!(tr.GetObject(id, OpenMode.ForRead) is Entity e) || e.IsErased) continue;
+            var locked = ((LayerTableRecord)tr.GetObject(e.LayerId, OpenMode.ForRead)).IsLocked;
+            var why = PathConvert.SkipReason(ConvertType(e), e.Layer, locked, Conventions.PathLayers);
+            // drawn order, XData ignored: every converted path is one-way from the start point to the end point
+            var segs = why != null ? null : e is Polyline2d p2 ? DrawingReader.Segments(p2, tr) : DrawingReader.Segments(e);
+            if (why == null && (segs == null || segs.Count == 0)) why = "길이 0";
+            if (why != null) { skipped[why] = (skipped.TryGetValue(why, out var n) ? n : 0) + 1; continue; }
+            made.AddRange(PathConvert.Pieces(segs!, (false, false, false), names));
+            sources.Add(e.Handle.ToString());
+        }
+        Ed.WriteMessage("\n" + PathConvert.Summary(sources.Count, made.Count, skipped));
+        if (made.Count == 0) { FinalStatus = "AGVCONVERT: 변환할 선·폴리선 없음"; return false; }
+        DrawingWriter.ReplacePaths(db, tr, sources, made);
+        var layout = DrawingReader.Read(db, tr); // every path, new and old, as AGVSPLIT with Enter
+        SplitPaths(db, tr, Ed, layout.Paths, layout.Tolerance);
+        Ed.WriteMessage("\n" + PathConvert.Guidance);
+        return true;
+    });
+
+    // Already selected, a selection, or everything on the layer of one picked object. Never the whole drawing: walls are lines too.
+    private static ObjectId[]? ConvertTargets(Editor ed, Database db, Transaction tr)
+    {
+        var imp = ed.SelectImplied();
+        if (imp.Status == PromptStatus.OK && imp.Value.Count > 0)
+        {
+            ed.SetImpliedSelection(new ObjectId[0]);
+            return imp.Value.GetObjectIds();
+        }
+        var mode = Keyword(ed, "\n변환 대상 [선택(S)/레이어(L)] <선택>", "S", "S", "L");
+        if (mode == null) return null;
+        if (mode == "S")
+        {
+            // no type filter: splines and other objects are selected too, so the summary can say they were skipped
+            var sel = ed.GetSelection(new PromptSelectionOptions { MessageForAdding = "\n경로로 바꿀 선·폴리선 선택" });
+            return sel.Status == PromptStatus.OK ? sel.Value.GetObjectIds() : null;
+        }
+        var pick = ed.GetEntity("\n변환할 레이어의 객체 하나 선택");
+        if (pick.Status != PromptStatus.OK) return null;
+        var layer = ((Entity)tr.GetObject(pick.ObjectId, OpenMode.ForRead)).Layer;
+        var all = DrawingReader.ModelSpace(db, tr, OpenMode.ForRead)
+            .Where(i => tr.GetObject(i, OpenMode.ForRead) is Entity e && DrawingReader.Eq(e.Layer, layer)).ToArray();
+        ed.WriteMessage($"\n레이어 {layer}: 객체 {all.Length}개");
+        return all;
+    }
+
+    private static string ConvertType(Entity e) => e switch
+    {
+        Line _ => "LINE",
+        Arc _ => "ARC",
+        Polyline _ => "LWPOLYLINE",
+        Polyline2d p => p.PolyType == Poly2dType.SimplePoly ? "POLYLINE2D" : PathConvert.FittedPolyline2d,
+        Polyline3d _ => "3D POLYLINE",
+        _ => e.GetRXClass().DxfName,
+    };
 
     // ---------- path type ----------
 

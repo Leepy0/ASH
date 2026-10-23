@@ -21,7 +21,7 @@ public static class AgvRibbon
         var tab = new RibbonTab { Title = "ASH", Id = TabId };
         tab.Panels.Add(Panel("레이아웃", ("양식 초기화", GlyphKind.Init, "AGVINIT"), ("팔레트", GlyphKind.Block, "AGVPALETTE"),
             ("업데이트", GlyphKind.Update, "AGVUPDATE"), ("서버 설정", GlyphKind.Settings, "AGVSERVER")));
-        tab.Panels.Add(Panel("경로", ("경로 그리기", GlyphKind.Path, "AGVPATH"),
+        tab.Panels.Add(Panel("경로", ("경로 그리기", GlyphKind.Path, "AGVPATH"), ("선→경로 변환", GlyphKind.Convert, "AGVCONVERT"),
             ("방향 반전", GlyphKind.Reverse, "AGVREVERSE"), ("경로 종류", GlyphKind.PathType, "AGVPTYPE"), ("평행 복제", GlyphKind.Offset, "AGVOFFSET"), ("배열 복제", GlyphKind.Array, "AGVARRAY"),
             ("교차 분할", GlyphKind.Split, "AGVSPLIT"), ("경로 잇기", GlyphKind.Join, "AGVJOIN"), ("필렛", GlyphKind.Fillet, "AGVFILLET"),
             ("방향표 크기", GlyphKind.ArrowSize, "AGVARROW")));
