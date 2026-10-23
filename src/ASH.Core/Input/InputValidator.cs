@@ -48,8 +48,8 @@ public static class InputValidator
         for (int i = 0; i < input.AgvTypes.Count; i++)
         {
             var t = input.AgvTypes[i];
-            if (assetNames != null && t.Asset.Length > 0 && !assetNames.Contains(t.Asset))
-                f.Add(new Finding(FindingCode.InputWarning, $"Asset '{t.Asset}'가 카탈로그에 없습니다(직접 만든 에셋이면 무시)", default(Point2), $"AGV_Types!{(t.Row > 0 ? t.Row : i + 3)}"));
+            if (assetNames != null && t.Asset.Length > 0 && !assetNames.Contains(t.Asset, StringComparer.OrdinalIgnoreCase))
+                f.Add(new Finding(FindingCode.InputWarning, $"에셋 '{t.Asset}'은(는) 카탈로그에 없습니다(직접 만든 에셋이면 무시)", default(Point2), $"AGV_Types!{(t.Row > 0 ? t.Row : i + 3)}"));
             var c = catalog.FirstOrDefault(x => x.Name == t.Type);
             if (c == null) continue;
             var d = c.Defaults;

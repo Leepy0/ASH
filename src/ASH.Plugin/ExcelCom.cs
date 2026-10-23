@@ -38,7 +38,7 @@ internal static class ExcelCom
     {
         foreach (var e in edits)
         {
-            if (e is AddSheetEdit) { dynamic last = wb.Worksheets[wb.Worksheets.Count]; dynamic ws = wb.Worksheets.Add(Type.Missing, last); ws.Name = e.Sheet; continue; }
+            if (e is AddSheetEdit ase) { dynamic last = wb.Worksheets[wb.Worksheets.Count]; dynamic ws = wb.Worksheets.Add(Type.Missing, last); ws.Name = e.Sheet; if (ase.Hidden) ws.Visible = 0; continue; }
             dynamic sheet = wb.Worksheets[e.Sheet];
             switch (e)
             {

@@ -120,5 +120,30 @@ public class AssetColumnTests
         Assert.Equal("AGV_Types!5", w.EntityId);
         Assert.Equal(FindingCode.InputWarning, w.Code);
         Assert.Contains("'nope'", w.Message);
+        pi.AgvTypes[0] = pi.AgvTypes[0] with { Asset = "AGV_A" };
+        Assert.Empty(InputValidator.CatalogDiff(pi, cat, new[] { "agv_a" }));
+    }
+
+    [Fact]
+    public void Update_Log_Marks_Lists_Sheet_Hidden_And_Clears_Stale_Rows()
+    {
+        var names = string.Join(",", Enumerable.Range(0, 40).Select(i => "asset_" + i.ToString("D4")));
+        try
+        {
+            ExcelTemplate.AssetListFormula = names;
+            using var wb = new XLWorkbook();
+            var log = new System.Collections.Generic.List<ExcelEdit>();
+            ExcelTemplate.Update(wb, null, log);
+            Assert.Contains(log, e => e is AddSheetEdit a && a.Sheet == "_lists" && a.Hidden);
+            Assert.Equal(1, log.OfType<AddSheetEdit>().Count(a => a.Sheet == "_lists"));
+            // shorter list over an existing _lists: no new sheet edit, old rows blanked
+            ExcelTemplate.AssetListFormula = string.Join(",", Enumerable.Range(0, 30).Select(i => "asset_" + i.ToString("D4")) .Concat(new[] { new string('x', 200) }));
+            var log2 = new System.Collections.Generic.List<ExcelEdit>();
+            ExcelTemplate.Update(wb, null, log2);
+            Assert.DoesNotContain(log2, e => e is AddSheetEdit a && a.Sheet == "_lists");
+            Assert.Contains(log2, e => e is CellEdit c && c.Sheet == "_lists" && c.Row == 40 && c.Value == "");
+            Assert.Equal("", wb.Worksheet("_lists").Cell(40, 1).GetString());
+        }
+        finally { ExcelTemplate.AssetListFormula = ""; }
     }
 }

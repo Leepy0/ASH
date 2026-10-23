@@ -415,8 +415,9 @@ public static class ExcelTemplate
             else if (isAsset && source.Length > 253) // Excel caps an inline list at 255 chars: names go to a hidden sheet
             {
                 var names = source.Split(',');
-                var ls = wb.TryGetWorksheet("_lists", out var ex) ? ex : wb.AddWorksheet("_lists");
-                if (log != null) log.Add(new AddSheetEdit("_lists"));
+                bool had = wb.TryGetWorksheet("_lists", out var ls);
+                if (!had) { ls = wb.AddWorksheet("_lists"); log?.Add(new AddSheetEdit("_lists", true)); }
+                else for (int i = names.Length + 1; i <= ls.LastRowUsed()?.RowNumber(); i++) { ls.Cell(i, 1).Clear(); log?.Add(new CellEdit("_lists", i, 1, "")); } // stale rows
                 for (int i = 0; i < names.Length; i++) Set(ls, i + 1, 1, names[i], log);
                 ls.Visibility = XLWorksheetVisibility.Hidden;
                 v.List(ls.Range(1, 1, names.Length, 1), true);
@@ -470,7 +471,7 @@ public static class ExcelTemplate
 /// <summary>One change <see cref="ExcelTemplate.Update(XLWorkbook, ASH.Core.Layout.Layout?, List{ExcelEdit}?)"/> made, in order, so that Excel itself can
 /// repeat it on a file only Excel can write (company document encryption). Columns and rows are 1-based, as they were when the edit was made.</summary>
 public abstract record ExcelEdit(string Sheet);
-public sealed record AddSheetEdit(string Sheet) : ExcelEdit(Sheet);
+public sealed record AddSheetEdit(string Sheet, bool Hidden = false) : ExcelEdit(Sheet);
 public sealed record DeleteColumnEdit(string Sheet, int Col) : ExcelEdit(Sheet);
 public sealed record CellEdit(string Sheet, int Row, int Col, string Value) : ExcelEdit(Sheet);
 /// <summary>One R1C1 formula over rows FirstRow..LastRow of a column.</summary>
