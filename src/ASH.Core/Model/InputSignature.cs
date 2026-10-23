@@ -21,7 +21,10 @@ public static class InputSignature
         string N(double d) => d.ToString("G15", CultureInfo.InvariantCulture);
         void L(params object?[] xs) => sb.Append(string.Join("\t", xs.Select(x => x is double d ? N(d) : x?.ToString() ?? ""))).Append('\n');
         L("settings", p.Settings.Units, p.Settings.SimLengthSec);
-        foreach (var t in p.AgvTypes) L("type", t.Type, t.SpeedLoaded, t.LoadTime, t.UnloadTime, t.Length, t.Width);
+        // curve speeds only when set (> 0; null and 0 mean "same as straight"): models made before them keep their signature
+        foreach (var t in p.AgvTypes)
+            if (t.SpeedLoadedCurve > 0 || t.SpeedEmptyCurve > 0) L("type", t.Type, t.SpeedLoaded, t.LoadTime, t.UnloadTime, t.Length, t.Width, t.SpeedLoadedCurve ?? 0, t.SpeedEmptyCurve ?? 0);
+            else L("type", t.Type, t.SpeedLoaded, t.LoadTime, t.UnloadTime, t.Length, t.Width);
         // FinishCP only when set: models made before it existed keep their signature
         foreach (var g in p.Groups) { if (string.IsNullOrEmpty(g.FinishCP)) L("group", g.Group, g.Type, g.MaxCount, string.Join(",", g.StandbyCPs)); else L("group", g.Group, g.Type, g.MaxCount, string.Join(",", g.StandbyCPs), g.FinishCP); }
         foreach (var m in p.Materials) L("material", m.Material, m.Group, m.EmptyReturn);

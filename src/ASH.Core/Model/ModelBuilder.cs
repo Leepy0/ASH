@@ -107,7 +107,7 @@ public static class ModelBuilder
     {
         var t = input.AgvTypes.FirstOrDefault(x => string.Equals(x.Type, g.Type, StringComparison.OrdinalIgnoreCase)) ?? throw new InvalidOperationException($"AGV_Groups {g.Group}: 유형 {g.Type}이 AGV_Types에 없습니다.");
         return new VehicleGroupSpec(g.Group, g.Group, g.MaxCount, t.SpeedLoaded, t.Length, t.Width, Accel: t.Accel, Decel: t.Decel, Kind: string.IsNullOrWhiteSpace(t.Kind) ? "Standard" : t.Kind, SpeedEmpty: t.SpeedEmpty,
-            StandbyCps: g.StandbyCPs);
+            SpeedCurve: t.SpeedLoadedCurve ?? 0, SpeedEmptyCurve: t.SpeedEmptyCurve ?? 0, StandbyCps: g.StandbyCPs);
     }).ToList();
 
     static List<string> Warn(List<Finding> f) => f.Where(x => x.Code == FindingCode.InputWarning).Select(x => x.Message).ToList();
