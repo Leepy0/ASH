@@ -200,19 +200,23 @@ public class JobTests
         Assert.Equal(5.0, j.RunSeconds); Assert.Equal(2, j.RunsDone); Assert.Equal(1, j.RunsFailed);
         Assert.True(JobProgress.Ratio(j) < 1.0);
         var api = JsonDocument.Parse(await env.Http.GetStringAsync("/api/jobs/" + id)).RootElement;
+        Assert.Equal("failed", api.GetProperty("state").GetString()); Assert.Equal(JsonValueKind.Null, api.GetProperty("phase").ValueKind);
         Assert.True(api.GetProperty("progress").GetDouble() < 1.0); Assert.Equal(JsonValueKind.Null, api.GetProperty("eta").ValueKind);
     }
 
     [Fact] public async Task A_Cancelled_Running_Job_Is_Cancelled_Below_Full_With_No_Running_Phase()
     {
         using var env = new JobEnv();
-        env.Runner.Script = (p, s, ct) => { s(Sp("탐색 시작", 1, 3)); Run(p, true, 1); ct.WaitHandle.WaitOne(); ct.ThrowIfCancellationRequested(); return Ok; };
+        env.Runner.Script = (p, s, ct) => { s(Sp("탐색 시작", 1, 3)); Run(p, true, 1); if (!ct.WaitHandle.WaitOne(10000)) throw new TimeoutException("cancel never arrived"); ct.ThrowIfCancellationRequested(); return Ok; };
         var id = Id(await (await env.Send(JobEnv.MakePackage(env.Dir))).Content.ReadAsStringAsync());
         for (int i = 0; i < 200 && env.Store.Get(id)!.RunsDone < 1; i++) await Task.Delay(50);
         await env.Http.PostAsync($"/jobs/{id}/cancel", new FormUrlEncodedContent(new Dictionary<string, string>()));
         var j = await env.WaitFinished(id);
         Assert.Equal(JobState.Cancelled, j.State); Assert.Null(j.Phase);
         Assert.True(JobProgress.Ratio(j) < 1.0);
+        var api = JsonDocument.Parse(await env.Http.GetStringAsync("/api/jobs/" + id)).RootElement;
+        Assert.Equal("cancelled", api.GetProperty("state").GetString()); Assert.Equal(JsonValueKind.Null, api.GetProperty("phase").ValueKind);
+        Assert.True(api.GetProperty("progress").GetDouble() < 1.0); Assert.Equal(JsonValueKind.Null, api.GetProperty("eta").ValueKind);
     }
 
     [Fact] public async Task Runs_Past_The_Estimate_Raise_It_To_Runs_Plus_Groups_Left()
@@ -247,11 +251,15 @@ public class JobTests
         env.Runner.Script = (p, s, ct) => { s(Sp("탐색 시작", 1, 4)); Run(p, true, 10); Run(p, true, 10); hold.Wait(ct); return Ok; };
         var id = Id(await (await env.Send(JobEnv.MakePackage(env.Dir))).Content.ReadAsStringAsync());
         for (int i = 0; i < 200 && env.Store.Get(id)!.RunsDone < 2; i++) await Task.Delay(50);
-        var api = JsonDocument.Parse(await env.Http.GetStringAsync("/api/jobs/" + id)).RootElement;
-        hold.Set(); await env.WaitFinished(id);
-        Assert.Equal(0.5, api.GetProperty("progress").GetDouble(), 3); Assert.Equal(10.0, api.GetProperty("avgRunSec").GetDouble(), 3);
-        var eta = DateTime.Parse(api.GetProperty("eta").GetString()!, null, System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal);
-        Assert.InRange((eta - DateTime.UtcNow).TotalSeconds, 5, 15); // (4-2) x 10 s / 2 (default Jobs:Parallel)
+        try
+        {
+            var api = JsonDocument.Parse(await env.Http.GetStringAsync("/api/jobs/" + id)).RootElement;
+            Assert.Equal(0.5, api.GetProperty("progress").GetDouble(), 3); Assert.Equal(10.0, api.GetProperty("avgRunSec").GetDouble(), 3);
+            var eta = DateTime.Parse(api.GetProperty("eta").GetString()!, null, System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal);
+            Assert.InRange((eta - DateTime.UtcNow).TotalSeconds, 5, 15); // (4-2) x 10 s / 2 (default Jobs:Parallel)
+        }
+        finally { hold.Set(); }
+        await env.WaitFinished(id);
     }
 
     static string Id(string json) => JsonDocument.Parse(json).RootElement.GetProperty("id").GetString()!;
