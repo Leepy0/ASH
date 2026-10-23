@@ -10,7 +10,8 @@ using ASH.Core.AutoMod;
 
 namespace ASH.Core.Film;
 
-/// <summary>Mp4 = the file the camera script names (filename + ".mp4"); Dialogs = AutoView windows that were clicked away;
+/// <summary>Mp4 = the movie AutoView made: the file the camera script names (filename + ".mp4"), or filename + ".avi" from an AutoView that writes AVI
+/// (12.4; the ffmpeg steps take either as input); Dialogs = AutoView windows that were clicked away;
 /// TimedOut = the run was killed at its time limit (AutoView hung: a dialog nobody clicked, or no desktop to render on).</summary>
 public sealed record RenderResult(bool Ok, string? Mp4, string? Error, IReadOnlyList<string> Dialogs, bool TimedOut = false);
 
@@ -30,11 +31,16 @@ public interface IFilmRenderer
     (double W, double H)? MarkSize(string mp4With, string mp4Without, int width, int height, CancellationToken ct = default);
 }
 
-/// <summary>aview64 -n &lt;model&gt; in the folder holding the .avw (guide 6.2/6.3): the "Attention!" windows (grid warnings, "a movie will be generated") are clicked OK,
+/// <summary>aview64 -n &lt;model&gt; in the folder holding the .avw (guide 6.2/6.3): the "Attention!" windows (grid warnings, "a movie will be generated") and the AVI codec dialog are clicked OK,
 /// NoDefaultCurrentDirectoryInExePath is removed from the child environment (else AutoView's convert.bat silently fails), aviewerr.dat must stay empty.
-/// ffmpeg must be on PATH for AutoView itself; a full <paramref name="ffmpeg"/> path is also put on the child PATH.</summary>
-public sealed class AutoViewRenderer(string aviewExe, string? amHome, string ffmpeg) : IFilmRenderer
+/// ffmpeg must be on PATH for AutoView itself; a full <paramref name="ffmpeg"/> path is also put on the child PATH.
+/// <paramref name="dialogTitles"/>: windows whose title contains one of these are clicked OK (Film:DialogTitles; null or empty = <see cref="DefaultDialogTitles"/>).
+/// A run killed at its limit or ending without an MP4 says what AutoView left behind (<see cref="AutoViewDiagnostics"/>).</summary>
+public sealed class AutoViewRenderer(string aviewExe, string? amHome, string ffmpeg, IReadOnlyList<string>? dialogTitles = null) : IFilmRenderer
 {
+    /// <summary>"Attention!" (grid warnings, "a movie will be generated"), then 12.4's AVI codec dialog: "비디오 압축" on Korean Windows, "Video Compression" on English.</summary>
+    public static readonly string[] DefaultDialogTitles = { "Attention", "비디오 압축", "Video Compression" };
+
     public RenderResult Render(string workDir, string modelName, string cameraScript, TimeSpan timeout, CancellationToken ct)
     {
         var dialogs = new List<string>();
@@ -47,31 +53,54 @@ public sealed class AutoViewRenderer(string aviewExe, string? amHome, string ffm
         {
             File.WriteAllText(Path.Combine(avw, "camera.des"), cameraScript, new UTF8Encoding(false)); // the script name is fixed (guide 6.2)
             foreach (var n in new[] { "aviewerr.dat", "aviewout.dat" }) File.Delete(Path.Combine(workDir, n));
-            File.Delete(mp4);
+            File.Delete(mp4); File.Delete(movie + ".avi");
         }
         catch (Exception e) when (e is IOException || e is UnauthorizedAccessException) { return Fail("작업 폴더에 쓸 수 없습니다: " + e.Message); }
 
-        var bin = new[] { amHome == null ? null : Path.Combine(amHome, "bin"), Path.IsPathRooted(ffmpeg) ? Path.GetDirectoryName(ffmpeg) : null }.Where(x => x != null);
+        var bin = string.Join(";", new[] { amHome == null ? null : Path.Combine(amHome, "bin"), Path.IsPathRooted(ffmpeg) ? Path.GetDirectoryName(ffmpeg) : null }.Where(x => x != null));
+        var said = new StringBuilder(); // AutoView's own stdout/stderr (a usage line if it does not take -n), last part only
+        string Diag(int? pid)
+        {
+            string output, clicked;
+            lock (said) output = said.ToString();
+            lock (dialogs) clicked = string.Join(", ", dialogs);
+            return AutoViewDiagnostics.Text(aviewExe, pid, workDir, avw, movie, bin) + (clicked.Length > 0 ? " · 누른 창 " + clicked : " · 누른 창 없음") +
+                (output.Trim().Length > 0 ? $" · 출력 \"{Tail(output, 300).Replace("\r", "").Replace("\n", " | ")}\"" : "");
+        }
+        var started = DateTime.UtcNow;
         Process p;
-        try { p = Process.Start(Psi(aviewExe, new[] { "-n", modelName }, workDir, string.Join(";", bin))); }
+        try
+        {
+            var psi = Psi(aviewExe, new[] { "-n", modelName }, workDir, bin);
+            psi.RedirectStandardOutput = true; psi.RedirectStandardError = true;
+            p = Process.Start(psi);
+            DataReceivedEventHandler keep = (_, e) => { if (e.Data == null) return; lock (said) { said.AppendLine(e.Data); if (said.Length > 4000) said.Remove(0, said.Length - 2000); } };
+            p.OutputDataReceived += keep; p.ErrorDataReceived += keep;
+            p.BeginOutputReadLine(); p.BeginErrorReadLine();
+        }
         catch (System.ComponentModel.Win32Exception e) { return Fail($"AutoView({aviewExe})를 실행하지 못했습니다: {e.Message}"); }
+        var titles = dialogTitles is { Count: > 0 } ? dialogTitles.ToArray() : DefaultDialogTitles;
         using (p)
-        using (DialogCloser.Start(p.Id, new[] { "Attention" }, t => { lock (dialogs) dialogs.Add(t); }))
+        using (DialogCloser.Start(p.Id, titles, t => { lock (dialogs) dialogs.Add(t); }))
         {
             var sw = Stopwatch.StartNew();
             while (!p.WaitForExit(500))
                 if (sw.Elapsed > timeout || ct.IsCancellationRequested)
                 {
+                    if (ct.IsCancellationRequested) { Kill(p); return Fail("취소되었습니다."); }
+                    var diag = Diag(p.Id); // before the kill: the windows it is stuck on
                     Kill(p);
-                    return ct.IsCancellationRequested ? Fail("취소되었습니다.")
-                        : Fail($"시간 제한({timeout.TotalMinutes:0.#}분)을 넘어 AutoView를 끊었습니다(대화상자에 걸렸거나 너무 긴 컷).", true);
+                    return Fail($"시간 제한({timeout.TotalMinutes:0.#}분)을 넘어 AutoView를 끊었습니다(대화상자에 걸렸거나 너무 긴 컷). " +
+                        $"창 제목이 보이면 설정 Film:DialogTitles에 더합니다. {diag}", true);
                 }
         }
         var err = Read(Path.Combine(workDir, "aviewerr.dat"));
         if (err.Trim().Length > 0) return Fail("카메라 스크립트 오류(aviewerr.dat): " + Tail(err, 400));
-        if (!File.Exists(mp4) || new FileInfo(mp4).Length == 0)
-            return Fail("AutoView가 MP4를 만들지 않았습니다(서버 PATH에 ffmpeg가 있는지 확인). aviewout.dat: " + Tail(Read(Path.Combine(workDir, "aviewout.dat")), 400));
-        lock (dialogs) return new RenderResult(true, mp4, null, dialogs.ToArray());
+        if (Movie(mp4, movie + ".avi", workDir, avw, started) is not { } made)
+            // only 14.5 was tried (guide 5.2/6.3): whether older AutoView makes an MP4 this way is not known
+            return Fail("AutoView가 동영상(MP4/AVI)을 만들지 않았습니다. MP4 출력은 AutoView 14.x에서 확인한 방식(프레임 JPG → convert.bat → ffmpeg/ezavi 변환)이며 " +
+                "12.4 같은 이전 AutoView에서는 되지 않을 수 있습니다(확인되지 않음). AutoView 버전, 서버 PATH의 ffmpeg, 서비스 세션 여부를 확인합니다. " + Diag(null));
+        lock (dialogs) return new RenderResult(true, made, null, dialogs.ToArray());
     }
 
     public string Finish(IReadOnlyList<string> mp4s, IReadOnlyList<string> captions, string outPath, bool join, CancellationToken ct = default)
@@ -132,6 +161,21 @@ public sealed class AutoViewRenderer(string aviewExe, string? amHome, string ffm
                 x0 = Math.Min(x0, x); x1 = Math.Max(x1, x); y0 = Math.Min(y0, y); y1 = Math.Max(y1, y);
             }
         return x1 < 0 ? null : (x1 - x0 + 1, y1 - y0 + 1);
+    }
+
+    /// <summary>What the run made: &lt;movie&gt;.mp4 (14.x), else &lt;movie&gt;.avi, else the newest AVI written since <paramref name="since"/> in the work or .avw folder
+    /// (12.4 asked for "model.avi" in its movie dialog, so it may not use our filename), moved to &lt;movie&gt;.avi so the next run cannot overwrite it; null when none.
+    /// shortcut: the AVI route is unverified (no 12.4 here; 14.5's AVI was a blank picture); confirm with one film on a 12.4 server.</summary>
+    internal static string? Movie(string mp4, string avi, string workDir, string avw, DateTime since)
+    {
+        static bool Has(string f) => File.Exists(f) && new FileInfo(f).Length > 0;
+        if (Has(mp4)) return mp4;
+        if (Has(avi)) return avi;
+        var other = new[] { workDir, avw }.Where(Directory.Exists).SelectMany(d => Directory.GetFiles(d, "*.avi"))
+            .Select(f => new FileInfo(f)).Where(f => f.Length > 0 && f.LastWriteTimeUtc >= since.AddSeconds(-2)).OrderByDescending(f => f.LastWriteTimeUtc).FirstOrDefault();
+        if (other == null) return null;
+        try { File.Move(other.FullName, avi); return avi; }
+        catch (IOException) { return other.FullName; }
     }
 
     /// <summary>The movie file of a camera script (its "filename" line, no extension); null when there is none.</summary>

@@ -15,7 +15,11 @@ namespace ASH.Core.AutoMod
         [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
         [DllImport("user32.dll")] static extern IntPtr SendMessageW(IntPtr h, uint msg, IntPtr w, IntPtr l);
         [DllImport("user32.dll")] static extern bool EnumChildWindows(IntPtr h, EnumProc p, IntPtr l);
+        [DllImport("user32.dll")] static extern IntPtr GetDlgItem(IntPtr h, int id);
         const uint WM_CLOSE = 0x0010, BM_CLICK = 0x00F5;
+        const int IDOK = 1;
+        static readonly string[] OkTexts = { "OK", "확인" }, CancelTexts = { "Cancel", "취소" };
+        static bool Is(string text, string[] names) => Array.Exists(names, n => string.Equals(text.Replace("&", "").Trim(), n, StringComparison.OrdinalIgnoreCase));
 
         static string Text(IntPtr h)
         {
@@ -25,7 +29,9 @@ namespace ASH.Core.AutoMod
         }
 
         // shortcut: matches windows of ownerPid only (no child-process tree); extend if am264 spawns a dialog-owning child.
-        /// <summary>buttonText null: click "OK" (WM_CLOSE fallback), skipping Authorization/Error windows. Otherwise click the child button with that text (mnemonic & ignored) and nothing else.</summary>
+        /// <summary>buttonText null: click OK — a button "OK"/"확인" (Korean Windows' Video Compression dialog), else the IDOK control unless it reads Cancel/취소 —
+        /// skipping Authorization/Error windows; WM_CLOSE (= Cancel) only for a window with no Cancel button, so a dialog with OK/Cancel is never cancelled.
+        /// Otherwise click the child button with that text (mnemonic & ignored) and nothing else.</summary>
         public static IDisposable Start(int ownerPid, string[] titleContains, Action<string> onClosed, string? buttonText = null)
         {
             var seen = new System.Collections.Generic.HashSet<IntPtr>();
@@ -56,11 +62,18 @@ namespace ASH.Core.AutoMod
                     {
                         // AM's dialog ignores WM_CLOSE; click its button, WM_CLOSE as fallback for the OK case only.
                         IntPtr ok = IntPtr.Zero;
-                        var want = button ?? "OK";
-                        EnumChildWindows(h, (c, _) => { if (Text(c).Replace("&", "") == want) ok = c; return true; }, IntPtr.Zero);
+                        var cancel = false;
+                        EnumChildWindows(h, (c, _) =>
+                        {
+                            var ct = Text(c);
+                            if (button != null ? ct.Replace("&", "") == button : Is(ct, OkTexts)) ok = c;
+                            cancel |= Is(ct, CancelTexts);
+                            return true;
+                        }, IntPtr.Zero);
+                        if (ok == IntPtr.Zero && button == null && GetDlgItem(h, IDOK) is var id && id != IntPtr.Zero && !Is(Text(id), CancelTexts)) ok = id;
                         if (ok != IntPtr.Zero) SendMessageW(ok, BM_CLICK, IntPtr.Zero, IntPtr.Zero);
-                        else if (button == null) SendMessageW(h, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
-                        else break; // button not created yet: retry next poll
+                        else if (button == null && !cancel) SendMessageW(h, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+                        else break; // button not created yet (or only Cancel-like buttons): retry next poll, never cancel
                         bool first;
                         lock (seen) first = seen.Add(h);
                         if (first) onClosed(t);
