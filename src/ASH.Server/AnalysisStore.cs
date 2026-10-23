@@ -55,11 +55,26 @@ public sealed class AnalysisStore
 
     public AnalysisInfo? Get(string id) { lock (_gate) return _items.FirstOrDefault(a => a.Id == id) is { } a ? Clone(a) : null; }
 
-    public AnalysisInfo CreateAnalysis(string name, string note)
+    public AnalysisInfo CreateAnalysis(string name, string note, string corp = "", string productLine = "", string line = "")
     {
         if (string.IsNullOrWhiteSpace(name)) throw new ArgumentException("분석 이름을 입력하세요.", nameof(name));
-        var a = new AnalysisInfo { Id = NewId("a-"), Name = name.Trim(), Note = note ?? "", CreatedUtc = DateTime.UtcNow };
+        var a = new AnalysisInfo { Id = NewId("a-"), Name = name.Trim(), Note = note ?? "", CreatedUtc = DateTime.UtcNow, Corp = corp?.Trim() ?? "", ProductLine = productLine?.Trim() ?? "", Line = line?.Trim() ?? "" };
         lock (_gate) { _items.Add(a); Save(); return Clone(a); }
+    }
+
+    public void SetTags(string analysisId, string corp, string productLine, string line)
+    {
+        lock (_gate) { var a = Find(analysisId); a.Corp = corp?.Trim() ?? ""; a.ProductLine = productLine?.Trim() ?? ""; a.Line = line?.Trim() ?? ""; Save(); }
+    }
+
+    /// <summary>Autocomplete: each tag's distinct values (case-insensitive, first spelling kept), sorted.</summary>
+    public (IReadOnlyList<string> Corps, IReadOnlyList<string> ProductLines, IReadOnlyList<string> Lines) TagValues()
+    {
+        lock (_gate)
+        {
+            static IReadOnlyList<string> D(IEnumerable<string> v) => v.Where(x => x.Length > 0).GroupBy(x => x, StringComparer.OrdinalIgnoreCase).Select(g => g.First()).OrderBy(x => x, StringComparer.CurrentCulture).ToList();
+            return (D(_items.Select(a => a.Corp)), D(_items.Select(a => a.ProductLine)), D(_items.Select(a => a.Line)));
+        }
     }
 
     public PlanInfo CreatePlan(string analysisId, string name, string note)

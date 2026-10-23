@@ -13,14 +13,14 @@ internal static partial class Routes
         app.MapGet("/api/analyses", (AnalysisStore st, JobStore js) =>
         {
             var jobs = js.All();
-            return Results.Json(st.All().Select(a => new { a.Id, a.Name, a.Note, Plans = a.Plans.Select(p => new { p.Id, p.Name, NextVersion = NextVersion(jobs, a.Id, p.Id) }) }));
+            return Results.Json(st.All().Select(a => new { a.Id, a.Name, a.Note, a.Corp, a.ProductLine, a.Line, Plans = a.Plans.Select(p => new { p.Id, p.Name, NextVersion = NextVersion(jobs, a.Id, p.Id) }) }));
         });
 
         app.MapPost("/api/analyses", async (HttpContext ctx, AnalysisStore st) =>
         {
             if (CrossSiteBrowser(ctx)) return Msg(403, "다른 사이트에서 보낸 요청은 받지 않습니다.");
-            if (await NameNote(ctx) is not { } v) return Msg(400, NameNoteError);
-            try { return Results.Json(new { st.CreateAnalysis(v.Name, v.Note).Id }); }
+            if (await NameNote(ctx) is not { } v || Tags(await ctx.Request.ReadFormAsync()) is not { } t) return Msg(400, NameNoteError);
+            try { return Results.Json(new { st.CreateAnalysis(v.Name, v.Note, t.Corp, t.ProductLine, t.Line).Id }); }
             catch (ArgumentException e) { return Msg(400, e.Message); }
         });
 
@@ -35,8 +35,8 @@ internal static partial class Routes
         app.MapPost("/analyses", async (HttpContext ctx, AnalysisStore st) =>
         {
             if (!SameOrigin(ctx)) return Msg(403, CrossSite);
-            if (await NameNote(ctx) is not { } v) return Msg(400, NameNoteError);
-            try { return Results.Redirect("/analyses/" + st.CreateAnalysis(v.Name, v.Note).Id); }
+            if (await NameNote(ctx) is not { } v || Tags(await ctx.Request.ReadFormAsync()) is not { } t) return Msg(400, NameNoteError);
+            try { return Results.Redirect("/analyses/" + st.CreateAnalysis(v.Name, v.Note, t.Corp, t.ProductLine, t.Line).Id); }
             catch (ArgumentException e) { return Msg(400, e.Message); }
         });
 

@@ -19,6 +19,20 @@ public class AnalysisTests : IDisposable
     }
 
     [Fact]
+    public void Tags_Are_Saved_And_Listed()
+    {
+        var st = new AnalysisStore(_dir);
+        var a = st.CreateAnalysis("P동 검토", "", "P법인", "냉장고", "1라인");
+        st.CreateAnalysis("Q동 검토", "", "p법인", "", "2라인");
+        var again = new AnalysisStore(_dir);
+        Assert.Equal(("P법인", "냉장고", "1라인"), (again.Get(a.Id)!.Corp, again.Get(a.Id)!.ProductLine, again.Get(a.Id)!.Line));
+        Assert.Equal(new[] { "P법인" }, again.TagValues().Corps);
+        Assert.Equal(new[] { "1라인", "2라인" }, again.TagValues().Lines);
+        again.SetTags(a.Id, "R법인", "", "");
+        Assert.Equal("R법인", new AnalysisStore(_dir).Get(a.Id)!.Corp);
+    }
+
+    [Fact]
     public void Assign_Gives_Next_Version_Per_Plan()
     {
         var js = Jobs(); var st = new AnalysisStore(_dir);
@@ -198,6 +212,19 @@ public class AnalysisApiTests
         }
         Assert.Empty(env.Factory.Services.GetRequiredService<AnalysisStore>().All());
         Assert.Empty(env.Store.All());
+    }
+
+    [Fact]
+    public async Task Tags_Over_Api_And_Jobs()
+    {
+        using var env = new JobEnv(worker: false);
+        await Post(env, "/api/analyses", null, ("name", "분석1"), ("corp", " P법인 "));
+        Assert.Equal("P법인", Body(await (await env.Http.GetAsync("/api/analyses")).Content.ReadAsStringAsync())[0].GetProperty("corp").GetString());
+        Assert.Equal(HttpStatusCode.BadRequest, (await Post(env, "/api/analyses", null, ("name", "t"), ("line", new string('x', 101)))).StatusCode);
+        await Submit(env, JobEnv.MakePackage(env.Dir), ("analysisName", "새이름"), ("planName", "A"), ("corp", "X"));
+        await Submit(env, JobEnv.MakePackage(env.Dir), ("analysisName", "새이름"), ("planName", "B"), ("corp", "Y"));
+        var st = env.Factory.Services.GetRequiredService<AnalysisStore>();
+        Assert.Equal("X", st.All().Single(a => a.Name == "새이름").Corp);
     }
 
     [Fact]

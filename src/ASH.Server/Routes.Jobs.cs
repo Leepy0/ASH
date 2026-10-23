@@ -37,6 +37,7 @@ internal static partial class Routes
             var analysisId = Field("analysisId", 64); var planId = Field("planId", 64);
             var analysisName = form["analysisName"].ToString().Trim(); var planName = form["planName"].ToString().Trim(); var versionNote = form["versionNote"].ToString().Trim();
             if (analysisName.Length > NameMax || planName.Length > NameMax) return Msg(400, "분석·안 이름은 100자까지입니다.");
+            if (Tags(form) is not { } tags) return Msg(400, "법인·제품군·라인은 100자까지입니다.");
             if (versionNote.Length > NoteMax) return Msg(400, "버전 메모는 200자까지입니다.");
             var classify = analysisId.Length + planId.Length + analysisName.Length + planName.Length > 0;
             if (classify && (analysisId.Length == 0 && analysisName.Length == 0 || planId.Length == 0 && planName.Length == 0))
@@ -77,7 +78,7 @@ internal static partial class Routes
                     lock (analysisGate)
                     {
                         var a = analysisId.Length > 0 ? analyses.Get(analysisId) ?? throw new ArgumentException("분석이 없습니다: " + analysisId)
-                            : analyses.All().FirstOrDefault(x => string.Equals(x.Name, analysisName, StringComparison.OrdinalIgnoreCase)) ?? analyses.CreateAnalysis(analysisName, "");
+                            : analyses.All().FirstOrDefault(x => string.Equals(x.Name, analysisName, StringComparison.OrdinalIgnoreCase)) ?? analyses.CreateAnalysis(analysisName, "", tags.Corp, tags.ProductLine, tags.Line);
                         var p = planId.Length > 0 ? a.Plans.FirstOrDefault(x => x.Id == planId) ?? throw new ArgumentException("안이 없습니다: " + planId)
                             : a.Plans.FirstOrDefault(x => string.Equals(x.Name, planName, StringComparison.OrdinalIgnoreCase)) ?? analyses.CreatePlan(a.Id, planName, "");
                         aid = a.Id; pid = p.Id;

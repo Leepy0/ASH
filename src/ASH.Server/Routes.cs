@@ -57,6 +57,13 @@ internal static partial class Routes
         return name.Length > NameMax || note.Length > NoteMax ? null : (name, note);
     }
 
+    // optional tag fields, trimmed; null when one is over NameMax
+    internal static (string Corp, string ProductLine, string Line)? Tags(IFormCollection f)
+    {
+        string c = f["corp"].ToString().Trim(), p = f["productLine"].ToString().Trim(), l = f["line"].ToString().Trim();
+        return c.Length > NameMax || p.Length > NameMax || l.Length > NameMax ? null : (c, p, l);
+    }
+
     // the plugin sends no Origin/Referer (and does not call these); a browser always does, so a cross-site page cannot create analyses
     internal static bool CrossSiteBrowser(HttpContext ctx) => (ctx.Request.Headers.Origin.Count > 0 || ctx.Request.Headers.Referer.Count > 0) && !SameOrigin(ctx);
 
