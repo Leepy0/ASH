@@ -50,8 +50,9 @@ table{border-collapse:collapse;background:#fff}td,th{border:1px solid #d3d1c7;pa
 .s-queued{background:#faeeda;color:#633806}.s-running{background:#e6f1fb;color:#0c447c}.s-done{background:#eaf3de;color:#27500a}.s-failed{background:#fcebeb;color:#791f1f}.s-cancelled{background:#f1efe8;color:#444441}
 pre{background:#f1efe8;padding:10px;overflow:auto;max-height:420px;font-size:12px}
 button{padding:6px 14px}
-th button{all:unset;cursor:pointer}th button:focus-visible{outline:2px solid #185fa5}
-th[aria-sort=ascending] button::after{content:' ▲'}th[aria-sort=descending] button::after{content:' ▼'}
+th[aria-sort],table.sort td{white-space:nowrap}th button{all:unset;cursor:pointer;white-space:nowrap}th button:focus-visible{outline:2px solid #185fa5}
+th button::after{content:'▲';display:inline-block;width:1.2em;margin-left:.2em;text-align:center;visibility:hidden}
+th[aria-sort=ascending] button::after,th[aria-sort=descending] button::after{visibility:visible}th[aria-sort=descending] button::after{content:'▼'}
 @media (max-width:640px){header{padding:10px 16px}header a{margin-right:12px}main{padding:16px}.card{min-width:0;flex:1 1 130px;padding:10px 14px}.card .big{font-size:22px}
 .grid{grid-template-columns:1fr}dl.kv,.field{grid-template-columns:1fr}dl.kv dt{margin-top:6px}.field label{padding-top:0}}";
 
