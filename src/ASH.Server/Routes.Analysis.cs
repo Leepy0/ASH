@@ -127,8 +127,8 @@ internal static partial class Routes
 
         app.MapGet("/analyses", (AnalysisStore st, JobStore js) => Html(AnalysisPages.Index(st.All(), js.All())));
         app.MapGet("/analyses/unclassified", (AnalysisStore st, JobStore js) => Html(AnalysisPages.Unclassified(js.All(), st.All())));
-        app.MapGet("/analyses/{id}", (string id, AnalysisStore st, JobStore js, FilmStore fs) =>
-            st.Get(id) is { } a ? Html(AnalysisPages.Detail(a, js.All(), js, fs.All())) : Msg(404, "분석이 없습니다."));
+        app.MapGet("/analyses/{id}", (string id, AnalysisStore st, JobStore js, FilmStore fs, CatalogStore cs) =>
+            st.Get(id) is { } a ? Html(AnalysisPages.Detail(a, js.All(), js, fs.All(), cs.Prices())) : Msg(404, "분석이 없습니다."));
 
         // ---- cuts: an analysis' film cuts, edited in the browser and filmed by the server ----
         app.MapGet("/analyses/{id}/cuts", (string id, string? job, AnalysisStore st, JobStore js) =>

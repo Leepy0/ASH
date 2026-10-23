@@ -10,16 +10,16 @@ namespace ASH.Server;
 public static class AnalysisPages
 {
     /// <summary>Result numbers of a finished job, taken from its JobView (the same ones the 결론 tab shows). Util = the busiest group, Stop = all materials.</summary>
-    internal sealed record Metrics(int? Total, double Util, double Stop, JobView View);
+    internal sealed record Metrics(int? Total, double Util, double Stop, JobView View, InvestmentView? Investment = null);
 
-    internal static Metrics? MetricsOf(JobStore js, JobInfo j)
+    internal static Metrics? MetricsOf(JobStore js, JobInfo j, IReadOnlyDictionary<string, PriceRow>? prices = null)
     {
         if (j.State != JobState.Done || j.Decided == null) return null;
         var v = JobView.For(js, j);
         if (v.Input == null) return null;
         var utils = v.Groups.Select(g => g.Util).Where(u => !double.IsNaN(u)).ToList();
         var stops = v.Materials.Select(m => m.StopSec).Where(s => !double.IsNaN(s)).ToList();
-        return new Metrics(j.Decided.Values.Sum(), utils.Count == 0 ? double.NaN : utils.Max(), stops.Count == 0 ? double.NaN : stops.Sum(), v);
+        return new Metrics(j.Decided.Values.Sum(), utils.Count == 0 ? double.NaN : utils.Max(), stops.Count == 0 ? double.NaN : stops.Sum(), v, prices == null ? null : JobView.Investment(v.Input, j.Decided, prices));
     }
 
     static string Num(double d, string fmt = "0.#") => F(d, fmt);
@@ -100,7 +100,7 @@ public static class AnalysisPages
         return Page("ASH 분석에 넣지 않은 작업", sb.ToString());
     }
 
-    public static string Detail(AnalysisInfo a, IReadOnlyList<JobInfo> allJobs, JobStore store, IReadOnlyList<FilmInfo>? films = null)
+    public static string Detail(AnalysisInfo a, IReadOnlyList<JobInfo> allJobs, JobStore store, IReadOnlyList<FilmInfo>? films = null, IReadOnlyDictionary<string, PriceRow>? prices = null)
     {
         var jobs = allJobs.Where(j => j.AnalysisId == a.Id).ToList();
         var back = "/analyses/" + a.Id;
@@ -109,7 +109,7 @@ public static class AnalysisPages
         sb.Append($"<p class=\"muted\">만든 시각 {H(When(a.CreatedUtc))} · 안 {a.Plans.Count}개 · 버전 {jobs.Count}개 · <a href=\"/analyses/{H(a.Id)}/cuts\">컷 영상 →</a></p>");
         if (jobs.Any(j => !j.Finished)) sb.Append("<p class=\"muted\">실행 중인 작업이 있습니다. 새로 고치면 결과가 갱신됩니다.</p>");
 
-        var metrics = jobs.ToDictionary(j => j.Id, j => MetricsOf(store, j));
+        var metrics = jobs.ToDictionary(j => j.Id, j => MetricsOf(store, j, prices));
         Compare(sb, a, jobs, metrics);
 
         foreach (var p in a.Plans)
@@ -237,14 +237,14 @@ public static class AnalysisPages
         var groups = picked.Select(j => metrics[j.Id]).Where(m => m != null).SelectMany(m => m!.View.Groups.Select(g => g.Group)).Distinct(StringComparer.Ordinal).ToList();
         sb.Append("<div class=\"scroll\"><table><tr><th rowspan=\"2\">안 · 버전</th>");
         foreach (var g in groups) sb.Append($"<th colspan=\"4\">{H(g)}</th>");
-        sb.Append("<th rowspan=\"2\">교착(회)</th></tr><tr>");
+        sb.Append("<th rowspan=\"2\">교착(회)</th><th rowspan=\"2\">투자비(원)</th></tr><tr>");
         foreach (var _ in groups) sb.Append("<th>권장(대)</th><th>가동률(%)</th><th>최소 재고/안전재고(배)</th><th>결품(초)</th>");
         sb.Append("</tr>");
         foreach (var j in picked)
         {
             var plan = a.Plans.FirstOrDefault(p => p.Id == j.PlanId);
             sb.Append($"<tr><td><a href=\"/jobs/{H(j.Id)}\">{H(plan?.Name)} · v{j.Version}</a></td>");
-            if (metrics[j.Id] is not { } m) { sb.Append($"<td colspan=\"{groups.Count * 4 + 1}\" class=\"muted\">결과가 없습니다({H(JobState.Korean(j.State))})</td></tr>"); continue; }
+            if (metrics[j.Id] is not { } m) { sb.Append($"<td colspan=\"{groups.Count * 4 + 2}\" class=\"muted\">결과가 없습니다({H(JobState.Korean(j.State))})</td></tr>"); continue; }
             foreach (var g in groups)
             {
                 var gv = m.View.Groups.FirstOrDefault(x => x.Group == g);
@@ -252,7 +252,7 @@ public static class AnalysisPages
                 var stops = m.View.Materials.Where(x => x.Group == g).Select(x => x.StopSec).Where(s => !double.IsNaN(s)).ToList();
                 sb.Append($"<td class=\"num\">{(gv.Decided?.ToString(CultureInfo.InvariantCulture) ?? "-")}</td><td class=\"num\">{P(gv.Util)}</td><td class=\"num\">{F(gv.MinStockRatio)}</td><td class=\"num\">{(stops.Count == 0 ? "-" : Num(stops.Sum(), "0"))}</td>");
             }
-            sb.Append($"<td class=\"num\">{m.View.Deadlocks}</td></tr>");
+            sb.Append($"<td class=\"num\">{m.View.Deadlocks}</td><td class=\"num\">{(m.Investment == null ? "-" : Won(m.Investment.Total) + (m.Investment.Unpriced.Count > 0 ? " <span class=\"muted\">(단가 없음: " + H(string.Join(", ", m.Investment.Unpriced)) + ")</span>" : ""))}</td></tr>");
         }
         sb.Append("</table></div></section>");
     }

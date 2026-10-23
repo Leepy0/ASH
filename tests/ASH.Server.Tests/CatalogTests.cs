@@ -143,4 +143,27 @@ public class CatalogTests
         Assert.Equal("{ not json", File.ReadAllText(file));
         Assert.Single(Directory.GetFiles(store.Dir, "types.json.corrupt-*"));
     }
+
+    [Fact]
+    public void Investment_Lists_Unpriced_Types_And_Sums_Known_Only()
+    {
+        ASH.Core.Input.AgvGroup G(string g, string t) => new(g, t, 1, 5, new List<string>(), "x");
+        var input = new ASH.Core.Input.ProjectInput { Groups = { G("G1", "T_A"), G("G2", "T_B"), G("G3", "T_A") } };
+        var inv = JobView.Investment(input, new Dictionary<string, int> { ["G1"] = 2, ["G2"] = 3, ["G3"] = 1 },
+            new Dictionary<string, PriceRow> { ["T_A"] = new("T_A", 1000m, "KRW", "") });
+        Assert.Equal(3000m, inv.Total);
+        Assert.Equal(new[] { "T_B" }, inv.Unpriced);
+        Assert.Equal("KRW", inv.Currency);
+    }
+
+    [Fact]
+    public async Task Summary_Shows_Investment_Card()
+    {
+        using var env = new JobEnv();
+        var body = await (await env.Send(JobEnv.MakePackage(env.Dir))).Content.ReadAsStringAsync();
+        var id = JsonDocument.Parse(body).RootElement.GetProperty("id").GetString()!;
+        await env.WaitFinished(id);
+        env.Factory.Services.GetRequiredService<CatalogStore>().SavePrices("Type,UnitPrice,Currency,Note\nT_AGV,500,KRW,\n");
+        Assert.Contains("투자비(원)", await env.Http.GetStringAsync("/jobs/" + id));
+    }
 }

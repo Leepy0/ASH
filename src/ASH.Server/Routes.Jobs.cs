@@ -107,12 +107,12 @@ internal static partial class Routes
             return Results.Json(new { j.Id, j.State, j.Phase, j.RunsDone, j.RunsFailed, j.Error, j.Decided, j.Warnings, j.CreatedUtc, j.StartedUtc, j.FinishedUtc });
         });
 
-        app.MapGet("/jobs/{id}", (string id, string? tab, HttpContext ctx, JobStore js, ReleaseStore rs, AnalysisStore analyses, FilmStore fs, FilmWorker fw) =>
+        app.MapGet("/jobs/{id}", (string id, string? tab, HttpContext ctx, JobStore js, ReleaseStore rs, AnalysisStore analyses, FilmStore fs, FilmWorker fw, CatalogStore cs) =>
         {
             if (!JobStore.IsValidId(id) || js.Get(id) is not { } j) return Msg(404, "작업이 없습니다.");
             var view = j.State == JobState.Queued ? null : JobView.For(js, j);
             var t = tab is "detail" or "input" or "files" ? tab : "summary";
-            return Results.Content(JobPages.Job(j, view, t, t == "files" ? Tail(js.LogPath(id), 200) : "", Queue(js, fw, id), CanCancel(ctx, j, rs, null), analyses.All(), fs.All(), fw.Busy), "text/html; charset=utf-8");
+            return Results.Content(JobPages.Job(j, view, t, t == "files" ? Tail(js.LogPath(id), 200) : "", Queue(js, fw, id), CanCancel(ctx, j, rs, null), analyses.All(), fs.All(), fw.Busy, cs.Prices()), "text/html; charset=utf-8");
         });
 
         app.MapPost("/jobs/{id}/cancel", async (string id, HttpContext ctx, JobStore js, JobWorker worker, ReleaseStore rs) =>

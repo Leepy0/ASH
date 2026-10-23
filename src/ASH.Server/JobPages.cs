@@ -14,6 +14,7 @@ public static class JobPages
     internal static string F(double d, string fmt = "0.##") => double.IsNaN(d) || double.IsInfinity(d) ? "-" : d.ToString(fmt, CultureInfo.InvariantCulture);
     static string Pct(double d) => double.IsNaN(d) ? "-" : P(d) + "%";
     /// <summary>Percent without the sign, for table cells whose header carries "(%)".</summary>
+    internal static string Won(decimal d) => d.ToString("N0", CultureInfo.InvariantCulture);
     internal static string P(double d) => double.IsNaN(d) ? "-" : (d * 100).ToString("0.0", CultureInfo.InvariantCulture);
     internal static string When(DateTime? utc) => utc is { } t ? SeoulTime.Text(t) : "-";
     internal static string Dur(TimeSpan? d) => d is { } x ? (x.TotalHours >= 1 ? $"{(int)x.TotalHours}시간 {x.Minutes}분" : x.TotalMinutes >= 1 ? $"{(int)x.TotalMinutes}분 {x.Seconds}초" : $"{x.Seconds}초") : "-";
@@ -120,7 +121,7 @@ document.querySelectorAll('table.sort').forEach(function(t){
     }
 
     public static string Job(JobInfo j, JobView? v, string tab, string logTail, (int Ahead, DateTime? Start, TimeSpan? Typical) q, bool canCancel, IReadOnlyList<ASH.Core.Analysis.AnalysisInfo>? analyses = null,
-        IReadOnlyList<FilmInfo>? films = null, string? busy = null)
+        IReadOnlyList<FilmInfo>? films = null, string? busy = null, IReadOnlyDictionary<string, PriceRow>? prices = null)
     {
         var sb = new StringBuilder();
         if (analyses != null) AnalysisPages.JobHeader(sb, j, analyses);
@@ -158,13 +159,13 @@ document.querySelectorAll('table.sort').forEach(function(t){
             case "detail": Detail(sb, j, v); break;
             case "input": InputTab(sb, j, v); break;
             case "files": FilesTab(sb, j, logTail); break;
-            default: Summary(sb, j, v); break;
+            default: Summary(sb, j, v, prices); break;
         }
         sb.Append("</div>");
         return Page($"ASH 작업 {j.Id}", sb.ToString());
     }
 
-    static void Summary(StringBuilder sb, JobInfo j, JobView? v)
+    static void Summary(StringBuilder sb, JobInfo j, JobView? v, IReadOnlyDictionary<string, PriceRow>? prices)
     {
         if (j.Decided == null || v?.Input == null)
         {
@@ -178,6 +179,11 @@ document.querySelectorAll('table.sort').forEach(function(t){
         sb.Append($"<div class=\"card\"><div class=\"sub\">권장 AGV 총 대수</div><div class=\"big\">{total}대</div><div class=\"sub\">시험 범위 {min}~{max}대</div></div>");
         sb.Append($"<div class=\"card\"><div class=\"sub\">확인 실행 판정</div><div class=\"big {(allOk ? "ok" : "bad")}\">{(allOk ? "통과" : "실패")}</div><div class=\"sub\">재고 · 가동률 상한 {Pct(v.UtilMax)} · 공급 · 교착</div></div>");
         sb.Append($"<div class=\"card\"><div class=\"sub\">모델 실행</div><div class=\"big\">{j.RunsDone}회</div><div class=\"sub\">실패 {j.RunsFailed}회 · 경고 {j.Warnings.Count}건 · {Dur(j.Duration)}</div></div>");
+        if (prices != null)
+        {
+            var inv = JobView.Investment(v.Input, j.Decided, prices);
+            sb.Append($"<div class=\"card\"><div class=\"sub\">투자비(원)</div><div class=\"big\">{(prices.Count == 0 ? "-" : Won(inv.Total))}</div><div class=\"sub\">{(inv.Unpriced.Count > 0 ? "단가 없음: " + H(string.Join(", ", inv.Unpriced)) : "&nbsp;")}</div></div>");
+        }
         sb.Append("</div>");
 
         sb.Append($"<p><a href=\"/jobs/{H(j.Id)}/files/report.xlsx\">Excel 보고서 받기</a></p>");
