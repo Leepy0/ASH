@@ -43,7 +43,7 @@ ASH.Server - ASH 배포 서버 (최소판)
    - Film         웹 컷 편집기에서 내보낸 영상을 서버가 작업 사이에 만든다(컷마다 AutoView, ffmpeg 로 자막·이어 붙이기, MP4).
                     FfmpegPath 기본 ffmpeg(PATH 에서 찾음). libx264 와 drawtext 가 들어 있는 최신 빌드를 서버 PATH 에 두거나 전체 경로를 적는다.
                       확인: ffmpeg -hide_banner -encoders | findstr libx264   /   ffmpeg -hide_banner -filters | findstr drawtext
-                    AviewExe 비우면 AmHome\bin\aview64.exe. AutoView 는 모델 실행과 같은 AutoMod 라이선스를 쓴다.
+                    AviewExe 비우면 AmHome\bin 안의 aview64.exe(12.6 이상), 없으면 aview.exe(12.4). AutoView 는 모델 실행과 같은 AutoMod 라이선스를 쓴다.
                     CutTimeoutMin 컷 하나의 AutoView 제한(기본 20분). 넘으면 그 컷만 실패한다.
                     최초 1회 확인: 영상을 한 편 만들어 서비스 세션에서 AutoView 가 그리는지 본다. "AutoView가 MP4를 만들지 않았습니다" 로 실패하면
                       서비스를 로그온 가능한 계정으로 바꾸고 그 계정이 서버 PC 에 로그온해 두거나, 서비스 대신 작업 스케줄러에
@@ -110,7 +110,7 @@ ASH.Server - ASH 배포 서버 (최소판)
   KeepRunsDays, Dir), Film(FfmpegPath, AviewExe, CutTimeoutMin), GitHub(Enabled, BaseUrl, CheckIntervalMin, UpdateServer, Proxy, Dns), Urls, Releases:Dir, Update:AllowUnsigned.
   Admin:Token, Update:PublicKeyPem, Logging 은 웹에서 바꾸지 않는다(파일을 직접 고친다).
 - 바로 적용(저장하면 다음 작업·다음 정리부터): Jobs:Enabled, AmHome, Parallel, DialogButton, RunTimeoutMin, BuildTimeoutMin,
-  JobTimeoutHours, KeepRunsDays, Film:CutTimeoutMin.  재시작 필요: 나머지 전부(Jobs:WorkerEnabled, Jobs:Dir, Film:FfmpegPath, Film:AviewExe, GitHub:*, Urls, Releases:Dir, Update:AllowUnsigned).
+  JobTimeoutHours, KeepRunsDays, Film:CutTimeoutMin, Film:FfmpegPath, Film:AviewExe.  재시작 필요: 나머지 전부(Jobs:WorkerEnabled, Jobs:Dir, GitHub:*, Urls, Releases:Dir, Update:AllowUnsigned).
 - 저장은 값을 검사(정수 범위, 켬/끔, 주소 형식)한 뒤 appsettings.json 을 임시 파일로 쓰고 바꿔 넣는다. 이전 파일은
   appsettings.json.yyyyMMdd-HHmmss.bak 으로 남는다. 모르는 키는 그대로 두지만 파일 안의 // 주석은 없어진다(.bak 에는 남음).
   AmHome 에 AutoMod 빌드 exe 가 없으면 경고만 하고 저장한다.

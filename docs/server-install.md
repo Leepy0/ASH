@@ -214,14 +214,14 @@ sc start ASH.Server
 웹의 컷 편집기(`/analyses/{id}/cuts`)에서 내보낸 영상은 서버가 작업 사이에 만든다(컷마다 AutoView 한 번 → ffmpeg로 자막·이어 붙이기 → MP4 yuv420p faststart). 서버 PC에 아래가 필요하다. 없으면 영상만 실패하고 작업 실행은 영향이 없다.
 
 1. **ffmpeg** — libx264와 drawtext(libfreetype)가 들어 있는 최신 빌드(gyan.dev의 full/essentials 등). 서버 서비스 계정의 `PATH`에 두거나 `Film:FfmpegPath`에 전체 경로를 적는다. AutoView도 MP4 변환에 PATH의 ffmpeg를 쓰므로, 전체 경로를 적으면 서버가 그 폴더를 AutoView 실행 환경의 PATH에 붙여 준다. 확인: `ffmpeg -hide_banner -encoders | findstr libx264`, `ffmpeg -hide_banner -filters | findstr drawtext` (둘 다 한 줄 이상 나와야 한다).
-2. **AutoView** — AutoMod 폴더의 `bin\aview64.exe`(기본). 다른 곳이면 `Film:AviewExe`. AutoView 라이선스가 모델 실행과 같은 라이선스를 쓰므로 서버 PC에서 AutoMod 라이선스가 AutoView도 허용하는지 확인한다.
+2. **AutoView** — AutoMod 폴더의 `bin` 안에서 찾는다: AutoMod 12.6 이상은 `aview64.exe`, 12.4는 `aview.exe`(둘 다 있으면 `aview64.exe`). 다른 곳에 있으면 `Film:AviewExe`에 전체 경로를 적는다. AutoView 라이선스가 모델 실행과 같은 라이선스를 쓰므로 서버 PC에서 AutoMod 라이선스가 AutoView도 허용하는지 확인한다.
 3. **서비스 세션 렌더 확인(최초 1회)** — AutoView가 서비스(세션 0, 로그온 없음)에서 화면 없이 그려지는지는 PC마다 다를 수 있다. 영상을 한 편 만들어 완료되는지 본다. 컷이 "AutoView가 MP4를 만들지 않았습니다"로 실패하면 AutoView가 서비스에서 그리지 못하는 것이니 둘 중 하나를 쓴다. (a) 서비스를 로그온 가능한 계정으로 바꾸고(`sc config ASH.Server obj= ".\<계정>" password= "<암호>"`) 서버 PC에 그 계정이 로그온해 둔다. (b) 서비스 대신 작업 스케줄러에 `ASH.Server.exe`를 "사용자가 로그온한 경우에만 실행"으로 등록한다(자동 업데이트·복구 설정은 서비스일 때만 동작).
 4. 컷 하나가 `Film:CutTimeoutMin`(기본 20분)을 넘으면 AutoView를 끊고 그 컷만 실패한다. 영상 페이지 `/films/{id}`에 컷별 상태와 `film.log`가 나온다. F0(화면 배율 기준값)는 영상마다 자동 보정 컷으로 정한다.
 
 | 설정 | 기본 | 뜻 | 적용 |
 |---|---|---|---|
-| `Film:FfmpegPath` | `ffmpeg` | ffmpeg 실행 파일(PATH에서 찾거나 전체 경로) | 재시작 |
-| `Film:AviewExe` | (빈칸 = `<Jobs:AmHome>\bin\aview64.exe`) | AutoView 실행 파일 | 재시작 |
+| `Film:FfmpegPath` | `ffmpeg` | ffmpeg 실행 파일(PATH에서 찾거나 전체 경로) | 바로 |
+| `Film:AviewExe` | (빈칸 = `<Jobs:AmHome>\bin`에서 `aview64.exe`, 없으면 `aview.exe`) | AutoView 실행 파일 | 바로 |
 | `Film:CutTimeoutMin` | 20 | 컷 하나의 AutoView 시간 제한(분, 1~600) | 바로 |
 
 세 값 모두 웹 설정 페이지의 "영상 촬영" 구역에서 바꾼다.

@@ -7,6 +7,7 @@ using ASH.Core.Film;
 using ASH.Core.Input;
 using ASH.Core.Runner;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
 
 namespace ASH.Server.Tests;
 
@@ -532,5 +533,67 @@ public class FilmTests
         await Done(env, "분석", "A안"); // the worker has gone round at least once since
         Assert.False(File.Exists(Path.Combine(env.Store.JobDir(local), "scenes.json")));
         Assert.DoesNotContain(env.Film.Runs, r => r.ProjectDir == env.Store.ProjectDir(local));
+    }
+}
+
+public class LiveFilmRendererTests
+{
+    // a throwaway AutoMod folder with the given program files in bin\
+    static string AmHome(params string[] files)
+    {
+        var am = Path.Combine(Path.GetTempPath(), "ash_live_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(am, "bin"));
+        foreach (var f in files) File.WriteAllText(Path.Combine(am, "bin", f), "x");
+        return am;
+    }
+
+    static IConfigurationRoot Config(string? am, string? aview = null) => new ConfigurationBuilder()
+        .AddInMemoryCollection(new Dictionary<string, string?> { ["Jobs:AmHome"] = am, ["Film:AviewExe"] = aview }).Build();
+
+    [Fact]
+    public void Finds_The_Program_Under_The_Configured_AutoMod_Folder()
+    {
+        var am = AmHome("aview64.exe");
+        try { Assert.Equal(Path.Combine(am, "bin", "aview64.exe"), LiveFilmRenderer.ResolveAviewExe(Config(am))); }
+        finally { Directory.Delete(am, true); }
+    }
+
+    [Fact]
+    public void An_Explicit_Film_AviewExe_Wins_Over_The_Folder_Search()
+    {
+        var am = AmHome("aview64.exe");
+        try { Assert.Equal(@"D:\custom\aview.exe", LiveFilmRenderer.ResolveAviewExe(Config(am, @"D:\custom\aview.exe"))); }
+        finally { Directory.Delete(am, true); }
+    }
+
+    [Fact]
+    public void Changing_The_AutoMod_Folder_At_Runtime_Changes_The_Program_Used()
+    {
+        // the settings page applies Jobs:AmHome at once; the film renderer must follow it (it used to keep the startup folder)
+        var old = AmHome("aview64.exe");
+        var new124 = AmHome("aview.exe");
+        try
+        {
+            var cfg = Config(old);
+            Assert.Equal(Path.Combine(old, "bin", "aview64.exe"), LiveFilmRenderer.ResolveAviewExe(cfg));
+            cfg["Jobs:AmHome"] = new124;
+            Assert.Equal(Path.Combine(new124, "bin", "aview.exe"), LiveFilmRenderer.ResolveAviewExe(cfg));
+        }
+        finally { Directory.Delete(old, true); Directory.Delete(new124, true); }
+    }
+
+    [Fact]
+    public void No_Program_Gives_Null_And_A_Korean_Failure_Naming_The_Candidates()
+    {
+        var am = AmHome("am264.exe");
+        try
+        {
+            Assert.Null(LiveFilmRenderer.ResolveAviewExe(Config(am)));
+            var r = new LiveFilmRenderer(Config(am)).Render(am, "m", "", TimeSpan.FromSeconds(5), CancellationToken.None);
+            Assert.False(r.Ok);
+            Assert.Contains("AutoView 실행 파일을 찾지 못했습니다", r.Error);
+            Assert.Contains("aview.exe", r.Error);
+        }
+        finally { Directory.Delete(am, true); }
     }
 }

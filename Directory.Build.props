@@ -1,6 +1,6 @@
 <Project>
   <PropertyGroup>
-    <Version>0.19.0</Version>
+    <Version>0.19.1</Version>
     <!-- ZWCAD year ASH.Plugin is built for (ZWCAD.NetApi 20.26.0 = ZWCAD 2026); the installer only installs into this version -->
     <AshZwcadVersion>2026</AshZwcadVersion>
     <LangVersion>latest</LangVersion>

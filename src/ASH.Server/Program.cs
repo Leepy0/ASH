@@ -30,14 +30,8 @@ builder.Services.AddSingleton(sp => new CutStore(sp.GetRequiredService<JobStore>
 builder.Services.AddSingleton<IJobRunner, AutoModJobRunner>();
 builder.Services.AddSingleton(sp => new FilmStore(sp.GetRequiredService<JobStore>().Dir, sp.GetRequiredService<ILoggerFactory>().CreateLogger<FilmStore>()));
 builder.Services.AddSingleton<IFilmAutoMod, AutoModFilm>();
-// Film:AviewExe (default <Jobs:AmHome>\bin\aview64.exe) and Film:FfmpegPath (default "ffmpeg" on PATH) are read once at start
-builder.Services.AddSingleton<ASH.Core.Film.IFilmRenderer>(sp =>
-{
-    var cfg = sp.GetRequiredService<IConfiguration>();
-    var am = new AutoModJobRunner(cfg).AmHome;
-    return new ASH.Core.Film.AutoViewRenderer(cfg["Film:AviewExe"] is { Length: > 0 } av ? av : Path.Combine(am, "bin", "aview64.exe"), am,
-        cfg["Film:FfmpegPath"] is { Length: > 0 } ff ? ff : "ffmpeg");
-});
+// AutoView program, AutoMod folder and ffmpeg are read from the settings at each film run (see LiveFilmRenderer)
+builder.Services.AddSingleton<ASH.Core.Film.IFilmRenderer>(sp => new LiveFilmRenderer(sp.GetRequiredService<IConfiguration>()));
 builder.Services.AddSingleton<FilmWorker>();
 builder.Services.AddSingleton<JobWorker>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<JobWorker>());
