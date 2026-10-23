@@ -140,8 +140,25 @@ internal static partial class Routes
             return Html(HomePages.Analyses(v.InProgress.Concat(v.Finished).ToList(), q?.Trim() ?? "", v.Unclassified));
         });
         app.MapGet("/analyses/unclassified", (AnalysisStore st, JobStore js) => Html(AnalysisPages.Unclassified(js.All(), st.All())));
-        app.MapGet("/analyses/{id}", (string id, AnalysisStore st, JobStore js, FilmStore fs) =>
-            st.Get(id) is { } a ? Html(AnalysisPages.Detail(a, js.All(), js, fs.All())) : Msg(404, "분석이 없습니다."));
+        static (AnalysisPageData D, Live L)? PageOf(string id, AnalysisStore st, JobStore js, FilmStore fs, FilmWorker fw, IConfiguration cfg)
+        {
+            if (st.Get(id) is not { } a) return null;
+            var jobs = js.All().Where(j => j.AnalysisId == id).ToList();
+            var q = Queue(js, fw);
+            var d = new AnalysisPageData(a, jobs, fs.All().Where(f => f.Request.AnalysisId == id).ToList(), js, q, JobProgress.Parallel(cfg), 0);
+            return (d, LiveFields.OfAnalysis(a, jobs, d.Films, q.Typical, d.Parallel, js));
+        }
+
+        app.MapGet("/analyses/{id}", (string id, string? tab, HttpContext ctx, AnalysisStore st, JobStore js, FilmStore fs, FilmWorker fw, IConfiguration cfg) =>
+            PageOf(id, st, js, fs, fw, cfg) is { } p
+                ? Html(AnalysisPages.Detail(p.D, tab ?? "status", ctx.Request.Query, (tab ?? "status") == "status" && p.L.Active ? JobPages.PollScript("/api/analyses/" + id + "/status", p.L.Watch) : null))
+                : Msg(404, "분석이 없습니다."));
+
+        app.MapGet("/api/analyses/{id}/status", (string id, AnalysisStore st, JobStore js, FilmStore fs, FilmWorker fw, IConfiguration cfg) =>
+            PageOf(id, st, js, fs, fw, cfg) is { } p
+                ? Results.Json(new { active = p.L.Active, fields = p.L.Fields, watch = p.L.Watch,
+                    analysis = new { plans = p.D.A.Plans.Count, versions = p.D.Jobs.Count, selected = p.D.Jobs.Count(j => j.Selected), films = p.D.Films.Count } })
+                : Msg(404, "분석이 없습니다."));
 
         // ---- cuts: an analysis' film cuts, edited in the browser and filmed by the server ----
         app.MapGet("/analyses/{id}/cuts", (string id, string? job, AnalysisStore st, JobStore js) =>

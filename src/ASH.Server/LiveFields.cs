@@ -68,8 +68,8 @@ public static class LiveFields
         return Make(f, w);
     }
 
-    /// <summary>Version lines "job.&lt;id&gt;.*", the running card "running.*" and the partial result "partial.&lt;group&gt;" of an analysis page.</summary>
-    public static Live OfAnalysis(AnalysisInfo a, IReadOnlyList<JobInfo> jobs, IReadOnlyList<FilmInfo> films, TimeSpan? typical, int parallel)
+    /// <summary>Version lines "job.&lt;id&gt;.*", the running card "running.*" and the partial result "partial.text" of an analysis page.</summary>
+    public static Live OfAnalysis(AnalysisInfo a, IReadOnlyList<JobInfo> jobs, IReadOnlyList<FilmInfo> films, TimeSpan? typical, int parallel, JobStore store)
     {
         var f = new Dictionary<string, string>(); var w = new Dictionary<string, string>();
         var mine = jobs.Where(j => j.AnalysisId == a.Id).ToList();
@@ -77,7 +77,7 @@ public static class LiveFields
         if (mine.Where(j => j.State == JobState.Running).OrderBy(j => j.StartedUtc ?? j.CreatedUtc).FirstOrDefault() is { } r)
         {
             JobKeys(f, "running", r, typical, parallel);
-            foreach (var kv in r.Partial ?? new()) f["partial." + kv.Key] = kv.Value.ToString(CultureInfo.InvariantCulture);
+            f["partial.text"] = AnalysisPages.PartialText(store, r);
         }
         foreach (var fm in films.Where(x => x.Request.AnalysisId == a.Id)) w[fm.Id] = fm.State;
         return Make(f, w);

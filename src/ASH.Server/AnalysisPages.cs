@@ -1,12 +1,15 @@
 using System.Globalization;
 using System.Text;
 using ASH.Core.Analysis;
+using ASH.Core.Runner;
 using static ASH.Server.JobPages;
 
 namespace ASH.Server;
 
 /// <summary>The analysis pages: the list (/analyses), one analysis with its plans' versions and the compare table of the selected ones
 /// (/analyses/{id}), the jobs not filed anywhere (/analyses/unclassified), and the "where is this job filed" header of a job page.</summary>
+public sealed record AnalysisPageData(AnalysisInfo A, IReadOnlyList<JobInfo> Jobs, IReadOnlyList<FilmInfo> Films, JobStore Store, (int Ahead, DateTime? Start, TimeSpan? Typical) Queue, int Parallel, int CutCount);
+
 public static class AnalysisPages
 {
     /// <summary>Result numbers of a finished job, taken from its JobView (the same ones the 결론 tab shows). Util = the busiest group, Stop = all materials.</summary>
@@ -78,17 +81,66 @@ public static class AnalysisPages
         return Page("ASH 분석에 넣지 않은 작업", sb.ToString());
     }
 
-    public static string Detail(AnalysisInfo a, IReadOnlyList<JobInfo> allJobs, JobStore store, IReadOnlyList<FilmInfo>? films = null)
+    /// <summary>"G01 4 · G02 3 · G03 5 시험 중 · G04 탐색 중": confirmed groups with their count, the ones in the cluster being searched, the rest still waiting.
+    /// Group order and Max come from the job's input; without it only the confirmed groups are listed.</summary>
+    internal static string PartialText(JobStore store, JobInfo j)
     {
-        var jobs = allJobs.Where(j => j.AnalysisId == a.Id).ToList();
-        var back = "/analyses/" + a.Id;
-        var sb = new StringBuilder($"<p class=\"crumb\"><a href=\"/analyses\">분석</a> › {H(a.Name)}</p><h1>{H(a.Name)}</h1>");
-        if (a.Note.Length > 0) sb.Append($"<p>{H(a.Note)}</p>");
-        sb.Append($"<p class=\"muted\">만든 시각 {H(When(a.CreatedUtc))} · 안 {a.Plans.Count}개 · 버전 {jobs.Count}개 · <a href=\"/analyses/{H(a.Id)}/cuts\">컷 영상 →</a></p>");
-        if (jobs.Any(j => !j.Finished)) sb.Append("<p class=\"muted\">실행 중인 작업이 있습니다. 새로 고치면 결과가 갱신됩니다.</p>");
+        var done = j.Partial ?? new();
+        List<(string Name, int Max)>? groups = null;
+        try { groups = SearchJob.ReadInput(store.ProjectDir(j.Id), TextWriter.Null, new List<string>(), out _)?.Groups.Select(g => (g.Group, g.MaxCount)).ToList(); }
+        catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException) { }
+        if (groups == null || groups.Count == 0) return string.Join(" · ", done.Select(kv => $"{kv.Key} {kv.Value}"));
+        var trying = j.Phase is { } ph && ph.StartsWith("탐색 ", StringComparison.Ordinal) ? ph[3..].Split(',') : Array.Empty<string>();
+        return string.Join(" · ", groups.Select(g => done.TryGetValue(g.Name, out var n) ? $"{g.Name} {n}" : trying.Contains(g.Name) ? $"{g.Name} {g.Max} 시험 중" : $"{g.Name} 탐색 중"));
+    }
 
-        var metrics = jobs.ToDictionary(j => j.Id, j => MetricsOf(store, j));
-        Compare(sb, a, jobs, metrics);
+    static readonly (string Key, string Name)[] Tabs = { ("status", "현황"), ("conclusion", "결론"), ("compare", "비교"), ("films", "영상") };
+
+    public static string Detail(AnalysisPageData d, string tab, IQueryCollection q, string? pollScript)
+    {
+        var a = d.A;
+        if (!Tabs.Any(t => t.Key == tab)) tab = "status";
+        var sb = new StringBuilder(PollSlots + $"<p class=\"crumb\"><a href=\"/analyses\">분석</a> › {H(a.Name)}</p><h1>{H(a.Name)}</h1>");
+        if (a.Note.Length > 0) sb.Append($"<p>{H(a.Note)}</p>");
+        sb.Append($"<p class=\"muted\">만든 시각 {H(When(a.CreatedUtc))} · <a href=\"/analyses/{H(a.Id)}/cuts\">컷 영상 →</a></p>");
+        sb.Append("<div class=\"cards\">");
+        foreach (var (n, label) in new[] { (a.Plans.Count, "안"), (d.Jobs.Count, "버전"), (d.Jobs.Count(j => j.Selected), "선정"), (d.Films.Count, "영상") })
+            sb.Append($"<div class=\"card\"><div class=\"big\">{n}</div><div class=\"sub\">{label}</div></div>");
+        sb.Append("</div><div class=\"tabs\" style=\"margin-top:14px\">");
+        foreach (var (k, name) in Tabs) sb.Append($"<a href=\"/analyses/{H(a.Id)}?tab={k}\"{(k == tab ? " class=\"on\"" : "")}>{name}</a>");
+        sb.Append("</div><div class=\"panel\">");
+        switch (tab)
+        {
+            case "conclusion": // Task 9 fills this
+                if (d.Jobs.FirstOrDefault(j => j.Selected) is { } sel) sb.Append($"<p><a href=\"/jobs/{H(sel.Id)}\">선정한 버전 v{sel.Version}의 결론 보기 →</a></p>");
+                else sb.Append("<p class=\"muted\">준비 중</p>");
+                break;
+            case "compare": // Task 10 replaces this
+                Compare(sb, a, d.Jobs.ToList(), d.Jobs.ToDictionary(j => j.Id, j => MetricsOf(d.Store, j)));
+                break;
+            case "films": // Task 11 replaces this
+                FilmList(sb, d.Films.Where(f => f.Request.AnalysisId == a.Id).ToList(), a.Id);
+                break;
+            default: StatusTab(sb, d); break;
+        }
+        sb.Append("</div>");
+        return Page("ASH 분석 " + a.Name, sb.ToString(), pollScript);
+    }
+
+    internal static void StatusTab(StringBuilder sb, AnalysisPageData d)
+    {
+        var a = d.A; var jobs = d.Jobs; var back = "/analyses/" + a.Id;
+        string Title(JobInfo j) => $"{a.Name} › {a.Plans.FirstOrDefault(p => p.Id == j.PlanId)?.Name ?? j.Plan} v{j.Version}";
+        var running = jobs.Where(j => j.State == JobState.Running).OrderBy(j => j.StartedUtc ?? j.CreatedUtc).FirstOrDefault();
+        if (running != null)
+        {
+            var eta = JobProgress.Eta(running, d.Queue.Typical, d.Parallel, DateTime.UtcNow);
+            HomePages.RunningCard(sb, new(running.Id, Title(running), running.State, running.Phase, JobProgress.Ratio(running), running.RunsDone, running.ExpectedRuns,
+                running.RunsDone > 0 ? Dur(JobProgress.AvgRun(running)) : null, eta is { } e ? ASH.Core.SeoulTime.FromUtc(e).ToString("HH:mm") : null, running.LastLine ?? "", null), "running");
+            sb.Append($"<p>중간 결과: <span data-field=\"partial.text\">{H(PartialText(d.Store, running))}</span></p>");
+        }
+        foreach (var j in jobs.Where(j => j.State == JobState.Queued).OrderBy(j => j.CreatedUtc))
+            HomePages.RunningCard(sb, new(j.Id, Title(j), j.State, j.Phase, null, j.RunsDone, j.ExpectedRuns, null, null, "", null), "queued." + j.Id);
 
         foreach (var p in a.Plans)
         {
@@ -96,31 +148,26 @@ public static class AnalysisPages
             if (p.Note.Length > 0) sb.Append($"<p class=\"muted\">{H(p.Note)}</p>");
             var versions = jobs.Where(j => j.PlanId == p.Id).OrderBy(j => j.Version).ToList();
             if (versions.Count == 0) sb.Append("<p class=\"muted\">아직 보낸 작업이 없습니다. ZWCAD의 ASH에서 이 분석과 안을 골라 \"서버로 보내기\"를 하면 v1이 됩니다.</p>");
-            else
+            foreach (var j in versions)
             {
-                sb.Append("<div class=\"scroll\"><table class=\"sort\"><thead><tr>").Append(Th("버전")).Append(Th("보낸 시각(서울)")).Append(Th("보낸 사람")).Append(Th("메모")).Append(Th("상태"))
-                  .Append(Th("권장 총 대수(대)")).Append(Th("가동률(%)")).Append(Th("결품 시간(초)")).Append("<th>선정</th></tr></thead><tbody>");
-                foreach (var j in versions)
-                {
-                    var m = metrics[j.Id];
-                    sb.Append($"<tr><td><a href=\"/jobs/{H(j.Id)}\">v{j.Version}</a></td><td>{H(When(j.CreatedUtc))}</td><td>{H(j.Submitter)}</td><td>{H(j.VersionNote)}</td><td>{State(j)}</td>" +
-                        $"<td class=\"num\">{(m?.Total is { } t ? t.ToString(CultureInfo.InvariantCulture) : "-")}</td><td class=\"num\">{(m == null ? "-" : P(m.Util))}</td><td class=\"num\">{(m == null ? "-" : Num(m.Stop, "0"))}</td>" +
-                        $"<td>{SelectForm(j, back)}</td></tr>");
-                }
-                sb.Append("</tbody></table></div>").Append(SortScript);
+                var m = MetricsOf(d.Store, j);
+                var parts = new List<string> { $"<a href=\"/jobs/{H(j.Id)}\">v{j.Version}</a>{(j.Selected ? " <span class=\"tag\">선정</span>" : "")}" };
+                if (j.State == JobState.Failed) parts.Add($"<span class=\"state s-failed\">실패</span> <span class=\"bad\">{H((j.Error ?? "").Split('\n')[0].Trim())}</span>");
+                else if (!j.Finished || j.State == JobState.Cancelled) parts.Add(State(j));
+                else if (m?.Total is { } t) parts.Add($"{t}대 · 가동률 {(double.IsNaN(m.Util) ? "-" : Math.Round(m.Util * 100).ToString("0", CultureInfo.InvariantCulture) + "%")} · 결품 {(double.IsNaN(m.Stop) ? "-" : Num(m.Stop, "0"))}초");
+                parts.Add(H(When(j.CreatedUtc))); parts.Add(H(j.Submitter)); if (j.VersionNote.Length > 0) parts.Add(H(j.VersionNote));
+                // plan D: the "자료 받기" link (FileRoutes.ContinueLink(j)) goes here, at the end of the version row
+                sb.Append($"<div class=\"mini\" style=\"margin:6px 0\">{string.Join(" · ", parts.Where(x => x.Length > 0))} {SelectForm(j, back)} <a href=\"/jobs/{H(j.Id)}\">열기</a></div>");
             }
             sb.Append("</section>");
         }
         if (a.Plans.Count == 0) sb.Append("<p class=\"muted\">아직 안이 없습니다. 아래에서 안을 추가하거나, ZWCAD에서 보낼 때 안 이름을 적으면 만들어집니다.</p>");
-        else sb.Append("<p class=\"muted\">가동률(%)은 그 버전에서 가장 높은 그룹의 확인 실행 평균, 결품 시간(초)은 모든 자재의 합계입니다. 결과가 없는 버전(대기·실행 중·실패)은 \"-\"입니다.</p>");
 
-        sb.Append("<section class=\"box\"><h2>안 추가</h2>").Append($"<form method=\"post\" action=\"/analyses/{H(a.Id)}/plans\" class=\"mini\"><input type=\"hidden\" name=\"back\" value=\"{H(back)}\">" +
+        sb.Append("<details><summary>안 추가 · 이름 바꾸기 · 지우기</summary><div class=\"box\">");
+        sb.Append($"<form method=\"post\" action=\"/analyses/{H(a.Id)}/plans\" class=\"mini\"><input type=\"hidden\" name=\"back\" value=\"{H(back)}\">" +
             "<input type=\"text\" name=\"name\" required maxlength=\"100\" placeholder=\"안 이름(예: A안)\" aria-label=\"안 이름\"><input type=\"text\" name=\"note\" maxlength=\"200\" placeholder=\"메모(선택)\" aria-label=\"메모\">" +
-            "<button class=\"primary\">추가</button></form></section>");
-
-        FilmList(sb, (films ?? Array.Empty<FilmInfo>()).Where(f => f.Request.AnalysisId == a.Id).ToList(), a.Id);
-
-        sb.Append($"<details><summary>이름 바꾸기 · 지우기</summary><div class=\"box\"><form method=\"post\" action=\"/analyses/{H(a.Id)}/rename\" class=\"mini\"><input type=\"hidden\" name=\"back\" value=\"{H(back)}\">" +
+            "<button class=\"primary\">추가</button></form>");
+        sb.Append($"<form method=\"post\" action=\"/analyses/{H(a.Id)}/rename\" class=\"mini\" style=\"margin-top:12px\"><input type=\"hidden\" name=\"back\" value=\"{H(back)}\">" +
             $"<input type=\"text\" name=\"name\" required maxlength=\"100\" value=\"{H(a.Name)}\" aria-label=\"분석 이름\"><button>분석 이름 바꾸기</button></form>");
         foreach (var p in a.Plans)
             sb.Append($"<form method=\"post\" action=\"/analyses/{H(a.Id)}/plans/{H(p.Id)}/rename\" class=\"mini\" style=\"margin-top:8px\"><input type=\"hidden\" name=\"back\" value=\"{H(back)}\">" +
@@ -130,7 +177,6 @@ public static class AnalysisPages
         else sb.Append("<p class=\"muted\">보낸 작업이 있는 분석은 지울 수 없습니다.</p>");
         sb.Append("</div></details>");
         sb.Append($"<p class=\"muted\" style=\"font-size:13px\"><a href=\"/admin/analyses/{H(a.Id)}/delete\">관리자: 분석 삭제…</a></p>");
-        return Page("ASH 분석 " + a.Name, sb.ToString());
     }
 
     /// <summary>/admin/analyses/{id}/delete: what the delete does, and the form that needs the analysis name typed.</summary>

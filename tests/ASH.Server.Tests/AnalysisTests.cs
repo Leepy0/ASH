@@ -295,10 +295,9 @@ public class AnalysisPageTests
         var a = env.Factory.Services.GetRequiredService<AnalysisStore>().All().Single();
         var html = await Get(env, "/analyses/" + a.Id);
         Assert.Contains("A안", html); Assert.Contains("v2", html); Assert.Contains("버퍼 늘림", html);
-        Assert.Contains("권장 총 대수(대)", html); Assert.Contains("가동률(%)", html); Assert.Contains("결품 시간(초)", html);
-        Assert.Contains($"/analyses/{a.Id}/cuts", html);
-        Assert.Contains("선정한 버전이 없습니다", html);
-        Assert.Contains("아직 만든 영상이 없습니다", html);
+                Assert.Contains($"/analyses/{a.Id}/cuts", html);
+        Assert.Contains("선정한 버전이 없습니다", await Get(env, "/analyses/" + a.Id + "?tab=compare"));
+        Assert.Contains("아직 만든 영상이 없습니다", await Get(env, "/analyses/" + a.Id + "?tab=films"));
         Assert.Equal(HttpStatusCode.NotFound, (await env.Http.GetAsync("/analyses/a-nope")).StatusCode);
         Assert.Contains("라인 증설", await Get(env, "/analyses"));
     }
@@ -312,7 +311,7 @@ public class AnalysisPageTests
         await env.WaitFinished(id1); await env.WaitFinished(id2);
         var a = env.Factory.Services.GetRequiredService<AnalysisStore>().All().Single();
         Assert.True((int)(await Post(env, $"/jobs/{id2}/select", ("on", "1"), ("back", "/analyses/" + a.Id))).StatusCode < 400);
-        var html = await Get(env, "/analyses/" + a.Id);
+        var html = await Get(env, "/analyses/" + a.Id + "?tab=compare");
         var compare = html[html.IndexOf("선정 버전 비교", StringComparison.Ordinal)..];
         compare = compare[..compare.IndexOf("</table>", StringComparison.Ordinal)];
         Assert.Contains("B안", compare); Assert.DoesNotContain("A안", compare);

@@ -155,7 +155,7 @@ public class FilmTests
         Assert.Contains("이어 붙인 영상", page); Assert.Contains("<video", page); Assert.DoesNotContain("http-equiv=\"refresh\"", page);
         var file = await env.Http.GetAsync($"/films/{f.Id}/files/{Uri.EscapeDataString(f.Joined!)}");
         Assert.Equal(HttpStatusCode.OK, file.StatusCode); Assert.Equal("video/mp4", file.Content.Headers.ContentType!.MediaType);
-        Assert.Contains(f.Id, await env.Http.GetStringAsync("/analyses/" + aid));
+        Assert.Contains(f.Id, await env.Http.GetStringAsync("/analyses/" + aid + "?tab=films"));
         Assert.Contains("이 버전의 영상", await env.Http.GetStringAsync("/jobs/" + j2));
     }
 
