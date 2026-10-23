@@ -60,7 +60,44 @@ public class AssetOverrideTests
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage r, CancellationToken ct) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.InternalServerError) { Content = new StringContent("x") });
     }
 
-    [Fact] public void Client_Http_Error_Throws() => Assert.Throws<HttpRequestException>(() => new AssetCatalogClient(new Uri("http://srv"), new ErrHandler()).Names());
+    [Fact] public void Client_Http_Error_Throws() => Assert.Equal(500, Assert.Throws<AssetHttpException>(() => new AssetCatalogClient(new Uri("http://srv"), new ErrHandler()).Names()).Status);
+
+    sealed class Gone : HttpMessageHandler // the list names two assets, the first one's .cel is gone (deleted between list and fetch)
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage r, CancellationToken ct)
+        {
+            var p = r.RequestUri!.AbsolutePath;
+            HttpResponseMessage R(string s, HttpStatusCode c = HttpStatusCode.OK) => new(c) { Content = new StringContent(s) };
+            return Task.FromResult(p == "/api/catalog/assets" ? R("{\"assets\":[{\"id\":\"1\",\"typeName\":\"A\",\"name\":\"a\"},{\"id\":\"2\",\"typeName\":\"B\",\"name\":\"b\"}]}")
+                : p == "/api/catalog/assets/2/asset.cel" ? R(CelWriter.Cel("c", Two())) : R("no", HttpStatusCode.NotFound));
+        }
+    }
+
+    [Fact] public void Status_Coded_Failure_Is_Per_Type_Not_Server_Down()
+    {
+        var c = new AssetCatalogClient(new Uri("http://srv"), new Gone());
+        var w = new List<string>();
+        var o = AssetOverrides.Build(new[] { Type("A", "a"), Type("B", "b") }, Template(), (ty, n) => c.FetchCel(ty, n), w);
+        Assert.Equal(new[] { "B" }, o.Keys); // B still fetched: a 404 does not mark the server down
+        Assert.Equal("타입 A: 에셋 'a'를 받지 못했습니다 (404). 기본 그림을 씁니다.", Assert.Single(w));
+    }
+
+    [Fact] public void Magnet_Kind_Reaches_The_Picture()
+    {
+        var t = new AgvType("T_M", 1, 1, 1, 1, 1, 0, 0, 0, 0, 1.2, 0.8, "", Kind: "Magnet", Asset: "m");
+        var o = AssetOverrides.Build(new[] { t }, Template(), (_, _) => CelWriter.Cel("c", Two()), new List<string>());
+        Assert.Contains(" trz 0", o["T_M"].VehSegText); // the towed load stands on the floor, not on top of the body
+    }
+
+    [Fact] public void Size_Far_From_Excel_Warns_Once_Per_Type()
+    {
+        var big = new AgvType("T_A", 1, 1, 1, 1, 1, 0, 0, 0, 0, 2.0, 0.8, "", Asset: "a"); // the asset is 1.2 m long
+        var w = new List<string>();
+        var o = AssetOverrides.Build(new[] { big, big }, Template(), (_, _) => CelWriter.Cel("c", Two()), w);
+        Assert.Single(o);
+        Assert.Contains("20%", Assert.Single(w));
+        Assert.Contains("T_A", w[0]);
+    }
 }
 
 public class CatalogDiffAssetNamesTests

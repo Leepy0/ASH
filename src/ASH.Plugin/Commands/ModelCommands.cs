@@ -55,12 +55,14 @@ public sealed class ModelCommands
                     File.Copy(path, bak, true);
                     ed.WriteMessage($"\n기존 파일 백업: {bak}");
                 }
+                // both reads run at once, so a server that is down stalls the command once (≈5 s), not once per read
+                var serverUrl = UserSettings.Load().ServerUrl;
                 // one asset-name read serves the drop-down and the unknown-asset warning; null = server unset/down (no drop-down, no warning)
-                var assetNames = AssetClient.AssetNames(UserSettings.Load().ServerUrl);
-                ExcelTemplate.AssetListFormula = assetNames == null ? "" : string.Join(",", assetNames);
-
+                var namesTask = System.Threading.Tasks.Task.Run(() => AssetClient.AssetNames(serverUrl));
                 // 3 s cap, any failure = null: the template then keeps its one T_AGV row
-                var catalog = CatalogFetch.TryGet(UserSettings.Load().ServerUrl);
+                var catalog = CatalogFetch.TryGet(serverUrl);
+                var assetNames = namesTask.GetAwaiter().GetResult();
+                ExcelTemplate.AssetListFormula = assetNames == null ? "" : string.Join(",", assetNames);
                 // said after the write succeeds, per mode: W builds a new form, U keeps the existing AGV_Types
                 string Filled() => catalog != null ? $"\n카탈로그 타입 {catalog.Count}개로 AGV_Types를 채웠습니다."
                     : mode == "W" ? "\n서버 카탈로그를 읽지 못해 T_AGV 한 행으로 만들었습니다(AGVSERVER로 주소 확인)."

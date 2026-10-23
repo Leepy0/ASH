@@ -36,9 +36,16 @@ public static class AssetOverrides
                 {
                     var boxes = CelReader.ReadBoxes(cel);
                     if (boxes.Count == 0) why = "에셋에 상자가 없습니다";
-                    else { res[t.Type] = new VehicleTemplateOverride(VehSegText: CelWriter.VehSeg(template, boxes)); failed.Remove(t.Type); }
+                    else
+                    {
+                        res[t.Type] = new VehicleTemplateOverride(VehSegText: CelWriter.VehSeg(template, boxes, t.Kind)); failed.Remove(t.Type);
+                        double l = boxes.Max(b => b.Y + b.Dy / 2) - boxes.Min(b => b.Y - b.Dy / 2), w = boxes.Max(b => b.X + b.Dx / 2) - boxes.Min(b => b.X - b.Dx / 2);
+                        if (Off(l, t.Length) || Off(w, t.Width))
+                            warnings.Add($"타입 {t.Type}: 에셋 '{t.Asset}' 크기 {l:0.##}×{w:0.##} m가 Excel Length×Width {t.Length:0.##}×{t.Width:0.##} m와 20% 넘게 다릅니다. 에셋 그림을 그대로 씁니다.");
+                    }
                 }
             }
+            catch (AssetHttpException e) { warnings.Add($"타입 {t.Type}: 에셋 '{t.Asset}'를 받지 못했습니다 ({e.Status}). 기본 그림을 씁니다."); } // the server answered: only this type
             catch (Exception e) when (e is HttpRequestException || e is TimeoutException || e is OperationCanceledException) { down = true; downTypes++; }
             catch (Exception e) when (!(e is OutOfMemoryException)) { why = e.Message; }
             if (why != null) warnings.Add($"타입 {t.Type}: 에셋 '{t.Asset}' - {why}. 기본 그림을 씁니다.");
@@ -46,6 +53,8 @@ public static class AssetOverrides
         if (downTypes > 0) warnings.Add($"서버에 닿지 않아 에셋 그림을 쓰지 않습니다 ({downTypes}개 타입). 기본 그림을 씁니다.");
         return res;
     }
+
+    static bool Off(double asset, double excel) => excel > 0 && Math.Abs(asset - excel) > 0.2 * excel;
 
     /// <summary>agvs_vehseg.txt, the template CelWriter.VehSeg fills.</summary>
     public static string[] VehSegTemplate()
@@ -71,7 +80,14 @@ public static class AssetOverrides
 }
 [DataContract] internal sealed class AssetList { [DataMember(Name = "assets")] public List<AssetRow> Assets { get; set; } = new List<AssetRow>(); }
 
-/// <summary>GET /api/catalog/assets and /api/catalog/assets/{id}/asset.cel with 3 s per call. Failures are thrown (HttpRequestException, TimeoutException, InvalidDataException).</summary>
+/// <summary>The server answered with a non-success status (an asset deleted between list and fetch, an older server): unlike a connection failure, the server is up.</summary>
+public sealed class AssetHttpException : HttpRequestException
+{
+    public int Status { get; }
+    public AssetHttpException(int status) : base("HTTP " + status) { Status = status; }
+}
+
+/// <summary>GET /api/catalog/assets and /api/catalog/assets/{id}/asset.cel with 3 s per call. Failures are thrown (HttpRequestException — AssetHttpException for a status code —, TimeoutException, InvalidDataException).</summary>
 public sealed class AssetCatalogClient
 {
     private readonly Uri _base;
@@ -88,17 +104,18 @@ public sealed class AssetCatalogClient
 
     string Get(string rel)
     {
-        using var cts = new CancellationTokenSource(_timeout);
-        // Task.Run: ZWCAD's UI sync context cannot deadlock the wait; the cap is for net48 DNS/WPAD stalls that ignore the token
-        var task = Task.Run(async () =>
+        // own thread (LongRunning), off the UI sync context: ZWCAD cannot deadlock the wait, and a busy thread pool cannot hold the request back until the cap
+        // fires; the cap is for net48 DNS/WPAD stalls that ignore the token
+        var task = Task.Factory.StartNew(async () =>
         {
+            using var cts = new CancellationTokenSource(_timeout); // started here: a busy thread pool must not spend the request's time before it is sent
             using var http = _handler == null ? new HttpClient(Update.UpdateClient.DefaultHandler()) : new HttpClient(_handler, false);
             http.Timeout = Timeout.InfiniteTimeSpan;
             using var r = await http.GetAsync(new Uri(_base, rel), cts.Token).ConfigureAwait(false);
             var body = await r.Content.ReadAsStringAsync().ConfigureAwait(false);
-            if (!r.IsSuccessStatusCode) throw new HttpRequestException($"HTTP {(int)r.StatusCode}");
+            if (!r.IsSuccessStatusCode) throw new AssetHttpException((int)r.StatusCode);
             return body;
-        });
+        }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default).Unwrap();
         try
         {
             if (!task.Wait(_timeout + TimeSpan.FromSeconds(1))) throw new TimeoutException();
