@@ -233,6 +233,9 @@ public static class AnalysisPages
     internal static string FileUrl(FilmInfo f, string name) => $"/films/{H(f.Id)}/files/{H(Uri.EscapeDataString(name))}";
 
     /// <summary>영상 tab: the new-film button, the films being made (progress bar, estimate, cancel) and the finished ones (thumbnail, player, per-cut links, zip).</summary>
+    static string StateSpan(FilmInfo f, string? liveKey) =>
+        $"<span class=\"state s-{H(f.State)}\"{(liveKey != null ? $" data-state=\"{liveKey}.state\" data-field=\"{liveKey}.statetext\"" : "")}>{H(JobState.Korean(f.State))}</span>";
+
     internal static void FilmsTab(StringBuilder sb, AnalysisPageData d)
     {
         var id = H(d.A.Id);
@@ -243,7 +246,7 @@ public static class AnalysisPages
         {
             var k = "film." + H(f.Id); var total = f.Items.Count;
             sb.Append($"<section class=\"box\"><div class=\"box-head\"><h2><a href=\"/films/{H(f.Id)}\">{H(When(f.CreatedUtc))}</a></h2>" +
-                $"<span class=\"state s-{H(f.State)}\" data-state=\"{k}.state\" data-field=\"{k}.statetext\">{H(JobState.Korean(f.State))}</span></div>");
+                StateSpan(f, k) + "</div>");
             sb.Append($"<p><span data-field=\"{k}.phase\">{H(f.Phase)}</span> · <span data-field=\"{k}.done\">{LiveFields.FilmDone(f)}</span></p>");
             sb.Append($"<div class=\"prog\"><i data-bar=\"{k}.bar\" style=\"width:{LiveFields.FilmPct(f)}%\"></i></div>");
             sb.Append($"<p>완료 예상 <span data-field=\"{k}.eta\">{H(LiveFields.FilmEta(f))}</span></p>");
@@ -254,20 +257,23 @@ public static class AnalysisPages
         foreach (var f in films.Where(f => f.Finished))
         {
             var r = f.Request; var fid = H(f.Id);
-            sb.Append($"<section class=\"box\"><h2><a href=\"/films/{fid}\">{H(When(f.CreatedUtc))}</a>{(f.State != JobState.Done ? $" <span class=\"state s-{H(f.State)}\">{H(JobState.Korean(f.State))}</span>" : "")}</h2>" +
+            sb.Append($"<section class=\"box\"><h2><a href=\"/films/{fid}\">{H(When(f.CreatedUtc))}</a>{(f.State != JobState.Done ? " " + StateSpan(f, null) : "")}</h2>" +
                 $"<p class=\"muted\">{H(When(f.CreatedUtc))} · 컷 {f.Cuts.Count} × 버전 {r.JobIds.Count} · {r.Width}×{r.Height} · {r.Fps} fps</p>");
             sb.Append(d.Fs != null && File.Exists(Path.Combine(d.Fs.FilmDir(f.Id), "thumb.jpg")) ? $"<img src=\"/films/{fid}/files/thumb.jpg\" width=\"320\" alt=\"\">" : "<div class=\"thumb-none\"></div>");
-            var main = f.JoinedOk && f.Joined != null ? f.Joined : f.Items.FirstOrDefault(i => i.Ok)?.Name;
+            bool Has(string n) => d.Fs != null && File.Exists(Path.Combine(d.Fs.FilmDir(f.Id), n));
+            var joinedOk = f.JoinedOk && f.Joined != null && Has(f.Joined);
+            var oks = f.Items.Where(i => i.Ok && Has(i.Name)).ToList();
+            var main = joinedOk ? f.Joined : oks.FirstOrDefault()?.Name;
             if (main != null) sb.Append($"<div><video controls preload=\"none\" src=\"{FileUrl(f, main)}\" style=\"width:100%;max-width:720px;background:#000\"></video></div>");
-            var oks = f.Items.Where(i => i.Ok).ToList();
             if (oks.Count > 0)
             {
                 sb.Append("<ul>");
                 foreach (var i in oks) sb.Append($"<li><a href=\"{FileUrl(f, i.Name)}\">{H(i.Label)}</a></li>");
                 sb.Append("</ul>");
             }
+            else if (joinedOk) sb.Append("<p class=\"muted\">이어 붙인 영상에만 넣었습니다.</p>");
             if (f.Error != null) sb.Append($"<p class=\"bad\">{H(f.Error)}</p>");
-            sb.Append((oks.Count > 0 || f.JoinedOk ? $"<a href=\"/films/{fid}/files/all.zip\">전체 zip 받기</a> · " : "") + $"<a href=\"/films/{fid}\">자세히</a></section>");
+            sb.Append((oks.Count > 0 || joinedOk ? $"<a href=\"/films/{fid}/files/all.zip\">전체 zip 받기</a> · " : "") + $"<a href=\"/films/{fid}\">자세히</a></section>");
         }
     }
 

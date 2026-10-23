@@ -40,7 +40,7 @@ public static class LiveFields
     internal static string FilmDone(FilmInfo f) => $"컷 {f.Done} / {f.Items.Count}";
     internal static string FilmPct(FilmInfo f) => f.Items.Count == 0 ? "0" : Math.Round(100.0 * f.Done / f.Items.Count).ToString("0", CultureInfo.InvariantCulture);
     /// <summary>now + (cuts left) × (elapsed ÷ cuts done); "-" until one cut is done.</summary>
-    internal static string FilmEta(FilmInfo f) => f.StartedUtc is { } s && f.Done > 0 ? Hm(DateTime.UtcNow + (DateTime.UtcNow - s) * (f.Items.Count - f.Done) / Math.Max(1, f.Done)) : "-";
+    internal static string FilmEta(FilmInfo f, DateTime? now = null) => f.StartedUtc is { } s && f.Done > 0 ? Hm((now ?? DateTime.UtcNow) + ((now ?? DateTime.UtcNow) - s) * (f.Items.Count - f.Done) / Math.Max(1, f.Done)) : "-";
 
     public static Live OfFilm(FilmInfo f)
     {

@@ -179,8 +179,35 @@ public class FilmTests
         Assert.Equal("application/zip", zip.Content.Headers.ContentType!.MediaType);
         using var z = new ZipArchive(await zip.Content.ReadAsStreamAsync());
         Assert.Equal(3, z.Entries.Count); // 컷 2 + 이어 붙인 1
+        Assert.All(z.Entries, e => Assert.EndsWith(".mp4", e.FullName));
+        Assert.Equal(f.Items.Select(i => i.Name).Append(f.Joined!).Order(), z.Entries.Select(e => e.FullName).Order());
         Assert.Equal(HttpStatusCode.OK, (await env.Http.GetAsync($"/films/{f.Id}/files/thumb.jpg")).StatusCode);
     }
+    [Fact] public async Task Films_Tab_Without_Cut_Files_Or_Thumb()
+    {
+        using var env = new JobEnv(); var j1 = await Done(env, "라인 증설", "A안"); var (st, aid) = Analysis(env);
+        env.Factory.Services.GetRequiredService<CutStore>().Save(aid, new[] { Hold("c1") });
+        var f = await Film(env, aid, Body(new[] { "c1" }, new[] { j1 }));
+        var dir = env.Factory.Services.GetRequiredService<FilmStore>().FilmDir(f.Id);
+        File.Delete(Path.Combine(dir, "thumb.jpg")); File.Delete(Path.Combine(dir, f.Items[0].Name)); // parts gone after joining
+        var tab = await env.Http.GetStringAsync($"/analyses/{aid}?tab=films");
+        Assert.Contains("thumb-none", tab); Assert.DoesNotContain("thumb.jpg", tab);
+        Assert.Contains("이어 붙인 영상에만", tab); Assert.Contains("all.zip", tab);
+        Assert.DoesNotContain($"<li><a href=\"/films/{f.Id}/files/", tab);
+        Assert.Contains("/files/" + Uri.EscapeDataString(f.Joined!), tab);
+        File.Delete(Path.Combine(dir, f.Joined!));
+        tab = await env.Http.GetStringAsync($"/analyses/{aid}?tab=films");
+        Assert.DoesNotContain("all.zip", tab); Assert.DoesNotContain("<video", tab);
+    }
+
+    [Fact] public void FilmEta_Is_Now_Plus_Remaining_Pace_In_Seoul_Time()
+    {
+        var now = new DateTime(2026, 1, 1, 3, 0, 0, DateTimeKind.Utc);
+        var f = new FilmInfo { StartedUtc = now.AddMinutes(-10), Done = 1, Items = { new FilmItem(), new FilmItem() } };
+        Assert.Equal("12:10", LiveFields.FilmEta(f, now)); // 03:10 UTC = 12:10 Seoul
+        f.Done = 0; Assert.Equal("-", LiveFields.FilmEta(f, now));
+    }
+
     [Fact] public async Task Films_Tab_Polls_While_Filming()
     {
         using var env = new JobEnv(); var j1 = await Done(env, "라인 증설", "A안"); var (st, aid) = Analysis(env);
