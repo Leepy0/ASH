@@ -393,9 +393,13 @@ public static class ExcelTemplate
         }
     }
 
+    /// <summary>The comma list of the Asset drop-down (asset names; empty = no drop-down; Excel caps a list at 255 chars). Set by the plugin from the catalog before Write/Update.</summary>
+    public static string AssetListFormula { get; set; } = "";
+
     static void ApplyLists(XLWorkbook wb, List<ExcelEdit>? log = null)
     {
-        foreach (var (sheet, col, source) in Lists)
+        var all = AssetListFormula.Length == 0 ? Lists : Lists.Concat(new[] { ("AGV_Types", "Asset", AssetListFormula) }).ToArray();
+        foreach (var (sheet, col, source) in all)
         {
             if (!wb.TryGetWorksheet(sheet, out var ws) || !Columns(ws).TryGetValue(col, out var c)) continue;
             var v = ws.Range(3, c, LastListRow, c).CreateDataValidation();
