@@ -25,18 +25,18 @@ public static class VehicleGeometry
     // AutoMod standard colors (AutoMod's colorwin.h)
     const int Black = 0, Red = 1, Green = 2, Yellow = 3, Blue = 4, LtGray = 8, DkGray = 9;
 
-    const double FtPerM = 3.280839895;
-    const double FloorRel = -2.5;      // the template's AGVset sits 2.5 ft above the floor: the floor is z = -2.5 in the picture's frame
+    internal const double FtPerM = 3.280839895;
+    internal const double FloorRel = -2.5;      // the template's AGVset sits 2.5 ft above the floor: the floor is z = -2.5 in the picture's frame
     const double MinBodyM = 0.25;      // below this the chassis insets do not leave a box
     const int Rear = 1;                // the vehicle drives towards -y (seen in AutoMod), so its rear is +y
 
     /// <summary>Height of the load surface (metres) a kind has; also the vehicle height for Standard and Conveyor.</summary>
     public static double TopHeightM(string kind) => kind == "Ant" ? 0.15 : 0.6;
 
-    static string F(double v) => v.ToString("0.######", CultureInfo.InvariantCulture);
+    internal static string F(double v) => v.ToString("0.######", CultureInfo.InvariantCulture);
 
     // bx, tx across (x), by, ty along (y); flag 5: own colour (21 would take Geom1's dark grey)
-    static IEnumerable<string> Prim(string name, int color, double x, double y, double z, double bx, double by, double tx, double ty, double h)
+    internal static IEnumerable<string> Prim(string name, int color, double x, double y, double z, double bx, double by, double tx, double ty, double h)
     {
         yield return "310 5";
         yield return color + " " + color + " 0 1 1 " + name; // fill 1 = solid (0 draws the outline only)
@@ -54,15 +54,6 @@ public static class VehicleGeometry
         if (k == null || !(length > 0) || !(width > 0) || double.IsInfinity(length) || double.IsInfinity(width)) return template;
 
         double L = Math.Max(MinBodyM, length), W = Math.Max(MinBodyM, width); // metres: length along travel (y), width across (x)
-        var tl = template.ToList();
-        int Index(string name)
-        {
-            var i = tl.FindIndex(x => x.EndsWith(" " + name, StringComparison.Ordinal));
-            if (i < 1) throw new InvalidOperationException("vehicle template has no " + name);
-            return i - 1;
-        }
-        int iGeom = Index("Geom1"), iLift = Index("Lift_Joint"), iTop = Index("Top"), iLink = Index("Link1");
-
         double H = TopHeightM(k.Name);
         double clr = k.Name == "Ant" ? 0.06 : k.Name == "Magnet" ? 0.04 : 0.04;      // ground clearance (the Ant's wheels hang below its lower plate)
         double Z(double m) => FloorRel + m * FtPerM;                                   // metres above the floor -> picture z in feet
@@ -120,18 +111,37 @@ public static class VehicleGeometry
             for (int c = 0; c < 3; c++)
                 parts.Add(B("Lamp" + (s > 0 ? "F" : "R") + "RYG"[c], lampColors[c], s * (1 - c) * (lampW + 0.005), s * L / 2, lz, lampW, lampD, lampH));
 
+        double bandZ = clr + Math.Max(0.01, (H - clr) * 0.5 - 0.01);
+        parts.Add(B("Base3_Blue", Blue, 0, 0, bandZ, W + 0.01, L + 0.01, 0.03));   // the blue band round the chassis, standing 5 mm proud of it
+
+        // Where the load rides: the load surface (the top) for Standard, Conveyor and Ant; for the Magnet the floor, behind the rear magnet
+        // (trolley length 1 m assumed).
+        return Assemble(template, parts, top, k.Name == "Magnet" ? -(L / 2 + 0.10 + 0.5) : 0, k.Name == "Magnet" ? 0 : H);
+    }
+
+    /// <summary>The template with Geom1's children replaced by parts (already in feet) and the lift joint, the joint standing at topM (metres above the
+    /// floor), and the segment's CONTAINER at (containerXM, 0, containerZM) metres.</summary>
+    internal static List<string> Assemble(IReadOnlyList<string> template, IReadOnlyList<IEnumerable<string>> parts, double topM, double containerXM, double containerZM)
+    {
+        var tl = template.ToList();
+        int Index(string name)
+        {
+            var i = tl.FindIndex(x => x.EndsWith(" " + name, StringComparison.Ordinal));
+            if (i < 1) throw new InvalidOperationException("vehicle template has no " + name);
+            return i - 1;
+        }
+        int iGeom = Index("Geom1"), iLift = Index("Lift_Joint"), iTop = Index("Top"), iLink = Index("Link1");
+
         var res = new List<string>();
         res.AddRange(tl.Take(iGeom + 2));                                              // up to and including Geom1's name line, then its child count
-        int count = parts.Count + 1 /* Base3_Blue */ + 1 /* Lift_Joint */;
+        int count = parts.Count + 1 /* Lift_Joint */;
         res.Add(count.ToString(CultureInfo.InvariantCulture));
         foreach (var p in parts) res.AddRange(p);
-        double bandZ = clr + Math.Max(0.01, (H - clr) * 0.5 - 0.01);
-        res.AddRange(B("Base3_Blue", Blue, 0, 0, bandZ, W + 0.01, L + 0.01, 0.03));   // the blue band round the chassis, standing 5 mm proud of it
 
         // the lift joint stands on the chassis top; only the Ant has a plate worth seeing on it
         int jointStart = res.Count;
         res.AddRange(tl.Skip(iLift).Take(iTop - iLift));
-        res[jointStart + 4] = "0  0  " + F(Z(top));                                    // the joint's own position line
+        res[jointStart + 4] = "0  0  " + F(FloorRel + topM * FtPerM);                 // the joint's own position line
         double plate = 0.01, plateH = 0.003;                                            // token plate: the joint is kept for the load link, nothing is lifted
         res.Add("310 17");
         res.Add(tl[iTop + 1]);
@@ -139,12 +149,10 @@ public static class VehicleGeometry
 
         res.AddRange(tl.Skip(iLink));
 
-        // Where the load rides: the segment's CONTAINER (the link above does not move it). Its frame is the segment's: x forward, z up from the floor,
-        // numbers in feet (seen in AutoMod: trx 1.4 moved a load 0.43 m in a Meters model). The load surface (the top) for Standard, Conveyor and Ant;
-        // for the Magnet the floor, behind the rear magnet (trolley length 1 m assumed).
-        double ax = k.Name == "Magnet" ? -(L / 2 + 0.10 + 0.5) : 0, az = k.Name == "Magnet" ? 0 : H;
-        res.AddRange(new[] { "\tCONTAINER name OnBoard 0 ", "\t\tx 1 1 Feet ", "\t\ty 1 1 Feet ", "\t\tz 1 1 Feet",
-            "\t\ttrx " + F(ax * FtPerM) + " try 0 trz " + F(az * FtPerM), "\t\trotx 0 roty 0 rotz 0" });
+        // The segment's CONTAINER (the link above does not move it). Its frame is the segment's: x forward, z up from the floor,
+        // numbers in feet (seen in AutoMod: trx 1.4 moved a load 0.43 m in a Meters model).
+        res.AddRange(new[] { "	CONTAINER name OnBoard 0 ", "		x 1 1 Feet ", "		y 1 1 Feet ", "		z 1 1 Feet",
+            "		trx " + F(containerXM * FtPerM) + " try 0 trz " + F(containerZM * FtPerM), "		rotx 0 roty 0 rotz 0" });
         return res;
     }
 }
