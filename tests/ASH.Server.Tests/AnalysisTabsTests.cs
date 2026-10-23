@@ -28,7 +28,7 @@ public class AnalysisTabsTests
         using var env = new JobEnv(worker: false);
         await env.SendFiled("라인 증설", "A안");
         var aid = env.Factory.Services.GetRequiredService<AnalysisStore>().All().Single().Id;
-        Assert.Contains("선정한 버전이 없습니다", await env.Http.GetStringAsync($"/analyses/{aid}?tab=compare"));
+        Assert.Contains("버전을 2개 이상 고르세요", await env.Http.GetStringAsync($"/analyses/{aid}?tab=compare"));
         Assert.Contains("아직 만든 영상이 없습니다", await env.Http.GetStringAsync($"/analyses/{aid}?tab=films"));
         Assert.Contains("?tab=status\" class=\"on\"", await env.Http.GetStringAsync($"/analyses/{aid}?tab=nope"));
         Assert.Equal(System.Net.HttpStatusCode.NotFound, (await env.Http.GetAsync("/api/analyses/a-nope/status")).StatusCode);

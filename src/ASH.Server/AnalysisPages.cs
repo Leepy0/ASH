@@ -112,9 +112,7 @@ public static class AnalysisPages
         switch (tab)
         {
             case "conclusion": ConclusionTab(sb, d, q); break;
-            case "compare": // Task 10 replaces this
-                Compare(sb, a, d.Jobs.ToList(), d.Jobs.ToDictionary(j => j.Id, j => MetricsOf(d.Store, j)));
-                break;
+            case "compare": CompareTab(sb, d, q); break;
             case "films": // Task 11 replaces this
                 FilmList(sb, d.Films.Where(f => f.Request.AnalysisId == a.Id).ToList(), a.Id);
                 break;
@@ -285,32 +283,108 @@ public static class AnalysisPages
         return Page("ASH 영상 " + f.AnalysisName, sb.ToString(), f.Finished ? null : PollScript("/api/films/" + f.Id, new Dictionary<string, string> { [f.Id] = f.State }));
     }
 
-    /// <summary>Rows = selected versions; per group 권장(대) · 가동률(%) · 최소 재고/안전재고(배) · 결품(초), then 교착(회) once.</summary>
-    static void Compare(StringBuilder sb, AnalysisInfo a, List<JobInfo> jobs, Dictionary<string, Metrics?> metrics)
+    internal sealed record CompareColumn(JobInfo Job, string PlanName, Metrics? M);
+
+    static readonly string[] Palette = { "#1f3a5f", "#378add", "#e24b4a", "#3b6d11", "#ef9f27", "#7a4fb3" };
+
+    /// <summary>비교 tab: version chips (?jobs=a,b — the first is the base), the metric table with changes against the base, the grouped utilization chart, and on request (&amp;maps=1) the bottleneck maps side by side.</summary>
+    internal static void CompareTab(StringBuilder sb, AnalysisPageData d, IQueryCollection q)
     {
-        sb.Append("<section class=\"box\"><h2>선정 버전 비교</h2>");
-        var picked = jobs.Where(j => j.Selected).OrderBy(j => a.Plans.FindIndex(p => p.Id == j.PlanId)).ThenBy(j => j.Version).ToList();
-        if (picked.Count == 0) { sb.Append("<p class=\"muted\">선정한 버전이 없습니다. 아래 안별 표에서 비교할 버전의 \"선정\"을 누르면 여기에 나란히 놓입니다.</p></section>"); return; }
-        var groups = picked.Select(j => metrics[j.Id]).Where(m => m != null).SelectMany(m => m!.View.Groups.Select(g => g.Group)).Distinct(StringComparer.Ordinal).ToList();
-        sb.Append("<div class=\"scroll\"><table><tr><th rowspan=\"2\">안 · 버전</th>");
-        foreach (var g in groups) sb.Append($"<th colspan=\"4\">{H(g)}</th>");
-        sb.Append("<th rowspan=\"2\">교착(회)</th></tr><tr>");
-        foreach (var _ in groups) sb.Append("<th>권장(대)</th><th>가동률(%)</th><th>최소 재고/안전재고(배)</th><th>결품(초)</th>");
-        sb.Append("</tr>");
-        foreach (var j in picked)
+        var a = d.A;
+        int PlanIx(JobInfo j) => a.Plans.FindIndex(p => p.Id == j.PlanId);
+        var all = d.Jobs.OrderBy(PlanIx).ThenBy(j => j.Version).ToList();
+        var byId = all.ToDictionary(j => j.Id);
+        var ids = q["jobs"].Count > 0
+            ? q["jobs"].ToString().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Where(byId.ContainsKey).Distinct().ToList()
+            : all.Where(j => j.Selected).Select(j => j.Id).ToList();
+        string Url(IEnumerable<string> l, bool maps = false) => $"?tab=compare&amp;jobs={string.Join(",", l.Select(Uri.EscapeDataString))}{(maps ? "&amp;maps=1" : "")}";
+        string PlanName(JobInfo j) => a.Plans.FirstOrDefault(p => p.Id == j.PlanId)?.Name ?? j.Plan;
+        sb.Append("<section class=\"box\"><h2>버전 비교</h2><p>");
+        foreach (var j in all)
+            sb.Append($"<a href=\"{Url(ids.Contains(j.Id) ? ids.Where(x => x != j.Id) : ids.Append(j.Id))}\" class=\"chip{(ids.Contains(j.Id) ? " sel" : "")}\">{H(PlanName(j))} v{j.Version}{(j.Selected ? " · 선정" : "")}</a>");
+        sb.Append("</p>");
+        if (ids.Count < 2) { sb.Append("<p class=\"muted\">버전을 2개 이상 고르세요.</p></section>"); return; }
+        var cols = ids.Select(id => new CompareColumn(byId[id], PlanName(byId[id]), MetricsOf(d.Store, byId[id]))).ToList();
+        var groups = cols.Where(c => c.M != null).SelectMany(c => c.M!.View.Groups.Select(g => g.Group)).Distinct(StringComparer.Ordinal).ToList();
+        var baseM = cols[0].M;
+
+        sb.Append("<div class=\"scroll\"><table><tr><th>지표</th>");
+        for (int i = 0; i < cols.Count; i++)
         {
-            var plan = a.Plans.FirstOrDefault(p => p.Id == j.PlanId);
-            sb.Append($"<tr><td><a href=\"/jobs/{H(j.Id)}\">{H(plan?.Name)} · v{j.Version}</a></td>");
-            if (metrics[j.Id] is not { } m) { sb.Append($"<td colspan=\"{groups.Count * 4 + 1}\" class=\"muted\">결과가 없습니다({H(JobState.Korean(j.State))})</td></tr>"); continue; }
-            foreach (var g in groups)
-            {
-                var gv = m.View.Groups.FirstOrDefault(x => x.Group == g);
-                if (gv == null) { sb.Append("<td class=\"muted\" colspan=\"4\">-</td>"); continue; }
-                var stops = m.View.Materials.Where(x => x.Group == g).Select(x => x.StopSec).Where(s => !double.IsNaN(s)).ToList();
-                sb.Append($"<td class=\"num\">{(gv.Decided?.ToString(CultureInfo.InvariantCulture) ?? "-")}</td><td class=\"num\">{P(gv.Util)}</td><td class=\"num\">{F(gv.MinStockRatio)}</td><td class=\"num\">{(stops.Count == 0 ? "-" : Num(stops.Sum(), "0"))}</td>");
-            }
-            sb.Append($"<td class=\"num\">{m.View.Deadlocks}</td></tr>");
+            var c = cols[i];
+            sb.Append($"<th><a href=\"/jobs/{H(c.Job.Id)}\">{H(c.PlanName)} v{c.Job.Version}</a><br>")
+              .Append(i == 0 ? "<span class=\"tag\">기준</span>" : $"<a href=\"{Url(ids.Where(x => x == c.Job.Id).Concat(ids.Where(x => x != c.Job.Id)))}\">기준으로</a>").Append("</th>");
         }
-        sb.Append("</table></div></section>");
+        sb.Append("</tr>");
+        // every row is "smaller is better": a negative change against the base is ok, a positive one bad
+        void Row(string label /* already HTML */, Func<Metrics, double?> get, Func<Metrics, string> show)
+        {
+            sb.Append($"<tr><th>{label}</th>");
+            for (int i = 0; i < cols.Count; i++)
+            {
+                var m = cols[i].M;
+                if (m == null) { sb.Append("<td class=\"num muted\">-</td>"); continue; }
+                sb.Append($"<td class=\"num\">{H(show(m))}");
+                if (i > 0 && baseM != null && get(m) is { } v && !double.IsNaN(v) && get(baseM) is { } b && !double.IsNaN(b))
+                {
+                    var dl = Math.Round(v - b, 1);
+                    sb.Append($" <small{(dl < 0 ? " class=\"ok\"" : dl > 0 ? " class=\"bad\"" : "")}>{H(F(dl, "+0.#;-0.#;0"))}</small>");
+                }
+                sb.Append("</td>");
+            }
+            sb.Append("</tr>");
+        }
+        string Pc(double u) => double.IsNaN(u) ? "-" : Num(u * 100);
+        double? Pv(double u) => double.IsNaN(u) ? null : u * 100;
+        BlockView? Worst(Metrics m) => m.View.Blocks.Where(x => !double.IsNaN(x.AvgWaitSec)).OrderByDescending(x => x.AvgWaitSec).FirstOrDefault();
+        Row("총 대수(대)", m => m.Total, m => m.Total?.ToString(CultureInfo.InvariantCulture) ?? "-");
+        Row("최대 가동률(%)", m => Pv(m.Util), m => Pc(m.Util));
+        Row("결품 합계(초)", m => m.Stop, m => double.IsNaN(m.Stop) ? "-" : Num(m.Stop, "0"));
+        Row("교착(회)", m => m.View.Deadlocks, m => m.View.Deadlocks.ToString(CultureInfo.InvariantCulture));
+        Row("최대 병목(block·초)", m => Worst(m)?.AvgWaitSec, m => Worst(m) is { } w ? $"{w.Name}·{Num(w.AvgWaitSec)}" : "-");
+        // plan B inserts the 투자비(원) row here (Row(...), smaller is better)
+        foreach (var g in groups)
+        {
+            GroupView? G(Metrics m) => m.View.Groups.FirstOrDefault(x => x.Group == g);
+            Row($"{H(g)} 권장(대)", m => G(m)?.Decided, m => G(m)?.Decided?.ToString(CultureInfo.InvariantCulture) ?? "-");
+            Row($"{H(g)} 가동률(%)", m => G(m) is { } x ? Pv(x.Util) : null, m => G(m) is { } x ? Pc(x.Util) : "-");
+        }
+        sb.Append("</table></div>");
+        sb.Append("<div class=\"scroll\" style=\"margin-top:12px\">").Append(CompareChart(cols, groups, baseM?.View.UtilMax ?? cols.Select(c => c.M?.View.UtilMax).FirstOrDefault(x => x != null) ?? 0.75)).Append("</div>");
+        if (q["maps"] != "1") { sb.Append($"<p><a class=\"btn\" href=\"{Url(ids, true)}\">병목 지도 나란히</a></p></section>"); return; }
+        sb.Append("<h2>병목 지도(block 평균 대기, 같은 축척)</h2><div class=\"scroll\"><div style=\"display:flex;gap:12px\">");
+        foreach (var c in cols)
+            sb.Append("<div>").Append(c.M?.View.Layout == null ? $"<div style=\"font-weight:600\">{H(c.PlanName)} v{c.Job.Version}</div><p class=\"muted\">지도가 없습니다.</p>"
+                : Map(c.M.View, $"{c.PlanName} v{c.Job.Version}", b => b.AvgWaitSec, x => F(x, "0.0") + "초", 360, 250)).Append("</div>");
+        sb.Append("</div></div></section>");
+    }
+
+    /// <summary>Grouped bars: per group one bar per version (palette colour per version), dashed line = utilization limit.</summary>
+    internal static string CompareChart(IReadOnlyList<CompareColumn> cols, IReadOnlyList<string> groups, double utilMax)
+    {
+        double w = Math.Max(520, groups.Count * (cols.Count * 14 + 20)), h = 240, l = 36, bt = 28, top = 12, ph = h - bt - top;
+        var vals = cols.SelectMany(c => c.M?.View.Groups.Select(g => g.Util) ?? Enumerable.Empty<double>()).Where(u => !double.IsNaN(u));
+        double hi = Math.Max(1, Math.Max(utilMax, vals.DefaultIfEmpty(0).Max()));
+        string Y(double u) => F(top + ph * (1 - u / hi), "0.#");
+        var sb = new StringBuilder($"<svg width=\"{F(w, "0.#")}\" height=\"{h}\" viewBox=\"0 0 {F(w, "0.#")} {h}\" style=\"background:#fff;border:1px solid #d3d1c7\">");
+        sb.Append($"<line x1=\"{l}\" x2=\"{F(w - 4, "0.#")}\" y1=\"{Y(0)}\" y2=\"{Y(0)}\" stroke=\"#888780\"/>");
+        double slot = (w - l - 4) / Math.Max(1, groups.Count);
+        for (int gi = 0; gi < groups.Count; gi++)
+        {
+            double gx = l + gi * slot, bw = Math.Min(14, (slot - 6) / Math.Max(1, cols.Count));
+            for (int ci = 0; ci < cols.Count; ci++)
+            {
+                var gv = cols[ci].M?.View.Groups.FirstOrDefault(x => x.Group == groups[gi]);
+                if (gv == null || double.IsNaN(gv.Util)) continue;
+                double x = gx + 3 + ci * bw;
+                sb.Append($"<rect x=\"{F(x, "0.#")}\" y=\"{Y(gv.Util)}\" width=\"{F(bw - 1, "0.#")}\" height=\"{F(ph * gv.Util / hi, "0.#")}\" fill=\"{Palette[ci % Palette.Length]}\"><title>{H(groups[gi])} · {H(cols[ci].PlanName)} v{cols[ci].Job.Version}: {H(F(gv.Util * 100, "0.#"))}%</title></rect>");
+            }
+            sb.Append($"<text x=\"{F(gx + slot / 2, "0.#")}\" y=\"{h - 10}\" font-size=\"11\" text-anchor=\"middle\">{H(groups[gi])}</text>");
+        }
+        sb.Append($"<line x1=\"{l}\" x2=\"{F(w - 4, "0.#")}\" y1=\"{Y(utilMax)}\" y2=\"{Y(utilMax)}\" stroke=\"#a32d2d\" stroke-dasharray=\"5 4\"><title>가동률 상한 {H(F(utilMax * 100, "0.#"))}%</title></line>");
+        sb.Append($"<text x=\"{l - 4}\" y=\"{Y(utilMax)}\" font-size=\"10\" text-anchor=\"end\" fill=\"#a32d2d\">{H(F(utilMax * 100, "0"))}%</text></svg>");
+        sb.Append("<div class=\"muted\" style=\"font-size:12px\">");
+        for (int ci = 0; ci < cols.Count; ci++) sb.Append($"<span style=\"color:{Palette[ci % Palette.Length]}\">■</span> {H(cols[ci].PlanName)} v{cols[ci].Job.Version} &nbsp;");
+        return sb.Append("· 가동률(%) · 빨간 점선은 상한</div>").ToString();
     }
 }
