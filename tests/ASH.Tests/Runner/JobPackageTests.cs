@@ -7,7 +7,7 @@ namespace ASH.Tests.Runner;
 public class JobPackageTests
 {
     [Fact]
-    public void Create_Leaves_Out_The_Asy_Backups_And_The_Local_Settings()
+    public void Create_Leaves_Out_The_Asy_Backups_And_Keeps_The_Settings()
     {
         var proj = Path.Combine(Path.GetTempPath(), "ash_pkg_" + Guid.NewGuid().ToString("N"));
         try
@@ -21,7 +21,7 @@ public class JobPackageTests
             Assert.Contains(z.Entries, e => e.FullName == "m.arc/agv.asy");
             Assert.DoesNotContain(z.Entries, e => e.FullName.Contains(".bak"));
             Assert.DoesNotContain(files, f => f.Path.Contains(".bak"));
-            Assert.DoesNotContain(z.Entries, e => e.FullName == "ash.settings.tsv"); // its AmHome is this PC's: the server uses its own
+            Assert.Contains(z.Entries, e => e.FullName == "ash.settings.tsv"); // carried for continue.zip; the server does not use it
         }
         finally { Directory.Delete(proj, true); }
     }
@@ -34,6 +34,40 @@ public class JobPackageTests
         if (dxf) File.WriteAllText(Path.Combine(proj, JobPackage.LocalDxf),"0\nEOF\n");
         if (frame) new ModelFrame("Meters", 1, 2, 0.001).Write(Path.Combine(proj, ModelFrame.FileName));
         return proj;
+    }
+
+    [Fact]
+    public void Package_Includes_Dwg_And_Settings_When_Given()
+    {
+        var proj = Project(dxf: false, frame: false);
+        try
+        {
+            File.WriteAllText(Path.Combine(proj, "ash.settings.tsv"), "ModelName	m");
+            var dwg = Path.Combine(proj, "sub", "플랜트.dwg"); Directory.CreateDirectory(Path.GetDirectoryName(dwg)!); File.WriteAllBytes(dwg, new byte[16]);
+            var zip = Path.Combine(proj, "p.zip");
+            var files = JobPackage.Create(proj, "m", zip, dwgPath: dwg);
+            using var z = ZipFile.OpenRead(zip);
+            Assert.Contains(z.Entries, e => e.FullName == "drawing.dwg");
+            Assert.Contains(z.Entries, e => e.FullName == "ash.settings.tsv");
+            Assert.Contains(files, f => f.Path == "drawing.dwg" && f.Size == 16);
+            Assert.Contains("drawing.dwg", JobPackage.OptionalFiles); Assert.Contains("ash.settings.tsv", JobPackage.OptionalFiles);
+        }
+        finally { Directory.Delete(proj, true); }
+    }
+
+    [Fact]
+    public void Package_Skips_Missing_Dwg()
+    {
+        var proj = Project(dxf: false, frame: false);
+        try
+        {
+            var zip = Path.Combine(proj, "p.zip");
+            JobPackage.Create(proj, "m", zip, dwgPath: Path.Combine(proj, "nope.dwg"));
+            JobPackage.Create(proj, "m", zip, dwgPath: null);
+            using var z = ZipFile.OpenRead(zip);
+            Assert.DoesNotContain(z.Entries, e => e.FullName == "drawing.dwg");
+        }
+        finally { Directory.Delete(proj, true); }
     }
 
     [Fact]
