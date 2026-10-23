@@ -32,6 +32,9 @@ public class HomePageTests
         Assert.Contains("fetch('/api/home", html);
         var api = JsonDocument.Parse(await env.Http.GetStringAsync("/api/home?me=0")).RootElement;
         Assert.Equal("running", api.GetProperty("watch").GetProperty("20261023-000000-aaaa").GetString()); Assert.Equal("50%", api.GetProperty("fields").GetProperty("running.progress").GetString());
+        fs.Update("20261023-000000-aaaa", x => { x.State = JobState.Done; x.FinishedUtc = DateTime.UtcNow; });
+        var after = JsonDocument.Parse(await env.Http.GetStringAsync("/api/home?me=0")).RootElement; // the key is gone: the script sees running -> missing and reloads
+        Assert.False(after.GetProperty("watch").TryGetProperty("20261023-000000-aaaa", out _)); Assert.False(after.GetProperty("fields").TryGetProperty("running.state", out _));
         var film = await env.Http.GetStringAsync("/films/20261023-000000-aaaa");
         Assert.Contains("data-bar=\"film.bar\"", film);
         Assert.Equal("50", JsonDocument.Parse(await env.Http.GetStringAsync("/api/films/20261023-000000-aaaa")).RootElement.GetProperty("fields").GetProperty("film.bar").GetString());

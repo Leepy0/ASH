@@ -92,7 +92,7 @@ public static class AnalysisPages
         if (!GroupCache.TryGetValue(j.Id, out var groups))
         {
             try { groups = SearchJob.ReadInput(store.ProjectDir(j.Id), TextWriter.Null, new List<string>(), out _)?.Groups.Select(g => (g.Group, g.MaxCount)).ToList(); }
-            catch (Exception e) { Console.Error.WriteLine($"PartialText {j.Id}: {e.Message}"); }
+            catch (Exception e) { Console.Error.WriteLine($"PartialText {j.Id}: {e.Message}"); groups = new(); } // cached too: a bad workbook logs once
             if (groups != null) GroupCache[j.Id] = groups;
         }
         if (groups == null || groups.Count == 0) return string.Join(" · ", done.Select(kv => $"{kv.Key} {kv.Value}"));

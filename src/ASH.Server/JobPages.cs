@@ -111,6 +111,7 @@ document.querySelectorAll('table.sort').forEach(function(t){
       });
       var w=d.watch||{}, ended=false;
       if(prev) Object.keys(w).forEach(function(id){ if(prev[id]==='queued'&&w[id]==='running'){ location.reload(); return; } if((prev[id]==='queued'||prev[id]==='running')&&w[id]!=='queued'&&w[id]!=='running') ended=true; });
+      if(prev) Object.keys(prev).forEach(function(id){ if(!(id in w)&&(prev[id]==='queued'||prev[id]==='running')) ended=true; });
       prev=w;
       if(ended&&!reloading){
         reloading=true;
@@ -326,17 +327,17 @@ document.querySelectorAll('table.sort').forEach(function(t){
                 (g.AllOk ? "" : $" · <span class=\"bad\">실패: {H(g.Reason)}</span>") + "</div>");
         }
         if (j.Clusters is not { Count: > 0 }) { foreach (var g in v.Groups) Row(g); return; }
-        var shown = new HashSet<string>(StringComparer.Ordinal); var single = new List<GroupView>();
+        var shown = new HashSet<string>(StringComparer.Ordinal); var single = new List<GroupView>(); var headed = false;
         foreach (var c in j.Clusters)
         {
             var mine = v.Groups.Where(g => c.Contains(g.Group) && shown.Add(g.Group)).ToList();
             if (mine.Count == 1) { single.Add(mine[0]); continue; } // a cluster of one is no cluster: gathered under one heading below
             if (mine.Count == 0) continue;
-            sb.Append($"<h3>묶음: {H(string.Join(", ", c))}</h3>");
+            sb.Append($"<h3>묶음: {H(string.Join(", ", c))}</h3>"); headed = true;
             foreach (var g in mine) Row(g);
         }
         single.AddRange(v.Groups.Where(g => !shown.Contains(g.Group)));
-        if (single.Count > 0) { sb.Append("<h3>단독</h3>"); foreach (var g in single) Row(g); }
+        if (single.Count > 0) { if (headed) sb.Append("<h3>단독</h3>"); foreach (var g in single) Row(g); }
     }
 
     static string Heat(double t)
