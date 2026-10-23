@@ -289,10 +289,12 @@ document.querySelectorAll('table.sort').forEach(function(t){
         sb.Append("<div class=\"grid2\"><div>");
         sb.Append("<div class=\"cards\">");
         sb.Append($"<div class=\"card\"><div class=\"sub\">권장 총 대수</div><div class=\"big\">{total}대</div><div class=\"sub\">시험 범위 {min}~{max}대</div></div>");
-        sb.Append($"<div class=\"card\"><div class=\"sub\">최대 가동률</div><div class=\"big\">{(top == null ? "-" : Pct(top.Util))}</div><div class=\"sub\">상한 {Pct(v.UtilMax)} · 그룹 {H(top?.Group ?? "-")}</div></div>");
+        bool many = v.Groups.Count > ManyGroups;
+        sb.Append($"<div class=\"card\"><div class=\"sub\">최대 가동률</div><div class=\"big\">{(top == null ? "-" : Pct(top.Util))}</div><div class=\"sub\">상한 {Pct(v.UtilMax)} · 그룹 {H(top?.Group ?? "-")}</div>" +
+            (many ? $"<div class=\"sub\">상한 초과 {v.Groups.Count(g => Over(g, v.UtilMax))}개 · 판정 실패 {v.Groups.Count(g => !g.AllOk)}개 그룹</div>" : "") + "</div>");
         sb.Append($"<div class=\"card\"><div class=\"sub\">최대 병목</div><div class=\"big\">{H(worst?.Name ?? "-")}</div><div class=\"sub\">{(occ ? "점유율" : "평균 대기")} {(worst == null ? "-" : occ ? Pct(worst.Utilization) : F(worst.AvgWaitSec, "0.0") + "초")}</div></div>");
         sb.Append("</div>");
-        ClusterBars(sb, j, v);
+        if (many) ManyGroupsBlock(sb, j, v); else ClusterBars(sb, j, v);
         sb.Append("<h3>서로 영향이 큰 그룹</h3>");
         var effects = v.Impact.Where(r => r.OtherGroup != r.Group && !double.IsNaN(r.UtilDelta)).OrderByDescending(r => Math.Abs(r.UtilDelta)).Take(3).ToList();
         if (effects.Count == 0) sb.Append("<p class=\"muted\">영향표 없음</p>");
@@ -316,16 +318,61 @@ document.querySelectorAll('table.sort').forEach(function(t){
         sb.Append($"<p><a href=\"/jobs/{id}?tab=detail\">상세 보기</a> · <a href=\"/jobs/{id}/files/report.xlsx\">Excel 보고서</a> · <a href=\"/jobs/{id}\">이 버전의 영상</a></p>");
     }
 
+    /// <summary>More groups than this: the 결론, 비교 and 현황 tabs show a summary, the notable groups and one compact figure instead of a line per group.</summary>
+    public const int ManyGroups = 3;
+
+    internal static bool Over(GroupView g, double utilMax) => !double.IsNaN(g.Util) && g.Util > utilMax;
+
+    /// <summary>At most five groups worth a look: judgement failed first, then over the limit, then the busiest.</summary>
+    internal static List<GroupView> Notable(JobView v) =>
+        v.Groups.OrderBy(g => !g.AllOk ? 0 : Over(g, v.UtilMax) ? 1 : 2).ThenByDescending(g => double.IsNaN(g.Util) ? -1 : g.Util).Take(5).ToList();
+
+    /// <summary>결론 with many groups: 주목 그룹 bars, the distribution strip, and every group's bar in a closed details.</summary>
+    static void ManyGroupsBlock(StringBuilder sb, JobInfo j, JobView v)
+    {
+        sb.Append("<h3>주목 그룹</h3>");
+        foreach (var g in Notable(v)) GroupRow(sb, g, v.UtilMax);
+        sb.Append("<h3>분포 그림</h3>").Append(Strip(v));
+        sb.Append($"<details><summary>전체 {v.Groups.Count}개 그룹 보기</summary>");
+        ClusterBars(sb, j, v);
+        sb.Append("</details>");
+    }
+
+    /// <summary>One dot per group on a 0–100 % utilisation axis (red = judgement failed, amber = over the limit), dashed limit line. Fixed height:
+    /// dots that would overlap step up and down a little. Groups without a utilisation get no dot.</summary>
+    internal static string Strip(JobView v)
+    {
+        const double w = 520, h = 64, l = 16, r = 16, mid = 26;
+        double X(double u) => l + (w - l - r) * Math.Clamp(u, 0, 1);
+        var sb = new StringBuilder($"<svg class=\"strip\" width=\"{w}\" height=\"{h}\" viewBox=\"0 0 {w} {h}\" style=\"background:#fff;border:1px solid #d3d1c7;max-width:100%\">");
+        sb.Append($"<line x1=\"{l}\" x2=\"{w - r}\" y1=\"{mid + 18}\" y2=\"{mid + 18}\" stroke=\"#888780\"/>");
+        foreach (var t in new[] { 0, 50, 100 }) sb.Append($"<text x=\"{F(X(t / 100.0), "0.#")}\" y=\"{h - 4}\" font-size=\"10\" text-anchor=\"middle\" fill=\"#5f5e5a\">{t}%</text>");
+        var lx = F(X(v.UtilMax), "0.#");
+        sb.Append($"<line x1=\"{lx}\" x2=\"{lx}\" y1=\"4\" y2=\"{mid + 18}\" stroke=\"#a32d2d\" stroke-dasharray=\"4 3\"><title>가동률 상한 {F(v.UtilMax * 100, "0")}%</title></line>");
+        var placed = new List<double>();
+        foreach (var g in v.Groups.Where(g => !double.IsNaN(g.Util)).OrderBy(g => g.Util))
+        {
+            double x = X(g.Util); int k = placed.Count(px => Math.Abs(px - x) < 7); placed.Add(x);
+            double y = mid + (k % 2 == 1 ? -1 : 1) * ((k + 1) / 2 % 4) * 5; // 0, -5, +5, -10, +10, -15, +15, then round again
+            var fill = !g.AllOk ? "#a32d2d" : Over(g, v.UtilMax) ? "#ef9f27" : "#378add";
+            sb.Append($"<circle cx=\"{F(x, "0.#")}\" cy=\"{F(y, "0.#")}\" r=\"5\" fill=\"{fill}\" fill-opacity=\"0.85\"><title>{H(g.Group)} · 가동률 {F(g.Util * 100, "0")}% · {g.Decided?.ToString(CultureInfo.InvariantCulture) ?? "-"}대</title></circle>");
+        }
+        return sb.Append("</svg><div class=\"muted\" style=\"font-size:12px\">점 하나 = 그룹 · <span style=\"color:#a32d2d\">●</span> 판정 실패 · <span style=\"color:#ef9f27\">●</span> 상한 초과 · 빨간 점선은 상한</div>").ToString();
+    }
+
+    /// <summary>One group's bar line: utilisation vs the limit, recommended count in bold, the failure reason in red.</summary>
+    static void GroupRow(StringBuilder sb, GroupView g, double utilMax)
+    {
+        var w = double.IsNaN(g.Util) ? 0 : Math.Min(1, g.Util);
+        sb.Append($"<div>{H(g.Group)} · {H(g.Type)} · <span class=\"bar\"><i style=\"width:{F(w * 100, "0.#")}%{(g.AllOk ? "" : ";background:var(--bad)")}\"></i><b style=\"left:{F(Math.Min(1, utilMax) * 100, "0.#")}%\"></b></span> " +
+            $"가동률 {Pct(g.Util)} · <b>권장 {(g.Decided?.ToString(CultureInfo.InvariantCulture) ?? "-")}대</b> · 범위 {g.Min}~{g.Max}대" +
+            (g.AllOk ? "" : $" · <span class=\"bad\">실패: {H(g.Reason)}</span>") + "</div>");
+    }
+
     /// <summary>One bar line per group (utilisation vs the limit, recommended count in bold), under a "묶음: G1, G2" heading per cluster; flat when the job has none.</summary>
     internal static void ClusterBars(StringBuilder sb, JobInfo j, JobView v)
     {
-        void Row(GroupView g)
-        {
-            var w = double.IsNaN(g.Util) ? 0 : Math.Min(1, g.Util);
-            sb.Append($"<div>{H(g.Group)} · {H(g.Type)} · <span class=\"bar\"><i style=\"width:{F(w * 100, "0.#")}%{(g.AllOk ? "" : ";background:var(--bad)")}\"></i><b style=\"left:{F(Math.Min(1, v.UtilMax) * 100, "0.#")}%\"></b></span> " +
-                $"가동률 {Pct(g.Util)} · <b>권장 {(g.Decided?.ToString(CultureInfo.InvariantCulture) ?? "-")}대</b> · 범위 {g.Min}~{g.Max}대" +
-                (g.AllOk ? "" : $" · <span class=\"bad\">실패: {H(g.Reason)}</span>") + "</div>");
-        }
+        void Row(GroupView g) => GroupRow(sb, g, v.UtilMax);
         if (j.Clusters is not { Count: > 0 }) { foreach (var g in v.Groups) Row(g); return; }
         var shown = new HashSet<string>(StringComparer.Ordinal); var single = new List<GroupView>(); var headed = false;
         foreach (var c in j.Clusters)
@@ -340,7 +387,7 @@ document.querySelectorAll('table.sort').forEach(function(t){
         if (single.Count > 0) { if (headed) sb.Append("<h3>단독</h3>"); foreach (var g in single) Row(g); }
     }
 
-    static string Heat(double t)
+    internal static string Heat(double t)
     {
         // light grey -> amber -> red
         t = double.IsNaN(t) ? 0 : Math.Clamp(t, 0, 1);
