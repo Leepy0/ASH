@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Net;
 using System.Text.Json;
+using ASH.Core.Analysis;
 using ASH.Core.Input;
 using ASH.Core.Runner;
 using ASH.Server;
@@ -80,4 +81,43 @@ public class FileRoutesTests
 
     [Fact] public void ContinueLink_Points_At_The_Zip() => Assert.Contains("/jobs/j1/files/continue.zip", FileRoutes.ContinueLink(new JobInfo { Id = "j1", Files = { new("input.cells.tsv", 1, "") } }));
     [Fact] public void ContinueLink_Is_Empty_Without_Snapshot() => Assert.Equal("", FileRoutes.ContinueLink(new JobInfo { Id = "j1" }));
+
+    [Fact]
+    public void Search_Matches_Name_Material_Date_And_Tags()
+    {
+        var a = new AnalysisInfo { Id = "a1", Name = "A", Corp = "P", Plans = { new PlanInfo { Id = "p1", Name = "X" } } };
+        var b = new AnalysisInfo { Id = "a2", Name = "B", Corp = "Q", Plans = { new PlanInfo { Id = "p2", Name = "Y" } } };
+        var jobs = new[]
+        {
+            new JobInfo { Id = "j1", AnalysisId = "a1", PlanId = "p1", Version = 1, CreatedUtc = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc) },
+            new JobInfo { Id = "j2", AnalysisId = "a2", PlanId = "p2", Version = 1, CreatedUtc = new DateTime(2026, 10, 20, 0, 0, 0, DateTimeKind.Utc) },
+            new JobInfo { Id = "j3", Project = "프로젝트", Plan = "Z", CreatedUtc = new DateTime(2026, 10, 21, 0, 0, 0, DateTimeKind.Utc) },
+        };
+        IReadOnlyList<string> Mats(string id) => id == "j1" ? new[] { "M-100" } : id == "j2" ? new[] { "M-200" } : Array.Empty<string>();
+        string[] Ids(FileRoutes.FileQuery f) => FileRoutes.Search(f, jobs, new[] { a, b }, Mats).Select(j => j.Id).ToArray();
+        Assert.Equal(new[] { "j1" }, Ids(new(Q: "X")));
+        Assert.Equal(new[] { "j3" }, Ids(new(Q: "프로젝트")));
+        Assert.Equal(new[] { "j1" }, Ids(new(Material: "100")));
+        Assert.Equal(new[] { "j3", "j2" }, Ids(new(FromUtc: new DateTime(2026, 10, 10, 0, 0, 0, DateTimeKind.Utc))));
+        Assert.Equal(new[] { "j2" }, Ids(new(Corp: "q")));
+        Assert.Equal(3, Ids(new()).Length);
+        var qs = FileRoutes.FileQuery.From(new Microsoft.AspNetCore.Http.QueryCollection(new Dictionary<string, Microsoft.Extensions.Primitives.StringValues> { ["from"] = "2026-10-02", ["to"] = "2026-10-20" }));
+        Assert.Equal(new[] { "j2" }, Ids(qs)); // 10-20 Seoul day ends 10-20 15:00Z; j2 is 10-20 00:00Z, j1 is before
+    }
+
+    [Fact]
+    public async Task Files_Page_Lists_Jobs_With_Download_Links()
+    {
+        var (env, id) = await Upload(true);
+        using var env0 = env;
+        var res = await env.Http.GetAsync("/files");
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var html = await res.Content.ReadAsStringAsync();
+        Assert.Contains($"/jobs/{id}/files/continue.zip", html);
+        Assert.Contains("drawing.dwg", html);
+    }
+
+    [Fact]
+    public void Readme_Says_No_Drawing_When_Neither_Exists() =>
+        Assert.Contains("도면 파일이 없습니다", FileRoutes.ReadmeText(null, null, new JobInfo { Id = "j1" }, false, true, hasDxf: false));
 }
