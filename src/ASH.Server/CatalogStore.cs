@@ -18,7 +18,10 @@ public sealed class CatalogStore
     readonly ILogger _log;
     string TypesFile => Path.Combine(Dir, "types.json");
     string PricesFile => Path.Combine(Dir, "prices.csv");
+    string? _copied;
     public string Dir { get; }
+    /// <summary>Why types.json cannot be read (null = fine). While set, Save refuses so the real file is never overwritten.</summary>
+    public string? LoadError { get; private set; }
 
     public CatalogStore(string jobsDir, ILogger log)
     {
@@ -29,9 +32,20 @@ public sealed class CatalogStore
 
     List<CatalogType> Load()
     {
+        LoadError = null;
         if (!File.Exists(TypesFile)) return new();
         try { return JsonSerializer.Deserialize<CatalogTypes>(File.ReadAllText(TypesFile, Encoding.UTF8), Json)?.Types ?? new(); }
-        catch (JsonException e) { _log.LogError(e, "types.json unreadable: {File}", TypesFile); return new(); }
+        catch (JsonException e)
+        {
+            LoadError = e.Message;
+            _log.LogError(e, "types.json unreadable: {File}", TypesFile);
+            if (_copied != TypesFile) // once per process
+            {
+                _copied = TypesFile;
+                try { File.Copy(TypesFile, TypesFile + ".corrupt-" + DateTime.Now.ToString("yyyyMMdd-HHmmss"), true); } catch (IOException) { }
+            }
+            return new();
+        }
     }
 
     public IReadOnlyList<CatalogType> Types(bool includeHidden = false)
@@ -55,6 +69,7 @@ public sealed class CatalogStore
         lock (_lock)
         {
             var all = Load();
+            if (LoadError != null) return $"types.json을 읽을 수 없어 저장하지 않습니다: {LoadError}";
             all.RemoveAll(x => x.Name.Equals(t.Name, StringComparison.OrdinalIgnoreCase));
             t.UpdatedUtc = DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture);
             t.UpdatedBy = by;
@@ -71,7 +86,9 @@ public sealed class CatalogStore
         foreach (var line in csv)
         {
             var c = Cells(line.TrimEnd('\r'));
+            if (line.Trim().Length == 0) continue;
             if (c.Count == 4 && decimal.TryParse(c[1], NumberStyles.Number, CultureInfo.InvariantCulture, out var p)) res[c[0]] = new PriceRow(c[0], p, c[2], c[3]);
+            else _log.LogWarning("prices.csv: skipped malformed line {Line}", line);
         }
         return res;
     }
@@ -94,6 +111,7 @@ public sealed class CatalogStore
             var c = Cells(lines[i]);
             if (c.Count != 4) { errors.Add((i + 1, "열이 4개가 아닙니다.")); continue; }
             var ok = true;
+            if (c.Count == 4 && c[3].Contains((char)10)) { errors.Add((i + 1, "비고에 줄바꿈을 쓸 수 없습니다")); ok = false; }
             if (!names.Contains(c[0])) { errors.Add((i + 1, $"타입 {c[0]} 없음")); ok = false; }
             if (!decimal.TryParse(c[1].Replace(",", ""), NumberStyles.Number, CultureInfo.InvariantCulture, out var p)) { errors.Add((i + 1, "숫자가 아닙니다")); ok = false; }
             if (ok) seen[c[0]] = new PriceRow(c[0], p, c[2].Length == 0 ? "KRW" : c[2], c[3]);

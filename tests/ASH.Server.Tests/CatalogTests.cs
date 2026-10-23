@@ -63,8 +63,7 @@ public class CatalogTests
     {
         using var env = new JobEnv();
         var store = env.Factory.Services.GetRequiredService<CatalogStore>();
-        var t = T("T_A"); t.Defaults.SpeedLoadedStraight = 1.5;
-        Assert.Null(store.Save(t, "me"));
+        Assert.Null(store.Save(T("T_A"), "me"));
         Assert.Null(store.Save(T("T_H", hidden: true), "me"));
         var res = await env.Http.GetAsync("/api/catalog/types");
         Assert.Equal(System.Net.HttpStatusCode.OK, res.StatusCode);
@@ -80,5 +79,26 @@ public class CatalogTests
         Assert.Equal("front", x.GetProperty("assets")[0].GetString());
         Assert.Equal(new[] { "assets", "category", "defaults", "kind", "label", "name" }, x.EnumerateObject().Select(p => p.Name).OrderBy(n => n));
         Assert.False(x.TryGetProperty("hidden", out _) || x.TryGetProperty("updatedUtc", out _) || x.TryGetProperty("updatedBy", out _));
+    }
+
+    [Fact]
+    public async Task Api_Empty_Catalog_Is_Exactly_Empty_Types()
+    {
+        using var env = new JobEnv();
+        Assert.Equal("{\"types\":[]}", await env.Http.GetStringAsync("/api/catalog/types"));
+    }
+
+    [Fact]
+    public async Task Corrupt_TypesJson_Is_Not_Overwritten()
+    {
+        using var env = new JobEnv();
+        var store = env.Factory.Services.GetRequiredService<CatalogStore>();
+        var file = Path.Combine(store.Dir, "types.json");
+        File.WriteAllText(file, "{ not json");
+        Assert.Equal("{\"types\":[]}", await env.Http.GetStringAsync("/api/catalog/types"));
+        Assert.NotNull(store.LoadError);
+        Assert.StartsWith("types.json을 읽을 수 없어 저장하지 않습니다", store.Save(T("T_A"), "me"));
+        Assert.Equal("{ not json", File.ReadAllText(file));
+        Assert.Single(Directory.GetFiles(store.Dir, "types.json.corrupt-*"));
     }
 }
