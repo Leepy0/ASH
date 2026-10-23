@@ -35,7 +35,7 @@ public static class SvgPreview
         {
             ("위", true, b => b.Z0 + b.H, b => Rect(b.X - b.Dx / 2, b.Y - b.Dy / 2, b.X + b.Dx / 2, b.Y + b.Dy / 2)),
             ("옆", true, b => b.X, b => Rect(b.Y - b.Dy / 2, -(b.Z0 + b.H), b.Y + b.Dy / 2, -b.Z0)),
-            ("사선", false, b => -b.Y, Iso)   // shortcut: painter sort by -y only; boxes overlapping in y but differing in x/z may overdraw wrongly, upgrade to a per-face depth sort if it shows,
+            ("사선", false, b => -b.Y, Iso)   // shortcut: painter sort by -y only; boxes overlapping in y but differing in x/z may overdraw wrongly, upgrade to a per-face depth sort if it shows
         };
         for (int i = 0; i < 3; i++)
         {
@@ -83,8 +83,8 @@ public static class SvgPreview
             if (s <= availW) sb.Append("<path d=\"M").Append(N(Margin)).Append(' ').Append(N(by)).Append('h').Append(N(s)).Append("\" fill=\"none\" stroke=\"#000000\" stroke-width=\"2\"/>")
               .Append("<text x=\"").Append(N(Margin + s + 4)).Append("\" y=\"").Append(N(by + 4)).Append("\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#333333\">1 m</text>");
             if (i == 1)   // front is on the left in the side view
-                sb.Append("<path d=\"M30 12H10m0 0l7-4v8z\" fill=\"#000000\" stroke=\"#000000\" stroke-width=\"1\"/>")
-                  .Append("<text x=\"36\" y=\"16\" font-size=\"11\" font-family=\"sans-serif\" fill=\"#333333\">앞</text>");
+                sb.Append("<path d=\"M30 30H10M10 30l7-4v8z\" fill=\"#000000\" stroke=\"#000000\" stroke-width=\"1\"/>")
+                  .Append("<text x=\"36\" y=\"34\" font-size=\"11\" font-family=\"sans-serif\" fill=\"#333333\">앞</text>");
             if (i == 2)
                 sb.Append("<text x=\"").Append(N(pw - 62)).Append("\" y=\"20\" font-size=\"11\" font-family=\"sans-serif\" fill=\"#333333\">앞 = 정면</text>");
             if (i == 0)   // front is up in the top view

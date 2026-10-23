@@ -61,20 +61,20 @@ public class SvgPreviewTests
     {
         var p = Panel(SvgPreview.Render(Five()), 0);
         // top-view draw order (height asc): Hook/Right/Rear (0.1), Body (0.4), Roof (0.7) -> stable by input: Hook, Right, Rear, Body, Roof
-        var x = Rects(p, 1); var y = Rects(p, 2);
+        var x = Rects(p, 1); var y = Rects(p, 2); var w = Rects(p, 3);
         Assert.True(y[0] < y[3]);   // hook above body top
         Assert.True(y[4] > y[0] && y[0] < y[2]);   // hook above rear
-        Assert.True(x[1] > x[3]);   // right box right of body
+        Assert.True(x[1] > x[3] + w[3]);   // right box right of body
     }
 
     [Fact] public void Side_View_Z_Up_Front_Left()
     {
         var p = Panel(SvgPreview.Render(Five()), 1);
         // side order (x asc, stable): Body, Hook, Roof, Rear (x=0), Right (0.9)
-        var x = Rects(p, 1); var y = Rects(p, 2);
+        var x = Rects(p, 1); var y = Rects(p, 2); var w = Rects(p, 3);
         Assert.True(y[2] < y[0]);   // roof above body
-        Assert.True(x[1] < x[0]);   // hook (front) left of body
-        Assert.True(x[3] > x[0]);   // rear right of body
+        Assert.True(x[1] + w[1] < x[0]);   // hook (front) left of body
+        Assert.True(x[3] > x[0] + w[0]);   // rear right of body
         Assert.Contains("앞", p);
     }
 
