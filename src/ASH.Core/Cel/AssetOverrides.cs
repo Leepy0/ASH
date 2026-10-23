@@ -21,9 +21,12 @@ public static class AssetOverrides
         Func<string, string, string?> fetchCel, ICollection<string> warnings)
     {
         var res = new Dictionary<string, VehicleTemplateOverride>(StringComparer.OrdinalIgnoreCase);
+        var failed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        bool down = false; int downTypes = 0; // an unreachable server stalls once (3 s), the other types skip the call
         foreach (var t in types)
         {
-            if (string.IsNullOrWhiteSpace(t.Asset) || res.ContainsKey(t.Type)) continue;
+            if (string.IsNullOrWhiteSpace(t.Asset) || res.ContainsKey(t.Type) || !failed.Add(t.Type)) continue;
+            if (down) { downTypes++; continue; }
             string? why = null;
             try
             {
@@ -33,12 +36,14 @@ public static class AssetOverrides
                 {
                     var boxes = CelReader.ReadBoxes(cel);
                     if (boxes.Count == 0) why = "에셋에 상자가 없습니다";
-                    else res[t.Type] = new VehicleTemplateOverride(VehSegText: CelWriter.VehSeg(template, boxes));
+                    else { res[t.Type] = new VehicleTemplateOverride(VehSegText: CelWriter.VehSeg(template, boxes)); failed.Remove(t.Type); }
                 }
             }
+            catch (Exception e) when (e is HttpRequestException || e is TimeoutException) { down = true; downTypes++; }
             catch (Exception e) when (!(e is OutOfMemoryException)) { why = e.Message; }
             if (why != null) warnings.Add($"타입 {t.Type}: 에셋 '{t.Asset}' - {why}. 기본 그림을 씁니다.");
         }
+        if (downTypes > 0) warnings.Add($"서버에 닿지 않아 에셋 그림을 쓰지 않습니다 ({downTypes}개 타입). 기본 그림을 씁니다.");
         return res;
     }
 

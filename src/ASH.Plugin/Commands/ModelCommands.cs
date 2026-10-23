@@ -137,10 +137,12 @@ public sealed class ModelCommands
                 Ui.PaletteStatus.Set(amHome != null ? "AGVMODEL 빌드 중…" : "AGVMODEL 모델 생성 중…");
                 if (amHome != null) ed.WriteMessage("\nAutoMod 빌드 중… 최대 10분");
                 var assetWarnings = new List<string>();
+                var assetClient = AssetClient.Open(UserSettings.Load().ServerUrl); // one per run: its asset list is read once
                 var ov = ModelBuilder.IsValidModelName(s.ModelName) && input.AgvTypes.Any(t => t.Asset.Length > 0)
                     ? AssetOverrides.ForGroups(AssetOverrides.Build(input.AgvTypes, AssetOverrides.VehSegTemplate(), (ty, n) =>
                     {
-                        var c = AssetClient.Fetch(UserSettings.Load().ServerUrl, Path.Combine(dir, s.ModelName + ".arc"), ty, n, out var why);
+                        if (assetClient == null) throw new System.Net.Http.HttpRequestException("서버 주소가 설정되지 않았습니다(AGVSERVER)");
+                        var c = AssetClient.Fetch(assetClient, Path.Combine(dir, s.ModelName + ".arc"), ty, n, out var why);
                         if (c == null && why != null) throw new IOException(why);
                         return c;
                     }, assetWarnings), input.Groups)

@@ -1,3 +1,5 @@
+using System;
+using System.Threading;
 using System.Net;
 using System.Net.Http;
 using ASH.Core.Cel;
@@ -71,5 +73,26 @@ public class CatalogDiffAssetNamesTests
         var d = InputValidator.CatalogDiff(input, new List<ASH.Core.Catalog.CatalogType>(), new[] { "agv_a" });
         Assert.Single(d); Assert.Contains("gone", d[0].Message);
         Assert.Empty(InputValidator.CatalogDiff(input, new List<ASH.Core.Catalog.CatalogType>(), null)); // server unreachable: no asset warning
+    }
+}
+
+public class AssetServerDownTests
+{
+    sealed class Hang : HttpMessageHandler
+    {
+        public int Calls;
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage r, CancellationToken ct) { Interlocked.Increment(ref Calls); await Task.Delay(Timeout.Infinite, ct); return null!; }
+    }
+    static AgvType Type(string t, string asset) => new(t, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1.2, 0.8, "", Asset: asset);
+
+    [Fact] public void Timeout_Is_A_TimeoutException()
+        => Assert.Throws<TimeoutException>(() => new AssetCatalogClient(new Uri("http://srv"), new Hang(), TimeSpan.FromMilliseconds(100)).Names());
+
+    [Fact] public void Unreachable_Server_Is_Asked_Once_And_Warned_Once()
+    {
+        var h = new Hang(); var c = new AssetCatalogClient(new Uri("http://srv"), h, TimeSpan.FromMilliseconds(100));
+        var w = new List<string>();
+        var o = AssetOverrides.Build(new[] { Type("A", "a"), Type("B", "b"), Type("C", "c") }, new[] { "x" }, (ty, n) => c.FetchCel(ty, n), w);
+        Assert.Empty(o); Assert.Equal(1, h.Calls); Assert.Single(w); Assert.Contains("3개 타입", w[0]);
     }
 }
