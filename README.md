@@ -22,7 +22,7 @@ ZWCAD 플러그인과 실행기로 AutoMod AGV 수량 산출 업무를 자동화
 제거: `ASH-Setup-x.y.z.exe /uninstall` (창에서 "제거"). 무인 설치: `/silent`, 폴더 추가: `/dir:"D:\CAD\ZWCAD 2026"`. 로그: `%TEMP%\ASH-install.log`. 종료 코드: 0 성공, 1 실패(ZWCAD 실행 중 포함), 2 경고(자동 로드 등록 못 함 — ZWCAD를 한 번 실행한 뒤 다시 설치, 미지원 버전 건너뜀, SYSTEM 계정 등 사용자 하이브를 알 수 없음).
 DLL은 `<ZWCAD 폴더>\ASH\`에 들어가고(쓰기 실패 시 `%ProgramData%\ASH\<버전>\`), 자동 로드는 `HKCU`·`HKLM\Software\ZWSoft\ZWCAD\<버전>\<언어>\Applications\ASH`에 등록된다.
 
-서버 설치·릴리스 절차: [docs/server-install.md](docs/server-install.md)
+서버 설치·릴리스 절차: [docs/server-install.md](docs/server-install.md). 서버 웹은 홈(`/`, 내 작업·전체), 분석(`/analyses/{id}`의 현황·결론·비교·영상), 설정(`/admin/settings`)이며 전체 대기열은 `/admin/jobs`다.
 
 업데이트: 플러그인은 시작할 때(3초 제한, 백그라운드) 사내 서버(`ASH.Server`)에 새 버전이 있는지 확인해 명령줄에 한 줄만 알린다. 서버 주소는 PC별 `%APPDATA%\ASH\ash.user.tsv`의 `ServerUrl`(비어 있으면 PC 공용 `%ProgramData%\ASH\ash.machine.tsv`, 둘 다 없으면 확인하지 않음)이며 `AGVSERVER`로 바꾸고, 설치할 때 `/server:http://server:8082`으로 미리 넣을 수 있다. `AGVUPDATE`는 서버에서 받은 `ASH.json`을 `https://github.com/Leepy0/ASH/releases/download/v<버전>/ASH.json`과 바이트 단위로 비교하고, 같을 때만 설치 파일을 `%TEMP%\ASH-update\`에 받아(매니페스트의 SHA-256·크기 확인) 폴더를 열어 준다. ZWCAD를 완전히 종료한 뒤 그 파일을 실행한다. 시작할 때의 새 버전 알림은 대조하지 않는다(알림만, 설치는 `AGVUPDATE`에서 대조). github.com은 HTTPS라 사내망에서 바꿔치기할 수 없다. PC는 github.com(및 리디렉션되는 release-assets.githubusercontent.com / objects.githubusercontent.com)에 HTTPS로 접속할 수 있어야 하고, PC의 프록시 설정(로그인 계정 자격 증명)을 쓴다. 접속할 수 없거나 내용이 다르면 "업데이트 중단(github.com에 접속할 수 없어 배포 정보를 대조하지 못했습니다)" 같은 줄을 출력하고 설치하지 않는다. 0.15.0부터 이 방식이다. 0.14.x 이하(옛 서명 키 내장) PC는 자동 업데이트로 넘어오지 못하므로 0.15.0의 `ASH-Setup`을 한 번 직접 실행한다.
 

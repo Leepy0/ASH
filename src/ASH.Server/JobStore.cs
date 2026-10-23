@@ -41,6 +41,12 @@ public sealed class JobInfo
     public bool CancelRequested { get; set; }
     public int RunsDone { get; set; }
     public int RunsFailed { get; set; }
+    /// <summary>SearchEstimate.Expected from the search start (raised once the runs pass it); null for old jobs and local uploads.</summary>
+    public int? ExpectedRuns { get; set; }
+    /// <summary>Counts of the clusters decided so far, while the search runs.</summary>
+    public Dictionary<string, int>? Partial { get; set; }
+    /// <summary>Sum of the finished runs' durations, in seconds.</summary>
+    public double RunSeconds { get; set; }
     public string? Phase { get; set; }
     public string? LastLine { get; set; }
     public string? Error { get; set; }

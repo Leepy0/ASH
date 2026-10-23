@@ -322,16 +322,15 @@ public class AnalysisPageTests
         var a = env.Factory.Services.GetRequiredService<AnalysisStore>().All().Single();
         var html = await Get(env, "/analyses/" + a.Id);
         Assert.Contains("A안", html); Assert.Contains("v2", html); Assert.Contains("버퍼 늘림", html);
-        Assert.Contains("권장 총 대수(대)", html); Assert.Contains("가동률(%)", html); Assert.Contains("결품 시간(초)", html);
-        Assert.Contains($"/analyses/{a.Id}/cuts", html);
-        Assert.Contains("선정한 버전이 없습니다", html);
-        Assert.Contains("아직 만든 영상이 없습니다", html);
+                Assert.Contains($"/analyses/{a.Id}/cuts", html);
+        Assert.Contains("버전을 2개 이상 고르세요", await Get(env, "/analyses/" + a.Id + "?tab=compare"));
+        Assert.Contains("아직 만든 영상이 없습니다", await Get(env, "/analyses/" + a.Id + "?tab=films"));
         Assert.Equal(HttpStatusCode.NotFound, (await env.Http.GetAsync("/analyses/a-nope")).StatusCode);
         Assert.Contains("라인 증설", await Get(env, "/analyses"));
     }
 
     [Fact]
-    public async Task Selected_Versions_Appear_In_Compare_Table()
+    public async Task Compare_Table_Lists_The_Chosen_Versions_With_Group_Rows()
     {
         using var env = new JobEnv();
         var id1 = await Send(env, ("analysisName", "분석"), ("planName", "A안"));
@@ -339,12 +338,14 @@ public class AnalysisPageTests
         await env.WaitFinished(id1); await env.WaitFinished(id2);
         var a = env.Factory.Services.GetRequiredService<AnalysisStore>().All().Single();
         Assert.True((int)(await Post(env, $"/jobs/{id2}/select", ("on", "1"), ("back", "/analyses/" + a.Id))).StatusCode < 400);
-        var html = await Get(env, "/analyses/" + a.Id);
-        var compare = html[html.IndexOf("선정 버전 비교", StringComparison.Ordinal)..];
+        var html = await Get(env, "/analyses/" + a.Id + "?tab=compare");
+        Assert.Contains("버전을 2개 이상 고르세요", html); // only one version selected
+        html = await Get(env, "/analyses/" + a.Id + "?tab=compare&jobs=" + id1 + "," + id2);
+        var compare = html[html.IndexOf("버전 비교", StringComparison.Ordinal)..];
         compare = compare[..compare.IndexOf("</table>", StringComparison.Ordinal)];
-        Assert.Contains("B안", compare); Assert.DoesNotContain("A안", compare);
-        Assert.Contains("G1", compare); Assert.Contains("권장(대)", compare); Assert.Contains("최소 재고/안전재고(배)", compare); Assert.Contains("결품(초)", compare); Assert.Contains("교착(회)", compare);
-        Assert.Contains("<td class=\"num\">2</td>", compare); // G1 recommended 2
+        Assert.Contains("B안", compare); Assert.Contains("A안", compare);
+        Assert.Contains("G1 권장(대)", compare); Assert.Contains("교착(회)", compare); Assert.Contains("결품 합계(초)", compare);
+        Assert.Contains("<td class=\"num\">2", compare); // G1 recommended 2
         // the form returns to the analysis page
         var r = await env.Http.SendAsync(new HttpRequestMessage(HttpMethod.Post, $"/jobs/{id2}/select") { Content = new FormUrlEncodedContent(new[] { new KeyValuePair<string, string>("on", "0"), new KeyValuePair<string, string>("back", "/analyses/" + a.Id) }), Headers = { { "Origin", Ok } } });
         Assert.StartsWith("/analyses/", r.RequestMessage!.RequestUri!.AbsolutePath);

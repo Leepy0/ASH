@@ -40,7 +40,7 @@ button.primary{background:var(--navy);color:#fff;border:1px solid var(--navy);bo
 .scroll{overflow-x:auto;max-width:100%}.scroll td,.scroll th{white-space:nowrap}.box,.grid>*{min-width:0}
 table{border-collapse:collapse;background:#fff}td,th{border:1px solid var(--line);padding:6px 10px;text-align:left;font-size:14px}th{background:var(--chip)}
 .crumb{font-size:14px;color:var(--muted);margin:0 0 10px}.mini{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.mini input[type=text],.mini select{width:auto;flex:1 1 160px;min-width:0}
-.num{text-align:right}.muted{color:#888780}.bad{color:var(--bad)}.ok{color:var(--ok)}
+.thumb-none{width:320px;height:180px;background:var(--chip)}.num{text-align:right}.muted{color:#888780}.bad{color:var(--bad)}.ok{color:var(--ok)}
 .cards{display:flex;gap:14px;flex-wrap:wrap}.card{background:#fff;border:1px solid var(--line);border-radius:10px;padding:14px 18px;min-width:200px}
 .card .big{font-size:30px;font-weight:600}.card .sub{color:var(--muted);font-size:13px}
 .tabs a{display:inline-block;padding:8px 14px;border:1px solid var(--line);border-bottom:none;border-radius:8px 8px 0 0;background:var(--chip);color:var(--ink);text-decoration:none;margin-right:4px}
@@ -57,6 +57,7 @@ th[aria-sort=ascending] button::after,th[aria-sort=descending] button::after{vis
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}@media(max-width:1024px){.grid2{grid-template-columns:1fr}}
 .prog{background:#e6f1fb;height:10px;border-radius:5px;overflow:hidden}.prog i{display:block;height:10px;background:var(--blue)}
 .chip{display:inline-block;padding:1px 8px;border-radius:10px;background:var(--chip);font-size:13px;margin-right:4px}.chip.sel{background:var(--navy);color:#fff}
+.alist{list-style:none;padding:0;margin:0}.alist li{padding:6px 0;border-top:1px solid var(--line)}
 #reload-bar{display:none;position:sticky;top:0;background:#faeeda;padding:8px 24px}#net{font-size:12px;color:var(--muted)}
 @media (max-width:640px){header{padding:10px 16px}header a{margin-right:12px}main{padding:16px}.card{min-width:0;flex:1 1 130px;padding:10px 14px}.card .big{font-size:22px}
 .grid{grid-template-columns:1fr}dl.kv,.field{grid-template-columns:1fr}dl.kv dt{margin-top:6px}.field label{padding-top:0}}";
@@ -92,6 +93,42 @@ document.querySelectorAll('table.sort').forEach(function(t){
         "<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" + H(title) + "</title>" +
         "<style>" + Css + "</style></head><body><header><a href=\"/\"><b>ASH</b></a><a href=\"/\">홈</a><a href=\"/analyses\">분석</a><a href=\"/admin/settings\">설정</a></header><main>" + body + "</main>" + script + "</body></html>";
 
+
+    /// <summary>Polls <paramref name="url"/> every 10 s and sets the data-field/data-bar/data-state elements (textContent only); shows #reload-bar when a watched job/film ends.</summary>
+    public static string PollScript(string url, IReadOnlyDictionary<string, string>? initialWatch = null) => @"<script>
+(function(){
+  var prev=" + (initialWatch == null ? "null" : System.Text.Json.JsonSerializer.Serialize(initialWatch)) + @", reloading=false, net=document.getElementById('net'), timer=null;
+  function sel(a,k){ return '['+a+'=""'+k.replace(/[""\\]/g,'\\$&')+'""]'; }
+  function tick(){
+    fetch('" + url.Replace("\\", "\\\\").Replace("'", "\\'") + @"',{cache:'no-store'}).then(function(r){ if(!r.ok) throw 0; return r.json(); }).then(function(d){
+      if(net) net.textContent='';
+      var f=d.fields||{};
+      Object.keys(f).forEach(function(k){
+        var v=String(f[k]);
+        if(/\.bar$/.test(k)) document.querySelectorAll(sel('data-bar',k)+' i').forEach(function(e){ e.style.width=v+'%'; });
+        else if(/\.state$/.test(k)) document.querySelectorAll(sel('data-state',k)).forEach(function(e){ e.className='state s-'+v; });
+        document.querySelectorAll(sel('data-field',k)).forEach(function(e){ e.textContent=v; });
+      });
+      var w=d.watch||{}, ended=false;
+      if(prev) Object.keys(w).forEach(function(id){ if(prev[id]==='queued'&&w[id]==='running'){ location.reload(); return; } if((prev[id]==='queued'||prev[id]==='running')&&w[id]!=='queued'&&w[id]!=='running') ended=true; });
+      if(prev) Object.keys(prev).forEach(function(id){ if(!(id in w)&&(prev[id]==='queued'||prev[id]==='running')) ended=true; });
+      prev=w;
+      if(ended&&!reloading){
+        reloading=true;
+        var b=document.getElementById('reload-bar');
+        if(b){ b.style.display='block'; b.textContent='결과가 나왔습니다 — '; var a=document.createElement('a'); a.href='javascript:location.reload()'; a.textContent='새로 읽기'; b.appendChild(a); }
+        setTimeout(function(){ location.reload(); },60000);
+      }
+      if(d.active===false) clearInterval(timer);
+    }).catch(function(){ if(net) net.textContent='연결 끊김 · 다시 시도 중'; });
+  }
+  timer=setInterval(tick,10000); tick();
+})();
+</script>";
+
+    /// <summary>Goes first in a page body: the "새로 읽기" bar and the connection note the polling script fills.</summary>
+    internal const string PollSlots = "<div id=\"reload-bar\"></div><span id=\"net\"></span>";
+
     internal static string State(JobInfo j) => $"<span class=\"state s-{H(j.State)}\">{H(JobState.Korean(j.State))}</span>";
 
     public static string List(IReadOnlyList<JobInfo> jobs, (int Ahead, DateTime? Start, TimeSpan? Typical) q, bool workerEnabled)
@@ -120,17 +157,23 @@ document.querySelectorAll('table.sort').forEach(function(t){
     }
 
     public static string Job(JobInfo j, JobView? v, string tab, string logTail, (int Ahead, DateTime? Start, TimeSpan? Typical) q, bool canCancel, IReadOnlyList<ASH.Core.Analysis.AnalysisInfo>? analyses = null,
-        IReadOnlyList<FilmInfo>? films = null, string? busy = null)
+        IReadOnlyList<FilmInfo>? films = null, string? busy = null, int parallel = 1)
     {
-        var sb = new StringBuilder();
+        var sb = new StringBuilder(PollSlots);
         if (analyses != null) AnalysisPages.JobHeader(sb, j, analyses);
         sb.Append($"<h1>{H(j.Project)} / {H(j.Plan)} <span class=\"muted\">· 모델 {H(j.Model)}</span></h1>");
         if (j.Source == JobSource.Local) sb.Append("<p><span class=\"state s-cancelled\">내 PC에서 실행한 결과</span> ash-run으로 돌린 결과를 올린 것입니다. 서버에서 다시 실행하지 않았습니다.</p>");
-        sb.Append($"<p>{State(j)} {(j.Phase != null ? H(j.Phase) + " · " : "")}작업 {H(j.Id)} · 보낸 사람 {H(j.Submitter)} ({H(j.Ip)}) · 보낸 시각 {H(When(j.CreatedUtc))}");
+        sb.Append($"<p><span class=\"state s-{H(j.State)}\" data-state=\"job.state\" data-field=\"job.statetext\">{H(JobState.Korean(j.State))}</span> <span data-field=\"job.phase\">{H(j.Phase)}</span><span data-field=\"job.sep\">{(j.Phase != null ? " · " : "")}</span>작업 {H(j.Id)} · 보낸 사람 {H(j.Submitter)} ({H(j.Ip)}) · 보낸 시각 {H(When(j.CreatedUtc))}");
         if (j.StartedUtc != null) sb.Append($" · 실행 시간 {Dur(j.Duration)}");
-        sb.Append($" · 모델 실행 {j.RunsDone}회{(j.RunsFailed > 0 ? $" <span class=\"bad\">(실패 {j.RunsFailed})</span>" : "")}</p>");
+        sb.Append($" · 모델 실행 <span data-field=\"job.runs\">{j.RunsDone}{(j.ExpectedRuns is { } er ? "/" + er : "")}회</span>{(j.RunsFailed > 0 ? $" <span class=\"bad\">(실패 {j.RunsFailed})</span>" : "")}</p>");
         if (j.State == JobState.Queued) sb.Append($"<p>{(q.Ahead == 0 ? "다음 차례입니다" : $"앞에 {q.Ahead}건이 있습니다")}{(busy != null ? $"({H(busy)}: 끝나야 시작합니다)" : "")}{(q.Start is { } s ? $" · 시작 예상 {H(SeoulTime.Text(s))}" : "")}.</p>");
-        if (j.State == JobState.Running && j.LastLine != null) sb.Append($"<p class=\"muted\">마지막 출력: {H(j.LastLine)}</p>");
+        if (!j.Finished)
+        {
+            var lf = LiveFields.OfJob(j, q.Typical, parallel).Fields; // same texts the poll sets, so first paint and live never drift
+            sb.Append($"<div class=\"prog\"><i data-bar=\"job.bar\" style=\"width:{lf["job.bar"]}%\"></i></div>");
+            sb.Append($"<p>진행률 <b data-field=\"job.progress\">{H(lf["job.progress"])}</b> · 끝날 예상 <span data-field=\"job.eta\">{H(lf["job.eta"])}</span> · 한 번 평균 <span data-field=\"job.avg\">{H(lf["job.avg"])}</span></p>");
+            sb.Append($"<p class=\"muted\">마지막 출력: <span data-field=\"job.last\">{H(lf["job.last"])}</span></p>");
+        }
         if (j.Error != null) sb.Append($"<p class=\"bad\"><b>{(j.State == JobState.Done ? "주의" : "오류")}:</b> {H(j.Error)}</p>");
         if (canCancel && !j.Finished)
             sb.Append($"<form method=\"post\" action=\"/jobs/{H(j.Id)}/cancel\"><button>{(j.State == JobState.Queued ? "대기 취소" : "실행 취소")}</button> <span class=\"muted\">보낸 PC와 관리자만 취소할 수 있습니다. 실행 중인 모델 실행은 끝까지 돌고 새 실행만 멈춥니다.</span></form>");
@@ -161,14 +204,14 @@ document.querySelectorAll('table.sort').forEach(function(t){
             default: Summary(sb, j, v); break;
         }
         sb.Append("</div>");
-        return Page($"ASH 작업 {j.Id}", sb.ToString());
+        return Page($"ASH 작업 {j.Id}", sb.ToString(), j.Finished ? null : PollScript("/api/jobs/" + j.Id, new Dictionary<string, string> { [j.Id] = j.State }));
     }
 
     static void Summary(StringBuilder sb, JobInfo j, JobView? v)
     {
         if (j.Decided == null || v?.Input == null)
         {
-            sb.Append(j.Finished ? "<p>결과가 없습니다. 다운로드·로그 탭의 로그를 확인하세요.</p>" : "<p>실행이 끝나면 결과가 나옵니다. 이 페이지는 10초마다 새로 고칩니다.</p>");
+            sb.Append(j.Finished ? "<p>결과가 없습니다. 다운로드·로그 탭의 로그를 확인하세요.</p>" : "<p>실행이 끝나면 결과가 나옵니다. 결과가 나오면 위 띠로 알립니다.</p>");
             if (v?.InputError != null && j.Finished) sb.Append($"<p class=\"bad\">{H(v.InputError)}</p>");
             return;
         }
@@ -232,6 +275,71 @@ document.querySelectorAll('table.sort').forEach(function(t){
         }
     }
 
+    /// <summary>The 결론 block of the analysis page: three numbers, group bars per cluster, one bottleneck map, the three strongest cross-group effects.
+    /// <paramref name="small"/> = per-plan listing (smaller map). Plan B inserts its investment card at the marked point.</summary>
+    public static void Conclusion(StringBuilder sb, JobInfo j, JobView v, bool small, string metric = "wait")
+    {
+        if (j.Decided == null || v.Input == null) { sb.Append("<p class=\"muted\">결과가 없습니다.</p>"); return; }
+        int total = j.Decided.Values.Sum(), min = v.Input.Groups.Sum(g => g.MinCount), max = v.Input.Groups.Sum(g => g.MaxCount);
+        var top = v.Groups.Where(g => !double.IsNaN(g.Util)).OrderByDescending(g => g.Util).FirstOrDefault();
+        bool occ = metric == "occ";
+        double Val(BlockView b) => occ ? b.Utilization : b.AvgWaitSec;
+        var worst = v.Blocks.Where(b => !double.IsNaN(Val(b))).OrderByDescending(Val).FirstOrDefault();
+        var id = H(j.Id);
+        sb.Append("<div class=\"grid2\"><div>");
+        sb.Append("<div class=\"cards\">");
+        sb.Append($"<div class=\"card\"><div class=\"sub\">권장 총 대수</div><div class=\"big\">{total}대</div><div class=\"sub\">시험 범위 {min}~{max}대</div></div>");
+        sb.Append($"<div class=\"card\"><div class=\"sub\">최대 가동률</div><div class=\"big\">{(top == null ? "-" : Pct(top.Util))}</div><div class=\"sub\">상한 {Pct(v.UtilMax)} · 그룹 {H(top?.Group ?? "-")}</div></div>");
+        sb.Append($"<div class=\"card\"><div class=\"sub\">최대 병목</div><div class=\"big\">{H(worst?.Name ?? "-")}</div><div class=\"sub\">{(occ ? "점유율" : "평균 대기")} {(worst == null ? "-" : occ ? Pct(worst.Utilization) : F(worst.AvgWaitSec, "0.0") + "초")}</div></div>");
+        sb.Append("</div>");
+        ClusterBars(sb, j, v);
+        sb.Append("<h3>서로 영향이 큰 그룹</h3>");
+        var effects = v.Impact.Where(r => r.OtherGroup != r.Group && !double.IsNaN(r.UtilDelta)).OrderByDescending(r => Math.Abs(r.UtilDelta)).Take(3).ToList();
+        if (effects.Count == 0) sb.Append("<p class=\"muted\">영향표 없음</p>");
+        else
+        {
+            sb.Append("<ol>");
+            foreach (var r in effects) sb.Append($"<li>{H(r.Group)} +{r.PlusOne}대 → {H(r.OtherGroup)} 가동률 {F(r.UtilDelta * 100, "+0.0;-0.0;0")}%p</li>");
+            sb.Append($"</ol><p><a href=\"/jobs/{id}?tab=detail\">영향표 전체 →</a></p>");
+        }
+        // plan B: investment card goes here
+        sb.Append("</div><div>");
+        if (v.Layout == null) sb.Append("<p class=\"muted\">레이아웃을 읽지 못했습니다.</p>");
+        else
+        {
+            var (w, h) = small ? (360d, 250d) : (520d, 360d);
+            var view = small ? "plans" : "one";
+            sb.Append(occ ? Map(v, "block 점유율(%)", b => b.Utilization, x => Pct(x), w, h, true) : Map(v, "block 평균 대기(초)", b => b.AvgWaitSec, x => F(x, "0.0") + "초", w, h, true));
+            sb.Append($"<p class=\"mini\">기준: <a href=\"?tab=conclusion&amp;view={view}&amp;job={id}&amp;metric=wait\"{(occ ? "" : " class=\"chip sel\"")}>평균 대기</a> <a href=\"?tab=conclusion&amp;view={view}&amp;job={id}&amp;metric=occ\"{(occ ? " class=\"chip sel\"" : "")}>점유율</a></p>");
+        }
+        sb.Append("</div></div>");
+        sb.Append($"<p><a href=\"/jobs/{id}?tab=detail\">상세 보기</a> · <a href=\"/jobs/{id}/files/report.xlsx\">Excel 보고서</a> · <a href=\"/jobs/{id}\">이 버전의 영상</a></p>");
+    }
+
+    /// <summary>One bar line per group (utilisation vs the limit, recommended count in bold), under a "묶음: G1, G2" heading per cluster; flat when the job has none.</summary>
+    internal static void ClusterBars(StringBuilder sb, JobInfo j, JobView v)
+    {
+        void Row(GroupView g)
+        {
+            var w = double.IsNaN(g.Util) ? 0 : Math.Min(1, g.Util);
+            sb.Append($"<div>{H(g.Group)} · {H(g.Type)} · <span class=\"bar\"><i style=\"width:{F(w * 100, "0.#")}%{(g.AllOk ? "" : ";background:var(--bad)")}\"></i><b style=\"left:{F(Math.Min(1, v.UtilMax) * 100, "0.#")}%\"></b></span> " +
+                $"가동률 {Pct(g.Util)} · <b>권장 {(g.Decided?.ToString(CultureInfo.InvariantCulture) ?? "-")}대</b> · 범위 {g.Min}~{g.Max}대" +
+                (g.AllOk ? "" : $" · <span class=\"bad\">실패: {H(g.Reason)}</span>") + "</div>");
+        }
+        if (j.Clusters is not { Count: > 0 }) { foreach (var g in v.Groups) Row(g); return; }
+        var shown = new HashSet<string>(StringComparer.Ordinal); var single = new List<GroupView>(); var headed = false;
+        foreach (var c in j.Clusters)
+        {
+            var mine = v.Groups.Where(g => c.Contains(g.Group) && shown.Add(g.Group)).ToList();
+            if (mine.Count == 1) { single.Add(mine[0]); continue; } // a cluster of one is no cluster: gathered under one heading below
+            if (mine.Count == 0) continue;
+            sb.Append($"<h3>묶음: {H(string.Join(", ", c))}</h3>"); headed = true;
+            foreach (var g in mine) Row(g);
+        }
+        single.AddRange(v.Groups.Where(g => !shown.Contains(g.Group)));
+        if (single.Count > 0) { if (headed) sb.Append("<h3>단독</h3>"); foreach (var g in single) Row(g); }
+    }
+
     static string Heat(double t)
     {
         // light grey -> amber -> red
@@ -242,18 +350,26 @@ document.querySelectorAll('table.sort').forEach(function(t){
         return $"rgb({L(p.r, q.r)},{L(p.g, q.g)},{L(p.b, q.b)})";
     }
 
-    /// <summary>Paths in grey, blocks coloured by a value (highest = red), CPs as dots. Model coordinates, y up.</summary>
-    static string Map(JobView v, string title, Func<BlockView, double> value, Func<double, string> label)
+    /// <summary>Model-coordinate bounds (x0, x1, y0, y1) of a layout's paths, blocks and CPs; null when it has nothing to draw.</summary>
+    internal static (double X0, double X1, double Y0, double Y1)? LayoutBounds(ASH.Core.Layout.Layout l)
+    {
+        var pts = l.Paths.SelectMany(p => new[] { p.Start, p.End }).Concat(l.Blocks.SelectMany(b => new[] { b.Rect.Min, b.Rect.Max })).Concat(l.Cps.Select(c => c.Position)).ToList();
+        return pts.Count == 0 ? null : (pts.Min(p => p.X), pts.Max(p => p.X), pts.Min(p => p.Y), pts.Max(p => p.Y));
+    }
+
+    /// <summary>Paths in grey, blocks coloured by a value (highest = red), CPs as dots. Model coordinates, y up.
+    /// <paramref name="bounds"/> and <paramref name="hiValue"/> replace this view's own extent and colour maximum, so several maps can share one scale.</summary>
+    internal static string Map(JobView v, string title, Func<BlockView, double> value, Func<double, string> label, double w = 520, double h = 360, bool topLabels = false,
+        (double X0, double X1, double Y0, double Y1)? bounds = null, double? hiValue = null)
     {
         var l = v.Layout!;
-        var pts = l.Paths.SelectMany(p => new[] { p.Start, p.End }).Concat(l.Blocks.SelectMany(b => new[] { b.Rect.Min, b.Rect.Max })).Concat(l.Cps.Select(c => c.Position)).ToList();
-        if (pts.Count == 0) return "<p class=\"muted\">그릴 경로가 없습니다.</p>";
-        double x0 = pts.Min(p => p.X), x1 = pts.Max(p => p.X), y0 = pts.Min(p => p.Y), y1 = pts.Max(p => p.Y);
-        double w = 520, h = 360, pad = 12, sx = (w - 2 * pad) / Math.Max(1e-6, x1 - x0), sy = (h - 2 * pad) / Math.Max(1e-6, y1 - y0), s = Math.Min(sx, sy);
+        if ((bounds ?? LayoutBounds(l)) is not { } bb) return "<p class=\"muted\">그릴 경로가 없습니다.</p>";
+        double x0 = bb.X0, x1 = bb.X1, y0 = bb.Y0, y1 = bb.Y1;
+        double pad = 12, sx = (w - 2 * pad) / Math.Max(1e-6, x1 - x0), sy = (h - 2 * pad) / Math.Max(1e-6, y1 - y0), s = Math.Min(sx, sy);
         string X(double x) => F(pad + (x - x0) * s, "0.#");
         string Y(double y) => F(h - pad - (y - y0) * s, "0.#");
         var byName = v.Blocks.ToDictionary(b => b.Name, b => value(b), StringComparer.Ordinal);
-        double hi = byName.Values.Where(x => !double.IsNaN(x)).DefaultIfEmpty(0).Max();
+        double hi = hiValue ?? byName.Values.Where(x => !double.IsNaN(x)).DefaultIfEmpty(0).Max();
         var sb = new StringBuilder($"<div style=\"font-weight:600;margin:6px 0\">{H(title)}</div><svg width=\"{w}\" height=\"{h}\" viewBox=\"0 0 {w} {h}\" style=\"background:#fff;border:1px solid #d3d1c7\">");
         foreach (var b in l.Blocks)
         {
@@ -270,6 +386,9 @@ document.querySelectorAll('table.sort').forEach(function(t){
             for (int i = 0; i <= n; i++) { var q = p.PointAt(len * i / n); pl.Append(X(q.X)).Append(',').Append(Y(q.Y)).Append(' '); }
             sb.Append($"<polyline points=\"{pl}\" fill=\"none\" stroke=\"#5f5e5a\" stroke-width=\"1.2\"><title>{H(p.Name)}</title></polyline>");
         }
+        if (topLabels)
+            foreach (var b in l.Blocks.Where(b => byName.TryGetValue(b.Name, out var d) && !double.IsNaN(d) && d > 0).OrderByDescending(b => byName[b.Name]).Take(3))
+                sb.Append($"<text x=\"{X((b.Rect.Min.X + b.Rect.Max.X) / 2)}\" y=\"{Y((b.Rect.Min.Y + b.Rect.Max.Y) / 2)}\" font-size=\"11\" font-weight=\"600\" text-anchor=\"middle\" fill=\"#2c2c2a\" stroke=\"#fff\" stroke-width=\"3\" paint-order=\"stroke\">{H(b.Name)} {H(label(byName[b.Name]))}</text>");
         foreach (var c in l.Cps) sb.Append($"<circle cx=\"{X(c.Position.X)}\" cy=\"{Y(c.Position.Y)}\" r=\"2\" fill=\"#185fa5\"><title>{H(c.Name)}</title></circle>");
         sb.Append("</svg>");
         sb.Append($"<div class=\"muted\" style=\"font-size:12px\">색: 연회색 0 → 주황 → 빨강 최대({H(label(hi))}). block에 마우스를 올리면 값이 보입니다.</div>");

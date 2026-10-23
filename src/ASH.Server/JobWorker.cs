@@ -11,7 +11,7 @@ public sealed record JobOutcome(int ExitCode, string? Error, IReadOnlyDictionary
 /// <summary>Builds and searches one job's project folder. The server's own runner drives AutoMod; tests plug in a fake.</summary>
 public interface IJobRunner
 {
-    JobOutcome Run(JobInfo job, string projectDir, TextWriter log, Action<string> phase, IProgress<RunOutcome> progress, CancellationToken ct);
+    JobOutcome Run(JobInfo job, string projectDir, TextWriter log, Action<string> phase, IProgress<RunOutcome> progress, Action<SearchProgress> search, CancellationToken ct);
 }
 
 /// <summary>Jobs:AmHome (AutoMod folder), Jobs:Parallel (model runs at a time), Jobs:DialogButton (trial installs: "Student Version"),
@@ -19,12 +19,12 @@ public interface IJobRunner
 public sealed class AutoModJobRunner(IConfiguration cfg) : IJobRunner
 {
     public string AmHome => cfg["Jobs:AmHome"] is { Length: > 0 } h ? h : @"C:\AutoMod\12_6";
-    int Parallel => Math.Max(1, cfg.GetValue("Jobs:Parallel", 2));
+    int Parallel => JobProgress.Parallel(cfg);
     internal string? DialogButton => cfg["Jobs:DialogButton"] is { Length: > 0 } b ? b : null;
     internal TimeSpan RunTimeout => TimeSpan.FromMinutes(Math.Max(1, cfg.GetValue("Jobs:RunTimeoutMin", 30)));
     internal TimeSpan BuildTimeout => TimeSpan.FromMinutes(Math.Max(1, cfg.GetValue("Jobs:BuildTimeoutMin", 10)));
 
-    public JobOutcome Run(JobInfo job, string projectDir, TextWriter log, Action<string> phase, IProgress<RunOutcome> progress, CancellationToken ct)
+    public JobOutcome Run(JobInfo job, string projectDir, TextWriter log, Action<string> phase, IProgress<RunOutcome> progress, Action<SearchProgress> search, CancellationToken ct)
     {
         static JobOutcome Fail(string e) => new(1, e, null, null, Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>());
         var am = AmBuilder.FindBuildExe(AmHome);
@@ -44,7 +44,7 @@ public sealed class AutoModJobRunner(IConfiguration cfg) : IJobRunner
         ct.ThrowIfCancellationRequested();
 
         phase("대수 탐색");
-        var r = SearchJob.Run(new SearchJobOptions(projectDir, job.Model, AmHome, Parallel, DialogButton, RunTimeout, job.InitialReps, job.Impact), null, log, progress, ct);
+        var r = SearchJob.Run(new SearchJobOptions(projectDir, job.Model, AmHome, Parallel, DialogButton, RunTimeout, job.InitialReps, job.Impact), null, log, progress, ct, onProgress: search);
         var sum = SearchSummaryFile.From(r);
         return new JobOutcome(r.ExitCode, r.Error, r.Search?.Decided, r.Clusters?.Clusters, sum.ConfirmRunIds, sum.Warnings, sum.FailureMessages);
     }
@@ -98,16 +98,30 @@ public sealed class JobWorker(JobStore store, IJobRunner runner, FilmWorker film
         using var logFile = new StreamWriter(store.LogPath(job.Id), true, new System.Text.UTF8Encoding(false)) { AutoFlush = true };
         var log = new LineWriter(logFile, line => store.Update(job.Id, j => j.LastLine = line.Length > 300 ? line[..300] : line));
         void Phase(string p) { store.Update(job.Id, j => j.Phase = p); log.WriteLine($"[{ASH.Core.SeoulTime.NowText}] {p}"); }
+        int groupsLeft = 1;
         var progress = new SyncProgress<RunOutcome>(r =>
         {
-            store.Update(job.Id, j => { j.RunsDone++; if (!r.Success) j.RunsFailed++; });
+            store.Update(job.Id, j =>
+            {
+                j.RunsDone++; if (!r.Success) j.RunsFailed++;
+                j.RunSeconds += r.Duration.TotalSeconds;
+                if (j.ExpectedRuns is { } e && j.RunsDone > e) j.ExpectedRuns = SearchEstimate.Raise(e, j.RunsDone, groupsLeft);
+            });
             lock (log) log.WriteLine($"run {r.RunId} {(r.Success ? "ok" : "FAILED")} {r.Duration.TotalSeconds:0.0} s");
         });
+        void Search(SearchProgress p)
+        {
+            try
+            {
+                store.Update(job.Id, j => { groupsLeft = p.GroupsLeft; j.ExpectedRuns ??= p.ExpectedRuns; j.Partial = p.Confirmed.Count == 0 ? null : new(p.Confirmed); j.Phase = p.Phase; });
+            }
+            catch (Exception e) { logger.LogWarning(e, "작업 {Id} 진행 표시 실패", job.Id); }
+        }
         JobOutcome? o = null; string? error = null; bool cancelled = false;
         try
         {
             log.WriteLine($"[{ASH.Core.SeoulTime.NowText}] 시작: {job.Project} / {job.Plan} / 모델 {job.Model} (보낸 사람 {job.Submitter}, {job.Ip})");
-            o = runner.Run(job, store.ProjectDir(job.Id), log, Phase, progress, cts.Token);
+            o = runner.Run(job, store.ProjectDir(job.Id), log, Phase, progress, Search, cts.Token);
             error = o.Error;
             // scene candidates for the cut editor (spec 6.2): one more run at the conclusion with the event log; a failure only leaves a note in scenes.json
             if (job.Source == JobSource.Server && o.ExitCode != 1 && o.Decided != null)

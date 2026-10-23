@@ -102,18 +102,28 @@ internal static partial class Routes
             }
         });
 
-        app.MapGet("/api/jobs/{id}", (string id, JobStore js) =>
+        app.MapGet("/api/jobs/{id}", (string id, JobStore js, IConfiguration cfg) =>
         {
             if (!JobStore.IsValidId(id) || js.Get(id) is not { } j) return Msg(404, "작업이 없습니다.");
-            return Results.Json(new { j.Id, j.State, j.Phase, j.RunsDone, j.RunsFailed, j.Error, j.Decided, j.Warnings, j.CreatedUtc, j.StartedUtc, j.FinishedUtc });
+            var typical = js.QueueInfo().Typical;
+            var par = JobProgress.Parallel(cfg);
+            var eta = JobProgress.Eta(j, typical, par, DateTime.UtcNow);
+            var l = LiveFields.OfJob(j, typical, par);
+            return Results.Json(new
+            {
+                j.Id, j.State, j.Phase, j.RunsDone, j.RunsFailed, j.Error, j.Decided, j.Warnings, j.CreatedUtc, j.StartedUtc, j.FinishedUtc,
+                j.ExpectedRuns, progress = JobProgress.Ratio(j), partial = j.Partial,
+                eta = eta?.ToString("yyyy-MM-ddTHH:mm:ssZ"), avgRunSec = JobProgress.AvgRun(j)?.TotalSeconds,
+                active = l.Active, fields = l.Fields, watch = l.Watch,
+            });
         });
 
-        app.MapGet("/jobs/{id}", (string id, string? tab, HttpContext ctx, JobStore js, ReleaseStore rs, AnalysisStore analyses, FilmStore fs, FilmWorker fw) =>
+        app.MapGet("/jobs/{id}", (string id, string? tab, HttpContext ctx, JobStore js, ReleaseStore rs, AnalysisStore analyses, FilmStore fs, FilmWorker fw, IConfiguration cfg) =>
         {
             if (!JobStore.IsValidId(id) || js.Get(id) is not { } j) return Msg(404, "작업이 없습니다.");
             var view = j.State == JobState.Queued ? null : JobView.For(js, j);
             var t = tab is "detail" or "input" or "files" ? tab : "summary";
-            return Results.Content(JobPages.Job(j, view, t, t == "files" ? Tail(js.LogPath(id), 200) : "", Queue(js, fw, id), CanCancel(ctx, j, rs, null), analyses.All(), fs.All(), fw.Busy), "text/html; charset=utf-8");
+            return Results.Content(JobPages.Job(j, view, t, t == "files" ? Tail(js.LogPath(id), 200) : "", Queue(js, fw, id), CanCancel(ctx, j, rs, null), analyses.All(), fs.All(), fw.Busy, JobProgress.Parallel(cfg)), "text/html; charset=utf-8");
         });
 
         app.MapPost("/jobs/{id}/cancel", async (string id, HttpContext ctx, JobStore js, JobWorker worker, ReleaseStore rs) =>
