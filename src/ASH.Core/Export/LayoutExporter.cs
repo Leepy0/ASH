@@ -86,10 +86,12 @@ public static class LayoutExporter
             return t;
         }
         CpTypeOf(1); // header AGVSDEF references the base type
-        foreach (var c in l.Cps)
+        var cpTemplate = Template("agvs_cptype.txt").Single();
+        // a CPOINT at the drawing point p: projected onto its path and placed on the GPATH segment that holds it
+        ControlPoint? Place(string name, Point2 p, string type)
         {
-            var pr = LayoutChecker.Project(l, c.Position);
-            if (pr == null) continue;
+            var pr = LayoutChecker.Project(l, p);
+            if (pr == null) return null;
             var path = pr.Value.Path;
             double acc = 0, dist = pr.Value.Dist;
             int idx = 0;
@@ -104,11 +106,16 @@ public static class LayoutExporter
                 {
                     j = idx;
                     while (j < path.Segments.Count && !segName.ContainsKey((path, j))) j++;
-                    if (j == path.Segments.Count) { warnings.Add($"CP {c.Name}: 경로 {path.Name}에 유효 세그먼트가 없어 건너뜀"); continue; }
+                    if (j == path.Segments.Count) { warnings.Add($"CP {name}: 경로 {path.Name}에 유효 세그먼트가 없어 건너뜀"); return null; }
                     idx = j; acc = dist = path.Segments.Take(j).Sum(x => x.Length);
                 }
             }
-            s.ControlPoints.Add(new ControlPoint(c.Name, CpTypeOf(c.Cap), segName[(path, idx)], (dist - acc) * toModel, null));
+            return new ControlPoint(name, type, segName[(path, idx)], (dist - acc) * toModel, null);
+        }
+        foreach (var c in l.Cps)
+        {
+            if (Place(c.Name, c.Position, CpTypeOf(c.Cap)) is not { } placed) continue;
+            s.ControlPoints.Add(placed);
             if ((c.Type == "standby" || c.Type == "buffer") && c.Group.Length > 0)
             {
                 var key = "nl_" + c.Group;
@@ -116,12 +123,12 @@ public static class LayoutExporter
                 list.Add(c.Name);
             }
         }
-        var cpTemplate = Template("agvs_cptype.txt").Single();
         foreach (var kv in cpType)
             s.CpTypeLines.Add(cpTemplate.Replace("DefaultControlPoint", kv.Value).Replace(" cap 1 ", " cap " + kv.Key + " ").Replace("Feet", o.Units));
 
         foreach (var g in groups)
             if (!s.NameLists.ContainsKey("nl_" + g.Group)) throw new ExportException(g.Group);
+        AddStartLists(s, l, o, Place, cpTemplate, warnings);
 
         if (o.VehicleOverrides != null)
             foreach (var k in o.VehicleOverrides.Keys.Where(k => !groups.Any(g => g.TypeName == k)))
@@ -137,7 +144,7 @@ public static class LayoutExporter
             else s.VehicleSegmentLines.AddRange(VehicleGeometry.Build(Template("agvs_vehseg.txt"), g.Kind, g.Length, g.Width).Select(x => x.Replace("DefSegment", seg)));
             if (ov?.VehicleBlockText != null)
             {
-                s.VehicleLines.AddRange(VehicleOverrideApplier.Vehicle(ov.VehicleBlockText, g.TypeName, g.MaxCount, seg, "nl_" + g.Group));
+                s.VehicleLines.AddRange(VehicleOverrideApplier.Vehicle(ov.VehicleBlockText, g.TypeName, g.MaxCount, seg, StartList(g.Group)));
                 continue;
             }
             var speed = N(g.Speed * upm);
@@ -151,7 +158,7 @@ public static class LayoutExporter
             foreach (var line in Template("agvs_veh.txt"))
             {
                 var t = line.Replace("DefVehicle", g.TypeName).Replace("numveh 10", "numveh " + g.MaxCount)
-                    .Replace("start nlwork", "start nl_" + g.Group).Replace("vehsegs item DefSegment", "vehsegs item " + seg);
+                    .Replace("start nlwork", "start " + StartList(g.Group)).Replace("vehsegs item DefSegment", "vehsegs item " + seg);
                 // accel and decel of the loaded (Default) line; the Empty line inherits it. 0 keeps the template value.
                 if (g.Accel > 0) t = Regex.Replace(t, @"^(\s*accel\s+0 )1 Feet( Seconds Seconds)", "${1}" + N(g.Accel * upm) + " " + o.Units + "${2}");
                 if (g.Decel > 0) t = Regex.Replace(t, @"^(\s*decel\s+0 )1 Feet( Seconds Seconds)", "${1}" + N(g.Decel * upm) + " " + o.Units + "${2}");
@@ -164,6 +171,66 @@ public static class LayoutExporter
             }
         }
         return s;
+    }
+
+    /// <summary>Name list a group's vehicles start on (one CP per vehicle, see AddStartLists).</summary>
+    public static string StartList(string group) => "nls_" + group;
+
+    /// <summary>A start-only CP (its own CPOINTTYPE): not a layout CP, so ArcLayout and the export diff skip it.</summary>
+    public static bool IsStartCp(ControlPoint c) => c.Type.EndsWith(StartSuffix, StringComparison.Ordinal);
+    const string StartSuffix = "_start";
+
+    // AutoMod puts vehicle k on the k-th CP of its type's start list, one vehicle per CP; vehicles beyond the list wait off the path and drop onto a
+    // start CP the moment it is free, on top of the vehicle just leaving it (seen in the AutoView .mdf). So each vehicle gets its own CP: the group's
+    // standby CPs first, then start-only CPs SP_<group>_<k> back along the standby lane, vehicle length + StopGapM apart.
+    static void AddStartLists(AgvsSystem s, Layout.Layout l, ExportOptions o, Func<string, Point2, string, ControlPoint?> place, string cpTemplate, ICollection<string> warnings)
+    {
+        var placed = new HashSet<string>(s.ControlPoints.Select(c => c.Name));
+        var names = new HashSet<string>(placed.Concat(s.Paths.Select(p => p.Name)));
+        Point2 At(string cp) => l.Cps.First(c => c.Name == cp).Position;
+        double Spacing(VehicleGroupSpec g) => (g.Length + StopGapM) / o.Scale; // layout units
+        var own = new Dictionary<string, List<string>>();
+        foreach (var g in o.Groups!)
+            own[g.Group] = new[]
+            {
+                g.StandbyCps ?? new string[0],
+                l.Cps.Where(c => c.Type == "standby" && c.Group == g.Group).Select(c => c.Name),
+                s.NameLists["nl_" + g.Group],
+            }.Select(x => x.Where(placed.Contains).Distinct().Take(Math.Max(1, g.MaxCount)).ToList()).First(x => x.Count > 0);
+        // CPs other vehicles start on, with their spacing: a lane spot keeps that far from them
+        var taken = new List<(string Name, Point2 P, double Sp)>();
+        foreach (var g in o.Groups!) foreach (var n in own[g.Group]) if (!taken.Any(t => t.Name == n)) taken.Add((n, At(n), Spacing(g)));
+        string startType = o.CpType + StartSuffix;
+        foreach (var g in o.Groups!)
+        {
+            var list = own[g.Group];
+            double sp = Spacing(g);
+            if (list.Count < g.MaxCount)
+            {
+                // spots are measured from the home CP along the lane, so only the other vehicles' CPs need the (shorter, straight-line) distance check
+                var foreign = taken.Where(t => t.Name != list[0]).ToList();
+                int spare = foreign.Sum(t => (int)Math.Ceiling(2 * Math.Max(t.Sp, sp) / sp)); // spots one of them can rule out
+                foreach (var p in StandbyQueueCheck.LaneSpots(l, At(list[0]), sp, g.Length / o.Scale, g.MaxCount - list.Count + spare))
+                {
+                    if (foreign.Any(t => t.P.DistanceTo(p) < Math.Max(t.Sp, sp) * (1 - 1e-9))) continue;
+                    if (l.Cps.Any(c => c.Position.DistanceTo(p) < 0.05 / o.Scale)) continue; // never two CPs on one spot
+                    var name = "SP_" + g.Group + "_" + (list.Count + 1);
+                    while (!names.Add(name)) name += "_";
+                    if (place(name, p, startType) is not { } cp) continue;
+                    s.ControlPoints.Add(cp);
+                    list.Add(name);
+                    taken.Add((name, p, sp));
+                    if (list.Count == g.MaxCount) break;
+                }
+                if (list.Count < g.MaxCount)
+                    warnings.Add($"그룹 {g.Group}: 대기 CP {list[0]} 뒤 대기 차선에 차량 {g.MaxCount}대를 띄워 세울 자리가 {list.Count}대분뿐입니다. " +
+                                 $"나머지 {g.MaxCount - list.Count}대는 AutoMod가 시작 CP가 비는 순간 그 위에 겹쳐 넣습니다. " +
+                                 $"분기점·block 없이 {(g.MaxCount * (g.Length + StopGapM)).ToString("0.#", CultureInfo.InvariantCulture)} m(최대 {g.MaxCount}대 × (차량 길이 {g.Length.ToString("0.##", CultureInfo.InvariantCulture)} m + 간격 {StopGapM} m)) 이상인 대기 차선을 만드세요.");
+            }
+            s.NameLists[StartList(g.Group)] = list;
+        }
+        if (s.ControlPoints.Any(IsStartCp))
+            s.CpTypeLines.Add(cpTemplate.Replace("DefaultControlPoint", startType).Replace("Feet", o.Units));
     }
 
     static GuidePath ToGuidePath(string name, LayoutPath p, Segment s, ExportOptions o, double tol, ICollection<string> warnings)

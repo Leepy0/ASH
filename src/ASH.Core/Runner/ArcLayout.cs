@@ -36,7 +36,7 @@ public static class ArcLayout
             l.Paths.Add(p); byName[g.Name] = p;
         }
         foreach (var c in sys.ControlPoints)
-            if (byName.TryGetValue(c.PathName, out var p))
+            if (!Export.LayoutExporter.IsStartCp(c) && byName.TryGetValue(c.PathName, out var p))
                 l.Cps.Add(new LayoutCp { Name = c.Name, Position = p.PointAt(c.Dist * k) });
 
         var blocks = Path.Combine(arcDir, "blocks.tsv");

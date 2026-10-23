@@ -23,8 +23,9 @@ public static class ExportDiff
     {
         // a hand-edited previous file may repeat names: first one wins
         var pp = previous?.Paths.GroupBy(p => p.Name).ToDictionary(g => g.Key, g => g.First()) ?? new Dictionary<string, GuidePath>();
-        var pc = previous?.ControlPoints.GroupBy(c => c.Name).ToDictionary(g => g.Key, g => g.First()) ?? new Dictionary<string, ControlPoint>();
-        var cc = current.ControlPoints.ToDictionary(c => c.Name);
+        // start-only CPs follow the standby lane and the vehicle count; the summary counts the drawing's CPs
+        var pc = previous?.ControlPoints.Where(c => !LayoutExporter.IsStartCp(c)).GroupBy(c => c.Name).ToDictionary(g => g.Key, g => g.First()) ?? new Dictionary<string, ControlPoint>();
+        var cc = current.ControlPoints.Where(c => !LayoutExporter.IsStartCp(c)).ToDictionary(c => c.Name);
         var cp = current.Paths.ToDictionary(p => p.Name);
         return new ExportSummary(
             cp.Keys.Count(k => !pp.ContainsKey(k)), pp.Keys.Count(k => !cp.ContainsKey(k)),

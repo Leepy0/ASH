@@ -43,6 +43,21 @@ public class ArcLayoutTests
     }
 
     [Fact]
+    public void Start_Only_Cps_Stay_Out_Of_The_Rebuilt_Layout_And_The_Export_Diff()
+    {
+        var l = L.Of(L.Line("p1", 0, 0, 10, 0)); l.Cps.Add(L.Cp("S001", 9, 0, "standby", "G1"));
+        var dir = Tmp();
+        var o = new ExportOptions(Groups: new[] { new VehicleGroupSpec("G1", "Tug", 3, 1.0, 1, 1) });
+        ExportRunner.Run(l, o, dir);
+        Assert.Contains("CPOINT name SP_G1_3 ", File.ReadAllText(Path.Combine(dir, "agv.asy")));
+        Assert.Equal(new[] { "S001" }, ArcLayout.Load(dir).Layout.Cps.Select(c => c.Name));
+        l.Cps.Add(L.Cp("T001", 9.5, 0));
+        var again = ExportRunner.Run(l, o with { Groups = new[] { new VehicleGroupSpec("G1", "Tug", 2, 1.0, 1, 1) } }, dir); // SP_G1_3 goes, T001 comes
+        Assert.Equal(1, again.Summary.CpsAdded); Assert.Equal(0, again.Summary.CpsRemoved);
+        Directory.Delete(dir, true);
+    }
+
+    [Fact]
     public void A_Millimeters_Model_Of_A_Mm_Drawing_Reads_Back_In_Meters()
     {
         // the same loop drawn in mm and exported with Scale 0.001 into a Millimeters model: agv.asy holds mm, blocks.tsv / traffic.tsv meters

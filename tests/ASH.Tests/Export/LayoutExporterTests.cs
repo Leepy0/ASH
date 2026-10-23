@@ -59,8 +59,82 @@ public class LayoutExporterTests
         var l = L.Of(L.Line("a",0,0,10,0)); l.Cps.Add(L.Cp("S001", 2, 0, "standby", group: "G1"));
         var s = LayoutExporter.ToAgvs(l, new ExportOptions(Groups: new[]{ new VehicleGroupSpec("G1","Tug",5,1.2,2.0,1.0) }));
         Assert.Equal(new[]{"S001"}, s.NameLists["nl_G1"]);
-        Assert.StartsWith("AGVSVEH type Tug numveh 5", s.VehicleLines[0]); Assert.Contains(s.VehicleLines, x => x.Trim() == "start nl_G1");
+        Assert.StartsWith("AGVSVEH type Tug numveh 5", s.VehicleLines[0]); Assert.Contains(s.VehicleLines, x => x.Trim() == "start nls_G1");
         Assert.StartsWith("AGVVEHSEG name Seg_Tug", s.VehicleSegmentLines[0]);
+    }
+
+    // AutoMod puts vehicle k on the k-th CP of the start list and stacks the vehicles beyond it onto a start CP as it frees up, so every vehicle
+    // needs its own start CP: the standby CP, then start-only CPs back along the lane, length + 0.5 m apart
+    static AgvsSystem Starts(int max, List<string>? warnings = null, string units = "Meters", double scale = 1, double k = 1, IReadOnlyList<string>? standby = null,
+        Action<ASH.Core.Layout.Layout>? more = null)
+    {
+        var l = L.Of(L.Line("a", 0, 0, 20 * k, 0)); l.Cps.Add(L.Cp("S1", 18 * k, 0, "standby", "G1")); l.Cps.Add(L.Cp("T1", 19 * k, 0));
+        more?.Invoke(l);
+        return LayoutExporter.ToAgvs(l, new ExportOptions(Units: units, Scale: scale, Groups: new[] { new VehicleGroupSpec("G1", "Tug", max, 1.0, 1.2, 0.8, StandbyCps: standby) }), warnings);
+    }
+
+    [Fact] public void One_Vehicle_Starts_On_The_Standby_Cp_Alone()
+    {
+        var s = Starts(1);
+        Assert.Equal(new[] { "S1" }, s.NameLists["nls_G1"]);
+        Assert.DoesNotContain(s.ControlPoints, LayoutExporter.IsStartCp);
+        Assert.DoesNotContain(s.CpTypeLines, x => x.Contains("_start"));
+    }
+
+    [Theory]
+    [InlineData(3)] [InlineData(10)]
+    public void Every_Vehicle_Gets_Its_Own_Start_Cp_Behind_The_Standby_Cp(int max)
+    {
+        var w = new List<string>();
+        var s = Starts(max, w);
+        var list = s.NameLists["nls_G1"];
+        Assert.Equal(new[] { "S1" }.Concat(Enumerable.Range(2, max - 1).Select(i => "SP_G1_" + i)), list);
+        var cps = list.Select(n => s.ControlPoints.Single(c => c.Name == n)).ToList();
+        for (int i = 1; i < max; i++) { Assert.Equal("a", cps[i].PathName); Assert.Equal(18 - i * 1.7, cps[i].Dist, 6); Assert.Equal("DefaultControlPoint_start", cps[i].Type); }
+        Assert.Contains(s.CpTypeLines, x => x.StartsWith("CPOINTTYPE name DefaultControlPoint_start cap 1 ") && x.Contains(" Meters"));
+        Assert.Equal(new[] { "S1" }, s.NameLists["nl_G1"]);                                   // dispatch lists keep the drawing's CPs only
+        Assert.Empty(w);
+    }
+
+    [Theory]
+    [InlineData("Millimeters", 0.001, 1000, 1000)]                 // mm drawing, mm model
+    [InlineData("Feet", 1, 1, 1 / 0.3048)]                         // m drawing, feet model
+    public void Start_Cps_Follow_Drawing_Scale_And_Model_Units(string units, double scale, double k, double perMeter)
+    {
+        var s = Starts(3, null, units, scale, k);
+        Assert.Equal(16.3 * perMeter, s.ControlPoints.Single(c => c.Name == "SP_G1_2").Dist, 6);
+        Assert.Equal(14.6 * perMeter, s.ControlPoints.Single(c => c.Name == "SP_G1_3").Dist, 6);
+    }
+
+    [Fact] public void Excel_Standby_Cps_Come_First_Then_Start_Cps_For_The_Rest()
+    {
+        var s = Starts(4, standby: new[] { "S2", "S1", "NOPE" }, more: l => { l.Paths.Add(L.Line("b", 0, 5, 20, 5)); l.Cps.Add(L.Cp("S2", 18, 5, "standby", "G1")); });
+        Assert.Equal(new[] { "S2", "S1", "SP_G1_3", "SP_G1_4" }, s.NameLists["nls_G1"]);
+        Assert.Equal("b", s.ControlPoints.Single(c => c.Name == "SP_G1_3").PathName);         // behind the first (home) standby CP
+        Assert.Equal(16.3, s.ControlPoints.Single(c => c.Name == "SP_G1_3").Dist, 6);
+    }
+
+    [Fact] public void Start_Cps_Keep_Clear_Of_Other_Vehicles_And_Cps_On_The_Lane()
+    {
+        // G2's standby CP at 15 sits on G1's lane: G1's spots at 16.3 and 14.6 are too close to it, 12.9 and 11.2 are taken
+        var l = L.Of(L.Line("a", 0, 0, 20, 0)); l.Cps.Add(L.Cp("S1", 18, 0, "standby", "G1")); l.Cps.Add(L.Cp("S2", 15, 0, "standby", "G2"));
+        l.Cps.Add(L.Cp("SP_G1_2", 1, 0));                                                    // a drawing CP with the generated name
+        var s = LayoutExporter.ToAgvs(l, new ExportOptions(Groups: new[] { new VehicleGroupSpec("G1", "Tug", 3, 1.0, 1.2, 0.8), new VehicleGroupSpec("G2", "Tug2", 1, 1.0, 1.2, 0.8) }));
+        Assert.Equal(new[] { "S1", "SP_G1_2_", "SP_G1_3" }, s.NameLists["nls_G1"]);
+        Assert.Equal(new[] { 12.9, 11.2 }, s.NameLists["nls_G1"].Skip(1).Select(n => Math.Round(s.ControlPoints.Single(c => c.Name == n).Dist, 6)));
+        Assert.Equal(new[] { "S2" }, s.NameLists["nls_G2"]);
+    }
+
+    [Fact] public void Too_Short_Lane_Warns_In_Korean_And_Starts_As_Many_As_Fit()
+    {
+        // block over x 0..3: 7 m of lane behind S1 at 10, room for the standby CP + 3 start CPs of 1.7 m (the last body ends at 3.7)
+        var w = new List<string>();
+        var l = L.Of(L.Line("a", 0, 0, 20, 0)); l.Blocks.Add(L.Block("B1", 0, -1, 3, 1)); l.Cps.Add(L.Cp("S1", 10, 0, "standby", "G1"));
+        var s = LayoutExporter.ToAgvs(l, new ExportOptions(Groups: new[] { new VehicleGroupSpec("G1", "Tug", 6, 1.0, 1.2, 0.8) }), w);
+        Assert.Equal(new[] { "S1", "SP_G1_2", "SP_G1_3", "SP_G1_4" }, s.NameLists["nls_G1"]);
+        var msg = Assert.Single(w);
+        Assert.Contains("그룹 G1: 대기 CP S1 뒤 대기 차선에 차량 6대를 띄워 세울 자리가 4대분뿐입니다.", msg);
+        Assert.Contains("10.2 m", msg);
     }
     [Fact] public void Group_Without_Standby_Cps_Throws()
     {

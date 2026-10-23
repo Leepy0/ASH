@@ -54,6 +54,22 @@ public class ModelBuilderTests
         Directory.Delete(dir, true);
     }
 
+    // the start-only CPs hold a vehicle each at time 0 and send it home (park list to the standby CP); they are no pickup, park or search target
+    [Fact]
+    public void Start_Cps_Get_Home_Park_Lists_But_Stay_Out_Of_Dispatch_Targets()
+    {
+        var dir = Tmp();
+        var r = ModelBuilder.Build(new ModelBuildRequest(dir, "m", LogicGeneratorTests.Sample(), Loop(), new ExportOptions(Groups: ModelBuilder.VehicleGroups(LogicGeneratorTests.Sample()))), null, TimeSpan.FromSeconds(1));
+        var s = ASH.Core.Asy.AsyReader.ReadFile(Path.Combine(r.ArcDir, "agv.asy"));
+        Assert.Equal(new[] { "S001", "SP_G1_2", "SP_G1_3" }, s.NameLists["nls_G1"]); // Sample: 3 vehicles of 2 m, S001 at x 5 of the loop
+        Assert.Equal(new[] { 2.5, 0.0 }, new[] { "SP_G1_2", "SP_G1_3" }.Select(n => Math.Round(s.ControlPoints.Single(c => c.Name == n).Dist, 6)));
+        Assert.Equal(new[] { "S001" }, s.NameLists["nl_G1"]); Assert.Equal(new[] { "S001" }, s.NameLists["nl_pick_G1"]);
+        Assert.Contains("PARKLST name SP_G1_2 Sequential item S001 ", s.ParkListLines);
+        Assert.DoesNotContain(s.SearchListLines, x => x.Contains("SP_"));
+        Assert.DoesNotContain(s.ParkListLines.Concat(s.WorkListLines), x => x.Contains("item SP_"));
+        Directory.Delete(dir, true);
+    }
+
     [Fact]
     public void Result_Carries_The_Export_Diff_And_Backup()
     {
@@ -165,7 +181,7 @@ public class ServerAssemblyTests
     public void Export_Forces_Type_NumVeh_Segs_Start_In_Vehicle_Override()
     {
         var s = ASH.Core.Export.LayoutExporter.ToAgvs(Loop(), Opt(new VehicleTemplateOverride(VehicleBlockText: Veh)));
-        Assert.Equal(new[] { "AGVSVEH type G1 numveh 3", "\tvehsegs item Seg_G1 ", "\tstart nl_G1", "\tload Default ", "\t\tvel\t0 7 Feet Seconds" }, s.VehicleLines);
+        Assert.Equal(new[] { "AGVSVEH type G1 numveh 3", "\tvehsegs item Seg_G1 ", "\tstart nls_G1", "\tload Default ", "\t\tvel\t0 7 Feet Seconds" }, s.VehicleLines);
     }
 
     [Theory]
@@ -231,7 +247,7 @@ public class ServerAssemblyTests
     public void Vehicle_Override_Without_Start_Line_Gets_Start_Inserted()
     {
         var s = ASH.Core.Export.LayoutExporter.ToAgvs(Loop(), Opt(new VehicleTemplateOverride(VehicleBlockText: "AGVSVEH\n\tload Default \n")));
-        Assert.Equal(new[] { "AGVSVEH type G1 numveh 3", "\tvehsegs item Seg_G1", "\tstart nl_G1", "\tload Default " }, s.VehicleLines);
+        Assert.Equal(new[] { "AGVSVEH type G1 numveh 3", "\tvehsegs item Seg_G1", "\tstart nls_G1", "\tload Default " }, s.VehicleLines);
     }
 
     [Fact]

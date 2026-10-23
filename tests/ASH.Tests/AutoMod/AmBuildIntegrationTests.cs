@@ -35,7 +35,6 @@ public class AmBuildIntegrationTests
         l.Cps.Add(L.Cp("workcheck", -5, 0, "standby", "work"));
         var sys = LayoutExporter.ToAgvs(l, new ExportOptions(Units: "Feet", Groups: new[] { new VehicleGroupSpec("work", "DefVehicle", 10, 1.0, 2, 1) }));
         sys.NameLists["nlwork"] = sys.NameLists["nl_work"]; sys.NameLists.Remove("nl_work");
-        for (int i = 0; i < sys.VehicleLines.Count; i++) sys.VehicleLines[i] = sys.VehicleLines[i].Replace("start nl_work", "start nlwork");
 
         var work = Path.Combine(Path.GetTempPath(), "ash_exp_build_" + Guid.NewGuid().ToString("N"));
         CopyDir(Path.Combine(AmHome!, @"demos\amoddemos\demos\agv\agvdemo.arc"), Path.Combine(work, "agvdemo.arc"));

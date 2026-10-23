@@ -32,6 +32,18 @@ public class StandbyQueueCheckTests
     }
 
     [Fact]
+    public void Lane_Spots_Follow_The_Lane_Round_A_Corner_And_End_At_A_Junction()
+    {
+        // down x=0 from y=20 to 0, east to the standby CP at x=4: spots 1.7 m apart along the path, the third one round the corner
+        var l = L.Of(L.Line("down", 0, 20, 0, 0), L.Line("east", 0, 0, 10, 0));
+        var spots = StandbyQueueCheck.LaneSpots(l, new Point2(4, 0), 1.7, 1.2, 3);
+        Assert.Equal(new[] { (2.3, 0.0), (0.6, 0.0), (0.0, 1.1) }, spots.Select(p => (Math.Round(p.X, 6), Math.Round(p.Y, 6))));
+        // a second path into the corner makes it a junction: only the east path (4 m) is lane, room for 1 spot with its 1.2 m body
+        l.Paths.Add(L.Line("west", -10, 0, 0, 0));
+        Assert.Single(StandbyQueueCheck.LaneSpots(l, new Point2(4, 0), 1.7, 1.2, 3));
+    }
+
+    [Fact]
     public void Walks_Back_Through_A_Corner_But_Stops_At_A_Junction()
     {
         // lane comes down x=0 from y=20 to 0, turns east to the standby CP at x=4: 20 + 4 m of room, no block

@@ -23,7 +23,8 @@ public class ModelRunIntegrationTests
 
     /// <summary>One-way square loop (4 paths, 10 m sides) with S001 standby, L001 load, B001 buffer, U001 unload, one block;
     /// a second group adds S002 standby (G2) and L002 load.</summary>
-    static Run BuildAndRun(ProjectInput input, IReadOnlyDictionary<string, int> active, int seed = 1, IReadOnlyDictionary<string, VehicleTemplateOverride>? vehOverrides = null)
+    static Run BuildAndRun(ProjectInput input, IReadOnlyDictionary<string, int> active, int seed = 1, IReadOnlyDictionary<string, VehicleTemplateOverride>? vehOverrides = null,
+        string units = "Meters", bool autoView = false)
     {
         var l = L.Of(L.Line("p1", 0, 0, 10, 0), L.Line("p2", 10, 0, 10, 10), L.Line("p3", 10, 10, 0, 10), L.Line("p4", 0, 10, 0, 0));
         l.Cps.Add(L.Cp("S001", 5, 0, "standby", "G1"));
@@ -34,7 +35,7 @@ public class ModelRunIntegrationTests
         var work = Path.Combine(Path.GetTempPath(), "ash_run_" + Guid.NewGuid().ToString("N"));
         var specs = ModelBuilder.VehicleGroups(input);
         l.Blocks.Add(new ASH.Core.Layout.LayoutBlock { Name = "B_x1", Cap = 1, Rect = new Rect2(new Point2(8, -1), new Point2(11, 2)) }); // corner p1/p2
-        var res = ModelBuilder.Build(new ModelBuildRequest(work, Model, input, l, new ExportOptions(Groups: specs), VehicleOverrides: vehOverrides), AmHome!, TimeSpan.FromMinutes(5));
+        var res = ModelBuilder.Build(new ModelBuildRequest(work, Model, input, l, new ExportOptions(Units: units, Groups: specs), VehicleOverrides: vehOverrides, AutoView: autoView), AmHome!, TimeSpan.FromMinutes(5));
         Assert.DoesNotContain(res.Findings, f => f.Code == ASH.Core.Layout.FindingCode.InputError);
         var b = res.Build!;
         Assert.True(b.Success, work + "\n" + b.MakeErrText + b.Am2ErrText);
@@ -324,6 +325,42 @@ public class ModelRunIntegrationTests
         var ok = Assert.Single(verdicts, x => x.V.Ok);
         Assert.True(ok.Kpi.Supplies < 0.95 * ok.Kpi.Expected, "old supplies rule would have failed this run");
         Assert.Equal(0, ok.Kpi.StopTimeSec);
+        Cleanup(run.Work);
+    }
+
+    // user report: AGVs piled up on the standby CP. AutoMod puts vehicle k on the k-th start-list CP and inserts the ones beyond the list later,
+    // on top of the vehicle leaving the CP. With a start CP per vehicle back along the lane, every vehicle is on the path at time 0, length + 0.5 m
+    // apart, and none is dropped in later. Positions come from the AutoView motion file (.mdf: µm along the path the vehicle was put on).
+    [SkippableTheory]
+    [InlineData("Meters", 3)]
+    [InlineData("Millimeters", 5)] // 5 x 1.7 m: the lane goes back round the corner onto p4
+    public void Vehicles_Start_Spaced_Along_The_Standby_Lane(string units, int max)
+    {
+        Skip.If(AmHome is null, "ASH_AM_HOME not set");
+        var input = LogicGeneratorTests.Sample();
+        input.AgvTypes[0] = input.AgvTypes[0] with { Length = 1.2, Width = 0.8 };
+        input.Groups[0] = input.Groups[0] with { MaxCount = max };
+        var run = BuildAndRun(input, new Dictionary<string, int> { ["G1"] = max }, units: units, autoView: true);
+        var mdf = File.ReadAllLines(Path.Combine(run.Work, Model + ".avw", Model + ".mdf"));
+        int t1 = Array.FindIndex(mdf, x => System.Text.RegularExpressions.Regex.IsMatch(x, @"^time (?!0 )[\d.]+ ")); // first event after time 0
+        var path = new Dictionary<string, string>(); var pos = new Dictionary<string, double>();
+        foreach (var x in mdf.Take(t1))
+        {
+            var m = System.Text.RegularExpressions.Regex.Match(x, @"object agv:G1\((\d+)\) relative to path agv:(\S+) visible");
+            if (m.Success) path[m.Groups[1].Value] = m.Groups[2].Value;
+            m = System.Text.RegularExpressions.Regex.Match(x, @"^\s*object agv:G1\((\d+)\) pos ([-\d.]+),");
+            if (m.Success) pos[m.Groups[1].Value] = double.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture) / 1e6;
+        }
+        Assert.Equal(max, path.Count);                                                                 // all on the path at time 0
+        Assert.DoesNotContain(mdf.Skip(t1), x => System.Text.RegularExpressions.Regex.IsMatch(x, @"object agv:G1\(\d+\) relative to path \S+ visible\s*$")); // none dropped in later (the end-of-run dump has "visible color ...")
+        // place along the lane, metres before the p4/p1 corner negative: S001 at 5, then 3.3, 1.6, -0.1, -1.8
+        var lane = path.Keys.Select(v => (pos.TryGetValue(v, out var d) ? d : 0) - (path[v] == "p4" ? 10 : 0)).OrderByDescending(x => x).ToList();
+        Console.WriteLine(string.Join(" ", path.Keys.Select(v => $"G1({v}) {path[v]} {(pos.TryGetValue(v, out var d) ? d : 0):0.###}")));
+        Assert.All(path.Values, p => Assert.Contains(p, new[] { "p1", "p4" }));
+        Assert.Equal(5, lane[0], 3);
+        for (int i = 1; i < lane.Count; i++) Assert.True(lane[i - 1] - lane[i] >= 1.7 - 1e-3, $"vehicles {lane[i - 1]} and {lane[i]} only {lane[i - 1] - lane[i]:0.###} m apart");
+        Assert.Equal(0, V(run.Rows.Single(x => x[0] == "deadlock"), 1));
+        Assert.All(run.Rows.Where(x => x[0] == "material"), x => Assert.True(V(x, 3) > 0, "supplies"));
         Cleanup(run.Work);
     }
 

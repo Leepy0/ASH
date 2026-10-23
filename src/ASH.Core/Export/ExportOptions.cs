@@ -3,7 +3,9 @@ using ASH.Core.Geometry;
 
 namespace ASH.Core.Export;
 
-public sealed record VehicleGroupSpec(string Group, string TypeName, int MaxCount, double Speed, double Length, double Width, double RotateDegPerSec = 90.0 / 7, double Accel = 0, double Decel = 0, string Kind = "", double SpeedEmpty = 0);
+/// <summary>StandbyCps: the group's standby CPs from the Excel (first = home); null, or none of them placed, falls back to the drawing's standby CPs of the group.</summary>
+public sealed record VehicleGroupSpec(string Group, string TypeName, int MaxCount, double Speed, double Length, double Width, double RotateDegPerSec = 90.0 / 7, double Accel = 0, double Decel = 0, string Kind = "", double SpeedEmpty = 0,
+    IReadOnlyList<string>? StandbyCps = null);
 
 /// <summary>Verbatim replacement text for a type's `AGVVEHSEG` block / `AGVSVEH` block (server assembly). The exporter still forces the segment name, type, numveh, vehsegs item and start lines.</summary>
 public sealed record VehicleTemplateOverride(string? VehSegText = null, string? VehicleBlockText = null);

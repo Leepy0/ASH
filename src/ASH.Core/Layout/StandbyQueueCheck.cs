@@ -21,10 +21,7 @@ public static class StandbyQueueCheck
     {
         var res = new List<string>();
         if (!(scale > 0)) return res;
-        var graph = PathGraph.Build(l);
-        // the path ends that meet at each point, by node
-        var nodeAt = new Dictionary<(LayoutPath, bool), PathNode>();
-        foreach (var n in graph.Nodes) foreach (var e in n.Ends) nodeAt[(e.Path, e.AtStart)] = n;
+        var nodeAt = NodeAt(l);
         foreach (var g in input.Groups)
         {
             var type = input.AgvTypes.FirstOrDefault(t => t.Type == g.Type);
@@ -41,13 +38,41 @@ public static class StandbyQueueCheck
         return res;
     }
 
-    // free path length behind (path, dist), walking back through plain joins, until a junction, a block, or enough room (layout units)
-    static double Room(Layout l, Dictionary<(LayoutPath, bool), PathNode> nodeAt, LayoutPath path, double dist, double enough)
+    // the path ends that meet at each point, by node
+    static Dictionary<(LayoutPath, bool), PathNode> NodeAt(Layout l)
+    {
+        var nodeAt = new Dictionary<(LayoutPath, bool), PathNode>();
+        foreach (var n in PathGraph.Build(l).Nodes) foreach (var e in n.Ends) nodeAt[(e.Path, e.AtStart)] = n;
+        return nodeAt;
+    }
+
+    /// <summary>Points on the lane behind the CP at <paramref name="cp"/> (layout units), spacing, 2 x spacing, ... back along the path, the same
+    /// walk as the queue check (through plain joins, stopping at a junction or a block), each with <paramref name="tail"/> of free lane behind it
+    /// for the vehicle body; at most <paramref name="max"/> points, fewer when the lane ends.</summary>
+    public static List<Point2> LaneSpots(Layout l, Point2 cp, double spacing, double tail, int max)
+    {
+        var res = new List<Point2>();
+        if (!(spacing > 0) || max <= 0 || LayoutChecker.Project(l, cp) is not { } pr) return res;
+        var trail = new List<(LayoutPath Path, double Dist, double Room)>();
+        double room = Room(l, NodeAt(l), pr.Path, pr.Dist, max * spacing + tail, trail);
+        for (int k = 1; k <= max && k * spacing + tail <= room + 1e-9; k++)
+        {
+            var t = trail.Last(x => x.Room <= k * spacing);
+            res.Add(t.Path.PointAt(Math.Max(0, t.Dist - (k * spacing - t.Room))));
+        }
+        return res;
+    }
+
+    // free path length behind (path, dist), walking back through plain joins, until a junction, a block, or enough room (layout units);
+    // trail gets each path walked with the dist it was entered at and the room before it
+    static double Room(Layout l, Dictionary<(LayoutPath, bool), PathNode> nodeAt, LayoutPath path, double dist, double enough,
+        List<(LayoutPath Path, double Dist, double Room)>? trail = null)
     {
         double room = 0;
         var seen = new HashSet<LayoutPath>();
         while (room < enough && seen.Add(path))
         {
+            trail?.Add((path, dist, room));
             // back along this path from dist to its start, stopping at a block
             for (double d = dist; d > 0; d -= Math.Min(0.1, d))
             {
