@@ -122,6 +122,12 @@ public class UpdateFlowTests
         Assert.Equal("서버 응답 없음", UpdateMessages.Reason(new HttpRequestException("refused"))); // other HTTP failures keep the old text
     }
 
+    [Theory]
+    [InlineData("0.19.1+abc123", "현재 ASH 0.19.1")]
+    [InlineData("0.20.0-beta.1", "현재 ASH 0.20.0-beta.1")]
+    [InlineData("dev", "현재 ASH dev")] // not SemVer: shown as is, never throws
+    public void Current_Version_Line(string informational, string expected) => Assert.Equal(expected, UpdateMessages.Current(informational));
+
     [Fact] public void Default_Handler_Skips_Proxy_And_Redirects()
     {
         var h = UpdateClient.DefaultHandler();

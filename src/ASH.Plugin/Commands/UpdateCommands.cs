@@ -46,6 +46,7 @@ public sealed class UpdateCommands
 
     private static void RunUpdate(Editor ed)
     {
+        ed.WriteMessage("\n" + UpdateMessages.Current(UpdateNotifier.CurrentVersion));
         string url;
         if (!UserSettings.TryNormalizeUrl(UserSettings.Load().ServerUrl, out url))
         {

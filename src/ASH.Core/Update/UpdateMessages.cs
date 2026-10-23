@@ -22,6 +22,9 @@ public static class UpdateMessages
         }
     }
 
+    /// <summary>AGVUPDATE's first line, whatever the outcome. Build metadata (+sha) is dropped.</summary>
+    public static string Current(string version) => $"현재 ASH {Show(version)}";
+
     public static string CheckFailed(Exception e) => $"업데이트 확인 실패({Reason(e)})";
 
     /// <param name="totalTimeout">The caller's overall download limit fired (as opposed to an idle/connect failure).</param>
