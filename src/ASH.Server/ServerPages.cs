@@ -5,22 +5,22 @@ using static ASH.Server.JobPages;
 
 namespace ASH.Server;
 
-/// <summary>The home page (/) and the admin pages (/admin/settings, login, restart). Same shared CSS and header as the job pages.</summary>
+/// <summary>The server status section and the admin pages (/admin/settings, login, restart). Same shared CSS and header as the job pages.</summary>
 public static class ServerPages
 {
-    public sealed record HomeData(ReleaseStore Releases, GitHubSync GitHub, ServerUpdater Updater, RunnerStore Runner, IReadOnlyList<JobInfo> Jobs,
+    public sealed record StatusData(ReleaseStore Releases, GitHubSync GitHub, ServerUpdater Updater, RunnerStore Runner, IReadOnlyList<JobInfo> Jobs,
         (int Ahead, DateTime? Start, TimeSpan? Typical) Queue, bool WorkerOn);
 
     static string Card(string label, string big, string sub, string cls = "") =>
         $"<div class=\"card\"><div class=\"sub\">{label}</div><div class=\"big {cls}\">{big}</div><div class=\"sub\">{sub}</div></div>";
 
-    public static string Home(HomeData d)
+    public static string Status(StatusData d)
     {
         var (s, g, u, r) = (d.Releases, d.GitHub, d.Updater, d.Runner);
         var cur = s.GetCurrent()?.Manifest;
         var running = d.Jobs.FirstOrDefault(j => j.State == JobState.Running);
         int queued = d.Jobs.Count(j => j.State == JobState.Queued);
-        var sb = new StringBuilder("<h1>ASH 서버</h1><div class=\"cards\">");
+        var sb = new StringBuilder("<section class=\"box\"><h2>서버 현황</h2><div class=\"cards\">");
 
         sb.Append(Card("지금 실행", running == null ? "없음" : State(running),
             running == null ? (d.WorkerOn ? "작업 실행 켜짐" : "<span class=\"bad\">작업 실행 꺼짐</span>")
@@ -30,7 +30,7 @@ public static class ServerPages
         sb.Append(Card("서버 프로그램", H(u.Current), H(u.LastResult)));
         sb.Append("</div>");
 
-        sb.Append("<section class=\"box\"><div class=\"box-head\"><h2>최근 작업</h2><a href=\"/jobs\">전체 작업 보기 →</a></div>");
+        sb.Append("<section class=\"box\"><div class=\"box-head\"><h2>최근 작업</h2><a href=\"/admin/jobs\">작업 대기열(관리자) →</a></div>");
         JobTable(sb, d.Jobs.Take(5).ToList());
         sb.Append("</section>");
 
@@ -62,8 +62,8 @@ public static class ServerPages
         sb.Append("<dt>수동 업로드</dt><dd>").Append(s.UploadsEnabled ? "가능" : "꺼짐 <span class=\"muted\">(Admin:Token 미설정 또는 짧음, GitHub 가져오기만 사용)</span>").Append("</dd>");
         // the clock behind every time on this page: if it differs from the wall clock the PC's own date and time is wrong
         sb.Append("<dt>서버 시각(서울)</dt><dd>").Append(H(SeoulTime.NowText)).Append(" <span class=\"muted\">· PC 표준 시간대 ").Append(H(TimeZoneInfo.Local.Id)).Append("</span></dd>");
-        sb.Append("</dl><p class=\"help\"><a href=\"/admin/settings\">서버 설정 바꾸기</a> (관리자)</p></section></div>");
-        return Page("ASH 서버", sb.ToString());
+        sb.Append("</dl></section></div></section>");
+        return sb.ToString();
     }
 
     public static string Message(string title, string html, string? refreshTo = null) =>
@@ -89,9 +89,10 @@ public static class ServerPages
 
     public sealed record SettingsView(JsonObject File, string FilePath, Func<string, string?>? Submitted, SettingsSave? Saved, string? RestartBlocked, JobInfo? Running);
 
-    public static string Settings(SettingsView v)
+    public static string Settings(SettingsView v, string statusHtml)
     {
         var sb = new StringBuilder("<h1>서버 설정</h1>");
+        sb.Append(statusHtml);
         sb.Append($"<p class=\"muted\">파일: <code>{H(v.FilePath)}</code> · <span class=\"tag\">바로 적용</span> 저장하면 다음 작업·다음 확인부터 적용 · <span class=\"tag rs\">재시작 필요</span> 서비스를 다시 시작해야 적용</p>");
         if (v.Saved is { } r)
         {
