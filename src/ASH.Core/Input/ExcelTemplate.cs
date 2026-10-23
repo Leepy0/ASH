@@ -10,7 +10,7 @@ public static class ExcelTemplate
     // sheet -> (columns, descriptions, example row). Single source of truth; ExcelReader uses the same names.
     public static readonly (string Sheet, string[] Cols, string[] Desc, string[] Example)[] Sheets =
     {
-        ("Settings", new[] { "Key", "Value", "Description" }, new[] { "키", "값", "설명" }, new string[0]),
+        ("Settings", new[] { "Key", "Value", "Description" }, new[] { "키", "값", "설명 (연녹색 칸은 입력 불필요)" }, new string[0]),
         ("AGV_Types",
             new[] { "Type", "SpeedLoaded", "SpeedEmpty", "Accel", "Decel", "Capacity", "LoadTime", "UnloadTime", "MTBF", "MTTR", "Length", "Width", "Color", "Kind" },
             new[] { "타입명", "적재 속도(m/s)", "공차 속도(m/s)", "가속(m/s²)", "감속(m/s²)", "용기 수", "로딩(초)", "언로딩(초)", "MTBF(초, 0=없음)", "MTTR(초)", "길이(m)", "폭(m)", "색상", "형상(목록에서 선택)" },
@@ -59,6 +59,11 @@ public static class ExcelTemplate
         ("Materials", "CallThresholdTotal", "CallThreshold", "CallThresholdQty"),
         ("Materials", "UnloadThresholdTotal", "UnloadThreshold", "UnloadThresholdQty"),
     };
+
+    /// <summary>Cells that need no input get this light green fill (RGB E2EFDA; the header is light blue, the example row light gray): the formula
+    /// columns above and the Settings description column. Rows 3..LastListRow, so rows typed in later are covered too.</summary>
+    public const int AutoFillRgb = 0xE2EFDA;
+    static readonly (string Sheet, string Col)[] AutoCols = { ("Materials", "CallThresholdTotal"), ("Materials", "UnloadThresholdTotal"), ("Settings", "Description") };
 
     public static readonly (string Key, string Value, string Desc)[] SettingsDefaults =
     {
@@ -194,6 +199,7 @@ public static class ExcelTemplate
         }
         ApplyLists(wb);
         ApplyTotals(wb);
+        ApplyAutoFill(wb);
         Save(wb, path);
     }
 
@@ -297,6 +303,7 @@ public static class ExcelTemplate
         }
         ApplyLists(wb, log);
         ApplyTotals(wb, log);
+        ApplyAutoFill(wb, log);
         return changes;
     }
 
@@ -365,6 +372,16 @@ public static class ExcelTemplate
         }
     }
 
+    static void ApplyAutoFill(XLWorkbook wb, List<ExcelEdit>? log = null)
+    {
+        foreach (var (sheet, col) in AutoCols)
+        {
+            if (!wb.TryGetWorksheet(sheet, out var ws) || !Columns(ws).TryGetValue(col, out var c)) continue;
+            ws.Range(3, c, LastListRow, c).Style.Fill.BackgroundColor = XLColor.FromArgb(AutoFillRgb);
+            log?.Add(new FillEdit(sheet, c, 3, LastListRow, AutoFillRgb));
+        }
+    }
+
     static void ApplyLists(XLWorkbook wb, List<ExcelEdit>? log = null)
     {
         foreach (var (sheet, col, source) in Lists)
@@ -429,5 +446,7 @@ public sealed record DeleteColumnEdit(string Sheet, int Col) : ExcelEdit(Sheet);
 public sealed record CellEdit(string Sheet, int Row, int Col, string Value) : ExcelEdit(Sheet);
 /// <summary>One R1C1 formula over rows FirstRow..LastRow of a column.</summary>
 public sealed record FormulaEdit(string Sheet, int Col, int FirstRow, int LastRow, string FormulaR1C1) : ExcelEdit(Sheet);
+/// <summary>A background colour (RGB, 0xRRGGBB) over rows FirstRow..LastRow of a column: the cells that need no input.</summary>
+public sealed record FillEdit(string Sheet, int Col, int FirstRow, int LastRow, int Rgb) : ExcelEdit(Sheet);
 /// <summary>A drop-down over rows FirstRow..LastRow: Formula is a sheet range ("=AGV_Types!$A$3:$A$1000") or a comma list ("Box,Pallet").</summary>
 public sealed record ListEdit(string Sheet, int Col, int FirstRow, int LastRow, string Formula, string Title, string Message) : ExcelEdit(Sheet);

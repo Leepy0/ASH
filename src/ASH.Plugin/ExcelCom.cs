@@ -48,6 +48,9 @@ internal static class ExcelCom
                     else sheet.Cells[c.Row, c.Col].Value2 = c.Value;
                     break;
                 case FormulaEdit f: sheet.Range[sheet.Cells[f.FirstRow, f.Col], sheet.Cells[f.LastRow, f.Col]].FormulaR1C1 = f.FormulaR1C1; break;
+                case FillEdit fe: // Interior.Color is BGR
+                    sheet.Range[sheet.Cells[fe.FirstRow, fe.Col], sheet.Cells[fe.LastRow, fe.Col]].Interior.Color = ((fe.Rgb & 0xFF) << 16) | (fe.Rgb & 0xFF00) | (fe.Rgb >> 16);
+                    break;
                 case ListEdit l:
                     dynamic v = sheet.Range[sheet.Cells[l.FirstRow, l.Col], sheet.Cells[l.LastRow, l.Col]].Validation;
                     v.Delete();

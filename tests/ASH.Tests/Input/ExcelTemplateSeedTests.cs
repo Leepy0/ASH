@@ -100,8 +100,11 @@ public class ExcelTemplateSeedTests
                     case DeleteColumnEdit d: replay.Worksheet(d.Sheet).Column(d.Col).Delete(); break;
                     case CellEdit c: replay.Worksheet(c.Sheet).Cell(c.Row, c.Col).Value = c.Value; break;
                     case FormulaEdit f: replay.Worksheet(f.Sheet).Range(f.FirstRow, f.Col, f.LastRow, f.Col).FormulaR1C1 = f.FormulaR1C1; break;
+                    case FillEdit fe: replay.Worksheet(fe.Sheet).Range(fe.FirstRow, fe.Col, fe.LastRow, fe.Col).Style.Fill.BackgroundColor = XLColor.FromArgb(fe.Rgb); break;
                 }
             Assert.Contains(log, e => e is ListEdit x && x.Sheet == "AGV_Groups" && x.Formula == "=AGV_Types!$A$3:$A$1000");
+            Assert.Contains(log, e => e is FillEdit x && x.Sheet == "Materials" && x.Rgb == ExcelTemplate.AutoFillRgb);
+            AssertAutoFill(replay);                                 // the replayed edit log gives the same colours
             foreach (var ws in updated.Worksheets)
             {
                 var r = replay.Worksheet(ws.Name);
@@ -144,6 +147,43 @@ public class ExcelTemplateSeedTests
             var p = ExcelReader.Read(path);
             Assert.Equal("G_EX", Assert.Single(p.Groups).Group);
             Assert.Equal("M001", Assert.Single(p.Routes).Material);
+        }
+        finally { File.Delete(path); }
+    }
+
+    static XLColor Auto => XLColor.FromArgb(ExcelTemplate.AutoFillRgb);
+
+    /// <summary>Formula-only and memo cells carry the "no input needed" fill; the header and the typed cells next to them do not.</summary>
+    static void AssertAutoFill(XLWorkbook wb)
+    {
+        var m = wb.Worksheet("Materials"); var s = wb.Worksheet("Settings");
+        int total = Enumerable.Range(1, 30).First(c => m.Cell(1, c).GetString() == "CallThresholdTotal");
+        int unload = Enumerable.Range(1, 30).First(c => m.Cell(1, c).GetString() == "UnloadThresholdTotal");
+        foreach (var r in new[] { 3, 4, 500, 1000 }) { Assert.Equal(Auto, m.Cell(r, total).Style.Fill.BackgroundColor); Assert.Equal(Auto, m.Cell(r, unload).Style.Fill.BackgroundColor); }
+        foreach (var r in new[] { 3, 14, 1000 }) Assert.Equal(Auto, s.Cell(r, 3).Style.Fill.BackgroundColor);   // Description, also below the last default key
+        Assert.NotEqual(Auto, m.Cell(1, total).Style.Fill.BackgroundColor);          // the header keeps its blue
+        Assert.NotEqual(Auto, m.Cell(3, 4).Style.Fill.BackgroundColor);             // a typed column (TaktTime)
+        Assert.NotEqual(Auto, s.Cell(3, 2).Style.Fill.BackgroundColor);             // Settings Value is input
+        Assert.NotEqual(XLColor.LightBlue, Auto); Assert.NotEqual(XLColor.LightGray, Auto);
+    }
+
+    [Fact]
+    public void Cells_That_Need_No_Input_Are_Filled_After_Write_And_After_Update()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "seed-" + System.Guid.NewGuid().ToString("N") + ".xlsx");
+        try
+        {
+            ExcelTemplate.Write(path, Drawing());
+            using (var wb = ExcelReader.Open(path)) AssertAutoFill(wb);
+            using (var wb = ExcelReader.Open(path)) // an older workbook: the fill is gone (and a column was added later)
+            {
+                wb.Worksheet("Materials").Range(3, 1, 1000, 30).Style.Fill.BackgroundColor = XLColor.NoColor;
+                wb.Worksheet("Settings").Range(3, 1, 1000, 3).Style.Fill.BackgroundColor = XLColor.NoColor;
+                wb.Save();
+            }
+            ExcelTemplate.Update(path, Drawing());
+            using (var wb = ExcelReader.Open(path)) AssertAutoFill(wb);
+            Assert.Equal(new[] { "A", "B" }, ExcelReader.Read(path).Groups.Select(g => g.Group));
         }
         finally { File.Delete(path); }
     }
