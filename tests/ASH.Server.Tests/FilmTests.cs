@@ -18,11 +18,15 @@ public sealed class FakeFilm : IFilmAutoMod, IFilmRenderer
     public readonly List<(string Dir, string Amo)> Builds = new();
     public readonly List<RunRequest> Runs = new();
     public readonly List<string> Scripts = new();
+    /// <summary>The time limit each render got, in the order of <see cref="Scripts"/>.</summary>
+    public readonly List<TimeSpan> Timeouts = new();
     public readonly List<(IReadOnlyList<string> Mp4s, IReadOnlyList<string> Captions, string Out, bool Join)> Finishes = new();
     public (double W, double H)? Mark = (640, 360);
     public bool WriteEvents = true;
     /// <summary>Every render hits the time limit at once (a hung AutoView).</summary>
     public bool AlwaysTimeout;
+    /// <summary>Calibration renders (quality 100) hit their time limit; cuts work.</summary>
+    public bool CalibrationTimesOut;
     /// <summary>A cut script with this text waits until the render is cancelled (an AutoView run that is still going).</summary>
     public string? BlockOn;
 
@@ -48,8 +52,10 @@ public sealed class FakeFilm : IFilmAutoMod, IFilmRenderer
 
     public RenderResult Render(string workDir, string modelName, string cameraScript, TimeSpan timeout, CancellationToken ct)
     {
-        lock (Scripts) Scripts.Add(cameraScript);
+        lock (Scripts) { Scripts.Add(cameraScript); Timeouts.Add(timeout); }
         if (AlwaysTimeout) return new RenderResult(false, null, "시간 제한을 넘어 AutoView를 끊었습니다.", Array.Empty<string>(), true);
+        if (CalibrationTimesOut && cameraScript.Contains("quality 100"))
+            return new RenderResult(false, null, "시간 제한(3분)을 넘어 AutoView를 끊었습니다. 진단: AutoView aview.exe (버전 12.4) · 창 \"비디오 압축\" [#32770]", Array.Empty<string>(), true);
         if (BlockOn != null && cameraScript.Contains(BlockOn)) { ct.WaitHandle.WaitOne(TimeSpan.FromMinutes(1)); return new RenderResult(false, null, "취소되었습니다.", Array.Empty<string>()); }
         // the cut, not its model's calibration (which also reaches 4321 s)
         if (cameraScript.Contains("\ntime 4321\n") && !cameraScript.Contains("quality 100")) { ct.WaitHandle.WaitOne(timeout); return new RenderResult(false, null, "시간 제한을 넘어 AutoView를 끊었습니다.", Array.Empty<string>(), true); }
@@ -264,12 +270,38 @@ public class FilmTests
         env.Film.AlwaysTimeout = true;
         var before = env.Film.Scripts.Count;
         var f = await Film(env, aid, Body(new[] { "c1", "c2" }, new[] { j1, j2 }));
-        Assert.Equal(2, env.Film.Scripts.Count - before); // the first version's calibration, then the second's: no cut waits its time limit
+        Assert.Equal(2, env.Film.Scripts.Count - before); // the first version's calibration (falls back to the estimate), then its first cut: two in a row, stop
         Assert.Equal(JobState.Failed, f.State);
         Assert.Equal((0, 4), (f.Done, f.Failed));
-        Assert.All(f.Items.Where(i => i.JobId == j1), i => Assert.Contains("화면 배율 보정 중 시간 제한", i.Error));
-        Assert.All(f.Items.Where(i => i.JobId == j2), i => Assert.Equal(FilmWorker.Hung, i.Error));
+        Assert.Contains("시간 제한", f.Items.Single(i => i.JobId == j1 && i.CutId == "c1").Error);
+        Assert.All(f.Items.Where(i => i.JobId == j2 || i.CutId == "c2"), i => Assert.Equal(FilmWorker.Hung, i.Error));
+        Assert.StartsWith("A안 v1: " + FilmWorker.CalWarning + " — 시간 제한", f.Warnings.Single());
         Assert.Contains("AutoView가 응답하지 않아 중단", await env.Http.GetStringAsync("/films/" + f.Id));
+    }
+
+    [Fact]
+    public async Task Calibration_Timeout_Falls_Back_To_The_Estimate_And_The_Film_Goes_On()
+    {
+        using var env = new JobEnv();
+        var j1 = await Done(env, "분석", "A안");
+        var (_, aid) = Analysis(env);
+        env.Factory.Services.GetRequiredService<CutStore>().Save(aid, new[] { Hold("c1") });
+        env.Film.CalibrationTimesOut = true;
+        var before = env.Film.Scripts.Count;
+        var f = await Film(env, aid, Body(new[] { "c1" }, new[] { j1 }));
+        Assert.Equal((1, 0), (f.Done, f.Failed)); // filmed with the estimate
+        var warning = f.Warnings.Single();
+        Assert.StartsWith("A안 v1: " + FilmWorker.CalWarning + " — 시간 제한(3분)", warning);
+        Assert.Contains("창 \"비디오 압축\"", warning); // the diagnostics: what AutoView was stuck on
+        Assert.Contains("비디오 압축", await env.Http.GetStringAsync("/films/" + f.Id));
+        var log = File.ReadAllText(Path.Combine(env.Factory.Services.GetRequiredService<FilmStore>().FilmDir(f.Id), "film.log"));
+        Assert.Contains("AutoView: ", log); // the program (and version) once at the start
+        Assert.Contains("F0 보정 실패(시간 제한", log);
+        // calibration has its own short limit (Film:CalibrationTimeoutMin), the cut the cut limit; the one timed-out calibration render is not repeated
+        List<(string Script, TimeSpan Limit)> runs;
+        lock (env.Film.Scripts) runs = env.Film.Scripts.Zip(env.Film.Timeouts).Skip(before).ToList();
+        Assert.Equal(new[] { TimeSpan.FromMinutes(0.05), TimeSpan.FromMinutes(0.02) }, runs.Select(r => r.Limit));
+        Assert.Contains("quality 100", runs[0].Script);
     }
 
     [Fact]
@@ -293,14 +325,58 @@ public class FilmTests
         Directory.CreateDirectory(Path.Combine(dir, "m.avw"));
         try
         {
+            // a stand-in AutoView that writes its parse log, starts converting (convert.bat, 2 frames) and then never ends
             var hang = Path.Combine(dir, "hang.cmd");
-            File.WriteAllText(hang, "@ping -n 60 127.0.0.1 >nul\r\n");
+            File.WriteAllText(hang, "@echo Camera script duration is 1 seconds> aviewout.dat\r\n@echo ffmpeg> convert.bat\r\n@md cut01_frames\r\n" +
+                "@echo j> cut01_frames\\amov0.jpg\r\n@echo j> cut01_frames\\amov1.jpg\r\n@echo usage: aview [-Lnsc] Model-Name\r\n@ping -n 60 127.0.0.1 >nul\r\n");
             var sw = Stopwatch.StartNew();
-            var r = new AutoViewRenderer(hang, null, "ffmpeg").Render(dir, "m", "camera description\nfilename \"" + Path.Combine(dir, "cut01") + "\"\n", TimeSpan.FromSeconds(1.5), CancellationToken.None);
+            var r = new AutoViewRenderer(hang, null, "ffmpeg").Render(dir, "m", "camera description\nfilename \"" + Path.Combine(dir, "cut01") + "\"\n", TimeSpan.FromSeconds(3), CancellationToken.None);
             Assert.False(r.Ok);
-            Assert.Contains("시간 제한", r.Error);
-            Assert.True(sw.Elapsed < TimeSpan.FromSeconds(15), sw.Elapsed.ToString());
+            Assert.True(r.TimedOut);
+            Assert.True(sw.Elapsed < TimeSpan.FromSeconds(20), sw.Elapsed.ToString());
             Assert.Contains("filename", File.ReadAllText(Path.Combine(dir, "m.avw", "camera.des")));
+            // what the admin needs to see on the film page: the program and version, what AutoView left, where to add a dialog title
+            foreach (var s in new[] { "시간 제한", "Film:DialogTitles", $"진단: AutoView {hang} (버전 정보 없음)", "서버 세션 ", "camera.des 있음", "aviewerr.dat 없음",
+                         "aviewout.dat \"Camera script duration is 1 seconds\"", "cut01.mp4 없음", "avi 없음", "convert.bat 있음", "프레임 JPG 2개", "누른 창 없음",
+                         "출력 \"usage: aview [-Lnsc] Model-Name\"" })
+                Assert.Contains(s, r.Error);
+            Assert.Matches("(창 |보이는 창 없음)", r.Error);
+            Assert.Matches("ffmpeg (없음|.+ffmpeg)", r.Error);
+        }
+        finally { try { Directory.Delete(dir, true); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
+    }
+
+    [Fact]
+    public void AutoView_Ending_Without_A_Movie_Says_What_To_Check()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "ash-nomovie-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(dir, "m.avw"));
+        try
+        {
+            var quit = Path.Combine(dir, "quit.cmd");
+            File.WriteAllText(quit, "@echo Camera script duration is 1 seconds> aviewout.dat\r\n");
+            var r = new AutoViewRenderer(quit, null, "ffmpeg").Render(dir, "m", "camera description\nfilename \"" + Path.Combine(dir, "cut01") + "\"\n", TimeSpan.FromSeconds(30), CancellationToken.None);
+            Assert.False(r.Ok);
+            Assert.False(r.TimedOut);
+            foreach (var s in new[] { "동영상(MP4/AVI)을 만들지 않았습니다", "AutoView 14.x", "12.4", "확인되지 않음", $"진단: AutoView {quit} (버전 정보 없음)", "aviewout.dat \"Camera script" })
+                Assert.Contains(s, r.Error);
+            Assert.DoesNotContain("창 \"", r.Error); // AutoView has ended: no window list
+        }
+        finally { try { Directory.Delete(dir, true); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
+    }
+
+    [Fact]
+    public void AutoView_Avi_Is_The_Render_Output()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "ash-avi-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(dir, "m.avw"));
+        try
+        {
+            var avi = Path.Combine(dir, "avi.cmd"); // as AutoView 12.4's movie dialog announced: model.avi in the work folder
+            File.WriteAllText(avi, "@echo RIFF> model.avi\r\n");
+            var r = new AutoViewRenderer(avi, null, "ffmpeg").Render(dir, "m", "camera description\nfilename \"" + Path.Combine(dir, "cut01") + "\"\n", TimeSpan.FromSeconds(30), CancellationToken.None);
+            Assert.True(r.Ok, r.Error);
+            Assert.Equal(Path.Combine(dir, "cut01.avi"), r.Mp4);
         }
         finally { try { Directory.Delete(dir, true); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
     }
@@ -580,6 +656,25 @@ public class LiveFilmRendererTests
             Assert.Equal(Path.Combine(new124, "bin", "aview.exe"), LiveFilmRenderer.ResolveAviewExe(cfg));
         }
         finally { Directory.Delete(old, true); Directory.Delete(new124, true); }
+    }
+
+    [Fact]
+    public void Dialog_Titles_Come_From_The_Setting_With_Attention_And_The_Codec_Dialog_By_Default()
+    {
+        var cfg = Config(null);
+        Assert.Equal(new[] { "Attention", "비디오 압축", "Video Compression" }, LiveFilmRenderer.DialogTitles(cfg));
+        cfg["Film:DialogTitles"] = " Attention , Warning,, 경고 ";
+        Assert.Equal(new[] { "Attention", "Warning", "경고" }, LiveFilmRenderer.DialogTitles(cfg)); // read at each render: no restart
+        cfg["Film:DialogTitles"] = " , ";
+        Assert.Equal(AutoViewRenderer.DefaultDialogTitles, LiveFilmRenderer.DialogTitles(cfg));
+
+        var d = ServerSettings.All.Single(s => s.Key == "Film:DialogTitles");
+        Assert.True(d.Live);
+        Assert.Equal("Attention,비디오 압축,Video Compression", d.Default);
+        Assert.Null(ServerSettings.Validate(d, "Attention, 경고", out _));
+        Assert.NotNull(ServerSettings.Validate(d, "Attention, a", out _)); // one letter would match AutoView's own window
+        var cal = ServerSettings.All.Single(s => s.Key == "Film:CalibrationTimeoutMin");
+        Assert.Equal(("3", true, 1, 60), (cal.Default, cal.Live, cal.Min, cal.Max));
     }
 
     [Fact]

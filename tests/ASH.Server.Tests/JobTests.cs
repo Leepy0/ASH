@@ -81,6 +81,7 @@ public sealed class JobEnv : IDisposable
             if (amHome == null)
             {
                 b.UseSetting("Film:CutTimeoutMin", "0.02"); // 1.2 s: the fake hangs that long for a "hung" cut
+                b.UseSetting("Film:CalibrationTimeoutMin", "0.05"); // 3 s: only checked to reach the calibration renders
                 b.ConfigureServices(s =>
                 {
                     s.RemoveAll<IJobRunner>(); s.AddSingleton<IJobRunner>(Runner);

@@ -21,12 +21,16 @@ public sealed class LiveFilmRenderer(IConfiguration cfg) : IFilmRenderer
 
     static string Ffmpeg(IConfiguration cfg) => cfg["Film:FfmpegPath"] is { Length: > 0 } ff ? ff : "ffmpeg";
 
+    /// <summary>Film:DialogTitles as a list (comma separated, blanks dropped); the default "Attention" when nothing is left.</summary>
+    internal static string[] DialogTitles(IConfiguration cfg) =>
+        (cfg["Film:DialogTitles"] ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) is { Length: > 0 } t ? t : AutoViewRenderer.DefaultDialogTitles;
+
     public RenderResult Render(string workDir, string modelName, string cameraScript, TimeSpan timeout, CancellationToken ct)
     {
         var exe = ResolveAviewExe(cfg);
         if (exe == null)
             return new RenderResult(false, null, "AutoView 실행 파일을 찾지 못했습니다: " + AutoViewExe.Candidates(AmHome(cfg)) + " (또는 설정의 Film:AviewExe)", new string[0]);
-        return new AutoViewRenderer(exe, AmHome(cfg), Ffmpeg(cfg)).Render(workDir, modelName, cameraScript, timeout, ct);
+        return new AutoViewRenderer(exe, AmHome(cfg), Ffmpeg(cfg), DialogTitles(cfg)).Render(workDir, modelName, cameraScript, timeout, ct);
     }
 
     // ffmpeg only: the AutoView program is not needed here
