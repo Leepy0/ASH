@@ -89,6 +89,48 @@ public class CatalogTests
     }
 
     [Fact]
+    public async Task Admin_Types_Needs_Login_And_Saves_With_Header_Token()
+    {
+        const string Token = "test-admin-token-1234567890";
+        using var env = new JobEnv(worker: false, adminToken: Token);
+        var store = env.Factory.Services.GetRequiredService<CatalogStore>();
+        var get = await env.Http.GetAsync("/admin/types");
+        Assert.Equal(System.Net.HttpStatusCode.Unauthorized, get.StatusCode);
+        Assert.Contains("/admin/login", await get.Content.ReadAsStringAsync());
+
+        async Task<HttpResponseMessage> Post(string url, params (string, string)[] f)
+        {
+            var req = new HttpRequestMessage(HttpMethod.Post, url) { Content = new FormUrlEncodedContent(f.Select(x => new KeyValuePair<string, string>(x.Item1, x.Item2))) };
+            req.Headers.Add(ReleaseStore.HeaderName, Token);
+            return await env.Http.SendAsync(req);
+        }
+        (string, string)[] Form(string name) => new[] { ("name", name), ("label", "L"), ("category", "AGV"), ("kind", "Standard"), ("speedLoadedStraight", "1"), ("speedLoadedCurve", "0.5"),
+            ("speedEmptyStraight", "1"), ("speedEmptyCurve", "0.5"), ("accel", "0.5"), ("decel", "0.5"), ("capacity", "1"), ("loadTime", "0"), ("unloadTime", "0"), ("mtbf", "0"), ("mttr", "0"),
+            ("length", "1"), ("width", "1"), ("color", ""), ("unitPrice", "1200") };
+
+        Assert.Equal(System.Net.HttpStatusCode.OK, (await Post("/admin/types", Form("T_A"))).StatusCode);
+        Assert.Equal(1, store.Get("T_A")!.Defaults.SpeedLoadedStraight);
+        Assert.Equal(1200m, store.Prices()["T_A"].UnitPrice);
+
+        var bad = await Post("/admin/types", Form("한글"));
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, bad.StatusCode);
+        Assert.Contains("AutoMod", await bad.Content.ReadAsStringAsync());
+
+        var badNum = Form("T_B").Select(x => x.Item1 == "width" ? ("width", "abc") : x).ToArray();
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, (await Post("/admin/types", badNum)).StatusCode);
+        Assert.Null(store.Get("T_B"));
+
+        var pr = await Post("/admin/types/prices", ("csv", "Type,UnitPrice,Currency,Note\nT_A,1,,\nT_X,2,,"));
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, pr.StatusCode);
+        Assert.Contains("3행", await pr.Content.ReadAsStringAsync());
+
+        var page = await env.Http.SendAsync(new HttpRequestMessage(HttpMethod.Get, "/admin/types?edit=T_A") { Headers = { { ReleaseStore.HeaderName, Token } } });
+        var html = await page.Content.ReadAsStringAsync();
+        Assert.Contains("id=\"assets\"", html);
+        Assert.Contains("T_A", html);
+    }
+
+    [Fact]
     public async Task Corrupt_TypesJson_Is_Not_Overwritten()
     {
         using var env = new JobEnv();
