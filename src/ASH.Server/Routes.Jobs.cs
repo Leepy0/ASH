@@ -101,10 +101,16 @@ internal static partial class Routes
             }
         });
 
-        app.MapGet("/api/jobs/{id}", (string id, JobStore js) =>
+        app.MapGet("/api/jobs/{id}", (string id, JobStore js, IConfiguration cfg) =>
         {
             if (!JobStore.IsValidId(id) || js.Get(id) is not { } j) return Msg(404, "작업이 없습니다.");
-            return Results.Json(new { j.Id, j.State, j.Phase, j.RunsDone, j.RunsFailed, j.Error, j.Decided, j.Warnings, j.CreatedUtc, j.StartedUtc, j.FinishedUtc });
+            var eta = JobProgress.Eta(j, js.QueueInfo().Typical, JobProgress.Parallel(cfg), DateTime.UtcNow);
+            return Results.Json(new
+            {
+                j.Id, j.State, j.Phase, j.RunsDone, j.RunsFailed, j.Error, j.Decided, j.Warnings, j.CreatedUtc, j.StartedUtc, j.FinishedUtc,
+                j.ExpectedRuns, progress = JobProgress.Ratio(j), partial = j.Partial,
+                eta = eta?.ToString("yyyy-MM-ddTHH:mm:ssZ"), avgRunSec = JobProgress.AvgRun(j)?.TotalSeconds,
+            });
         });
 
         app.MapGet("/jobs/{id}", (string id, string? tab, HttpContext ctx, JobStore js, ReleaseStore rs, AnalysisStore analyses, FilmStore fs, FilmWorker fw) =>

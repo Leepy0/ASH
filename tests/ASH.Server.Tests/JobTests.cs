@@ -40,9 +40,10 @@ public static class FakeResult
 public sealed class FakeRunner : IJobRunner
 {
     public ManualResetEventSlim Gate { get; } = new(true);
-    public JobOutcome Run(JobInfo job, string projectDir, TextWriter log, Action<string> phase, IProgress<RunOutcome> progress, CancellationToken ct)
+    public JobOutcome Run(JobInfo job, string projectDir, TextWriter log, Action<string> phase, IProgress<RunOutcome> progress, Action<SearchProgress> search, CancellationToken ct)
     {
         phase("대수 탐색");
+        search(new SearchProgress("탐색 시작", new Dictionary<string, int>(), new Dictionary<string, int>(), 1, 3));
         Gate.Wait(ct);
         var runs = Path.Combine(projectDir, "runs");
         foreach (var (n, util) in new[] { (3, 0.4), (2, 0.6), (1, 0.95) })
@@ -51,6 +52,7 @@ public sealed class FakeRunner : IJobRunner
             SummaryTsv.Append(Path.Combine(runs, "summary.tsv"), new SummaryRow(id, "G1", n, 1, util < 0.75, util < 0.75 ? "" : "가동률 초과", util, 2, 10, 10, 0, 0, 5, "G1=" + n));
             progress.Report(new RunOutcome(id, true, Path.Combine(runs, id), TimeSpan.FromSeconds(5), null));
         }
+        search(new SearchProgress("확정 G1", new Dictionary<string, int> { ["G1"] = 2 }, new Dictionary<string, int>(), 0, 3));
         var input = SearchJob.ReadInput(projectDir, TextWriter.Null, new List<string>(), out _)!;
         Directory.CreateDirectory(Path.Combine(runs, "n2_s1"));
         File.WriteAllText(Path.Combine(runs, "n2_s1", "result.tsv"), FakeResult.Tsv(input.Materials.Select(m => m.Material)));
@@ -153,6 +155,28 @@ public sealed class JobEnv : IDisposable
 
 public class JobTests
 {
+    [Fact] public async Task Api_Job_Carries_Expected_Progress_And_Partial()
+    {
+        using var env = new JobEnv();
+        var id = Id(await (await env.Send(JobEnv.MakePackage(env.Dir))).Content.ReadAsStringAsync());
+        var j = await env.WaitFinished(id);
+        Assert.Equal(3, j.ExpectedRuns); Assert.Equal(2, j.Partial!["G1"]); Assert.Equal(15.0, j.RunSeconds);
+        var api = JsonDocument.Parse(await env.Http.GetStringAsync("/api/jobs/" + id)).RootElement;
+        Assert.Equal(1.0, api.GetProperty("progress").GetDouble()); Assert.Equal(3, api.GetProperty("expectedRuns").GetInt32());
+        Assert.Equal(2, api.GetProperty("partial").GetProperty("G1").GetInt32());
+    }
+    [Fact] public async Task Api_Job_Has_Null_Progress_For_Legacy_Job()
+    {
+        using var env = new JobEnv(worker: false);
+        var dir = Path.Combine(env.Store.Dir, "20250101-000000-abcd"); Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "job.json"), "{\"Id\":\"20250101-000000-abcd\",\"State\":\"done\",\"RunsDone\":7}");
+        var js = new JobStore(env.Store.Dir, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+        var j = js.Get("20250101-000000-abcd")!;
+        Assert.Null(j.ExpectedRuns); Assert.Null(j.Partial); Assert.Equal(1.0, JobProgress.Ratio(j));
+        j.State = JobState.Failed; Assert.Null(JobProgress.Ratio(j));
+        await Task.CompletedTask;
+    }
+
     static string Id(string json) => JsonDocument.Parse(json).RootElement.GetProperty("id").GetString()!;
 
     [Fact]
