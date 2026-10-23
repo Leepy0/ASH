@@ -21,7 +21,8 @@ public static class RunExecutorExtensions
         exec is IBatchRunExecutor b ? b.ExecuteMany(scenarios, ct) : scenarios.Select(s => { ct.ThrowIfCancellationRequested(); return exec.Execute(s); }).ToList();
 }
 
-public sealed record SearchOptions(int InitialReplications = 1, bool ImpactTable = false, int MaxConfirmRounds = 3);
+/// <summary>ExpectedRuns is only passed through to SearchProgress (SearchEstimate.Expected).</summary>
+public sealed record SearchOptions(int InitialReplications = 1, bool ImpactTable = false, int MaxConfirmRounds = 3, int ExpectedRuns = 0);
 /// <summary>Scenario carries the first seed; Seeds lists all seeds run (SeedBase + i). ClusterOk is null for impact runs (not judged).</summary>
 public sealed record SearchStep(RunScenario Scenario, IReadOnlyDictionary<string, Verdict> VerdictsByGroup, bool? ClusterOk, string Phase,
     int Replications, IReadOnlyList<int> Seeds);
@@ -50,7 +51,8 @@ public static class SearchStrategy
     /// + reps (decided) + k·reps (minus1, cached when reps = 1), plus confirm and impact (k·reps). With a batch executor, initial reps 1 and
     /// k ≥ 2, the first binary-search midpoints of all groups run as one batch; a group whose speculative scenario is stale (an earlier
     /// group changed) re-runs sequentially, so results equal the sequential search. InitStockMode Fixed has no randomness: one replication.</summary>
-    public static SearchResult Search(ProjectInput input, IRunExecutor exec, GroupClusters clusters, SearchOptions opts, CancellationToken ct = default)
+    public static SearchResult Search(ProjectInput input, IRunExecutor exec, GroupClusters clusters, SearchOptions opts, CancellationToken ct = default,
+        Action<SearchProgress>? onProgress = null)
     {
         var cache = new Dictionary<string, IReadOnlyList<RunKpi>>();
         var trace = new List<SearchStep>();
@@ -113,10 +115,17 @@ public static class SearchStrategy
             return changed;
         }
 
+        var confirmed = new Dictionary<string, int>();
+        int groupsLeft = clusters.Clusters.Sum(c => c.Count);
+        void Report(string phase, IReadOnlyList<string>? current = null) =>
+            onProgress?.Invoke(new SearchProgress(phase, new Dictionary<string, int>(confirmed),
+                (current ?? new string[0]).ToDictionary(g => g, g => cur[g]), groupsLeft, opts.ExpectedRuns));
+
         foreach (var cluster in clusters.Clusters)
         {
             var baselineOk = new HashSet<string>();
             string cname = string.Join(",", cluster);
+            Report("탐색 " + cname, cluster);
             foreach (var kv in Eval(cluster, initReps, "baseline"))
             {
                 if (kv.Value.Ok) baselineOk.Add(kv.Key);
@@ -143,9 +152,13 @@ public static class SearchStrategy
             while (changed) changed = MinusOnePass(cluster, baselineOk, initReps, "search");
             Eval(cluster, reps, "decided");
             while (MinusOnePass(cluster, baselineOk, reps, "minus1")) { }
+            foreach (var g in cluster) confirmed[g] = cur[g];
+            groupsLeft -= cluster.Count;
+            Report("확정 " + cname);
         }
 
         var all = input.Groups.Select(g => g.Group).ToList();
+        Report("확인");
         for (int round = 0; ; round++)
         {
             var v = Eval(all, reps, "confirm");
@@ -162,6 +175,7 @@ public static class SearchStrategy
         var impact = new List<ImpactRow>();
         if (opts.ImpactTable)
         {
+            Report("영향표");
             var plusOf = input.Groups.Where(g => cur[g.Group] < g.MaxCount)
                 .ToDictionary(g => g.Group, g => new Dictionary<string, int>(cur) { [g.Group] = cur[g.Group] + 1 });
             Fill(plusOf.Values.Select(c => (c, reps)).Prepend((new Dictionary<string, int>(cur), reps)));

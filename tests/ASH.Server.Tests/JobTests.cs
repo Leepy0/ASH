@@ -158,7 +158,7 @@ public class JobTests
     [Fact]
     public async Task Upload_Queues_A_Job_And_The_Pages_Show_It()
     {
-        using var env = new JobEnv(worker: false);
+        using var env = new JobEnv(worker: false, adminToken: "test-token-1234567890");
         var zip = JobEnv.MakePackage(env.Dir);
         var res = await env.Send(zip);
         var body = await res.Content.ReadAsStringAsync();
@@ -174,7 +174,8 @@ public class JobTests
         Assert.Equal(1, q.GetProperty("ahead").GetInt32());
         Assert.False(q.GetProperty("enabled").GetBoolean()); // worker off
 
-        var list = await env.Http.GetStringAsync("/jobs");
+        var lreq = new HttpRequestMessage(HttpMethod.Get, "/admin/jobs"); lreq.Headers.Add("X-ASH-Admin-Token", "test-token-1234567890");
+        var list = await (await env.Http.SendAsync(lreq)).Content.ReadAsStringAsync();
         Assert.Contains(id, list); Assert.Contains("Line A", list); Assert.Contains("대기", list);
         var page = await env.Http.GetStringAsync("/jobs/" + id);
         Assert.Contains("다음 차례", page);
