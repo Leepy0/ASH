@@ -83,11 +83,32 @@ public static class AnalysisPages
 
     static readonly System.Collections.Concurrent.ConcurrentDictionary<string, List<(string Name, int Max)>> GroupCache = new();
 
-    /// <summary>"G01 4 · G02 3 · G03 5 시험 중 · G04 탐색 중": confirmed groups with their count, the ones in the cluster being searched, the rest still waiting.
-    /// Group order and Max come from the job's input; without it only the confirmed groups are listed.</summary>
+    /// <summary>With more than <see cref="ManyGroups"/> groups: "확정 12 / 20 그룹 · 탐색 중: G13~G16" (the cluster being searched, else the next unconfirmed groups).
+    /// The page and the polled "partial.text" key both use this, so they stay identical.</summary>
     internal static string PartialText(JobStore store, JobInfo j)
     {
+        var groups = InputGroups(store, j);
+        if (groups == null || groups.Count <= ManyGroups) return PartialList(store, j);
         var done = j.Partial ?? new();
+        var trying = Trying(j);
+        var names = groups.Select(g => g.Name).ToList();
+        var next = trying.Length > 0 ? trying.Where(names.Contains).ToList() : names.Where(n => !done.ContainsKey(n)).ToList();
+        string Show(List<string> l)
+        {
+            int a = names.IndexOf(l[0]), b = names.IndexOf(l[^1]);
+            if (trying.Length > 0 && l.Count >= 3 && b - a + 1 == l.Count && l.SequenceEqual(names.GetRange(a, l.Count))) return $"{l[0]}~{l[^1]}"; // a cluster of neighbours
+            return string.Join(", ", l.Take(4)) + (l.Count > 4 ? $" 외 {l.Count - 4}개" : "");
+        }
+        return $"확정 {names.Count(done.ContainsKey)} / {names.Count} 그룹" + (next.Count > 0 ? $" · 탐색 중: {Show(next)}" : "");
+    }
+
+    /// <summary>The per-group list for the page's closed details when <see cref="PartialText"/> is the short form; null otherwise.</summary>
+    internal static string? PartialDetail(JobStore store, JobInfo j) => InputGroups(store, j) is { Count: > ManyGroups } ? PartialList(store, j) : null;
+
+    static string[] Trying(JobInfo j) => j.Phase is { } ph && ph.StartsWith("탐색 ", StringComparison.Ordinal) ? ph[3..].Split(',') : Array.Empty<string>();
+
+    static List<(string Name, int Max)>? InputGroups(JobStore store, JobInfo j)
+    {
         // the input of a job never changes, so polling must not re-parse the workbook; only a successful read is cached
         if (!GroupCache.TryGetValue(j.Id, out var groups))
         {
@@ -95,8 +116,17 @@ public static class AnalysisPages
             catch (Exception e) { Console.Error.WriteLine($"PartialText {j.Id}: {e.Message}"); groups = new(); } // cached too: a bad workbook logs once
             if (groups != null) GroupCache[j.Id] = groups;
         }
+        return groups;
+    }
+
+    /// <summary>"G01 4 · G02 3 · G03 5 시험 중 · G04 탐색 중": confirmed groups with their count, the ones in the cluster being searched, the rest still waiting.
+    /// Group order and Max come from the job's input; without it only the confirmed groups are listed.</summary>
+    internal static string PartialList(JobStore store, JobInfo j)
+    {
+        var done = j.Partial ?? new();
+        var groups = InputGroups(store, j);
         if (groups == null || groups.Count == 0) return string.Join(" · ", done.Select(kv => $"{kv.Key} {kv.Value}"));
-        var trying = j.Phase is { } ph && ph.StartsWith("탐색 ", StringComparison.Ordinal) ? ph[3..].Split(',') : Array.Empty<string>();
+        var trying = Trying(j);
         return string.Join(" · ", groups.Select(g => done.TryGetValue(g.Name, out var n) ? $"{g.Name} {n}" : trying.Contains(g.Name) ? $"{g.Name} {g.Max} 시험 중" : $"{g.Name} 탐색 중"));
     }
 
@@ -173,6 +203,7 @@ public static class AnalysisPages
             HomePages.RunningCard(sb, new(running.Id, Title(running), running.State, running.Phase, JobProgress.Ratio(running), running.RunsDone, running.ExpectedRuns,
                 running.RunsDone > 0 ? Dur(JobProgress.AvgRun(running)) : null, eta is { } e ? ASH.Core.SeoulTime.FromUtc(e).ToString("HH:mm") : null, running.LastLine ?? "", null), "running");
             sb.Append($"<p>중간 결과: <span data-field=\"partial.text\">{H(PartialText(d.Store, running))}</span></p>");
+            if (PartialDetail(d.Store, running) is { } all) sb.Append($"<details><summary>그룹별 중간 결과</summary><p>{H(all)}</p></details>");
         }
         foreach (var j in jobs.Where(j => j.State == JobState.Queued).OrderBy(j => j.CreatedUtc))
             HomePages.RunningCard(sb, new(j.Id, Title(j), j.State, j.Phase, null, j.RunsDone, j.ExpectedRuns, null, null, "", null), "queued." + j.Id);
@@ -335,7 +366,9 @@ public static class AnalysisPages
         var ids = q["jobs"].Count > 0
             ? q["jobs"].ToString().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Where(byId.ContainsKey).Distinct().ToList()
             : all.Where(j => j.Selected).Select(j => j.Id).ToList();
-        string Url(IEnumerable<string> l, bool maps = false) => $"?tab=compare&amp;jobs={string.Join(",", l.Select(Uri.EscapeDataString))}{(maps ? "&amp;maps=1" : "")}";
+        var showAll = q["groups"] == "all";
+        string Url(IEnumerable<string> l, bool maps = false, bool? all = null) =>
+            $"?tab=compare&amp;jobs={string.Join(",", l.Select(Uri.EscapeDataString))}{(maps ? "&amp;maps=1" : "")}{((all ?? showAll) ? "&amp;groups=all" : "")}";
         string PlanName(JobInfo j) => a.Plans.FirstOrDefault(p => p.Id == j.PlanId)?.Name ?? j.Plan;
         sb.Append("<section class=\"box\"><h2>버전 비교</h2><p>");
         foreach (var j in all)
@@ -345,6 +378,7 @@ public static class AnalysisPages
         var cols = ids.Select(id => new CompareColumn(byId[id], PlanName(byId[id]), MetricsOf(d.Store, byId[id]))).ToList();
         var groups = cols.Where(c => c.M != null).SelectMany(c => c.M!.View.Groups.Select(g => g.Group)).Distinct(StringComparer.Ordinal).ToList();
         var baseM = cols[0].M;
+        var many = groups.Count > ManyGroups;
 
         sb.Append("<div class=\"scroll\"><table><tr><th>지표</th>");
         for (int i = 0; i < cols.Count; i++)
@@ -382,14 +416,23 @@ public static class AnalysisPages
         Row("교착(회)", m => m.View.Deadlocks, m => m.View.Deadlocks.ToString(CultureInfo.InvariantCulture));
         Row("최대 병목(block·초)", m => Worst(m)?.AvgWaitSec, m => Worst(m) is { } w ? $"{w.Name}·{Num(w.AvgWaitSec)}" : "-");
         // plan B inserts the 투자비(원) row here (Row(...), smaller is better)
-        foreach (var g in groups)
+        foreach (var g in many ? new List<string>() : groups) // many groups: per-group numbers live in the heat grid below
         {
             GroupView? G(Metrics m) => m.View.Groups.FirstOrDefault(x => x.Group == g);
             Row($"{H(g)} 권장(대)", m => G(m)?.Decided, m => G(m)?.Decided?.ToString(CultureInfo.InvariantCulture) ?? "-");
             Row($"{H(g)} 가동률(%)", m => G(m) is { } x ? Pv(x.Util) : null, m => G(m) is { } x ? Pc(x.Util) : "-");
         }
         sb.Append("</table></div>");
-        sb.Append("<div class=\"scroll\" style=\"margin-top:12px\">").Append(CompareChart(cols, groups, baseM?.View.UtilMax ?? cols.Select(c => c.M?.View.UtilMax).FirstOrDefault(x => x != null) ?? 0.75)).Append("</div>");
+        if (many)
+        {
+            var changed = groups.Where(g => Changed(cols, g)).ToList();
+            sb.Append($"<p class=\"mini\" style=\"margin-top:12px\">그룹 {groups.Count}개: <a href=\"{Url(ids, all: false)}\" class=\"chip{(showAll ? "" : " sel")}\">버전 간 달라진 그룹만 ({changed.Count})</a>" +
+                $"<a href=\"{Url(ids, all: true)}\" class=\"chip{(showAll ? " sel" : "")}\">전체 그룹</a></p>");
+            var shown = showAll ? groups : changed;
+            if (shown.Count == 0) sb.Append($"<p class=\"muted\">버전 간 달라진 그룹이 없습니다. <a href=\"{Url(ids, all: true)}\">전체 그룹 보기</a></p>");
+            else sb.Append("<div class=\"scroll\">").Append(HeatGrid(cols, shown)).Append("</div>");
+        }
+        else sb.Append("<div class=\"scroll\" style=\"margin-top:12px\">").Append(CompareChart(cols, groups, baseM?.View.UtilMax ?? cols.Select(c => c.M?.View.UtilMax).FirstOrDefault(x => x != null) ?? 0.75)).Append("</div>");
         if (q["maps"] != "1") { sb.Append($"<p><a class=\"btn\" href=\"{Url(ids, true)}\">병목 지도 나란히</a></p></section>"); return; }
         sb.Append("<h2>병목 지도(block 평균 대기, 같은 축척)</h2><div class=\"scroll\"><div style=\"display:flex;gap:12px\">");
         // one scale for every map: the union of the layouts' bounds and the largest wait over all versions
@@ -400,6 +443,36 @@ public static class AnalysisPages
             sb.Append("<div>").Append(c.M?.View.Layout == null ? $"<div style=\"font-weight:600\">{H(c.PlanName)} v{c.Job.Version}</div><p class=\"muted\">지도가 없습니다.</p>"
                 : Map(c.M.View, $"{c.PlanName} v{c.Job.Version}", b => b.AvgWaitSec, x => F(x, "0.0") + "초", 360, 250, false, shared, hiWait)).Append("</div>");
         sb.Append("</div></div></section>");
+    }
+
+    /// <summary>A group changed between the chosen versions: its recommended count differs, or its utilisation spans 5 %p or more.</summary>
+    internal static bool Changed(IReadOnlyList<CompareColumn> cols, string group)
+    {
+        var gs = cols.Where(c => c.M != null).Select(c => c.M!.View.Groups.FirstOrDefault(x => x.Group == group)).ToList();
+        var us = gs.Where(g => g != null && !double.IsNaN(g.Util)).Select(g => g!.Util).ToList();
+        return gs.Select(g => g?.Decided).Distinct().Count() > 1 || (us.Count > 1 && us.Max() - us.Min() >= 0.05 - 1e-9);
+    }
+
+    /// <summary>Rows = groups, columns = versions; cell colour = utilisation (the map's heat scale), text = recommended count, red outline = judgement failed.</summary>
+    internal static string HeatGrid(IReadOnlyList<CompareColumn> cols, IReadOnlyList<string> groups)
+    {
+        var sb = new StringBuilder("<table class=\"heat\"><tr><th>그룹</th>");
+        foreach (var c in cols) sb.Append($"<th>{H(c.PlanName)} v{c.Job.Version}</th>");
+        sb.Append("</tr>");
+        foreach (var g in groups)
+        {
+            sb.Append($"<tr><th>{H(g)}</th>");
+            foreach (var c in cols)
+            {
+                var gv = c.M?.View.Groups.FirstOrDefault(x => x.Group == g);
+                if (gv == null) { sb.Append("<td class=\"num hc muted\">-</td>"); continue; }
+                var n = gv.Decided?.ToString(CultureInfo.InvariantCulture) ?? "-";
+                var u = double.IsNaN(gv.Util) ? "-" : F(gv.Util * 100, "0") + "%";
+                sb.Append($"<td class=\"num hc\" style=\"background:{Heat(gv.Util)}{(gv.AllOk ? "" : ";outline:2px solid #a32d2d;outline-offset:-2px")}\" title=\"{H(g)} · {H(c.PlanName)} v{c.Job.Version} · {n}대 · 가동률 {u}{(gv.AllOk ? "" : " · 판정 실패")}\">{n}</td>");
+            }
+            sb.Append("</tr>");
+        }
+        return sb.Append("</table><div class=\"muted\" style=\"font-size:12px\">칸 숫자 = 권장 대수(대) · 색 = 가동률(옅을수록 낮음, 빨강 100%) · 빨간 테두리 = 판정 실패</div>").ToString();
     }
 
     /// <summary>Grouped bars: per group one bar per version (palette colour per version), dashed line = utilization limit.</summary>

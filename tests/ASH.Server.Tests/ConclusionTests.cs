@@ -23,7 +23,7 @@ public class ConclusionTests
         Assert.Equal(4, Regex.Matches(sb.ToString(), "<h3>묶음:").Count); Assert.DoesNotContain("<h3>단독", sb.ToString()); Assert.Equal(20, Regex.Matches(sb.ToString(), "<span class=\"bar\">").Count);
         Assert.Contains("실패: 가동률 초과", sb.ToString()); Assert.Contains("background:var(--bad)", sb.ToString());
         var page = new StringBuilder(); JobPages.Conclusion(page, j, v, small: false);
-        Assert.Equal(1, Regex.Matches(page.ToString(), "<svg").Count);
+        Assert.Equal(2, Regex.Matches(page.ToString(), "<svg").Count); // the distribution strip (more than three groups) and the map
         foreach (var s in new[] { "권장 총 대수", "최대 가동률", "최대 병목", "상세 보기", "?tab=detail", "/files/report.xlsx", "class=\"grid2\"" }) Assert.Contains(s, page.ToString());
     }
 
