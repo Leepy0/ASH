@@ -105,4 +105,18 @@ public class AssetStoreTests : IDisposable
         Assert.Throws<ArgumentException>(() => st.Path("s-nope", "asset.cel"));
         Assert.Throws<ArgumentException>(() => st.Path(a.Id, "../x"));
     }
+
+    [Fact] public void All_Answers_While_A_Slow_Conversion_Runs()
+    {
+        using var entered = new ManualResetEventSlim(); using var gate = new ManualResetEventSlim();
+        var slow = new AssetStore(dir, NullLogger<AssetStore>.Instance, (src, name, o) => { entered.Set(); gate.Wait(TimeSpan.FromSeconds(30)); return AssetConverter.Convert(src, name, o); });
+        var create = Task.Run(() => slow.Create("T_AGV", "slow", "", 0, stlPath, "agv.stl", new SimplifyOptions(), "admin"));
+        Assert.True(entered.Wait(TimeSpan.FromSeconds(10)));
+        var all = Task.Run(() => slow.All());
+        Assert.True(all.Wait(TimeSpan.FromSeconds(5)), "All() blocked by the conversion");
+        Assert.Empty(all.Result);
+        gate.Set();
+        Assert.Equal("slow", create.Result.Name);
+        Assert.Single(slow.All());
+    }
 }

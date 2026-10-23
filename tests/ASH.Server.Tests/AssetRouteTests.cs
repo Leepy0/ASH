@@ -28,10 +28,12 @@ public class AssetRouteTests
         return await NoRedirect(env).SendAsync(req);
     }
 
-    static async Task<HttpResponseMessage> PostForm(JobEnv env, string url, params (string, string)[] f)
+    static Task<HttpResponseMessage> PostForm(JobEnv env, string url, params (string, string)[] f) => PostForm(env, url, true, f);
+
+    static async Task<HttpResponseMessage> PostForm(JobEnv env, string url, bool admin, params (string, string)[] f)
     {
         var req = new HttpRequestMessage(HttpMethod.Post, url) { Content = new FormUrlEncodedContent(f.Select(x => new KeyValuePair<string, string>(x.Item1, x.Item2))) };
-        req.Headers.Add(ReleaseStore.HeaderName, Token);
+        if (admin) req.Headers.Add(ReleaseStore.HeaderName, Token);
         return await NoRedirect(env).SendAsync(req);
     }
 
@@ -56,6 +58,23 @@ public class AssetRouteTests
     {
         using var env = Env();
         Assert.Equal(HttpStatusCode.Unauthorized, (await PostAsset(env, "T_AGV", "agv_a", StlBytes, "agv.stl", admin: false)).StatusCode);
+    }
+
+    [Fact] public async Task Reconvert_And_Delete_Without_Admin_Are_401()
+    {
+        using var env = Env();
+        var id = IdFrom((await PostAsset(env, "T_AGV", "agv_a", StlBytes, "agv.stl")).Headers.Location!);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await PostForm(env, $"/admin/assets/{id}/reconvert", false, ("name", "agv_b"))).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await PostForm(env, $"/admin/assets/{id}/delete", false)).StatusCode);
+        Assert.Contains("\"agv_a\"", await env.Http.GetStringAsync("/api/catalog/assets?type=T_AGV")); // untouched
+    }
+
+    [Fact] public async Task NaN_Mesh_Is_400()
+    {
+        using var env = Env();
+        var r = await PostAsset(env, "T_AGV", "bad", System.Text.Encoding.ASCII.GetBytes(Stl.Replace("vertex 1000 0 0", "vertex 1e999 0 0")), "bad.stl");
+        Assert.Equal(HttpStatusCode.BadRequest, r.StatusCode);
+        Assert.Contains("숫자가 아닌 좌표", await r.Content.ReadAsStringAsync());
     }
 
     [Fact] public async Task Over_Limit_Is_413()

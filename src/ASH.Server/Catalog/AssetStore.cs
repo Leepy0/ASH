@@ -28,11 +28,14 @@ public sealed class AssetStore
     readonly object _lock = new();
     readonly Dictionary<string, AssetInfo> _all = new();
     readonly ILogger<AssetStore> _log;
+    readonly Func<string, string, SimplifyOptions, ConvertResult> _convert;
     public string Dir { get; }
 
-    public AssetStore(string jobsDir, ILogger<AssetStore> log)
+    /// <param name="convert">AssetConverter.Convert by default; tests pass a slow one.</param>
+    public AssetStore(string jobsDir, ILogger<AssetStore> log, Func<string, string, SimplifyOptions, ConvertResult>? convert = null)
     {
         _log = log;
+        _convert = convert ?? AssetConverter.Convert;
         Dir = System.IO.Path.Combine(jobsDir, "catalog", "assets");
         Directory.CreateDirectory(Dir);
         foreach (var d in Directory.GetDirectories(Dir))
@@ -83,31 +86,33 @@ public sealed class AssetStore
         CheckArgs(typeName, conveyorDir);
         var ext = System.IO.Path.GetExtension(originalFileName).ToLowerInvariant();
         if (ext is not (".stl" or ".obj")) throw new NotSupportedException("STL/OBJ 파일만 올릴 수 있습니다.");
-        lock (_lock)
+        // the conversion (minutes on a big STL) runs outside the lock so All/Find keep answering; the name is checked again before registering
+        lock (_lock) if (FindByName(typeName, name) != null) throw new ArgumentException($"타입 {typeName}에 같은 이름의 에셋이 있습니다: {name}");
+        var id = "s-" + Guid.NewGuid().ToString("N")[..8];
+        var tmp = System.IO.Path.Combine(Dir, ".tmp-" + id);
+        Directory.CreateDirectory(tmp);
+        try
         {
-            if (FindByName(typeName, name) != null) throw new ArgumentException($"타입 {typeName}에 같은 이름의 에셋이 있습니다: {name}");
-            var id = "s-" + Guid.NewGuid().ToString("N")[..8];
-            var tmp = System.IO.Path.Combine(Dir, ".tmp-" + id);
-            Directory.CreateDirectory(tmp);
-            try
+            var src = System.IO.Path.Combine(tmp, "source" + ext);
+            File.Copy(uploadPath, src);
+            var now = DateTime.UtcNow;
+            var a = new AssetInfo { Id = id, TypeName = typeName, Name = name, Source = originalFileName, CreatedUtc = now };
+            Fill(a, tmp, src, note, conveyorDir, o, by, now);
+            lock (_lock)
             {
-                var src = System.IO.Path.Combine(tmp, "source" + ext);
-                File.Copy(uploadPath, src);
-                var now = DateTime.UtcNow;
-                var a = new AssetInfo { Id = id, TypeName = typeName, Name = name, Source = originalFileName, CreatedUtc = now };
-                Fill(a, tmp, src, note, conveyorDir, o, by, now);
+                if (FindByName(typeName, name) != null) throw new ArgumentException($"타입 {typeName}에 같은 이름의 에셋이 있습니다: {name}");
                 Directory.Move(tmp, Folder(id));
                 _all[id] = a;
                 return a;
             }
-            catch { try { Directory.Delete(tmp, true); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { } throw; }
         }
+        catch { try { Directory.Delete(tmp, true); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { } throw; }
     }
 
     /// <summary>Converts src and writes asset.cel/preview.svg/asset.json into dir; a is updated in place.</summary>
-    static void Fill(AssetInfo a, string dir, string src, string note, int conveyorDir, SimplifyOptions o, string by, DateTime now)
+    void Fill(AssetInfo a, string dir, string src, string note, int conveyorDir, SimplifyOptions o, string by, DateTime now)
     {
-        var r = AssetConverter.Convert(src, a.Name, o);
+        var r = _convert(src, a.Name, o);
         a.Note = note; a.ConveyorDir = conveyorDir; a.Options = o; a.Boxes = r.Boxes.Count;
         a.LengthM = r.Stats.LengthM; a.WidthM = r.Stats.WidthM; a.HeightM = r.Stats.HeightM; a.UpdatedUtc = now; a.UpdatedBy = by;
         File.WriteAllText(System.IO.Path.Combine(dir, "asset.cel"), r.Cel);
@@ -120,20 +125,25 @@ public sealed class AssetStore
     {
         CheckName(name);
         if (conveyorDir is not (0 or 90 or 180 or 270)) throw new ArgumentException("컨베이어 방향은 0/90/180/270 이어야 합니다.");
+        AssetInfo old; string dir, src;
         lock (_lock)
         {
-            var old = Find(id) ?? throw new ArgumentException("에셋을 찾을 수 없습니다.");
-            var other = FindByName(old.TypeName, name);
-            if (other != null && other.Id != id) throw new ArgumentException($"타입 {old.TypeName}에 같은 이름의 에셋이 있습니다: {name}");
-            var dir = Folder(id);
-            var src = Directory.GetFiles(dir, "source.*").Single();
-            var tmp = System.IO.Path.Combine(Dir, ".tmp-" + id);
-            Directory.CreateDirectory(tmp);
-            try
+            old = Find(id) ?? throw new ArgumentException("에셋을 찾을 수 없습니다.");
+            CheckFreeName(old.TypeName, name, id);
+            dir = Folder(id);
+            src = Directory.GetFiles(dir, "source.*").Single();
+        }
+        var tmp = System.IO.Path.Combine(Dir, ".tmp-" + id + "-" + Guid.NewGuid().ToString("N")[..8]); // two reconverts of one asset each get their own
+        Directory.CreateDirectory(tmp);
+        try
+        {
+            var a = JsonSerializer.Deserialize<AssetInfo>(JsonSerializer.Serialize(old, Json), Json)!; // a copy: the live entry changes only after the files do
+            a.Name = name;
+            Fill(a, tmp, src, note, conveyorDir, o, by, DateTime.UtcNow); // outside the lock: see Create
+            lock (_lock)
             {
-                var a = JsonSerializer.Deserialize<AssetInfo>(JsonSerializer.Serialize(old, Json), Json)!; // a copy: the live entry changes only after the files do
-                a.Name = name;
-                Fill(a, tmp, src, note, conveyorDir, o, by, DateTime.UtcNow);
+                if (Find(id) == null) throw new ArgumentException("에셋을 찾을 수 없습니다."); // deleted while converting
+                CheckFreeName(old.TypeName, name, id);
                 foreach (var f in Files) // each file swaps with its own backup in one step, so a failure never leaves the folder without it
                 {
                     var from = System.IO.Path.Combine(tmp, f); var to = System.IO.Path.Combine(dir, f);
@@ -142,8 +152,14 @@ public sealed class AssetStore
                 _all[id] = a;
                 return a;
             }
-            finally { try { Directory.Delete(tmp, true); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { } }
         }
+        finally { try { Directory.Delete(tmp, true); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { } }
+    }
+
+    void CheckFreeName(string typeName, string name, string id)
+    {
+        var other = FindByName(typeName, name);
+        if (other != null && other.Id != id) throw new ArgumentException($"타입 {typeName}에 같은 이름의 에셋이 있습니다: {name}");
     }
 
     public bool Delete(string id)
