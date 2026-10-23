@@ -105,9 +105,12 @@ public static class ExcelTemplate
     /// Numbers stay at the example's values: the drawing knows nothing about takt times or speeds.</summary>
     const string SeedType = "T_AGV";
 
-    internal static Dictionary<string, List<string[]>> Seed(ASH.Core.Layout.Layout l)
+    internal static Dictionary<string, List<string[]>> Seed(ASH.Core.Layout.Layout? layout, IReadOnlyList<ASH.Core.Catalog.CatalogType>? catalog = null)
     {
+        var l = layout ?? new ASH.Core.Layout.Layout();
         var seed = new Dictionary<string, List<string[]>>();
+        bool cat = catalog != null && catalog.Count > 0;
+        string typeName = cat ? catalog![0].Name : SeedType;
         var groups = new List<string>();
         foreach (var c in l.Cps) if (c.Group.Length > 0 && !groups.Contains(c.Group)) groups.Add(c.Group);
         string[] Ex(string sheet) { foreach (var x in Sheets) if (x.Sheet == sheet) return x.Example; return new string[0]; }
@@ -120,14 +123,15 @@ public static class ExcelTemplate
         if (groups.Count > 0)
         {
             // one type for every group: a type is shared until the user adds another
-            var t = (string[])Ex("AGV_Types").Clone(); t[0] = SeedType;
+            var t = (string[])Ex("AGV_Types").Clone(); t[0] = typeName;
             var gs = new List<string[]>();
             foreach (var g in groups)
             {
-                var r = (string[])Ex("AGV_Groups").Clone(); r[0] = g; r[1] = SeedType; r[4] = string.Join(",", Names("standby", g)); gs.Add(r);
+                var r = (string[])Ex("AGV_Groups").Clone(); r[0] = g; r[1] = typeName; r[4] = string.Join(",", Names("standby", g)); gs.Add(r);
             }
             seed["AGV_Types"] = new List<string[]> { t }; seed["AGV_Groups"] = gs;
         }
+        if (cat) seed["AGV_Types"] = catalog!.Select(ASH.Core.Catalog.CatalogType.ToTemplateRow).ToList();
         var loads = new List<LayoutCpRef>();
         foreach (var c in l.Cps) if (c.Type == "load") loads.Add(new LayoutCpRef(c.Name, c.Group));
         if (loads.Count > 0)
@@ -156,9 +160,9 @@ public static class ExcelTemplate
     public static void Write(string path) => Write(path, null);
 
     /// <summary>The template; with a layout, its CP names and groups fill the rows that would otherwise hold the example.</summary>
-    public static void Write(string path, ASH.Core.Layout.Layout? layout)
+    public static void Write(string path, ASH.Core.Layout.Layout? layout, IReadOnlyList<ASH.Core.Catalog.CatalogType>? catalog = null)
     {
-        var seed = layout == null ? new Dictionary<string, List<string[]>>() : Seed(layout);
+        var seed = layout == null && (catalog == null || catalog.Count == 0) ? new Dictionary<string, List<string[]>>() : Seed(layout, catalog);
         FontFreeGraphicEngine.Install(); // before the workbook: it creates the default (font parsing) engine right away
         using var wb = new XLWorkbook();
         foreach (var (sheet, cols, desc, example) in Sheets)
@@ -206,19 +210,19 @@ public static class ExcelTemplate
     /// <summary>Brings an existing input up to date without touching what is typed in it: missing sheets, columns and Settings keys are added, obsolete
     /// columns deleted, the description row refreshed, and with a layout the drawing's new groups, their new standby CPs and new load CPs (each as a material
     /// with its route) are appended. Existing rows are matched by group name and by SupplyFromCP, never overwritten. Returns one line per change.</summary>
-    public static List<string> Update(string path, ASH.Core.Layout.Layout? layout)
+    public static List<string> Update(string path, ASH.Core.Layout.Layout? layout, IReadOnlyList<ASH.Core.Catalog.CatalogType>? catalog = null)
     {
         using var wb = ExcelReader.Open(path);
-        var changes = Update(wb, layout);
+        var changes = Update(wb, layout, null, catalog);
         Save(wb, path);
         return changes;
     }
 
     /// <summary>Update on a workbook in memory, not saved. <paramref name="log"/> gets every change in order, for a file only Excel can write (see ExcelEdit).</summary>
-    public static List<string> Update(XLWorkbook wb, ASH.Core.Layout.Layout? layout, List<ExcelEdit>? log = null)
+    public static List<string> Update(XLWorkbook wb, ASH.Core.Layout.Layout? layout, List<ExcelEdit>? log = null, IReadOnlyList<ASH.Core.Catalog.CatalogType>? catalog = null)
     {
         var changes = new List<string>();
-        var seed = layout == null ? new Dictionary<string, List<string[]>>() : Seed(layout);
+        var seed = layout == null && (catalog == null || catalog.Count == 0) ? new Dictionary<string, List<string[]>>() : Seed(layout, catalog);
         foreach (var (sheet, cols, desc, _) in Sheets)
         {
             if (!wb.TryGetWorksheet(sheet, out var ws))
@@ -258,6 +262,13 @@ public static class ExcelTemplate
         foreach (var (k, v, d) in SettingsDefaults)
             if (!keys.Contains(k)) { Append(set, ColsOf("Settings"), new[] { k, v, d }, log); changes.Add($"Settings: {k} = {v} 추가"); }
 
+        if (catalog != null && catalog.Count > 0)
+        {
+            var tws = wb.Worksheet("AGV_Types");
+            var have = new HashSet<string>(Values(tws, "Type"), StringComparer.OrdinalIgnoreCase);
+            foreach (var t in catalog)
+                if (have.Add(t.Name)) { Append(tws, ColsOf("AGV_Types"), ASH.Core.Catalog.CatalogType.ToTemplateRow(t), log); changes.Add($"AGV_Types: 타입 {t.Name} 추가(카탈로그)"); }
+        }
         if (seed.TryGetValue("AGV_Groups", out var sg))
         {
             var tws = wb.Worksheet("AGV_Types");
