@@ -3,9 +3,12 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using ASH.Core.Install;
 using ASH.Core.Settings;
+using ASH.Core.Update;
 
 namespace ASH.Installer;
 
@@ -24,6 +27,9 @@ sealed class MainForm : Form
         "첫 사용: 도면 저장 → AGVINIT. mm 도면이면 ash.settings.tsv의 Scale을 0.001로.",
     };
     const string NotFound = "ZWCAD 설치를 찾지 못했습니다. 직접 지정을 누르세요.";
+    const string KeepThis = " — 이 버전으로 설치할 수 있습니다";
+    static readonly TimeSpan CheckTimeout = TimeSpan.FromSeconds(10);  // includes proxy/WPAD discovery
+    static readonly TimeSpan DownloadIdle = TimeSpan.FromSeconds(30);
 
     readonly CheckedListBox _list = new() { Dock = DockStyle.Fill, BorderStyle = BorderStyle.None, CheckOnClick = true, IntegralHeight = false };
     readonly Label _notice = new() { AutoSize = true, ForeColor = Muted, Margin = new Padding(0, 6, 0, 0) };
@@ -31,6 +37,14 @@ sealed class MainForm : Form
     readonly Button _install, _uninstall;
     readonly TextBox _server = new() { Dock = DockStyle.Fill, Margin = new Padding(0) };
     readonly CheckBox _launch = new() { Text = "설치가 끝나면 ZWCAD 자동 실행", Checked = true, AutoSize = true, Margin = new Padding(0, 8, 0, 0) };
+    // AutoSize + Dock.Fill in a percent column: wraps instead of pushing the buttons out
+    readonly Label _ver = new() { AutoSize = true, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, Margin = new Padding(0) };
+    readonly ProgressBar _progress = new() { Width = 120, Anchor = AnchorStyles.Left, Visible = false, Margin = new Padding(8, 0, 0, 0) };
+    readonly Button _check, _get;
+    readonly string[] _args;
+    ManifestSignature? _key;
+    UpdateResult? _latest;
+    CancellationTokenSource? _download;
 
     /// <summary>Exit code of the last 설치/제거 (0 ok, 1 failure, 2 warnings), same as /silent.</summary>
     public int ExitCode { get; private set; }
@@ -47,8 +61,11 @@ sealed class MainForm : Form
             + (Supported ? "" : " (미지원: ASH는 ZWCAD " + Program.SupportedVersion + "용)");
     }
 
-    public MainForm(List<ZwcadInstall> found, bool uninstallMode, string serverUrl)
+    /// <param name="args">This run's arguments, handed on to a downloaded newer Setup. With /noupdatecheck the GitHub check only runs from its button.</param>
+    public MainForm(List<ZwcadInstall> found, bool uninstallMode, string serverUrl, string[] args)
     {
+        _args = args;
+        var autoCheck = !args.Contains(SetupUpdate.SkipCheckArg, StringComparer.OrdinalIgnoreCase);
         Text = "ASH 설치 — AGV Simul Helper";
         Font = new Font("Segoe UI", 9.5f);
         BackColor = Back;
@@ -69,6 +86,18 @@ sealed class MainForm : Form
         var close = MakeButton("닫기", false);
         close.Click += (_, _) => Close();
 
+        _check = MakeButton("최신 버전 확인", false);
+        _check.Click += (_, _) => CheckLatest();
+        _get = MakeButton("최신 설치 파일 받아 설치", true);
+        _get.Visible = false;
+        _get.AutoSizeMode = AutoSizeMode.GrowAndShrink; // its text switches to "취소"
+        _get.Click += (_, _) => GetLatest();
+        var update = new TableLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, ColumnCount = 4, Margin = new Padding(0, 0, 0, 10) };
+        update.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        for (int i = 0; i < 3; i++) update.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        update.Controls.AddRange(new Control[] { _ver, _progress, _get, _check });
+        _ver.Text = autoCheck ? SetupUpdate.Checking(Program.Version) : "설치 파일 버전 " + Program.Version.Split('+')[0];
+
         var buttons = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, FlowDirection = FlowDirection.RightToLeft, WrapContents = false, Margin = new Padding(0) };
         buttons.Controls.AddRange(new Control[] { close, _uninstall, _install });
         add.Margin = new Padding(0);
@@ -79,11 +108,13 @@ sealed class MainForm : Form
         bar.Controls.Add(buttons, 1, 0);
 
         var root = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(20, 16, 20, 16), ColumnCount = 1 };
+        root.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100)); // the window width bounds the rows, so a long update note wraps
         _server.Text = serverUrl;
-        foreach (var h in new float[] { -1, -1, -1, 55, -1, -1, -1, -1, -1, -1, 45 })
+        foreach (var h in new float[] { -1, -1, -1, -1, 55, -1, -1, -1, -1, -1, -1, 45 })
             root.RowStyles.Add(h < 0 ? new RowStyle(SizeType.AutoSize) : new RowStyle(SizeType.Percent, h));
         root.Controls.Add(title);
         root.Controls.Add(sub);
+        root.Controls.Add(update);
         root.Controls.Add(Section("찾은 ZWCAD"));
         root.Controls.Add(Framed(_list));
         root.Controls.Add(_notice);
@@ -100,6 +131,91 @@ sealed class MainForm : Form
         var main = uninstallMode ? _uninstall : _install;
         AcceptButton = main;
         ActiveControl = main;
+        FormClosing += (_, _) => _download?.Cancel();
+        if (autoCheck) Shown += (_, _) => CheckLatest(); // window first; the check never blocks the install
+    }
+
+    // Never throws: any failure becomes a note and the embedded version stays installable.
+    async void CheckLatest()
+    {
+        _check.Enabled = false;
+        _get.Visible = false;
+        _latest = null;
+        _ver.Text = SetupUpdate.Checking(Program.Version);
+        string text;
+        UpdateResult? newer = null;
+        try
+        {
+            var (key, keyErr) = Program.LoadKey();
+            if (keyErr != null) throw new InvalidDataException(keyErr);
+            _key = key;
+            var t = Task.Run(async () =>
+            {
+                using var c = UpdateClient.GitHub(CheckTimeout);
+                return await UpdateFlow.CheckAsync(c, key, Program.Version).ConfigureAwait(false);
+            });
+            // hard cap: net48 DNS/WPAD can ignore the cancellation token
+            if (await Task.WhenAny(t, Task.Delay(CheckTimeout + TimeSpan.FromSeconds(2))) != t) throw new TimeoutException();
+            var r = await t;
+            text = SetupUpdate.Result(Program.Version, r);
+            if (SetupUpdate.IsNewer(r.Status)) newer = r;
+        }
+        catch (Exception e) { text = SetupUpdate.Failed(Program.Version, e); }
+        if (IsDisposed) return;
+        _ver.Text = text;
+        _latest = newer;
+        _get.Visible = newer != null;
+        _check.Enabled = true;
+    }
+
+    // Download to a fresh temp folder, check size + SHA-256 (+ signature with a key), start it with this run's arguments and close.
+    async void GetLatest()
+    {
+        if (_download != null) { _download.Cancel(); return; } // the button is "취소" while downloading
+        if (_latest == null) return;
+        var m = _latest.Fetched.Manifest;
+        var cts = _download = new CancellationTokenSource();
+        _get.Text = "취소";
+        _check.Enabled = _install.Enabled = _uninstall.Enabled = false;
+        _progress.Value = 0;
+        _progress.Visible = true;
+        var progress = new Progress<long>(n =>
+        {
+            if (IsDisposed || cts.IsCancellationRequested) return;
+            _progress.Value = m.Size > 0 ? (int)Math.Min(100, n * 100 / m.Size) : 0;
+            _ver.Text = $"ASH {m.Version} 받는 중… {n / 1048576.0:0.0} / {m.Size / 1048576.0:0.0} MB";
+        });
+        string? path = null, error = null;
+        try
+        {
+            var dir = Path.Combine(Path.GetTempPath(), "ASH-update", Guid.NewGuid().ToString("N"));
+            var f = _latest.Fetched;
+            var key = _key;
+            path = await Task.Run(async () =>
+            {
+                using var c = UpdateClient.GitHub(DownloadIdle);
+                return await c.DownloadVerifiedAsync(f, key, dir, cts.Token, null, progress).ConfigureAwait(false);
+            });
+        }
+        catch (Exception e) { error = cts.IsCancellationRequested ? "다운로드를 취소했습니다" : UpdateMessages.DownloadFailed(e); }
+        _download = null;
+        if (IsDisposed) return;
+        if (path != null)
+        {
+            try
+            {
+                // this process is elevated (requireAdministrator), so the new Setup starts elevated without another prompt
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(path, SetupUpdate.RelaunchArguments(_args)) { UseShellExecute = true });
+                Close();
+                return;
+            }
+            catch (Exception e) { error = "새 설치 파일을 실행하지 못했습니다(" + e.Message + "): " + path; }
+        }
+        _ver.Text = error + KeepThis;
+        _get.Text = "최신 설치 파일 받아 설치";
+        _progress.Visible = false;
+        _check.Enabled = true;
+        UpdateState();
     }
 
     static Label Section(string text) => new()

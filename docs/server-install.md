@@ -132,6 +132,7 @@ gh release create v<버전> dist\ASH-Setup-<버전>.exe dist\ASH.json dist\ASH.S
 - 이미 설치한 PC는 ZWCAD 명령 `AGVSERVER`로 주소를 넣거나 바꾼다(사용자 파일에 저장).
 - 주소가 있으면 ZWCAD 시작 때(3초 제한) 새 버전을 확인해 명령줄에 한 줄 알리고, `AGVUPDATE`가 서버의 `ASH.json`을 github.com의 같은 버전 릴리스와 바이트 단위로 대조하고, 같을 때만 설치 파일을 `%TEMP%\ASH-update\`에 받아 SHA-256·크기를 확인한 뒤 탐색기로 연다. ZWCAD를 완전히 종료한 뒤 그 파일을 실행한다. 시작 때의 새 버전 알림은 대조하지 않는다(알림만, 설치는 `AGVUPDATE`에서 대조).
 - 업데이트를 하려면 PC가 github.com(및 리디렉션되는 release-assets.githubusercontent.com / objects.githubusercontent.com)에 HTTPS로 접속할 수 있어야 한다. PC의 프록시 설정(로그인 계정 자격 증명)을 쓴다. 접속할 수 없거나 내용이 다르면 "업데이트 중단(github.com에 접속할 수 없어 배포 정보를 대조하지 못했습니다)" 같은 줄을 출력하고 설치하지 않는다.
+- 서버 없이도: `ASH-Setup` 창은 열릴 때 github.com의 최신 릴리스(`releases/latest/download/ASH.json`)를 직접 확인하고, 더 새 버전이면 "최신 설치 파일 받아 설치"로 그 `ASH-Setup`을 받아(SHA-256·크기 확인) 실행한다. ZWCAD를 켜서 `AGVUPDATE`를 할 필요가 없다. 실패하면 한 줄 안내만 하고 그 exe의 버전으로 설치한다(README "설치" 절).
 - 주소는 `http(s)://호스트[:포트][/경로]` 형식만 받는다(사용자 정보 `user@`, `?query`, `#fragment` 불가).
 
 ### 로컬 관리자 권한이 없는 사용자

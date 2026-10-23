@@ -17,6 +17,7 @@ ZWCAD 플러그인과 실행기로 AutoMod AGV 수량 산출 업무를 자동화
 - ZWCAD가 실행 중이면 설치·제거를 하지 않는다("ZWCAD를 닫고 다시 실행하세요.", `/silent`는 종료 코드 1).
 - exe는 서명되지 않았다. Windows SmartScreen이 막으면 "추가 정보 → 실행".
 - 제거에도 이 exe가 필요하다(아직 "프로그램 추가/제거" 항목 없음). exe를 지우지 말고 보관한다.
+- 최신 버전: 창이 열리면 백그라운드로(10초 제한) `https://github.com/Leepy0/ASH/releases/latest/download/ASH.json`을 읽어 "설치 파일 버전 x / GitHub 최신 y"를 보인다("최신 버전 확인"으로 다시). y가 더 새 버전이면 "최신 설치 파일 받아 설치"가 `ASH-Setup-y.exe`를 `%TEMP%\ASH-update\<임의 폴더>\`에 받아(진행 표시, "취소" 가능) 매니페스트의 SHA-256·크기를 확인한 뒤 같은 인자 + `/noupdatecheck`로 실행하고 이 창을 닫는다. ZWCAD를 켤 필요가 없고 사내 서버도 쓰지 않는다(api.github.com 불필요, github.com HTTPS가 신뢰 기준, PC의 프록시 설정 사용). 확인·다운로드가 실패하면(오프라인, 프록시, 사내 인증서) 한 줄만 보이고 이 exe의 버전을 그대로 설치할 수 있다. `/silent`와 `/noupdatecheck`는 확인하지 않는다.
 
 제거: `ASH-Setup-x.y.z.exe /uninstall` (창에서 "제거"). 무인 설치: `/silent`, 폴더 추가: `/dir:"D:\CAD\ZWCAD 2026"`. 로그: `%TEMP%\ASH-install.log`. 종료 코드: 0 성공, 1 실패(ZWCAD 실행 중 포함), 2 경고(자동 로드 등록 못 함 — ZWCAD를 한 번 실행한 뒤 다시 설치, 미지원 버전 건너뜀, SYSTEM 계정 등 사용자 하이브를 알 수 없음).
 DLL은 `<ZWCAD 폴더>\ASH\`에 들어가고(쓰기 실패 시 `%ProgramData%\ASH\<버전>\`), 자동 로드는 `HKCU`·`HKLM\Software\ZWSoft\ZWCAD\<버전>\<언어>\Applications\ASH`에 등록된다.

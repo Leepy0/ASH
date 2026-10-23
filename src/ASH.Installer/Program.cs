@@ -10,10 +10,12 @@ using System.Text.RegularExpressions;
 using System.Windows.Forms;
 using ASH.Core.Install;
 using ASH.Core.Settings;
+using ASH.Core.Update;
 
 namespace ASH.Installer;
 
-// ASH.Installer.exe [/silent] [/uninstall] [/dir:<ZWCAD folder>]... [/server:<http://host:port>]   (hidden: /capture:<png> renders the form without detection and exits)
+// ASH.Installer.exe [/silent] [/uninstall] [/dir:<ZWCAD folder>]... [/server:<http://host:port>] [/noupdatecheck]
+//   (hidden: /capture:<png> renders the form without detection and exits). The window checks github.com for a newer Setup unless /noupdatecheck; /silent never does.
 static class Program
 {
     [STAThread]
@@ -72,7 +74,7 @@ static class Program
         if (capture != null) return Capture(capture);
         if (badServer != null) bad.Add(badServer);
         if (bad.Count > 0) MessageBox.Show(string.Join(Environment.NewLine, bad), "ASH 설치");
-        var form = new MainForm(Detect().Concat(manual).Distinct().ToList(), uninstall, server ?? ExistingServerUrl());
+        var form = new MainForm(Detect().Concat(manual).Distinct().ToList(), uninstall, server ?? ExistingServerUrl(), args);
         Application.Run(form);
         return form.ExitCode;
     }
@@ -80,6 +82,16 @@ static class Program
     /// <summary>ZWCAD year the embedded plugin targets (AshZwcadVersion in Directory.Build.props).</summary>
     public static readonly string SupportedVersion = typeof(Program).Assembly.GetCustomAttributes<AssemblyMetadataAttribute>()
         .First(a => a.Key == "ZwcadVersion").Value!;
+
+    /// <summary>Version of this Setup and the plugin it embeds (Version in Directory.Build.props, possibly +build).</summary>
+    public static readonly string Version = typeof(Program).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()!.InformationalVersion;
+
+    /// <summary>The embedded update-key.pub (same as the plugin's), if the build had one; a key that cannot be read is an error, never unsigned mode.</summary>
+    public static (ManifestSignature? Key, string? Error) LoadKey()
+    {
+        using var s = typeof(Program).Assembly.GetManifestResourceStream("update-key.pub");
+        return UpdateFlow.LoadKey(s);
+    }
 
     public static List<ZwcadInstall> Detect() => ZwcadLocator.Find(new Win32Registry(), new RealFileSystem(),
         Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86));
@@ -126,7 +138,7 @@ static class Program
     // no detection: the capture path must not read or write the registry
     static int Capture(string png)
     {
-        var f = new MainForm(new List<ZwcadInstall>(), false, "") { StartPosition = FormStartPosition.Manual, Location = new Point(-3000, 0), ShowInTaskbar = false };
+        var f = new MainForm(new List<ZwcadInstall>(), false, "", new[] { SetupUpdate.SkipCheckArg }) { StartPosition = FormStartPosition.Manual, Location = new Point(-3000, 0), ShowInTaskbar = false };
         int code = 0;
         f.Shown += (_, _) =>
         {

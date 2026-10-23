@@ -31,7 +31,7 @@ dotnet build "$root\ASH.sln" -c Release --no-incremental -nologo -v q
 if ($LASTEXITCODE) { throw "dotnet build failed (exit $LASTEXITCODE)" }
 $ashRelease = "$root\tools\AshRelease\bin\Release\net10.0\AshRelease.dll"
 if ($havePub) { # a stale or skipped compile would ship a plugin/server without the update key
-    foreach ($dll in "$root\src\ASH.Plugin\bin\Release\net48\ASH.Plugin.dll", "$root\src\ASH.Server\bin\Release\net10.0\ASH.Server.dll") {
+    foreach ($dll in "$root\src\ASH.Plugin\bin\Release\net48\ASH.Plugin.dll", "$root\src\ASH.Server\bin\Release\net10.0\ASH.Server.dll", "$root\src\ASH.Installer\bin\Release\net48\ASH.Installer.exe") {
         dotnet $ashRelease check-resource --dll $dll --name update-key.pub
         if ($LASTEXITCODE) { throw "$dll does not embed update-key.pub (stale build output?)" }
     }

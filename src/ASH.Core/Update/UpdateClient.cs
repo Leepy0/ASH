@@ -31,20 +31,36 @@ public sealed class UpdateClient : IDisposable
     private const int MaxManifestBytes = 1 << 20;
 
     private readonly string _base;
+    private readonly bool _github;
     private readonly TimeSpan _timeout;
     private readonly HttpClient _http;
 
     /// <param name="timeout">Each manifest request, the wait for download response headers, and each download read (idle timeout, not a total limit).</param>
     public UpdateClient(Uri server, TimeSpan timeout, HttpMessageHandler? handler = null)
+        : this(server.AbsoluteUri, false, timeout, handler ?? DefaultHandler()) { }
+
+    private UpdateClient(string baseUrl, bool github, TimeSpan timeout, HttpMessageHandler handler)
     {
-        _base = server.AbsoluteUri.TrimEnd('/');
+        _base = baseUrl.TrimEnd('/');
+        _github = github;
         _timeout = timeout;
-        _http = new HttpClient(handler ?? DefaultHandler())
+        _http = new HttpClient(handler)
         {
             Timeout = System.Threading.Timeout.InfiniteTimeSpan,
             MaxResponseContentBufferSize = MaxManifestBytes,
         };
     }
+
+    /// <summary>
+    /// 사내 서버 대신 github.com 릴리스에서 직접: {repo}/releases/latest/download/ASH.json, 서명·설치 파일은 {repo}/releases/download/v{version}/.
+    /// api.github.com은 쓰지 않는다. github.com HTTPS가 신뢰 기준이라 키 없는 빌드는 대조할 곳이 따로 없다(SHA-256·크기만 확인).
+    /// </summary>
+    /// <param name="handler">테스트용. null이면 GitHubManifestCheck와 같이 PC 프록시 설정을 쓰고 리디렉션을 따라간다.</param>
+    public static UpdateClient GitHub(TimeSpan timeout, HttpMessageHandler? handler = null, string repo = GitHubManifestCheck.DefaultRepo) =>
+        new(repo, true, timeout, handler ?? GitHubManifestCheck.DefaultHandler());
+
+    private string ManifestUrl => _github ? $"{_base}/releases/latest/download/{ReleaseManifest.FileName}" : _base + "/api/ash/version";
+    private string TagUrl(string version) => $"{_base}/releases/download/v{Uri.EscapeDataString(version)}/";
 
     // UseProxy=false: the server is on the LAN, and net48 would otherwise stall in WPAD/proxy auto-detection (ruling from the controller).
     internal static HttpClientHandler DefaultHandler() => new HttpClientHandler { AllowAutoRedirect = false, UseProxy = false };
@@ -55,13 +71,15 @@ public sealed class UpdateClient : IDisposable
     {
         using var cts = Limited(ct);
         byte[] json;
-        using (var r = await _http.GetAsync(_base + "/api/ash/version", HttpCompletionOption.ResponseContentRead, cts.Token).ConfigureAwait(false))
+        using (var r = await _http.GetAsync(ManifestUrl, HttpCompletionOption.ResponseContentRead, cts.Token).ConfigureAwait(false))
         {
             r.EnsureSuccessStatusCode();
             json = await r.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
         }
         byte[]? sig = null;
-        using (var r = await _http.GetAsync(_base + "/api/ash/version.sig", HttpCompletionOption.ResponseContentRead, cts.Token).ConfigureAwait(false))
+        // github: the .sig sits next to the setup file of that version (latest/ could move on between the two requests; a mismatch then fails the signature)
+        var sigUrl = _github ? TagUrl(ReleaseManifest.Parse(json).Version) + ReleaseManifest.SignatureFileName : _base + "/api/ash/version.sig";
+        using (var r = await _http.GetAsync(sigUrl, HttpCompletionOption.ResponseContentRead, cts.Token).ConfigureAwait(false))
         {
             if (r.StatusCode != HttpStatusCode.NotFound)
             {
@@ -80,8 +98,9 @@ public sealed class UpdateClient : IDisposable
     /// <param name="github">키가 없을 때 매니페스트를 github.com 릴리스와 대조한다. 키도 이것도 없으면 SHA-256만 확인(개발용).</param>
     /// <exception cref="InvalidDataException">Signature check failed, unsafe file name, or size/hash mismatch.</exception>
     /// <exception cref="GitHubCheckException">github.com 대조 실패(접속 불가, 내용 다름).</exception>
+    /// <param name="progress">Bytes received so far, after each read.</param>
     /// <exception cref="IOException">The final name is an installer that is still running (Delete+Move cannot replace it).</exception>
-    public async Task<string> DownloadVerifiedAsync(FetchedManifest f, ManifestSignature? key, string destDir, CancellationToken ct = default, GitHubManifestCheck? github = null)
+    public async Task<string> DownloadVerifiedAsync(FetchedManifest f, ManifestSignature? key, string destDir, CancellationToken ct = default, GitHubManifestCheck? github = null, IProgress<long>? progress = null)
     {
         if (key != null && (f.Sig == null || !key.Verify(f.Json, f.Sig))) throw new InvalidDataException("서명 확인 실패");
         var m = ReleaseManifest.Parse(f.Json); // validates file name and sha256 format
@@ -93,7 +112,7 @@ public sealed class UpdateClient : IDisposable
             string hex;
             long total = 0;
             using (var cts = Limited(ct))
-            using (var r = await _http.GetAsync(_base + "/download/" + Uri.EscapeDataString(m.File), HttpCompletionOption.ResponseHeadersRead, cts.Token).ConfigureAwait(false))
+            using (var r = await _http.GetAsync((_github ? TagUrl(m.Version) : _base + "/download/") + Uri.EscapeDataString(m.File), HttpCompletionOption.ResponseHeadersRead, cts.Token).ConfigureAwait(false))
             {
                 r.EnsureSuccessStatusCode();
                 // disposing the response aborts a stalled body read (net48 ignores the token while reading)
@@ -113,6 +132,7 @@ public sealed class UpdateClient : IDisposable
                         if (total > m.Size) throw new InvalidDataException($"설치 파일이 배포 정보의 크기({m.Size})보다 큽니다.");
                         sha.TransformBlock(buf, 0, n, null, 0);
                         dst.Write(buf, 0, n);
+                        progress?.Report(total);
                     }
                     sha.TransformFinalBlock(buf, 0, 0);
                     hex = ToHex(sha.Hash!);

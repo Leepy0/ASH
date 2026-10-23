@@ -79,7 +79,7 @@ public sealed class GitHubManifestCheck
     }
 
     // github.com은 사내 프록시를 거칠 수 있으니 PC 설정을 따른다(LAN 서버용 UpdateClient와 다름)
-    private static HttpMessageHandler DefaultHandler() => new HttpClientHandler
+    internal static HttpClientHandler DefaultHandler() => new HttpClientHandler
     {
         AllowAutoRedirect = true,
         UseProxy = true,

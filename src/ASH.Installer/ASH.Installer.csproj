@@ -27,6 +27,8 @@
 
   <ItemGroup>
     <!-- the whole Plugin output (InstallPlanner.Files), so the installed Core and its dependencies match the Plugin they were built with -->
+    <!-- same key as the plugin: a signed build checks ASH.json.sig when the Setup fetches the latest release from github.com -->
+    <EmbeddedResource Include="..\..\update-key.pub" LogicalName="update-key.pub" Condition="Exists('..\..\update-key.pub')" />
     <EmbeddedResource Include="..\ASH.Plugin\bin\$(Configuration)\net48\ASH.Plugin.dll" LogicalName="ASH.Plugin.dll" />
     <EmbeddedResource Include="..\ASH.Plugin\bin\$(Configuration)\net48\ASH.Core.dll" LogicalName="ASH.Core.dll" />
     <EmbeddedResource Include="..\ASH.Plugin\bin\$(Configuration)\net48\ClosedXML.dll" LogicalName="ClosedXML.dll" />
