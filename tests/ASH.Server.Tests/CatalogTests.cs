@@ -30,6 +30,8 @@ public class CatalogTests
         Assert.True(s.RemoveAsset("T_A", "agv_a"));
         Assert.False(s.RemoveAsset("T_A", "agv_a"));
         Assert.Equal(new[] { "front" }, s.Get("T_A")!.Assets);
+        Assert.True(s.RemoveAsset("T_A", "front"));
+        Assert.Empty(s.Get("T_A")!.Assets);
     }
 
     [Fact]

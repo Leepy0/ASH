@@ -70,10 +70,17 @@ public sealed class AssetStore
         if (!NameRx.IsMatch(name)) throw new ArgumentException("이름은 영문·숫자·_ 1~40자여야 합니다.");
     }
 
+    static void CheckArgs(string typeName, int conveyorDir)
+    {
+        if (string.IsNullOrWhiteSpace(typeName)) throw new ArgumentException("타입 이름이 비었습니다.");
+        if (conveyorDir is not (0 or 90 or 180 or 270)) throw new ArgumentException("컨베이어 방향은 0/90/180/270 이어야 합니다.");
+    }
+
     /// <summary>Copies the upload to source.&lt;ext&gt;, converts, writes the three files. ArgumentException for a bad name or a duplicate (type, name); conversion exceptions pass through and nothing is left behind.</summary>
     public AssetInfo Create(string typeName, string name, string note, int conveyorDir, string uploadPath, string originalFileName, SimplifyOptions o, string by)
     {
         CheckName(name);
+        CheckArgs(typeName, conveyorDir);
         var ext = System.IO.Path.GetExtension(originalFileName).ToLowerInvariant();
         if (ext is not (".stl" or ".obj")) throw new NotSupportedException("STL/OBJ 파일만 올릴 수 있습니다.");
         lock (_lock)
@@ -93,7 +100,7 @@ public sealed class AssetStore
                 _all[id] = a;
                 return a;
             }
-            catch { try { Directory.Delete(tmp, true); } catch (IOException) { } throw; }
+            catch { try { Directory.Delete(tmp, true); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { } throw; }
         }
     }
 
@@ -112,6 +119,7 @@ public sealed class AssetStore
     public AssetInfo Reconvert(string id, string name, string note, int conveyorDir, SimplifyOptions o, string by)
     {
         CheckName(name);
+        if (conveyorDir is not (0 or 90 or 180 or 270)) throw new ArgumentException("컨베이어 방향은 0/90/180/270 이어야 합니다.");
         lock (_lock)
         {
             var old = Find(id) ?? throw new ArgumentException("에셋을 찾을 수 없습니다.");
@@ -126,12 +134,15 @@ public sealed class AssetStore
                 var a = JsonSerializer.Deserialize<AssetInfo>(JsonSerializer.Serialize(old, Json), Json)!; // a copy: the live entry changes only after the files do
                 a.Name = name;
                 Fill(a, tmp, src, note, conveyorDir, o, by, DateTime.UtcNow);
-                foreach (var f in new[] { "asset.cel", "asset.json" }) File.Move(System.IO.Path.Combine(dir, f), System.IO.Path.Combine(dir, f + ".bak"), true);
-                foreach (var f in Files) File.Move(System.IO.Path.Combine(tmp, f), System.IO.Path.Combine(dir, f), true);
+                foreach (var f in Files) // each file swaps with its own backup in one step, so a failure never leaves the folder without it
+                {
+                    var from = System.IO.Path.Combine(tmp, f); var to = System.IO.Path.Combine(dir, f);
+                    if (File.Exists(to)) File.Replace(from, to, f == "preview.svg" ? null : to + ".bak"); else File.Move(from, to);
+                }
                 _all[id] = a;
                 return a;
             }
-            finally { try { Directory.Delete(tmp, true); } catch (IOException) { } }
+            finally { try { Directory.Delete(tmp, true); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { } }
         }
     }
 
@@ -139,8 +150,9 @@ public sealed class AssetStore
     {
         lock (_lock)
         {
-            if (!_all.Remove(id)) return false;
-            Directory.Delete(Folder(id), true);
+            if (!_all.ContainsKey(id)) return false;
+            Directory.Delete(Folder(id), true); // first: a failure keeps the entry
+            _all.Remove(id);
             return true;
         }
     }
