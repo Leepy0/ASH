@@ -1,3 +1,4 @@
+using System.Text.Json;
 using ASH.Server;
 using Xunit;
 
@@ -5,6 +6,19 @@ namespace ASH.Server.Tests;
 
 public class HomePageTests
 {
+    [Fact] public async Task Poll_Script_Only_When_Active()
+    {
+        using var env = new JobEnv(); env.Runner.Gate.Reset();
+        var id = await env.SendFiled("라인 증설", "A안");
+        await JobEnv.Until(() => env.Store.Get(id) is { State: JobState.Running } x ? x : null);
+        Assert.Contains("fetch('/api/home", await env.Http.GetStringAsync("/"));
+        Assert.Contains("fetch('/api/jobs/" + id, await env.Http.GetStringAsync("/jobs/" + id));
+        var api = JsonDocument.Parse(await env.Http.GetStringAsync("/api/home?me=1")).RootElement;
+        Assert.True(api.GetProperty("active").GetBoolean()); Assert.Equal("running", api.GetProperty("fields").GetProperty("running.state").GetString());
+        env.Runner.Gate.Set(); await env.WaitFinished(id);
+        Assert.DoesNotContain("fetch(", await env.Http.GetStringAsync("/")); Assert.DoesNotContain("fetch(", await env.Http.GetStringAsync("/jobs/" + id));
+    }
+
     [Fact] public async Task Home_Shows_Running_Card_And_My_Analyses()
     {
         using var env = new JobEnv(); env.Runner.Gate.Reset();

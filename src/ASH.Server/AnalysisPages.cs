@@ -173,9 +173,9 @@ public static class AnalysisPages
     public static string Film(FilmInfo f, Func<string, bool> exists, string logTail)
     {
         var r = f.Request;
-        var sb = new StringBuilder($"<p class=\"crumb\"><a href=\"/analyses\">분석</a> › <a href=\"/analyses/{H(r.AnalysisId)}\">{H(f.AnalysisName)}</a> › 영상</p>");
+        var sb = new StringBuilder(PollSlots + $"<p class=\"crumb\"><a href=\"/analyses\">분석</a> › <a href=\"/analyses/{H(r.AnalysisId)}\">{H(f.AnalysisName)}</a> › 영상</p>");
         sb.Append($"<h1>영상 <span class=\"muted\">· {H(When(f.CreatedUtc))}</span></h1>");
-        sb.Append($"<p><span class=\"state s-{H(f.State)}\">{H(JobState.Korean(f.State))}</span> {(f.Phase != null ? H(f.Phase) + " · " : "")}컷 {f.Items.Count}개 중 {f.Done}개 완료" +
+        sb.Append($"<p><span class=\"state s-{H(f.State)}\" data-state=\"film.state\" data-field=\"film.statetext\">{H(JobState.Korean(f.State))}</span> <span data-field=\"film.phase\">{H(f.Phase)}</span>{(f.Phase != null ? " · " : "")}<span data-field=\"film.done\">컷 {f.Items.Count}개 중 {f.Done}개 완료</span>" +
             $"{(f.Failed > 0 ? $" · <span class=\"bad\">실패 {f.Failed}개</span>" : "")}{(f.StartedUtc != null ? " · 걸린 시간 " + Dur((f.FinishedUtc ?? DateTime.UtcNow) - f.StartedUtc.Value) : "")}</p>");
         if (f.State == JobState.Queued) sb.Append("<p class=\"muted\">작업 대기열에서 차례를 기다립니다. 대수 탐색 작업 사이에 하나씩 찍습니다.</p>");
         if (!f.Finished)
@@ -203,7 +203,7 @@ public static class AnalysisPages
         }
         sb.Append("</div></section>");
         sb.Append($"<details><summary>촬영 기록 (film.log)</summary><pre>{H(logTail)}</pre><a href=\"/films/{H(f.Id)}/files/film.log\">film.log 전체</a></details>");
-        return Page("ASH 영상 " + f.AnalysisName, sb.ToString());
+        return Page("ASH 영상 " + f.AnalysisName, sb.ToString(), f.Finished ? null : PollScript("/api/films/" + f.Id));
     }
 
     /// <summary>Rows = selected versions; per group 권장(대) · 가동률(%) · 최소 재고/안전재고(배) · 결품(초), then 교착(회) once.</summary>

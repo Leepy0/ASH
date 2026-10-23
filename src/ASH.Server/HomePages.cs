@@ -30,7 +30,7 @@ document.querySelectorAll('a[data-me]').forEach(function(a){
     {
         var k = H(keyPrefix);
         sb.Append($"<div class=\"box\"><div class=\"box-head\"><h2><a href=\"/jobs/{H(c.JobId)}\">{H(c.Title)}</a></h2>" +
-            $"<span class=\"state s-{H(c.State)}\" data-state=\"{k}.state\">{H(JobState.Korean(c.State))}</span></div>");
+            $"<span class=\"state s-{H(c.State)}\" data-state=\"{k}.state\" data-field=\"{k}.statetext\">{H(JobState.Korean(c.State))}</span></div>");
         sb.Append($"<p><span data-field=\"{k}.phase\">{H(c.Phase ?? "")}</span> · 실행 <span data-field=\"{k}.runs\">{c.RunsDone}{(c.ExpectedRuns is { } e ? "/" + e : "")}회</span></p>");
         sb.Append($"<div class=\"prog\"><i data-bar=\"{k}.bar\" style=\"width:{Math.Round((c.Progress ?? 0) * 100)}%\"></i></div>");
         sb.Append($"<p>진행률 <b data-field=\"{k}.progress\">{Pct(c.Progress)}</b> · 끝날 예상 <span data-field=\"{k}.eta\">{H(c.Eta ?? "-")}</span> · 한 번 평균 <span data-field=\"{k}.avg\">{H(c.AvgRun ?? "-")}</span>" +
@@ -40,7 +40,7 @@ document.querySelectorAll('a[data-me]').forEach(function(a){
     static string Chip(PlanChip p)
     {
         var t = $"{H(p.PlanName)} v{p.Version}" + (p.State == JobState.Running ? " 진행률 " + Pct(p.Progress) : p.State == JobState.Queued ? " 대기" : p.Total is { } n ? $" {n}대" : "");
-        return $"<a class=\"chip{(p.Selected ? " sel" : "")}\" href=\"/jobs/{H(p.JobId)}\">{t}</a>";
+        return $"<a class=\"chip{(p.Selected ? " sel" : "")}\" href=\"/jobs/{H(p.JobId)}\" data-field=\"chip.{H(p.JobId)}.text\">{t}</a>";
     }
 
     internal static void AnalysisList(StringBuilder sb, IReadOnlyList<AnalysisRow> rows)
@@ -56,14 +56,14 @@ document.querySelectorAll('a[data-me]').forEach(function(a){
 
     public static string Home(HomeView v, string? pollScript)
     {
-        var sb = new StringBuilder(ToggleScript(v.Me)); // first, so a saved choice redirects before the lists are painted
+        var sb = new StringBuilder(PollSlots + ToggleScript(v.Me)); // first, so a saved choice redirects before the lists are painted
         sb.Append("<h1>ASH</h1>");
         if (v.Running is { } r) RunningCard(sb, r, "running");
         else sb.Append($"<div class=\"box\">실행 중인 작업 없음 · 작업 실행 {(v.WorkerOn ? "켜짐" : "꺼짐")}</div>");
 
         sb.Append("<p>");
         if (v.QueuedCount == 0) sb.Append("대기 없음");
-        else sb.Append($"대기 {v.QueuedCount}건: " + string.Join(" · ", v.Queued.Select(q => $"<a href=\"/jobs/{H(q.JobId)}\">{H(q.Title)}</a>{(q.Start != null ? " (" + H(q.Start) + " 시작 예상)" : "")}")));
+        else sb.Append($"대기 <span data-field=\"queued.count\">{v.QueuedCount}</span>건: " + string.Join(" · ", v.Queued.Select(q => $"<a href=\"/jobs/{H(q.JobId)}\">{H(q.Title)}</a>{(q.Start != null ? " (" + H(q.Start) + " 시작 예상)" : "")}")));
         sb.Append("</p>");
 
         sb.Append($"<p><a href=\"/?me=1\" data-me=\"1\" class=\"chip{(v.Me ? " sel" : "")}\">내 것만</a> | <a href=\"/?me=0\" data-me=\"0\" class=\"chip{(v.Me ? "" : " sel")}\">전체</a></p>").Append(SaveScript);

@@ -93,6 +93,41 @@ document.querySelectorAll('table.sort').forEach(function(t){
         "<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" + H(title) + "</title>" +
         "<style>" + Css + "</style></head><body><header><a href=\"/\"><b>ASH</b></a><a href=\"/\">홈</a><a href=\"/analyses\">분석</a><a href=\"/admin/settings\">설정</a></header><main>" + body + "</main>" + script + "</body></html>";
 
+
+    /// <summary>Polls <paramref name="url"/> every 10 s and sets the data-field/data-bar/data-state elements (textContent only); shows #reload-bar when a watched job/film ends.</summary>
+    public static string PollScript(string url) => @"<script>
+(function(){
+  var prev=null, reloading=false, net=document.getElementById('net'), timer=null;
+  function sel(a,k){ return '['+a+'=""'+k.replace(/[""\\]/g,'\\$&')+'""]'; }
+  function tick(){
+    fetch('" + url.Replace("\\", "\\\\").Replace("'", "\\'") + @"',{cache:'no-store'}).then(function(r){ if(!r.ok) throw 0; return r.json(); }).then(function(d){
+      if(net) net.textContent='';
+      var f=d.fields||{};
+      Object.keys(f).forEach(function(k){
+        var v=String(f[k]);
+        if(/\.bar$/.test(k)) document.querySelectorAll(sel('data-bar',k)+' i').forEach(function(e){ e.style.width=v+'%'; });
+        else if(/\.state$/.test(k)) document.querySelectorAll(sel('data-state',k)).forEach(function(e){ e.className='state s-'+v; });
+        document.querySelectorAll(sel('data-field',k)).forEach(function(e){ e.textContent=v; });
+      });
+      var w=d.watch||{}, ended=false;
+      if(prev) Object.keys(w).forEach(function(id){ if((prev[id]==='queued'||prev[id]==='running')&&w[id]!=='queued'&&w[id]!=='running') ended=true; });
+      prev=w;
+      if(ended&&!reloading){
+        reloading=true;
+        var b=document.getElementById('reload-bar');
+        if(b){ b.style.display='block'; b.textContent='결과가 나왔습니다 — '; var a=document.createElement('a'); a.href='javascript:location.reload()'; a.textContent='새로 읽기'; b.appendChild(a); }
+        setTimeout(function(){ location.reload(); },60000);
+      }
+      if(d.active===false) clearInterval(timer);
+    }).catch(function(){ if(net) net.textContent='연결 끊김 · 다시 시도 중'; });
+  }
+  timer=setInterval(tick,10000); tick();
+})();
+</script>";
+
+    /// <summary>Goes first in a page body: the "새로 읽기" bar and the connection note the polling script fills.</summary>
+    internal const string PollSlots = "<div id=\"reload-bar\"></div><span id=\"net\"></span>";
+
     internal static string State(JobInfo j) => $"<span class=\"state s-{H(j.State)}\">{H(JobState.Korean(j.State))}</span>";
 
     public static string List(IReadOnlyList<JobInfo> jobs, (int Ahead, DateTime? Start, TimeSpan? Typical) q, bool workerEnabled)
@@ -123,15 +158,22 @@ document.querySelectorAll('table.sort').forEach(function(t){
     public static string Job(JobInfo j, JobView? v, string tab, string logTail, (int Ahead, DateTime? Start, TimeSpan? Typical) q, bool canCancel, IReadOnlyList<ASH.Core.Analysis.AnalysisInfo>? analyses = null,
         IReadOnlyList<FilmInfo>? films = null, string? busy = null)
     {
-        var sb = new StringBuilder();
+        var sb = new StringBuilder(PollSlots);
         if (analyses != null) AnalysisPages.JobHeader(sb, j, analyses);
         sb.Append($"<h1>{H(j.Project)} / {H(j.Plan)} <span class=\"muted\">· 모델 {H(j.Model)}</span></h1>");
         if (j.Source == JobSource.Local) sb.Append("<p><span class=\"state s-cancelled\">내 PC에서 실행한 결과</span> ash-run으로 돌린 결과를 올린 것입니다. 서버에서 다시 실행하지 않았습니다.</p>");
-        sb.Append($"<p>{State(j)} {(j.Phase != null ? H(j.Phase) + " · " : "")}작업 {H(j.Id)} · 보낸 사람 {H(j.Submitter)} ({H(j.Ip)}) · 보낸 시각 {H(When(j.CreatedUtc))}");
+        sb.Append($"<p><span class=\"state s-{H(j.State)}\" data-state=\"job.state\" data-field=\"job.statetext\">{H(JobState.Korean(j.State))}</span> <span data-field=\"job.phase\">{H(j.Phase)}</span>{(j.Phase != null ? " · " : "")}작업 {H(j.Id)} · 보낸 사람 {H(j.Submitter)} ({H(j.Ip)}) · 보낸 시각 {H(When(j.CreatedUtc))}");
         if (j.StartedUtc != null) sb.Append($" · 실행 시간 {Dur(j.Duration)}");
-        sb.Append($" · 모델 실행 {j.RunsDone}회{(j.RunsFailed > 0 ? $" <span class=\"bad\">(실패 {j.RunsFailed})</span>" : "")}</p>");
+        sb.Append($" · 모델 실행 <span data-field=\"job.runs\">{j.RunsDone}{(j.ExpectedRuns is { } er ? "/" + er : "")}회</span>{(j.RunsFailed > 0 ? $" <span class=\"bad\">(실패 {j.RunsFailed})</span>" : "")}</p>");
         if (j.State == JobState.Queued) sb.Append($"<p>{(q.Ahead == 0 ? "다음 차례입니다" : $"앞에 {q.Ahead}건이 있습니다")}{(busy != null ? $"({H(busy)}: 끝나야 시작합니다)" : "")}{(q.Start is { } s ? $" · 시작 예상 {H(SeoulTime.Text(s))}" : "")}.</p>");
-        if (j.State == JobState.Running && j.LastLine != null) sb.Append($"<p class=\"muted\">마지막 출력: {H(j.LastLine)}</p>");
+        if (!j.Finished)
+        {
+            var ratio = JobProgress.Ratio(j);
+            var eta = JobProgress.Eta(j, q.Typical, 1, DateTime.UtcNow);
+            sb.Append($"<div class=\"prog\"><i data-bar=\"job.bar\" style=\"width:{Math.Round((ratio ?? 0) * 100)}%\"></i></div>");
+            sb.Append($"<p>진행률 <b data-field=\"job.progress\">{(ratio is { } rr ? Math.Round(rr * 100) + "%" : "-")}</b> · 끝날 예상 <span data-field=\"job.eta\">{(eta is { } ee ? SeoulTime.FromUtc(ee).ToString("HH:mm") : "-")}</span> · 한 번 평균 <span data-field=\"job.avg\">{(j.RunsDone > 0 ? Dur(JobProgress.AvgRun(j)) : "-")}</span></p>");
+            sb.Append($"<p class=\"muted\">마지막 출력: <span data-field=\"job.last\">{H(j.LastLine)}</span></p>");
+        }
         if (j.Error != null) sb.Append($"<p class=\"bad\"><b>{(j.State == JobState.Done ? "주의" : "오류")}:</b> {H(j.Error)}</p>");
         if (canCancel && !j.Finished)
             sb.Append($"<form method=\"post\" action=\"/jobs/{H(j.Id)}/cancel\"><button>{(j.State == JobState.Queued ? "대기 취소" : "실행 취소")}</button> <span class=\"muted\">보낸 PC와 관리자만 취소할 수 있습니다. 실행 중인 모델 실행은 끝까지 돌고 새 실행만 멈춥니다.</span></form>");
@@ -162,7 +204,7 @@ document.querySelectorAll('table.sort').forEach(function(t){
             default: Summary(sb, j, v); break;
         }
         sb.Append("</div>");
-        return Page($"ASH 작업 {j.Id}", sb.ToString());
+        return Page($"ASH 작업 {j.Id}", sb.ToString(), j.Finished ? null : PollScript("/api/jobs/" + j.Id));
     }
 
     static void Summary(StringBuilder sb, JobInfo j, JobView? v)

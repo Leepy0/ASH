@@ -104,12 +104,16 @@ internal static partial class Routes
         app.MapGet("/api/jobs/{id}", (string id, JobStore js, IConfiguration cfg) =>
         {
             if (!JobStore.IsValidId(id) || js.Get(id) is not { } j) return Msg(404, "작업이 없습니다.");
-            var eta = JobProgress.Eta(j, js.QueueInfo().Typical, JobProgress.Parallel(cfg), DateTime.UtcNow);
+            var typical = js.QueueInfo().Typical;
+            var par = JobProgress.Parallel(cfg);
+            var eta = JobProgress.Eta(j, typical, par, DateTime.UtcNow);
+            var l = LiveFields.OfJob(j, typical, par);
             return Results.Json(new
             {
                 j.Id, j.State, j.Phase, j.RunsDone, j.RunsFailed, j.Error, j.Decided, j.Warnings, j.CreatedUtc, j.StartedUtc, j.FinishedUtc,
                 j.ExpectedRuns, progress = JobProgress.Ratio(j), partial = j.Partial,
                 eta = eta?.ToString("yyyy-MM-ddTHH:mm:ssZ"), avgRunSec = JobProgress.AvgRun(j)?.TotalSeconds,
+                active = l.Active, fields = l.Fields, watch = l.Watch,
             });
         });
 
