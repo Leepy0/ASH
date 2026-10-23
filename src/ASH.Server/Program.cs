@@ -179,6 +179,7 @@ app.MapGet("/jobs", (JobStore js, FilmWorker fw, IConfiguration cfg) =>
 
 app.MapJobs();
 app.MapAnalysis();
+app.MapFiles();
 
 app.Run();
 return 0;
