@@ -33,11 +33,11 @@ internal static class AssetClient
         }
     }
 
-    /// <summary>Asset names of all types from GET /api/catalog/assets as an Excel list ("a,b,c"), "" when unreachable.</summary>
-    public static string AssetListFormula(string serverUrl)
+    /// <summary>Asset names of all types from GET /api/catalog/assets; null when the server is unset or unreachable.</summary>
+    public static System.Collections.Generic.IReadOnlyList<string>? AssetNames(string serverUrl)
     {
-        if (!UserSettings.TryNormalizeUrl(serverUrl, out var url)) return "";
-        try { return string.Join(",", new AssetCatalogClient(new Uri(url)).Names()); }
-        catch (System.Exception e) when (e is HttpRequestException || e is TimeoutException || e is OperationCanceledException || e is InvalidDataException) { return ""; }
+        if (!UserSettings.TryNormalizeUrl(serverUrl, out var url)) return null;
+        try { return new AssetCatalogClient(new Uri(url)).Names(); }
+        catch (System.Exception e) when (e is HttpRequestException || e is TimeoutException || e is OperationCanceledException || e is InvalidDataException) { return null; }
     }
 }

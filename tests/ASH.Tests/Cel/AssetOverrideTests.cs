@@ -60,3 +60,16 @@ public class AssetOverrideTests
 
     [Fact] public void Client_Http_Error_Throws() => Assert.Throws<HttpRequestException>(() => new AssetCatalogClient(new Uri("http://srv"), new ErrHandler()).Names());
 }
+
+public class CatalogDiffAssetNamesTests
+{
+    [Fact] public void Names_From_The_Asset_Client_Reach_CatalogDiff()
+    {
+        var input = new ProjectInput();
+        input.AgvTypes.Add(new AgvType("T_A", 1, 1, 1, 1, 1, 0, 0, 0, 0, 1.2, 0.8, "", Row: 3, Asset: "agv_a"));
+        input.AgvTypes.Add(new AgvType("T_B", 1, 1, 1, 1, 1, 0, 0, 0, 0, 1.2, 0.8, "", Row: 4, Asset: "gone"));
+        var d = InputValidator.CatalogDiff(input, new List<ASH.Core.Catalog.CatalogType>(), new[] { "agv_a" });
+        Assert.Single(d); Assert.Contains("gone", d[0].Message);
+        Assert.Empty(InputValidator.CatalogDiff(input, new List<ASH.Core.Catalog.CatalogType>(), null)); // server unreachable: no asset warning
+    }
+}

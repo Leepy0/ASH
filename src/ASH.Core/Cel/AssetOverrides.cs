@@ -117,7 +117,7 @@ public sealed class AssetCatalogClient
     }
 
     /// <summary>All asset names, distinct, without commas (a comma would split the Excel list item).</summary>
-    public IReadOnlyList<string> Names() => Rows().Select(r => r.Name).Where(n => n.Length > 0 && !n.Contains(',')).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+    public IReadOnlyList<string> Names() => Rows().Select(r => r.Name).Where(n => n.Length > 0 && n.IndexOf(',') < 0).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
 
     /// <summary>The asset.cel text of the asset called <paramref name="name"/> (the one of <paramref name="typeName"/> first when several types have that name); null when no such asset.</summary>
     public string? FetchCel(string typeName, string name)
