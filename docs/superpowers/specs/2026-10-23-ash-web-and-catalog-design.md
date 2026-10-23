@@ -354,3 +354,35 @@ A·B·C·D는 파일이 거의 겹치지 않아 병렬로 간다. 겹치는 곳�
 순수 .NET STEP 파서(IxMilia.Step 등)는 엔티티만 읽고 B-rep 테셀레이션이 없어 상자화에 쓸 수 없다. 설치도 하지 않았다.
 
 **영향.** Task 4는 STL/OBJ만 구현한다. 업로드 화면 도움말에 "STEP은 CAD에서 STL로 내보내 올리세요"를 넣는다. 관문이 뒤집히면(오프라인 커널을 들여오면) Task 4 뒤에 `MeshReader.Read`의 확장자 분기 하나로 "STEP → 삼각형" 리더를 더한다. 건너뛰는 작업은 없다.
+
+### C-G3 생성 `.cel` 상자를 모델에 넣기 (2026-10-23)
+
+**판정: 인라인 세그먼트로 빌드·실행 통과. 독립 `.cel` 파일 참조 문법은 없음 → "인라인만"으로 확정. 그림 눈 확인과 편집기 "그래픽 가져오기"는 하지 않음(화면 제어 권한 거부).**
+
+**한 것(Step 1, 인라인).** `agvs_vehseg.txt`를 복사해 `Geom1` 자식을 손으로 쓴 `310 5` 상자 5개로 바꾸고 자식 수 줄을 6(상자 5 + `Lift_Joint`)으로 고쳤다. 단위는 피트, 바닥은 z = −2.5다.
+
+| 상자 | 색 | 위치 x y z | 크기 `by bx ty tx h` |
+|---|---|---|---|
+| GBody | 9 진회색 | 0 0 −2.3 | 4.5 3 4.5 3 1.8 |
+| GTower | 1 빨강, **중심에서 벗어남** | 0.9 1.2 −0.5 | 1.0 0.8 1.0 0.8 1.2 |
+| GWheelA | 0 검정 | 1.55 1.5 −2.5 | 0.6 0.2 0.6 0.2 0.4 |
+| GWheelB | 4 파랑 | −1.55 −1.5 −2.5 | 0.6 0.2 0.6 0.2 0.4 |
+| GLamp | 2 초록, 윗면이 좁은 뿔대 | 0 −2.3 −1.4 | 0.1 0.5 0.05 0.3 0.2 |
+
+`Lift_Joint` 위치는 차체 윗면(z −0.5), `Top` 판은 0.01 ft로 줄였다. 끝에 `CONTAINER name OnBoard`(`trz 2` = 차체 높이 2 ft)를 붙였다. 이 텍스트를 `ExportOptions.VehicleOverrides["G1"] = new VehicleTemplateOverride(VehSegText: …)`로 넣었다. 하네스는 `ModelRunIntegrationTests.BuildAndRun`(정사각 루프, `LogicGeneratorTests.Sample()`)이고, 임시 테스트로 불렀다. 임시 테스트는 커밋하지 않았다. 파일은 `%TEMP%\gateC\g3\`에 있다.
+
+**근거.**
+- 빌드(`am264 -bq`, `AmBuilder`) 성공. `am2err.dat`·`ashrun.dir\make.err`는 0바이트다. `am2out.dat`에는 "Compiling ashrun took 1.388 seconds."가 있다. 닫은 대화상자는 `Entity Limit Status`뿐이다.
+- 실행(`ashrun.exe -w`, "Student Version") 성공. `.message`에는 "3600.00: Simulation complete."가 있다. `result.tsv`는 정상이다: M1 공급 5, M2 공급 4, Tug1 가동, deadlock 0, clock 3600.
+- 생성된 `ashrun.arc\agv.asy`의 `AGVVEHSEG name Seg_G1`에 상자 5개가 그대로 있고, `CONTAINER … trz 2`도 들어 있다. AM은 템플릿과 다른 상자 수(5)와 중심에서 벗어난 상자를 거부하지 않았다.
+
+**Step 2(독립 `.cel`).**
+- `%TEMP%\gateC\g3\box_agv.cel`을 만들었다. 같은 상자를 바닥 z = 0 기준으로 `10000 21` / `7000 21` / `700 17` 머리 아래에 넣었다(`cube.cel` 구조).
+- AM 편집기 "그래픽 가져오기"로 열어 보지는 않았다. 화면 제어 권한 요청이 거부되었다.
+- 매뉴얼(`automod manual.pdf`, `amvol1and2.pdf` "Graphics templates and cell files with movement systems", p.62–67)에는 셀 파일을 Graphics Templates 대화상자로 가져와 붙인다는 설명만 있다. `.asy`에서 파일 경로로 참조하는 문법은 나오지 않는다.
+- 데모 `.asy` 전체에도 `.cel`·`.gtx`·`.dtr` 경로 참조가 없다. 가져온 셀은 `Tunnel.cell`(`Carousel/carousel.arc/proc.asy:1152`)처럼 이름만 남고 도형은 인라인으로 저장된다.
+
+**영향.**
+- 통과. Task 6(`VehSeg`)과 Task 11은 계획대로 진행한다. 생성기는 상자를 `Geom1` 자식으로 인라인하고, 자식 수 = 상자 수 + 1(`Lift_Joint`)로 쓰고, `CONTAINER trz`를 차체 높이로 둔다.
+- 독립 `.cel` 파일은 미리보기·내려받기용 부산물로만 쓴다.
+- 남은 확인: AM 편집기에서 차량 그림(색·중심에서 벗어난 위치·뿔대)과 적재물 높이를 눈으로 보고, `box_agv.cel`을 가져와 같은 모양인지 본다.

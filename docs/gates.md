@@ -22,6 +22,7 @@
 | 5 원호 angle 부호 | 2026-10-20 | **해결** | 데모 path16 끝점 계산: 음수 = 시계 방향 | Core 테스트로 고정됨 |
 | C-G1 `.cel` 도형 필드 | 2026-10-23 | **상자 확정, 원기둥은 정적 해독만(편집기 미확인)** | 310 = `by bx ty tx h dx dy`, 원점 아랫면 중심(`cube.cel:14`, `VehicleGeometry.cs:19-21`). 320/360 = `r_bot r_top h dx dy`, 350 = `r len 0 0`, 축 +z·원점 아랫면(`jet.cel:13-27`, `man3.cel:236-253`). 상세는 `specs/2026-10-23-ash-web-and-catalog-design.md` "관문 결과" | 0.22.0은 상자만. 원기둥은 다음 릴리스에서 편집기 대조 뒤 `BoxSimplifier`에 추가 가능 |
 | C-G2 3D 입력 형식 | 2026-10-23 | **STL·OBJ만** | 오프라인 STEP 테셀레이션 커널 없음: `third_party` 없음, NuGet 캐시 212개에 step/occt/assimp 계열 없음, Python·Program Files에도 없음. AM의 HOOPS Exchange(`A3DLIBS.dll`)는 라이선스에 묶이고 자동화 지점 없음 | Task 4는 STL/OBJ만. STEP은 사용자가 CAD에서 STL로 내보냄(업로드 도움말에 안내) |
+| C-G3 `.cel` 상자를 모델에 넣기 | 2026-10-23 | **인라인 통과, 파일 참조 없음** | 손으로 쓴 `310` 상자 5개(색·크기 다름, 1개는 중심에서 벗어남, 1개는 뿔대)를 `VehSegText`로 `Geom1`에 인라인 → `am264 -bq` 빌드 성공(`am2err.dat` 0바이트), `-w` 실행 "Simulation complete", `result.tsv` 정상. 매뉴얼·데모에 `.asy`의 셀 파일 경로 참조 문법 없음(가져온 셀도 인라인 저장). 그림 눈 확인과 편집기 가져오기는 하지 않음(화면 권한 거부) | Task 6·11은 그대로. 독립 `.cel`은 미리보기·내려받기용 |
 
 ## 관문 4 보충: 차량이 block을 claim하는 방법
 
