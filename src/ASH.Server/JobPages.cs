@@ -274,6 +274,65 @@ document.querySelectorAll('table.sort').forEach(function(t){
         }
     }
 
+    /// <summary>The 결론 block of the analysis page: three numbers, group bars per cluster, one bottleneck map, the three strongest cross-group effects.
+    /// <paramref name="small"/> = per-plan listing (smaller map). Plan B inserts its investment card at the marked point.</summary>
+    public static void Conclusion(StringBuilder sb, JobInfo j, JobView v, bool small, string metric = "wait")
+    {
+        if (j.Decided == null || v.Input == null) { sb.Append("<p class=\"muted\">결과가 없습니다.</p>"); return; }
+        int total = j.Decided.Values.Sum(), min = v.Input.Groups.Sum(g => g.MinCount), max = v.Input.Groups.Sum(g => g.MaxCount);
+        var top = v.Groups.Where(g => !double.IsNaN(g.Util)).OrderByDescending(g => g.Util).FirstOrDefault();
+        var worst = v.Blocks.Count > 0 ? v.Blocks.OrderByDescending(b => b.AvgWaitSec).First() : null;
+        var id = H(j.Id); bool occ = metric == "occ";
+        sb.Append("<div class=\"grid2\"><div>");
+        sb.Append("<div class=\"cards\">");
+        sb.Append($"<div class=\"card\"><div class=\"sub\">권장 총 대수</div><div class=\"big\">{total}대</div><div class=\"sub\">시험 범위 {min}~{max}대</div></div>");
+        sb.Append($"<div class=\"card\"><div class=\"sub\">최대 가동률</div><div class=\"big\">{(top == null ? "-" : Pct(top.Util))}</div><div class=\"sub\">상한 {Pct(v.UtilMax)} · 그룹 {H(top?.Group ?? "-")}</div></div>");
+        sb.Append($"<div class=\"card\"><div class=\"sub\">최대 병목</div><div class=\"big\">{H(worst?.Name ?? "-")}</div><div class=\"sub\">평균 대기 {(worst == null ? "-" : F(worst.AvgWaitSec, "0.0"))}초</div></div>");
+        sb.Append("</div>");
+        ClusterBars(sb, j, v);
+        sb.Append("<h3>서로 영향이 큰 그룹</h3>");
+        var effects = v.Impact.Where(r => r.OtherGroup != r.Group && !double.IsNaN(r.UtilDelta)).OrderByDescending(r => Math.Abs(r.UtilDelta)).Take(3).ToList();
+        if (effects.Count == 0) sb.Append("<p class=\"muted\">영향표 없음</p>");
+        else
+        {
+            sb.Append("<ol>");
+            foreach (var r in effects) sb.Append($"<li>{H(r.Group)} +{r.PlusOne}대 → {H(r.OtherGroup)} 가동률 {F(r.UtilDelta * 100, "+0.0;-0.0;0")}%p</li>");
+            sb.Append($"</ol><p><a href=\"/jobs/{id}?tab=detail\">영향표 전체 →</a></p>");
+        }
+        // plan B: investment card goes here
+        sb.Append("</div><div>");
+        if (v.Layout == null) sb.Append("<p class=\"muted\">레이아웃을 읽지 못했습니다.</p>");
+        else
+        {
+            var (w, h) = small ? (360d, 250d) : (520d, 360d);
+            var view = small ? "plans" : "one";
+            sb.Append(occ ? Map(v, "block 점유율(%)", b => b.Utilization, x => Pct(x), w, h, true) : Map(v, "block 평균 대기(초)", b => b.AvgWaitSec, x => F(x, "0.0") + "초", w, h, true));
+            sb.Append($"<p class=\"mini\">기준: <a href=\"?tab=conclusion&amp;view={view}&amp;job={id}&amp;metric=wait\"{(occ ? "" : " class=\"chip sel\"")}>평균 대기</a> <a href=\"?tab=conclusion&amp;view={view}&amp;job={id}&amp;metric=occ\"{(occ ? " class=\"chip sel\"" : "")}>점유율</a></p>");
+        }
+        sb.Append("</div></div>");
+        sb.Append($"<p><a href=\"/jobs/{id}?tab=detail\">상세 보기</a> · <a href=\"/jobs/{id}/files/report.xlsx\">Excel 보고서</a> · <a href=\"?tab=films\">이 버전의 영상</a></p>");
+    }
+
+    /// <summary>One bar line per group (utilisation vs the limit, recommended count in bold), under a "묶음: G1, G2" heading per cluster; flat when the job has none.</summary>
+    internal static void ClusterBars(StringBuilder sb, JobInfo j, JobView v)
+    {
+        void Row(GroupView g)
+        {
+            var w = double.IsNaN(g.Util) ? 0 : Math.Min(1, g.Util);
+            sb.Append($"<div>{H(g.Group)} · {H(g.Type)} · <span class=\"bar\"><i style=\"width:{F(w * 100, "0.#")}%{(g.AllOk ? "" : ";background:var(--bad)")}\"></i><b style=\"left:{F(Math.Min(1, v.UtilMax) * 100, "0.#")}%\"></b></span> " +
+                $"가동률 {Pct(g.Util)} · <b>권장 {(g.Decided?.ToString(CultureInfo.InvariantCulture) ?? "-")}대</b> · 범위 {g.Min}~{g.Max}대" +
+                (g.AllOk ? "" : $" · <span class=\"bad\">실패: {H(g.Reason)}</span>") + "</div>");
+        }
+        if (j.Clusters is not { Count: > 0 }) { foreach (var g in v.Groups) Row(g); return; }
+        var shown = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var c in j.Clusters)
+        {
+            sb.Append($"<h3>묶음: {H(string.Join(", ", c))}</h3>");
+            foreach (var g in v.Groups.Where(g => c.Contains(g.Group))) { Row(g); shown.Add(g.Group); }
+        }
+        foreach (var g in v.Groups.Where(g => !shown.Contains(g.Group))) Row(g);
+    }
+
     static string Heat(double t)
     {
         // light grey -> amber -> red
@@ -285,13 +344,13 @@ document.querySelectorAll('table.sort').forEach(function(t){
     }
 
     /// <summary>Paths in grey, blocks coloured by a value (highest = red), CPs as dots. Model coordinates, y up.</summary>
-    static string Map(JobView v, string title, Func<BlockView, double> value, Func<double, string> label)
+    internal static string Map(JobView v, string title, Func<BlockView, double> value, Func<double, string> label, double w = 520, double h = 360, bool topLabels = false)
     {
         var l = v.Layout!;
         var pts = l.Paths.SelectMany(p => new[] { p.Start, p.End }).Concat(l.Blocks.SelectMany(b => new[] { b.Rect.Min, b.Rect.Max })).Concat(l.Cps.Select(c => c.Position)).ToList();
         if (pts.Count == 0) return "<p class=\"muted\">그릴 경로가 없습니다.</p>";
         double x0 = pts.Min(p => p.X), x1 = pts.Max(p => p.X), y0 = pts.Min(p => p.Y), y1 = pts.Max(p => p.Y);
-        double w = 520, h = 360, pad = 12, sx = (w - 2 * pad) / Math.Max(1e-6, x1 - x0), sy = (h - 2 * pad) / Math.Max(1e-6, y1 - y0), s = Math.Min(sx, sy);
+        double pad = 12, sx = (w - 2 * pad) / Math.Max(1e-6, x1 - x0), sy = (h - 2 * pad) / Math.Max(1e-6, y1 - y0), s = Math.Min(sx, sy);
         string X(double x) => F(pad + (x - x0) * s, "0.#");
         string Y(double y) => F(h - pad - (y - y0) * s, "0.#");
         var byName = v.Blocks.ToDictionary(b => b.Name, b => value(b), StringComparer.Ordinal);
@@ -312,6 +371,9 @@ document.querySelectorAll('table.sort').forEach(function(t){
             for (int i = 0; i <= n; i++) { var q = p.PointAt(len * i / n); pl.Append(X(q.X)).Append(',').Append(Y(q.Y)).Append(' '); }
             sb.Append($"<polyline points=\"{pl}\" fill=\"none\" stroke=\"#5f5e5a\" stroke-width=\"1.2\"><title>{H(p.Name)}</title></polyline>");
         }
+        if (topLabels)
+            foreach (var b in l.Blocks.Where(b => byName.TryGetValue(b.Name, out var d) && !double.IsNaN(d) && d > 0).OrderByDescending(b => byName[b.Name]).Take(3))
+                sb.Append($"<text x=\"{X((b.Rect.Min.X + b.Rect.Max.X) / 2)}\" y=\"{Y((b.Rect.Min.Y + b.Rect.Max.Y) / 2)}\" font-size=\"11\" font-weight=\"600\" text-anchor=\"middle\" fill=\"#2c2c2a\" stroke=\"#fff\" stroke-width=\"3\" paint-order=\"stroke\">{H(b.Name)} {H(label(byName[b.Name]))}</text>");
         foreach (var c in l.Cps) sb.Append($"<circle cx=\"{X(c.Position.X)}\" cy=\"{Y(c.Position.Y)}\" r=\"2\" fill=\"#185fa5\"><title>{H(c.Name)}</title></circle>");
         sb.Append("</svg>");
         sb.Append($"<div class=\"muted\" style=\"font-size:12px\">색: 연회색 0 → 주황 → 빨강 최대({H(label(hi))}). block에 마우스를 올리면 값이 보입니다.</div>");

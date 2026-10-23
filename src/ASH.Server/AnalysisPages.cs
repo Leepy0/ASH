@@ -111,10 +111,7 @@ public static class AnalysisPages
         sb.Append("</div><div class=\"panel\">");
         switch (tab)
         {
-            case "conclusion": // Task 9 fills this
-                if (d.Jobs.FirstOrDefault(j => j.Selected) is { } sel) sb.Append($"<p><a href=\"/jobs/{H(sel.Id)}\">선정한 버전 v{sel.Version}의 결론 보기 →</a></p>");
-                else sb.Append("<p class=\"muted\">준비 중</p>");
-                break;
+            case "conclusion": ConclusionTab(sb, d, q); break;
             case "compare": // Task 10 replaces this
                 Compare(sb, a, d.Jobs.ToList(), d.Jobs.ToDictionary(j => j.Id, j => MetricsOf(d.Store, j)));
                 break;
@@ -125,6 +122,40 @@ public static class AnalysisPages
         }
         sb.Append("</div>");
         return Page("ASH 분석 " + a.Name, sb.ToString(), pollScript);
+    }
+
+    /// <summary>결론 tab: one version (the latest selected, else the latest finished; chips pick another) or every plan's version one under the other.
+    /// The chosen view is kept in localStorage and applied when the tab is opened without ?view=.</summary>
+    internal static void ConclusionTab(StringBuilder sb, AnalysisPageData d, IQueryCollection q)
+    {
+        var a = d.A; var plans = q["view"] == "plans"; var metric = q["metric"] == "occ" ? "occ" : "wait";
+        bool Ok(JobInfo j) => j.State == JobState.Done && j.Decided != null;
+        DateTime At(JobInfo j) => j.FinishedUtc ?? j.CreatedUtc;
+        JobInfo? Pick(IEnumerable<JobInfo> js) { var l = js.Where(Ok).ToList(); return (l.Where(j => j.Selected).OrderByDescending(At).FirstOrDefault()) ?? l.OrderByDescending(At).FirstOrDefault(); }
+        var done = d.Jobs.Where(Ok).OrderBy(j => a.Plans.FindIndex(p => p.Id == j.PlanId)).ThenBy(j => j.Version).ToList();
+        string PlanName(JobInfo j) => a.Plans.FirstOrDefault(p => p.Id == j.PlanId)?.Name ?? j.Plan;
+        string Radio(string v, string text) => $"<a href=\"?tab=conclusion&amp;view={v}\" data-view=\"{v}\" class=\"chip{((v == "plans") == plans ? " sel" : "")}\">{text}</a>";
+        sb.Append("<p>보기: ").Append(Radio("one", "선정 버전 하나")).Append(Radio("plans", "안별 펼침")).Append("</p>");
+        sb.Append("<script>(function(){try{var k='ashConclusionView',r=document.querySelectorAll('a[data-view]');" +
+            "r.forEach(function(e){e.addEventListener('click',function(){localStorage.setItem(k,e.getAttribute('data-view'));});});" +
+            "var s=localStorage.getItem(k);if((s==='one'||s==='plans')&&!/[?&]view=/.test(location.search)&&/[?&]tab=conclusion/.test(location.search)){var u=new URL(location.href);u.searchParams.set('view',s);location.replace(u.toString());}}catch(e){}})();</script>");
+        if (done.Count == 0) { sb.Append("<p class=\"muted\">결과가 나온 버전이 없습니다.</p>"); return; }
+        if (plans)
+        {
+            foreach (var p in a.Plans)
+                if (Pick(d.Jobs.Where(j => j.PlanId == p.Id)) is { } j)
+                {
+                    sb.Append($"<section class=\"box\"><h2>{H(p.Name)} · <a href=\"/jobs/{H(j.Id)}\">v{j.Version}</a>{(j.Selected ? " <span class=\"tag\">선정</span>" : "")}</h2>");
+                    Conclusion(sb, j, JobView.For(d.Store, j), true, metric);
+                    sb.Append("</section>");
+                }
+            return;
+        }
+        var cur = done.FirstOrDefault(j => j.Id == q["job"].ToString()) ?? Pick(done)!;
+        sb.Append("<p>");
+        foreach (var j in done) sb.Append($"<a href=\"?tab=conclusion&amp;view=one&amp;job={H(j.Id)}\" class=\"chip{(j.Id == cur.Id ? " sel" : "")}\">{H(PlanName(j))} v{j.Version}{(j.Selected ? " · 선정" : "")}</a>");
+        sb.Append("</p>");
+        Conclusion(sb, cur, JobView.For(d.Store, cur), false, metric);
     }
 
     internal static void StatusTab(StringBuilder sb, AnalysisPageData d)
