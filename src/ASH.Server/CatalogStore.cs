@@ -126,6 +126,22 @@ public sealed class CatalogStore
         }
     }
 
+    /// <summary>Adds (or removes) one entry of a type's Assets list; false when the type is missing, types.json is unreadable, or nothing changed.</summary>
+    public bool AddAsset(string typeName, string asset) => EditAssets(typeName, l => { if (l.Contains(asset, StringComparer.OrdinalIgnoreCase)) return false; l.Add(asset); return true; });
+    public bool RemoveAsset(string typeName, string asset) => EditAssets(typeName, l => l.RemoveAll(x => x.Equals(asset, StringComparison.OrdinalIgnoreCase)) > 0);
+
+    bool EditAssets(string typeName, Func<List<string>, bool> edit)
+    {
+        lock (_lock)
+        {
+            var all = Load();
+            var t = all.FirstOrDefault(x => x.Name.Equals(typeName, StringComparison.OrdinalIgnoreCase));
+            if (LoadError != null || t == null || !edit(t.Assets)) return false;
+            Write(TypesFile, JsonSerializer.Serialize(new CatalogTypes { Types = all.OrderBy(x => x.Name, StringComparer.OrdinalIgnoreCase).ToList() }, Json));
+            return true;
+        }
+    }
+
     static string Quote(string s) => s.IndexOfAny(new[] { ',', '"', '\n' }) >= 0 ? "\"" + s.Replace("\"", "\"\"") + "\"" : s;
 
     // one line, RFC-4180 quotes; a quoted newline is not supported (shortcut: notes are single-line)

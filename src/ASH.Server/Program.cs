@@ -26,6 +26,7 @@ builder.Services.AddSingleton(sp => JobStore.Create(sp.GetRequiredService<IConfi
 builder.Services.AddSingleton(sp => AnalysisStore.Create(sp.GetRequiredService<IConfiguration>(), sp.GetRequiredService<ILoggerFactory>().CreateLogger<AnalysisStore>()));
 builder.Services.AddSingleton(sp => new CutStore(sp.GetRequiredService<JobStore>().Dir, sp.GetRequiredService<ILoggerFactory>().CreateLogger<CutStore>()));
 builder.Services.AddSingleton(sp => new CatalogStore(sp.GetRequiredService<JobStore>().Dir, sp.GetRequiredService<ILoggerFactory>().CreateLogger<CatalogStore>()));
+builder.Services.AddSingleton(sp => new ASH.Server.Catalog.AssetStore(sp.GetRequiredService<JobStore>().Dir, sp.GetRequiredService<ILoggerFactory>().CreateLogger<ASH.Server.Catalog.AssetStore>()));
 builder.Services.AddSingleton<IJobRunner, AutoModJobRunner>();
 builder.Services.AddSingleton(sp => new FilmStore(sp.GetRequiredService<JobStore>().Dir, sp.GetRequiredService<ILoggerFactory>().CreateLogger<FilmStore>()));
 builder.Services.AddSingleton<IFilmAutoMod, AutoModFilm>();

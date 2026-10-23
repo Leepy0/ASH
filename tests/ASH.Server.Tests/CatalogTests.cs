@@ -19,6 +19,20 @@ public class CatalogTests
     }
 
     [Fact]
+    public void AddAsset_RemoveAsset_Edit_Type_Assets()
+    {
+        var s = Store(out _);
+        Assert.Null(s.Save(T("T_A"), "me"));
+        Assert.True(s.AddAsset("T_A", "agv_a"));
+        Assert.False(s.AddAsset("T_A", "AGV_A"));
+        Assert.False(s.AddAsset("T_none", "x"));
+        Assert.Equal(new[] { "front", "agv_a" }, s.Get("T_A")!.Assets);
+        Assert.True(s.RemoveAsset("T_A", "agv_a"));
+        Assert.False(s.RemoveAsset("T_A", "agv_a"));
+        Assert.Equal(new[] { "front" }, s.Get("T_A")!.Assets);
+    }
+
+    [Fact]
     public void Save_Then_Types_RoundTrips_And_Hides_Hidden()
     {
         var s = Store(out _);
