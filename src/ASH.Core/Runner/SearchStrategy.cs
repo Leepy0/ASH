@@ -51,6 +51,9 @@ public static class SearchStrategy
     /// + reps (decided) + k·reps (minus1, cached when reps = 1), plus confirm and impact (k·reps). With a batch executor, initial reps 1 and
     /// k ≥ 2, the first binary-search midpoints of all groups run as one batch; a group whose speculative scenario is stale (an earlier
     /// group changed) re-runs sequentially, so results equal the sequential search. InitStockMode Fixed has no randomness: one replication.</summary>
+    /// <summary>InitStockMode Fixed: seeds do not change the result, so one replication.</summary>
+    internal static bool FixedStock(ASH.Core.Input.Settings s) => string.Equals((s.InitStockMode ?? "").Trim(), "Fixed", StringComparison.OrdinalIgnoreCase);
+
     public static SearchResult Search(ProjectInput input, IRunExecutor exec, GroupClusters clusters, SearchOptions opts, CancellationToken ct = default,
         Action<SearchProgress>? onProgress = null)
     {
@@ -60,7 +63,7 @@ public static class SearchStrategy
         var cur = input.Groups.ToDictionary(g => g.Group, g => g.MaxCount);
         var byName = input.Groups.ToDictionary(g => g.Group);
         int initReps = Math.Max(1, opts.InitialReplications), reps = Math.Max(1, input.Settings.Replications);
-        if (string.Equals((input.Settings.InitStockMode ?? "").Trim(), "Fixed", StringComparison.OrdinalIgnoreCase) && (initReps > 1 || reps > 1))
+        if (FixedStock(input.Settings) && (initReps > 1 || reps > 1))
         {
             warnings.Add($"InitStockMode Fixed: 시드가 결과를 바꾸지 않으므로 반복 {reps}회 대신 1회로 실행");
             initReps = reps = 1;

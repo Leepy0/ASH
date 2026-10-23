@@ -136,7 +136,7 @@ public static class SearchJob
         var exec = new ParallelExecutor(a.Parallel, mx.Run);
         var expected = SearchEstimate.Expected(input, clusters, a.InitialReps, a.Impact);
         o.WriteLine("expected runs: " + expected);
-        onProgress?.Invoke(new SearchProgress("탐색 시작", new Dictionary<string, int>(), new Dictionary<string, int>(), input.Groups.Count, expected));
+        onProgress?.Invoke(new SearchProgress("탐색 시작", new Dictionary<string, int>(), new Dictionary<string, int>(), clusters.Clusters.Sum(c => c.Count), expected));
         var res = SearchStrategy.Search(input, exec, clusters, new SearchOptions(a.InitialReps, a.Impact, ExpectedRuns: expected), ct, onProgress);
         if (a.Impact) { Directory.CreateDirectory(runsDir); ImpactTsv.Write(Path.Combine(runsDir, "impact.tsv"), res.Impact); }
 
