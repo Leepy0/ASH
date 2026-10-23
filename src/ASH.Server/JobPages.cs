@@ -95,9 +95,9 @@ document.querySelectorAll('table.sort').forEach(function(t){
 
 
     /// <summary>Polls <paramref name="url"/> every 10 s and sets the data-field/data-bar/data-state elements (textContent only); shows #reload-bar when a watched job/film ends.</summary>
-    public static string PollScript(string url) => @"<script>
+    public static string PollScript(string url, IReadOnlyDictionary<string, string>? initialWatch = null) => @"<script>
 (function(){
-  var prev=null, reloading=false, net=document.getElementById('net'), timer=null;
+  var prev=" + (initialWatch == null ? "null" : System.Text.Json.JsonSerializer.Serialize(initialWatch)) + @", reloading=false, net=document.getElementById('net'), timer=null;
   function sel(a,k){ return '['+a+'=""'+k.replace(/[""\\]/g,'\\$&')+'""]'; }
   function tick(){
     fetch('" + url.Replace("\\", "\\\\").Replace("'", "\\'") + @"',{cache:'no-store'}).then(function(r){ if(!r.ok) throw 0; return r.json(); }).then(function(d){
@@ -203,7 +203,7 @@ document.querySelectorAll('table.sort').forEach(function(t){
             default: Summary(sb, j, v); break;
         }
         sb.Append("</div>");
-        return Page($"ASH 작업 {j.Id}", sb.ToString(), j.Finished ? null : PollScript("/api/jobs/" + j.Id));
+        return Page($"ASH 작업 {j.Id}", sb.ToString(), j.Finished ? null : PollScript("/api/jobs/" + j.Id, new Dictionary<string, string> { [j.Id] = j.State }));
     }
 
     static void Summary(StringBuilder sb, JobInfo j, JobView? v)

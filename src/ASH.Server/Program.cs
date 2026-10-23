@@ -109,7 +109,8 @@ app.MapGet("/", (HttpContext ctx, string? me, JobStore js, AnalysisStore st, Fil
     var films = fs.All();
     var v = HomeView.Build(st.All(), js.All(), films, films.FirstOrDefault(f => f.State == JobState.Running), Routes.Queue(js, fw), Routes.WorkerOn(cfg),
         JobProgress.Parallel(cfg), Routes.ClientIp(ctx), me switch { "1" => true, "0" => false, _ => null }, DateTime.UtcNow);
-    return Routes.Html(HomePages.Home(v, LiveFields.OfHome(v).Active ? JobPages.PollScript("/api/home?me=" + (v.Me ? 1 : 0)) : null));
+    var live = LiveFields.OfHome(v);
+    return Routes.Html(HomePages.Home(v, live.Active ? JobPages.PollScript("/api/home?me=" + (v.Me ? 1 : 0), live.Watch) : null));
 });
 
 static string StatusHtml(HttpContext ctx)

@@ -41,6 +41,8 @@ public class HomePageTests
         var api = JsonDocument.Parse(await env.Http.GetStringAsync("/api/home?me=1")).RootElement;
         Assert.Equal("queued", api.GetProperty("watch").GetProperty(b).GetString());
         Assert.Equal("running", api.GetProperty("watch").GetProperty(a).GetString());
+        var seeded = System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, string> { [a] = "running", [b] = "queued" });
+        Assert.Contains("var prev=" + seeded.TrimEnd('}'), await env.Http.GetStringAsync("/"));
         env.Runner.Gate.Set(); await env.WaitFinished(a); await env.WaitFinished(b);
     }
 
