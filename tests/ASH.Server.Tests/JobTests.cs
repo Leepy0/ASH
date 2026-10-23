@@ -67,12 +67,14 @@ public sealed class JobEnv : IDisposable
     public readonly FakeRunner Runner = new();
     public readonly FakeFilm Film = new();
     public JobStore Store => Factory.Services.GetRequiredService<JobStore>();
+    public CatalogStore Types => Factory.Services.GetRequiredService<CatalogStore>();
 
-    public JobEnv(bool worker = true, string? amHome = null, string? adminToken = null)
+    public JobEnv(bool worker = true, string? amHome = null, string? adminToken = null, string? assetMaxMb = null)
     {
         Factory = new WebApplicationFactory<Program>().WithWebHostBuilder(b =>
         {
             if (adminToken != null) b.UseSetting("Admin:Token", adminToken);
+            if (assetMaxMb != null) b.UseSetting("Catalog:AssetMaxMb", assetMaxMb);
             b.UseSetting("Releases:Dir", Path.Combine(Dir, "releases"));
             b.UseSetting("Jobs:Dir", Path.Combine(Dir, "jobs"));
             b.UseSetting("Jobs:WorkerEnabled", worker ? "true" : "false");

@@ -11,7 +11,7 @@ public static class CatalogPages
 {
     static string N(double v) => v.ToString("0.###", CultureInfo.InvariantCulture);
 
-    public static string Types(IReadOnlyList<CatalogType> types, IReadOnlyDictionary<string, PriceRow> prices, string pricesCsv, CatalogType? editing, string? msgHtml)
+    public static string Types(IReadOnlyList<CatalogType> types, IReadOnlyDictionary<string, PriceRow> prices, string pricesCsv, CatalogType? editing, string? msgHtml, ASH.Server.Catalog.AssetStore assets)
     {
         var sb = new StringBuilder("<h1>타입·투자비</h1>");
         if (msgHtml != null) sb.Append(msgHtml);
@@ -51,7 +51,7 @@ public static class CatalogPages
         sb.Append($"<div class=\"field\"><label></label><span><input type=\"checkbox\" name=\"hidden\" value=\"1\" id=\"hidden\"{(e.Hidden ? " checked" : "")}> <label for=\"hidden\" style=\"display:inline\">숨김(플러그인 목록에서 제외)</label></span></div>");
         sb.Append("<p><button type=\"submit\" class=\"primary\">저장</button></p></form></section>");
 
-        sb.Append("<section class=\"box\" id=\"assets\"><h2>에셋</h2><p class=\"muted\">준비 중입니다.</p></section>");
+        sb.Append(AssetPages.Section(types, assets));
 
         sb.Append($"<section class=\"box\"><h2>투자비(prices.csv)</h2><form method=\"post\" action=\"/admin/types/prices\"><textarea name=\"csv\" rows=\"10\" style=\"width:100%;font-family:monospace\">{H(pricesCsv)}</textarea><p><button type=\"submit\" class=\"primary\">투자비 저장</button> <span class=\"muted\">Type,UnitPrice,Currency,Note</span></p></form></section>");
         return Page("타입·투자비", sb.ToString());
