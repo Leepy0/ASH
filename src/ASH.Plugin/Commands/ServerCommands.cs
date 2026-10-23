@@ -108,14 +108,16 @@ public sealed class ServerCommands
             catch (System.Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { PluginLog.Write("ash.send.tsv", ex); }
         }
 
+        var dwg = DwgToSend(ed); // ask before any package work
         Say(ed, "패키지 만드는 중…");
         // the factory drawing and its coordinate frame go along for the server's cut editor and videos; a DXF failure is only a warning
         new ModelFrame(s.Units, s.Origin.X, s.Origin.Y, s.Scale).Write(Path.Combine(dir, ModelFrame.FileName));
         SaveDxf(ed, Path.Combine(dir, JobPackage.LocalDxf)); // own name: a drawing.dxf of the user's in this folder is left alone
-        var files = JobPackage.Create(dir, s.ModelName, zip, includeResults: results);
+        var files = JobPackage.Create(dir, s.ModelName, zip, includeResults: results, dwgPath: dwg);
         Say(ed, $"서버로 보내는 중… (파일 {files.Count}개, {new FileInfo(zip).Length / 1048576.0:0.#} MB, 최대 {UploadTimeout.TotalMinutes:0}분)");
         var job = new JobSubmission(folder, drawing, s.ModelName, Environment.UserName,
-            AnalysisId: c.AnalysisId, PlanId: c.PlanId, AnalysisName: c.AnalysisName, PlanName: c.PlanName, VersionNote: dlg.Note);
+            AnalysisId: c.AnalysisId, PlanId: c.PlanId, AnalysisName: c.AnalysisName, PlanName: c.PlanName, VersionNote: dlg.Note,
+            Corp: dlg.Corp, ProductLine: dlg.ProductLine, Line: dlg.Line);
         try
         {
             using var client = new JobServerClient(new Uri(url));
@@ -133,6 +135,29 @@ public sealed class ServerCommands
             PluginLog.Write("AGVSEND rejected", e);
         }
         catch (System.Exception e) when (IsNetwork(e)) { Fail(ed, "전송하지 못했습니다", e); }
+    }
+
+    /// <summary>The open drawing's on-disk path, or null (untitled, save refused/failed, over MaxDwgBytes). DBMOD != 0 asks to save first.</summary>
+    private static string? DwgToSend(Editor ed)
+    {
+        try
+        {
+            if (Convert.ToInt32(Application.GetSystemVariable("DWGTITLED")) == 0) { ed.WriteMessage("\n저장한 적 없는 도면이라 DWG 없이 보냅니다."); return null; }
+            var path = Path.Combine((string)Application.GetSystemVariable("DWGPREFIX"), (string)Application.GetSystemVariable("DWGNAME"));
+            if (Convert.ToInt32(Application.GetSystemVariable("DBMOD")) != 0
+                && MessageBox.Show("도면에 저장하지 않은 변경이 있습니다. 저장하고 DWG를 함께 보낼까요? (아니요: DWG 없이 보냄)", "ASH", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+                return null;
+            if (Convert.ToInt32(Application.GetSystemVariable("DBMOD")) != 0)
+                Application.DocumentManager.MdiActiveDocument.Database.SaveAs(path, DwgVersion.Current);
+            if (new FileInfo(path).Length > JobPackage.MaxDwgBytes) { ed.WriteMessage("\n도면(DWG)이 100 MB보다 커서 보내지 않습니다. 모델만 보냅니다."); return null; }
+            return path;
+        }
+        catch (System.Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ZwSoft.ZwCAD.Runtime.Exception)
+        {
+            ed.WriteMessage("\n도면(DWG)을 저장하지 못했습니다. DWG 없이 보냅니다: " + ex.Message);
+            PluginLog.Write("AGVSEND dwg", ex);
+            return null;
+        }
     }
 
     // the command runs in the document context, so the document is already locked
