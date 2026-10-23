@@ -25,9 +25,9 @@ public static class SvgPreview
     {
         if (boxes == null) throw new ArgumentNullException(nameof(boxes));
         var sb = new StringBuilder();
-        sb.Append("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"").Append(width).Append("\" height=\"").Append(height)
-          .Append("\" viewBox=\"0 0 ").Append(width).Append(' ').Append(height).Append("\">");
-        sb.Append("<rect x=\"0\" y=\"0\" width=\"").Append(width).Append("\" height=\"").Append(height).Append("\" fill=\"#ffffff\"/>");
+        sb.Append("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"").Append(N(width)).Append("\" height=\"").Append(N(height))
+          .Append("\" viewBox=\"0 0 ").Append(N(width)).Append(' ').Append(N(height)).Append("\">");
+        sb.Append("<rect x=\"0\" y=\"0\" width=\"").Append(N(width)).Append("\" height=\"").Append(N(height)).Append("\" fill=\"#ffffff\"/>");
         double pw = width / 3.0;
 
         // Per box: polygons in metres with svg-style y (down); Order ascending = far first.
@@ -35,7 +35,7 @@ public static class SvgPreview
         {
             ("위", true, b => b.Z0 + b.H, b => Rect(b.X - b.Dx / 2, b.Y - b.Dy / 2, b.X + b.Dx / 2, b.Y + b.Dy / 2)),
             ("옆", true, b => b.X, b => Rect(b.Y - b.Dy / 2, -(b.Z0 + b.H), b.Y + b.Dy / 2, -b.Z0)),
-            ("사선", false, b => -b.Y, Iso),
+            ("사선", false, b => -b.Y, Iso)   // shortcut: painter sort by -y only; boxes overlapping in y but differing in x/z may overdraw wrongly, upgrade to a per-face depth sort if it shows,
         };
         for (int i = 0; i < 3; i++)
         {
@@ -79,9 +79,14 @@ public static class SvgPreview
             }
             if (items.Count == 0)
                 sb.Append("<text x=\"").Append(N(pw / 2)).Append("\" y=\"").Append(N(height / 2.0)).Append("\" font-size=\"13\" text-anchor=\"middle\" font-family=\"sans-serif\" fill=\"#888888\">상자 없음</text>");
-            double by = height - 10;   // 1 m scale bar, bottom-left
-            sb.Append("<path d=\"M").Append(N(Margin)).Append(' ').Append(N(by)).Append('h').Append(N(s)).Append("\" fill=\"none\" stroke=\"#000000\" stroke-width=\"2\"/>")
+            double by = height - 10;   // 1 m scale bar, bottom-left; hidden when 1 m would not fit the panel
+            if (s <= availW) sb.Append("<path d=\"M").Append(N(Margin)).Append(' ').Append(N(by)).Append('h').Append(N(s)).Append("\" fill=\"none\" stroke=\"#000000\" stroke-width=\"2\"/>")
               .Append("<text x=\"").Append(N(Margin + s + 4)).Append("\" y=\"").Append(N(by + 4)).Append("\" font-size=\"10\" font-family=\"sans-serif\" fill=\"#333333\">1 m</text>");
+            if (i == 1)   // front is on the left in the side view
+                sb.Append("<path d=\"M30 12H10m0 0l7-4v8z\" fill=\"#000000\" stroke=\"#000000\" stroke-width=\"1\"/>")
+                  .Append("<text x=\"36\" y=\"16\" font-size=\"11\" font-family=\"sans-serif\" fill=\"#333333\">앞</text>");
+            if (i == 2)
+                sb.Append("<text x=\"").Append(N(pw - 62)).Append("\" y=\"20\" font-size=\"11\" font-family=\"sans-serif\" fill=\"#333333\">앞 = 정면</text>");
             if (i == 0)   // front is up in the top view
                 sb.Append("<path d=\"M").Append(N(pw - 24)).Append(" 26V10M").Append(N(pw - 24)).Append(" 6l-4 7h8z\" fill=\"#000000\" stroke=\"#000000\" stroke-width=\"1\"/>")
                   .Append("<text x=\"").Append(N(pw - 42)).Append("\" y=\"20\" font-size=\"11\" font-family=\"sans-serif\" fill=\"#333333\">앞</text>");
