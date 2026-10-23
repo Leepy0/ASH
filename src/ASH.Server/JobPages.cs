@@ -210,7 +210,7 @@ document.querySelectorAll('table.sort').forEach(function(t){
     {
         if (j.Decided == null || v?.Input == null)
         {
-            sb.Append(j.Finished ? "<p>결과가 없습니다. 다운로드·로그 탭의 로그를 확인하세요.</p>" : "<p>실행이 끝나면 결과가 나옵니다. 실행 중에는 10초마다 진행 상황이 갱신됩니다.</p>");
+            sb.Append(j.Finished ? "<p>결과가 없습니다. 다운로드·로그 탭의 로그를 확인하세요.</p>" : "<p>실행이 끝나면 결과가 나옵니다. 결과가 나오면 위 띠로 알립니다.</p>");
             if (v?.InputError != null && j.Finished) sb.Append($"<p class=\"bad\">{H(v.InputError)}</p>");
             return;
         }

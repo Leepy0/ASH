@@ -53,7 +53,7 @@ public static class AnalysisPages
             sb.Append("<div class=\"crumb\">분석에 넣지 않은 작업입니다.</div>").Append(MoveForm(j, analyses, "/jobs/" + j.Id, "이 안으로 옮기기"));
         else
         {
-            sb.Append($"<div class=\"crumb\"><a href=\"/analyses/{H(a.Id)}\">{H(a.Name)}</a> › {H(p.Name)} › v{j.Version}{(j.VersionNote.Length > 0 ? " · " + H(j.VersionNote) : "")}{(j.Selected ? " <span class=\"tag\">선정</span>" : "")}</div>");
+            sb.Append($"<div class=\"crumb\"><a href=\"/analyses/{H(a.Id)}?tab=status\">{H(a.Name)}</a> › {H(p.Name)} › v{j.Version}{(j.VersionNote.Length > 0 ? " · " + H(j.VersionNote) : "")}{(j.Selected ? " <span class=\"tag\">선정</span>" : "")}</div>");
             sb.Append("<div class=\"mini\">").Append(MoveForm(j, analyses, "/jobs/" + j.Id, "옮기기")).Append(SelectForm(j, "/jobs/" + j.Id)).Append("</div>");
             sb.Append("<div class=\"help\">다른 안으로 옮기면 그 안의 다음 버전이 됩니다.</div>");
         }
@@ -81,14 +81,20 @@ public static class AnalysisPages
         return Page("ASH 분석에 넣지 않은 작업", sb.ToString());
     }
 
+    static readonly System.Collections.Concurrent.ConcurrentDictionary<string, List<(string Name, int Max)>> GroupCache = new();
+
     /// <summary>"G01 4 · G02 3 · G03 5 시험 중 · G04 탐색 중": confirmed groups with their count, the ones in the cluster being searched, the rest still waiting.
     /// Group order and Max come from the job's input; without it only the confirmed groups are listed.</summary>
     internal static string PartialText(JobStore store, JobInfo j)
     {
         var done = j.Partial ?? new();
-        List<(string Name, int Max)>? groups = null;
-        try { groups = SearchJob.ReadInput(store.ProjectDir(j.Id), TextWriter.Null, new List<string>(), out _)?.Groups.Select(g => (g.Group, g.MaxCount)).ToList(); }
-        catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException) { }
+        // the input of a job never changes, so polling must not re-parse the workbook; only a successful read is cached
+        if (!GroupCache.TryGetValue(j.Id, out var groups))
+        {
+            try { groups = SearchJob.ReadInput(store.ProjectDir(j.Id), TextWriter.Null, new List<string>(), out _)?.Groups.Select(g => (g.Group, g.MaxCount)).ToList(); }
+            catch (Exception e) when (e is IOException or InvalidDataException or UnauthorizedAccessException) { }
+            if (groups != null) GroupCache[j.Id] = groups;
+        }
         if (groups == null || groups.Count == 0) return string.Join(" · ", done.Select(kv => $"{kv.Key} {kv.Value}"));
         var trying = j.Phase is { } ph && ph.StartsWith("탐색 ", StringComparison.Ordinal) ? ph[3..].Split(',') : Array.Empty<string>();
         return string.Join(" · ", groups.Select(g => done.TryGetValue(g.Name, out var n) ? $"{g.Name} {n}" : trying.Contains(g.Name) ? $"{g.Name} {g.Max} 시험 중" : $"{g.Name} 탐색 중"));
