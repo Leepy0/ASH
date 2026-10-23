@@ -13,9 +13,12 @@ public sealed class AnalysisInfo
     [DataMember] public string Name { get; set; } = "";
     [DataMember] public string Note { get; set; } = "";
     [DataMember] public DateTime CreatedUtc { get; set; }
-    [DataMember] public string Corp { get; set; } = "";
-    [DataMember] public string ProductLine { get; set; } = "";
-    [DataMember] public string Line { get; set; } = "";
+    string? _corp;
+    [DataMember] public string Corp { get => _corp ?? ""; set => _corp = value ?? ""; } // absent/null JSON keys must read as ""
+    string? _productLine;
+    [DataMember] public string ProductLine { get => _productLine ?? ""; set => _productLine = value ?? ""; } // absent/null JSON keys must read as ""
+    string? _line;
+    [DataMember] public string Line { get => _line ?? ""; set => _line = value ?? ""; } // absent/null JSON keys must read as ""
     [DataMember] public List<PlanInfo> Plans { get; set; } = new List<PlanInfo>();
 }
 
@@ -38,7 +41,7 @@ public static class AnalysisNames
     public static string NextPlanName(IEnumerable<string> existing)
     {
         var used = new HashSet<char>();
-        foreach (var n in existing)
+        foreach (var n in existing ?? Enumerable.Empty<string>())
             if (n != null && n.Length == 2 && n[0] >= 'A' && n[0] <= 'Z' && n[1] == '안') used.Add(n[0]);
         for (var c = 'A'; c <= 'Z'; c++) if (!used.Contains(c)) return c + "안";
         return "새 안";
