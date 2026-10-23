@@ -108,7 +108,8 @@ public sealed class ServerCommands
             catch (System.Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { PluginLog.Write("ash.send.tsv", ex); }
         }
 
-        var dwg = DwgToSend(ed); // ask before any package work
+        var (abort, dwg) = results ? (false, null) : DwgToSend(ed); // ask before any package work; a result upload never carries the drawing
+        if (abort) { PaletteStatus.Set("AGVSEND: 취소"); return; }
         Say(ed, "패키지 만드는 중…");
         // the factory drawing and its coordinate frame go along for the server's cut editor and videos; a DXF failure is only a warning
         new ModelFrame(s.Units, s.Origin.X, s.Origin.Y, s.Scale).Write(Path.Combine(dir, ModelFrame.FileName));
@@ -137,26 +138,29 @@ public sealed class ServerCommands
         catch (System.Exception e) when (IsNetwork(e)) { Fail(ed, "전송하지 못했습니다", e); }
     }
 
-    /// <summary>The open drawing's on-disk path, or null (untitled, save refused/failed, over MaxDwgBytes). DBMOD != 0 asks to save first.</summary>
-    private static string? DwgToSend(Editor ed)
+    /// <summary>The open drawing's on-disk path (null = send without DWG: untitled, refused, failed, over MaxDwgBytes); Abort = user cancelled. DBMOD != 0 asks to save first.</summary>
+    private static (bool Abort, string? Path) DwgToSend(Editor ed)
     {
         try
         {
-            if (Convert.ToInt32(Application.GetSystemVariable("DWGTITLED")) == 0) { ed.WriteMessage("\n저장한 적 없는 도면이라 DWG 없이 보냅니다."); return null; }
+            if (Convert.ToInt32(Application.GetSystemVariable("DWGTITLED")) == 0) { ed.WriteMessage("\n저장한 적 없는 도면이라 DWG 없이 보냅니다."); return (false, null); }
             var path = Path.Combine((string)Application.GetSystemVariable("DWGPREFIX"), (string)Application.GetSystemVariable("DWGNAME"));
-            if (Convert.ToInt32(Application.GetSystemVariable("DBMOD")) != 0
-                && MessageBox.Show("도면에 저장하지 않은 변경이 있습니다. 저장하고 DWG를 함께 보낼까요? (아니요: DWG 없이 보냄)", "ASH", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
-                return null;
-            if (Convert.ToInt32(Application.GetSystemVariable("DBMOD")) != 0)
+            var modified = Convert.ToInt32(Application.GetSystemVariable("DBMOD")) != 0;
+            if (modified)
+            {
+                var ans = MessageBox.Show("도면에 저장하지 않은 변경이 있습니다. 저장하고 DWG를 함께 보낼까요?"+Environment.NewLine+"예: 저장 후 보내기 · 아니요: DWG 없이 보내기 · 취소: 보내지 않음", "ASH", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+                if (ans == DialogResult.Cancel) return (true, null);
+                if (ans != DialogResult.Yes) return (false, null);
                 Application.DocumentManager.MdiActiveDocument.Database.SaveAs(path, DwgVersion.Current);
-            if (new FileInfo(path).Length > JobPackage.MaxDwgBytes) { ed.WriteMessage("\n도면(DWG)이 100 MB보다 커서 보내지 않습니다. 모델만 보냅니다."); return null; }
-            return path;
+            }
+            if (new FileInfo(path).Length > JobPackage.MaxDwgBytes) { ed.WriteMessage("\n도면(DWG)이 " + JobPackage.MaxDwgBytes / (1024 * 1024) + " MB보다 커서 보내지 않습니다. 모델만 보냅니다."); return (false, null); }
+            return (false, path);
         }
         catch (System.Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is ZwSoft.ZwCAD.Runtime.Exception)
         {
             ed.WriteMessage("\n도면(DWG)을 저장하지 못했습니다. DWG 없이 보냅니다: " + ex.Message);
             PluginLog.Write("AGVSEND dwg", ex);
-            return null;
+            return (false, null);
         }
     }
 
