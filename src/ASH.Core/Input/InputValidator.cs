@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using ASH.Core.Catalog;
 using ASH.Core.Geometry;
 using ASH.Core.Layout;
 
@@ -41,6 +42,34 @@ public static class InputValidator
     }
 
     /// <summary>supplyLength (optional) enables the SupplyCapacity warnings.</summary>
+    /// <summary>One warning per AGV_Types row whose numeric columns differ from the catalog type of the same name (unknown names are skipped).</summary>
+    public static List<Finding> CatalogDiff(ProjectInput input, IReadOnlyList<CatalogType> catalog)
+    {
+        var f = new List<Finding>();
+        static string N(double v) => v.ToString("0.###", CultureInfo.InvariantCulture);
+        for (int i = 0; i < input.AgvTypes.Count; i++)
+        {
+            var t = input.AgvTypes[i];
+            var c = catalog.FirstOrDefault(x => x.Name == t.Type);
+            if (c == null) continue;
+            var d = c.Defaults;
+            // blank/0 curve = straight speed, 0 empty speed = loaded speed: compare what the simulation would use
+            double Eff(double? v, double straight) => v is > 0 ? v.Value : straight;
+            double eL = t.SpeedLoaded, eE = t.SpeedEmpty > 0 ? t.SpeedEmpty : t.SpeedLoaded;
+            double cE = d.SpeedEmptyStraight > 0 ? d.SpeedEmptyStraight : d.SpeedLoadedStraight;
+            var diffs = new List<string>();
+            void Cmp(string col, double mine, double cat) { if (Math.Abs(mine - cat) > 1e-9) diffs.Add($"{col} {N(mine)} ≠ 카탈로그 {N(cat)}"); }
+            Cmp("SpeedLoaded", eL, d.SpeedLoadedStraight); Cmp("SpeedLoadedCurve", Eff(t.SpeedLoadedCurve, eL), Eff(d.SpeedLoadedCurve, d.SpeedLoadedStraight));
+            Cmp("SpeedEmpty", eE, cE); Cmp("SpeedEmptyCurve", Eff(t.SpeedEmptyCurve, eE), Eff(d.SpeedEmptyCurve, cE));
+            Cmp("Accel", t.Accel, d.Accel); Cmp("Decel", t.Decel, d.Decel); Cmp("Capacity", t.Capacity, d.Capacity);
+            Cmp("LoadTime", t.LoadTime, d.LoadTime); Cmp("UnloadTime", t.UnloadTime, d.UnloadTime);
+            Cmp("MTBF", t.MTBF, d.MTBF); Cmp("MTTR", t.MTTR, d.MTTR); Cmp("Length", t.Length, d.Length); Cmp("Width", t.Width, d.Width);
+            if (diffs.Count > 0)
+                f.Add(new Finding(FindingCode.InputWarning, $"타입 '{t.Type}': {string.Join(", ", diffs)} (의도한 값이면 무시)", default(Point2), $"AGV_Types!{(t.Row > 0 ? t.Row : i + 3)}"));
+        }
+        return f;
+    }
+
     public static List<Finding> Validate(ProjectInput input, IReadOnlyCollection<string>? layoutCpNames, IReadOnlyDictionary<string, double>? supplyLength = null)
     {
         var f = new List<Finding>();
@@ -93,6 +122,9 @@ public static class InputValidator
             if (t.Capacity < 1) Err("AGV_Types", t.Row, i, $"타입 '{t.Type}'의 Capacity(용기 수)는 1 이상이어야 합니다.");
             if (t.SpeedEmpty < 0 || t.MTBF < 0 || t.MTTR < 0) Err("AGV_Types", t.Row, i, $"타입 '{t.Type}'의 SpeedEmpty/MTBF/MTTR은 0 이상이어야 합니다(SpeedEmpty 0 = 적재 속도, MTBF 0 = 고장 없음).");
             if ((t.MTBF > 0) != (t.MTTR > 0)) Warn("AGV_Types", t.Row, i, $"타입 '{t.Type}': MTBF와 MTTR을 둘 다 넣어야 고장이 반영됩니다(지금은 고장 없음).");
+            if (t.SpeedLoadedCurve < 0 || t.SpeedEmptyCurve < 0) Err("AGV_Types", t.Row, i, $"타입 '{t.Type}'의 곡선 속도(SpeedLoadedCurve/SpeedEmptyCurve)는 0 이상이어야 합니다.");
+            if (t.SpeedLoadedCurve > t.SpeedLoaded) Warn("AGV_Types", t.Row, i, $"타입 '{t.Type}': 적재 곡선 속도가 직선 속도보다 큽니다.");
+            if (t.SpeedEmptyCurve > (t.SpeedEmpty > 0 ? t.SpeedEmpty : t.SpeedLoaded)) Warn("AGV_Types", t.Row, i, $"타입 '{t.Type}': 공차 곡선 속도가 직선 속도보다 큽니다.");
             if (t.Accel < 0 || t.Decel < 0) Err("AGV_Types", t.Row, i, $"타입 '{t.Type}'의 Accel/Decel은 0 이상이어야 합니다(0 = AutoMod 기본값).");
             if (VehicleKinds.Find(t.Kind) == null) Err("AGV_Types", t.Row, i, $"타입 '{t.Type}'의 Kind '{t.Kind}'은(는) 알 수 없습니다. ({VehicleKinds.Names})");
         }
