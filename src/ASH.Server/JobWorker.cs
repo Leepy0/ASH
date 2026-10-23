@@ -143,6 +143,7 @@ public sealed class JobWorker(JobStore store, IJobRunner runner, FilmWorker film
             j.Warnings = o.Warnings.ToList();
             j.FailureMessages = o.FailureMessages.ToList();
         });
+        FileIndex.Ensure(store, job.Id);
     }
 
     /// <summary>Text writer that also reports each finished line (the page shows the last one).</summary>
