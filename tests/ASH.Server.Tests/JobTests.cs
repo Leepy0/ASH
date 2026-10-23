@@ -40,9 +40,12 @@ public static class FakeResult
 public sealed class FakeRunner : IJobRunner
 {
     public ManualResetEventSlim Gate { get; } = new(true);
+    /// <summary>Replaces the default run (after the phase is set) so a test can script progress, failure or a wait.</summary>
+    public Func<IProgress<RunOutcome>, Action<SearchProgress>, CancellationToken, JobOutcome>? Script { get; set; }
     public JobOutcome Run(JobInfo job, string projectDir, TextWriter log, Action<string> phase, IProgress<RunOutcome> progress, Action<SearchProgress> search, CancellationToken ct)
     {
         phase("대수 탐색");
+        if (Script != null) return Script(progress, search, ct);
         search(new SearchProgress("탐색 시작", new Dictionary<string, int>(), new Dictionary<string, int>(), 1, 3));
         Gate.Wait(ct);
         var runs = Path.Combine(projectDir, "runs");
@@ -165,16 +168,90 @@ public class JobTests
         Assert.Equal(1.0, api.GetProperty("progress").GetDouble()); Assert.Equal(3, api.GetProperty("expectedRuns").GetInt32());
         Assert.Equal(2, api.GetProperty("partial").GetProperty("G1").GetInt32());
     }
-    [Fact] public async Task Api_Job_Has_Null_Progress_For_Legacy_Job()
+    static SearchProgress Sp(string phase, int groupsLeft, int expected, Dictionary<string, int>? confirmed = null) =>
+        new(phase, confirmed ?? new Dictionary<string, int>(), new Dictionary<string, int>(), groupsLeft, expected);
+    static void Run(IProgress<RunOutcome> p, bool ok, double sec) => p.Report(new RunOutcome("r", ok, "", TimeSpan.FromSeconds(sec), null));
+    static readonly JobOutcome Ok = new(0, null, null, null, Array.Empty<string>(), Array.Empty<string>(), Array.Empty<string>());
+
+    // Per the brief a Done job reads 100 % whatever it knows (ExpectedRuns is null for old jobs); a legacy Failed job shows no bar.
+    [Fact] public async Task Api_Legacy_Done_Job_Reads_Full_Progress_Without_Eta_And_Failed_Reads_Null()
     {
         using var env = new JobEnv(worker: false);
-        var dir = Path.Combine(env.Store.Dir, "20250101-000000-abcd"); Directory.CreateDirectory(dir);
-        File.WriteAllText(Path.Combine(dir, "job.json"), "{\"Id\":\"20250101-000000-abcd\",\"State\":\"done\",\"RunsDone\":7}");
-        var js = new JobStore(env.Store.Dir, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
-        var j = js.Get("20250101-000000-abcd")!;
-        Assert.Null(j.ExpectedRuns); Assert.Null(j.Partial); Assert.Equal(1.0, JobProgress.Ratio(j));
-        j.State = JobState.Failed; Assert.Null(JobProgress.Ratio(j));
-        await Task.CompletedTask;
+        var id = "20250101-000000-abcd";
+        var j = JsonSerializer.Deserialize<JobInfo>("{\"Id\":\"" + id + "\",\"State\":\"done\",\"RunsDone\":7}")!;
+        Assert.Null(j.ExpectedRuns); Assert.Null(j.Partial); Assert.Equal(0, j.RunSeconds);
+        env.Store.Add(j);
+        var api = JsonDocument.Parse(await env.Http.GetStringAsync("/api/jobs/" + id)).RootElement;
+        Assert.Equal(1.0, api.GetProperty("progress").GetDouble());
+        Assert.Equal(JsonValueKind.Null, api.GetProperty("expectedRuns").ValueKind); Assert.Equal(JsonValueKind.Null, api.GetProperty("partial").ValueKind);
+        Assert.Equal(JsonValueKind.Null, api.GetProperty("eta").ValueKind);
+        env.Store.Update(id, x => x.State = JobState.Failed);
+        api = JsonDocument.Parse(await env.Http.GetStringAsync("/api/jobs/" + id)).RootElement;
+        Assert.Equal(JsonValueKind.Null, api.GetProperty("progress").ValueKind);
+    }
+
+    [Fact] public async Task A_Failed_Run_Counts_Its_Seconds_And_A_Thrown_Job_Is_Failed_Below_Full_With_No_Running_Phase()
+    {
+        using var env = new JobEnv();
+        env.Runner.Script = (p, s, ct) => { s(Sp("탐색 시작", 1, 3)); Run(p, true, 3); Run(p, false, 2); throw new InvalidOperationException("boom"); };
+        var id = Id(await (await env.Send(JobEnv.MakePackage(env.Dir))).Content.ReadAsStringAsync());
+        var j = await env.WaitFinished(id);
+        Assert.Equal(JobState.Failed, j.State); Assert.Null(j.Phase);
+        Assert.Equal(5.0, j.RunSeconds); Assert.Equal(2, j.RunsDone); Assert.Equal(1, j.RunsFailed);
+        Assert.True(JobProgress.Ratio(j) < 1.0);
+        var api = JsonDocument.Parse(await env.Http.GetStringAsync("/api/jobs/" + id)).RootElement;
+        Assert.True(api.GetProperty("progress").GetDouble() < 1.0); Assert.Equal(JsonValueKind.Null, api.GetProperty("eta").ValueKind);
+    }
+
+    [Fact] public async Task A_Cancelled_Running_Job_Is_Cancelled_Below_Full_With_No_Running_Phase()
+    {
+        using var env = new JobEnv();
+        env.Runner.Script = (p, s, ct) => { s(Sp("탐색 시작", 1, 3)); Run(p, true, 1); ct.WaitHandle.WaitOne(); ct.ThrowIfCancellationRequested(); return Ok; };
+        var id = Id(await (await env.Send(JobEnv.MakePackage(env.Dir))).Content.ReadAsStringAsync());
+        for (int i = 0; i < 200 && env.Store.Get(id)!.RunsDone < 1; i++) await Task.Delay(50);
+        await env.Http.PostAsync($"/jobs/{id}/cancel", new FormUrlEncodedContent(new Dictionary<string, string>()));
+        var j = await env.WaitFinished(id);
+        Assert.Equal(JobState.Cancelled, j.State); Assert.Null(j.Phase);
+        Assert.True(JobProgress.Ratio(j) < 1.0);
+    }
+
+    [Fact] public async Task Runs_Past_The_Estimate_Raise_It_To_Runs_Plus_Groups_Left()
+    {
+        using var env = new JobEnv();
+        env.Runner.Script = (p, s, ct) => { s(Sp("탐색 시작", 2, 3)); for (int i = 0; i < 3; i++) Run(p, true, 1); return Ok; };
+        var id = Id(await (await env.Send(JobEnv.MakePackage(env.Dir))).Content.ReadAsStringAsync());
+        Assert.Equal(3, (await env.WaitFinished(id)).ExpectedRuns); // reaching the estimate does not raise it
+        using var env2 = new JobEnv();
+        env2.Runner.Script = (p, s, ct) => { s(Sp("탐색 시작", 2, 3)); for (int i = 0; i < 4; i++) Run(p, true, 1); return Ok; };
+        var id2 = Id(await (await env2.Send(JobEnv.MakePackage(env2.Dir))).Content.ReadAsStringAsync());
+        Assert.Equal(4 + 2, (await env2.WaitFinished(id2)).ExpectedRuns);
+    }
+
+    [Fact] public async Task A_Throwing_Progress_Handler_Is_Logged_And_The_Job_Still_Finishes()
+    {
+        using var env = new JobEnv();
+        env.Runner.Script = (p, s, ct) =>
+        {
+            s(new SearchProgress("깨진 보고", null!, null!, 1, 3)); // Confirmed.Count throws inside JobStore.Update
+            Run(p, true, 1); return Ok;
+        };
+        var id = Id(await (await env.Send(JobEnv.MakePackage(env.Dir))).Content.ReadAsStringAsync());
+        var j = await env.WaitFinished(id);
+        Assert.Equal(JobState.Done, j.State); Assert.Equal(1, j.RunsDone);
+    }
+
+    [Fact] public async Task Api_Running_Job_Has_Eta_And_Average_Run_Seconds()
+    {
+        using var env = new JobEnv();
+        var hold = new ManualResetEventSlim(false);
+        env.Runner.Script = (p, s, ct) => { s(Sp("탐색 시작", 1, 4)); Run(p, true, 10); Run(p, true, 10); hold.Wait(ct); return Ok; };
+        var id = Id(await (await env.Send(JobEnv.MakePackage(env.Dir))).Content.ReadAsStringAsync());
+        for (int i = 0; i < 200 && env.Store.Get(id)!.RunsDone < 2; i++) await Task.Delay(50);
+        var api = JsonDocument.Parse(await env.Http.GetStringAsync("/api/jobs/" + id)).RootElement;
+        hold.Set(); await env.WaitFinished(id);
+        Assert.Equal(0.5, api.GetProperty("progress").GetDouble(), 3); Assert.Equal(10.0, api.GetProperty("avgRunSec").GetDouble(), 3);
+        var eta = DateTime.Parse(api.GetProperty("eta").GetString()!, null, System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal);
+        Assert.InRange((eta - DateTime.UtcNow).TotalSeconds, 5, 15); // (4-2) x 10 s / 2 (default Jobs:Parallel)
     }
 
     static string Id(string json) => JsonDocument.Parse(json).RootElement.GetProperty("id").GetString()!;

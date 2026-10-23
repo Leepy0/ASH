@@ -19,7 +19,7 @@ public interface IJobRunner
 public sealed class AutoModJobRunner(IConfiguration cfg) : IJobRunner
 {
     public string AmHome => cfg["Jobs:AmHome"] is { Length: > 0 } h ? h : @"C:\AutoMod\12_6";
-    int Parallel => Math.Max(1, cfg.GetValue("Jobs:Parallel", 2));
+    int Parallel => JobProgress.Parallel(cfg);
     internal string? DialogButton => cfg["Jobs:DialogButton"] is { Length: > 0 } b ? b : null;
     internal TimeSpan RunTimeout => TimeSpan.FromMinutes(Math.Max(1, cfg.GetValue("Jobs:RunTimeoutMin", 30)));
     internal TimeSpan BuildTimeout => TimeSpan.FromMinutes(Math.Max(1, cfg.GetValue("Jobs:BuildTimeoutMin", 10)));
@@ -44,7 +44,7 @@ public sealed class AutoModJobRunner(IConfiguration cfg) : IJobRunner
         ct.ThrowIfCancellationRequested();
 
         phase("대수 탐색");
-        var r = SearchJob.Run(new SearchJobOptions(projectDir, job.Model, AmHome, Parallel, DialogButton, RunTimeout, job.InitialReps, job.Impact), null, log, progress, ct, search);
+        var r = SearchJob.Run(new SearchJobOptions(projectDir, job.Model, AmHome, Parallel, DialogButton, RunTimeout, job.InitialReps, job.Impact), null, log, progress, ct, onProgress: search);
         var sum = SearchSummaryFile.From(r);
         return new JobOutcome(r.ExitCode, r.Error, r.Search?.Decided, r.Clusters?.Clusters, sum.ConfirmRunIds, sum.Warnings, sum.FailureMessages);
     }
@@ -113,8 +113,7 @@ public sealed class JobWorker(JobStore store, IJobRunner runner, FilmWorker film
         {
             try
             {
-                groupsLeft = p.GroupsLeft;
-                store.Update(job.Id, j => { j.ExpectedRuns ??= p.ExpectedRuns; j.Partial = p.Confirmed.Count == 0 ? null : new(p.Confirmed); j.Phase = p.Phase; });
+                store.Update(job.Id, j => { groupsLeft = p.GroupsLeft; j.ExpectedRuns ??= p.ExpectedRuns; j.Partial = p.Confirmed.Count == 0 ? null : new(p.Confirmed); j.Phase = p.Phase; });
             }
             catch (Exception e) { logger.LogWarning(e, "작업 {Id} 진행 표시 실패", job.Id); }
         }
