@@ -336,3 +336,21 @@ A·B·C·D는 파일이 거의 겹치지 않아 병렬로 간다. 겹치는 곳�
 해독하지 못한 것: 끝자리 0과 1 짝(320/321, 330/331, 350/351, 360/361)의 차이(뚜껑 유무나 분할 수로 추정), 320과 360의 차이, 350의 3·4번 필드. 반지름이 지름이 아니라는 판단은 바퀴 크기가 그럴듯하다는 데만 기대고 있다.
 
 **영향.** 이번 릴리스(0.22.0)는 C.4대로 상자(310)만 쓴다. 이 결과로 C-G2(입력 형식)·C-G3(모델에 넣기)와 에셋 생성 Task 4~12는 모두 진행한다. `.cel` 생성기는 `10000 21` → `7000 21`(자식 1) → `700 17`(자식 n) → `310 5`(이름, 위치·회전·배율, 크기 줄 `by bx by bx h 0 0`) 구조로 만든다. 원기둥은 다음 릴리스에서 편집기 대조를 거친 뒤 `BoxSimplifier`에 원기둥 판별을 추가할 수 있다. 확인할 일: `cyl.cel`(기준 상자 1×1×1, `320 5` `0.5 0.5 2 0 0`, `350 5` `0.5 2 0 0`)을 AM 편집기에서 열어 반지름과 지름, 원점, 축을 확인한다.
+
+### C-G2 3D 입력 형식(STEP 가능 여부) (2026-10-23)
+
+**판정: STL(ASCII·binary)과 OBJ(`v`/`f`)만 받는다. STEP은 사용자가 CAD에서 STL로 내보내 올린다.** 이유: 이 PC에 오프라인으로 쓸 수 있는 STEP 테셀레이션 커널이 없다. 아무것도 설치하지 않고 목록만 확인했다.
+
+| 확인한 곳 | 결과 |
+|---|---|
+| `third_party\` | 없음 |
+| `lib\` | `zwcad`(ZWCAD .NET API)만. CAD 안에서만 돌고 서버에서 명령줄로 자동화할 수 없다 |
+| `%USERPROFILE%\.nuget\packages`(212개) | step·opencascade·occt·assimp·xbim·ifc·gltf·mesh 계열 없음. `zwcad.netapi`만 걸림 |
+| Program Files(x86 포함) | OpenCASCADE·FreeCAD·Assimp·MeshLab 같은 CAD/메시 도구 없음 |
+| Python 3.12 | `cadquery`·`OCP`·`pythonocc`·`gmsh`·`trimesh` 없음 |
+| .NET SDK | 9.0.300, 10.0.402. STEP 기능 없음 |
+| `C:\AutoMod\12_6\bin` | HOOPS Exchange(`A3DLIBS.dll`·`hoops*.dll`, `*step30.dll` 변환기)가 있다. 그러나 AutoMod 라이선스에 묶인 SDK이고 헤더·라이선스 키가 없다. 명령줄 실행 파일(`amodviewer64.exe` 등)도 GUI 전용이라 자동화 지점이 없다(서버 설계 3장) |
+
+순수 .NET STEP 파서(IxMilia.Step 등)는 엔티티만 읽고 B-rep 테셀레이션이 없어 상자화에 쓸 수 없다. 설치도 하지 않았다.
+
+**영향.** Task 4는 STL/OBJ만 구현한다. 업로드 화면 도움말에 "STEP은 CAD에서 STL로 내보내 올리세요"를 넣는다. 관문이 뒤집히면(오프라인 커널을 들여오면) Task 4 뒤에 `MeshReader.Read`의 확장자 분기 하나로 "STEP → 삼각형" 리더를 더한다. 건너뛰는 작업은 없다.
