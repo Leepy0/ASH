@@ -408,6 +408,8 @@ document.querySelectorAll('table.sort').forEach(function(t){
         {
             sb.Append("<h2>그룹</h2><table><tr><th>그룹</th><th>타입</th><th>최소(대)</th><th>최대(대)</th><th>대기 CP</th></tr>");
             foreach (var g in v.Input.Groups) sb.Append($"<tr><td>{H(g.Group)}</td><td>{H(g.Type)}</td><td class=\"num\">{g.MinCount}</td><td class=\"num\">{g.MaxCount}</td><td>{H(string.Join(", ", g.StandbyCPs))}</td></tr>");
+            sb.Append("</table><h2>AGV 타입</h2><table><tr><th>타입</th><th>에셋</th></tr>");
+            foreach (var t in v.Input.AgvTypes) sb.Append($"<tr><td>{H(t.Type)}</td><td>{H(string.IsNullOrWhiteSpace(t.Asset) ? "기본 그림" : t.Asset)}</td></tr>");
             var curved = v.Input.AgvTypes.Where(t => t.SpeedLoadedCurve > 0 || t.SpeedEmptyCurve > 0).ToList();
             if (curved.Count > 0)
             {
