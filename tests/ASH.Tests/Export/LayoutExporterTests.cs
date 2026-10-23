@@ -77,7 +77,6 @@ public class LayoutExporterTests
         var l = L.Of(L.Line("a",0,0,10,0)); l.Cps.Add(L.Cp("S001", 2, 0, "standby", group: "G1"));
         var s = LayoutExporter.ToAgvs(l, new ExportOptions(Groups: new[]{ new VehicleGroupSpec("G1","Tug",5,1.2,2.0,1.0) }));
         var w = new StringWriter(); AsyWriter.Write(s, w); var lines = w.ToString().Split('\n');
-        Assert.Contains(lines, x => x.Trim().StartsWith("brakedist") && x.EndsWith("Feet"));
         Assert.Contains(lines, x => x.Trim() == "vel\t0 1.2 Meters Seconds");
         Assert.Contains(lines, x => x.Trim() == "template Feet");
         Assert.DoesNotContain(lines, x => x.Contains(" 3 Meters"));
@@ -209,11 +208,30 @@ public class LayoutExporterTests
         Assert.Contains("stopdist\t0 0.5 Meters", lines);
         Assert.Contains("vel\t0 1.5 Meters Seconds", lines);   // the Empty line
         Assert.Contains("vel\t0 1 Meters Seconds", lines);     // the loaded line
-        Assert.Contains("brakedist\t1 0 Feet", lines);         // Empty brake/stop distances inherit
-        // no decel: the template's distances stay, and SpeedEmpty = Speed keeps the Empty line inheriting
+        Assert.Contains("brakedist\t1 5 Meters", lines);       // the Empty line (parked vehicles) gets the same distances
+        Assert.Contains("stopdist\t1 0.5 Meters", lines);
+        // no decel: the template's 1 ft/s^2 gives v^2 / 2d, and SpeedEmpty = Speed keeps the Empty line inheriting
         var plain = Lines(G).Select(x => x.Trim()).ToList();
-        Assert.Contains("brakedist\t0 4.5 Feet", plain);
+        Assert.DoesNotContain("brakedist\t0 4.5 Feet", plain);
         Assert.Contains("vel\t1 0 Feet Seconds", plain);
+    }
+    // user report: vehicles of a group parked on one standby CP overlapped (brake distance 0 m). Every vehicle type, both load states,
+    // with and without a Decel, in every unit: brake distance >= stop distance >= 0.5 m.
+    [Theory]
+    [InlineData("Meters", 1.0, 0.0)] [InlineData("Meters", 1.0, 0.25)] [InlineData("Meters", 0.2, 5.0)]
+    [InlineData("Millimeters", 1.0, 0.0)] [InlineData("Millimeters", 1.0, 0.25)] [InlineData("Millimeters", 0.2, 5.0)]
+    [InlineData("Feet", 1.0, 0.0)] [InlineData("Feet", 1.0, 0.25)] [InlineData("Feet", 0.2, 5.0)]
+    public void Brake_And_Stop_Distance_Are_At_Least_Half_A_Meter_For_Every_Type_And_Load_State(string units, double speed, double decel)
+    {
+        double upm = ASH.Core.Settings.UnitScale.ModelUnitsPerMeter(units)!.Value;
+        var l = L.Of(L.Line("a",0,0,100,0)); l.Cps.Add(L.Cp("S001", 2, 0, "standby", group: "G1")); l.Cps.Add(L.Cp("S002", 4, 0, "standby", group: "G2"));
+        var s = LayoutExporter.ToAgvs(l, new ExportOptions(Units: units, Groups: new[]{
+            new VehicleGroupSpec("G1","Tug",3,speed,2,1, 30, 0, decel), new VehicleGroupSpec("G2","Fork",3,speed,2,1, 30, 0, decel, SpeedEmpty: speed * 2) }));
+        var dist = s.VehicleLines.Select(x => x.Trim().Split('\t')).Where(x => x[0] is "brakedist" or "stopdist")
+            .Select(x => (Key: x[0] + x[1].Split(' ')[0], Val: double.Parse(x[1].Split(' ')[1], System.Globalization.CultureInfo.InvariantCulture) / upm)).ToList();
+        Assert.Equal(8, dist.Count);                                  // 2 types x brake/stop x state 0/1
+        foreach (var d in dist) Assert.True(d.Val >= 0.5 - 1e-9, $"{d.Key} {d.Val} m");
+        for (int i = 0; i < dist.Count; i += 2) Assert.True(dist[i].Val >= dist[i + 1].Val, dist[i].Key);   // brakedist{n} precedes stopdist{n}
     }
     // a mm drawing (Scale 0.001: drawing -> meters) gives the same model in Meters and in Millimeters, only every length is x1000 in Millimeters;
     // the vehicle picture is in feet either way (its own `template Feet`)

@@ -142,14 +142,12 @@ public static class LayoutExporter
             }
             var speed = N(g.Speed * upm);
             bool emptySpeed = g.SpeedEmpty > 0 && g.SpeedEmpty != g.Speed;
-            // sensor field: a vehicle starts braking for the one ahead at v^2 / 2d and stops StopGapM short of it (AutoMod stop distance
-            // = brake distance - v^2 / 2d). The demo template's fixed 4.5 ft / 0 ft is only kept without a decel.
-            string? brake = null, stop = null;
-            if (g.Decel > 0)
-            {
-                double v = Math.Max(g.Speed, g.SpeedEmpty);
-                brake = N((v * v / (2 * g.Decel) + StopGapM) * upm); stop = N(StopGapM * upm);
-            }
+            // sensor field (AutoMod vehicle attributes: brake distance = line distance to the vehicle ahead at which braking starts, stop
+            // distance = distance at which it stands; brake = v^2 / 2d + stop). Both are always written, for the Default AND the Empty line
+            // (parked/retrieving vehicles use the Empty line, where the template's 0 gave 0 m and stacked vehicles on top of each other),
+            // and never below StopGapM. Without a Decel the template's own 1 ft/s^2 applies.
+            double dec = g.Decel > 0 ? g.Decel : 0.3048, vmax = Math.Max(g.Speed, g.SpeedEmpty);
+            var brake = N((vmax * vmax / (2 * dec) + StopGapM) * upm); var stop = N(StopGapM * upm);
             foreach (var line in Template("agvs_veh.txt"))
             {
                 var t = line.Replace("DefVehicle", g.TypeName).Replace("numveh 10", "numveh " + g.MaxCount)
@@ -158,11 +156,8 @@ public static class LayoutExporter
                 if (g.Accel > 0) t = Regex.Replace(t, @"^(\s*accel\s+0 )1 Feet( Seconds Seconds)", "${1}" + N(g.Accel * upm) + " " + o.Units + "${2}");
                 if (g.Decel > 0) t = Regex.Replace(t, @"^(\s*decel\s+0 )1 Feet( Seconds Seconds)", "${1}" + N(g.Decel * upm) + " " + o.Units + "${2}");
                 t = Regex.Replace(t, @"^(\s*rotate\s+0 )2( Seconds)", "${1}" + N(g.RotateDegPerSec) + "${2}");
-                if (brake != null)
-                {
-                    t = Regex.Replace(t, @"^(\s*brakedist\s+0 )4\.5 Feet", "${1}" + brake + " " + o.Units);
-                    t = Regex.Replace(t, @"^(\s*stopdist\s+0 )0 Feet", "${1}" + stop + " " + o.Units);
-                }
+                t = Regex.Replace(t, @"^(\s*brakedist\s+[01] )\S+ Feet", "${1}" + brake + " " + o.Units);
+                t = Regex.Replace(t, @"^(\s*stopdist\s+[01] )\S+ Feet", "${1}" + stop + " " + o.Units);
                 // the Empty line (retrieving, parking) runs at SpeedEmpty instead of inheriting the loaded speed
                 if (emptySpeed) t = Regex.Replace(t, @"^(\s*(?:vel|crvvel|sprvel|rvel|rcrvvel|rsprvel|crabvel)\s+)1 0 Feet( Seconds)", "${1}0 " + N(g.SpeedEmpty * upm) + " " + o.Units + "${2}");
                 s.VehicleLines.Add(Regex.Replace(t, @"^(\s*(?:vel|crvvel|sprvel|rvel|rcrvvel|rsprvel|crabvel)\s+0 )3 Feet( Seconds)", "${1}" + speed + " " + o.Units + "${2}"));
