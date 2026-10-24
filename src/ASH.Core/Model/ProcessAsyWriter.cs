@@ -71,6 +71,7 @@ public static class ProcessAsyWriter
             // The template is AutoMod's default block shape, a 4 x 4 x 4 box centred on picpos beg (310 primitive: bottom x, bottom y, top x, top y, height),
             // so scx/scy are a quarter of the rect size. AutoMod's traffic block is this graphic: a box drawn bigger than the rect (unscaled 4 x 4 did, once)
             // swallows standby and load CPs, a vehicle waiting there holds the block for good, and everything locks up (seen in CrossingScenarioTests).
+            // Flag 17 + the style line "face edge linestyle linewidth fill name" with fill 0 draws the box as an outline, so the layout under it stays visible.
             double x0 = Math.Min(b.Rect.Min.X, b.Rect.Max.X), x1 = Math.Max(b.Rect.Min.X, b.Rect.Max.X), y0 = Math.Min(b.Rect.Min.Y, b.Rect.Max.Y), y1 = Math.Max(b.Rect.Min.Y, b.Rect.Max.Y);
             if (x1 - x0 <= 0 || y1 - y0 <= 0) throw new ArgumentException("block " + b.Name + " has zero width or height");
             double cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
