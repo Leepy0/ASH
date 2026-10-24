@@ -501,7 +501,9 @@ document.querySelectorAll('table.sort').forEach(function(t){
           .Append(Th("기대 공급(회)")).Append(Th("결품 시간(초)")).Append(Th("교착(회)")).Append(Th("실행 시간(초)")).Append("<th>모델</th></tr></thead><tbody>");
         foreach (var r in v.Rows.Take(1000))
         {
-            sb.Append($"<tr><td>{H(r.RunId)}</td>");
+            // the id spells out every group's count, which the columns after it already show; keep only the tail (seed, flags) and put the full id in the tooltip
+            var us = r.RunId.IndexOf('_');
+            sb.Append($"<tr><td title=\"{H(r.RunId)}\">{(us > 0 ? "…" + H(r.RunId[us..]) : H(r.RunId))}</td>");
             var c = counts[r.RunId];
             foreach (var g in gs) sb.Append($"<td class=\"num\">{(c.TryGetValue(g.Group, out var n) ? n : g.MinCount)}</td>");
             sb.Append($"<td class=\"num\">{r.Seed}</td><td class=\"num\">{r.Seed - v.Input.Settings.SeedBase + 1}</td><td>{H(r.Group)}</td><td class=\"{(r.Ok ? "ok" : "bad")}\">{(r.Ok ? "통과" : H(r.Reason))}</td>" +
