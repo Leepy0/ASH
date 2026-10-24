@@ -74,4 +74,29 @@ public class HomeViewTests
         var forced = HomeView.Build(analyses, jobs, [], null, (1, null, null), true, 2, "10.9.9.9", me: true, now);
         Assert.False(forced.Me); Assert.Equal(2, forced.InProgress.Count + forced.Finished.Count);
     }
+
+    [Fact] public void Lanes_Put_Each_Analysis_Where_Its_Film_Stands()
+    {
+        FilmInfo Film(string id, string analysis, string state, string job, int done = 0) => new()
+        {
+            Request = new(id, analysis, ["c1"], [job], 640, 480, 10, "joined", false, null, 0, null), AnalysisName = analysis, State = state, Done = done,
+            CreatedUtc = now.AddMinutes(-30), FinishedUtc = state == "done" ? now.AddMinutes(-5) : null, Items = { new FilmItem(), new FilmItem(), new FilmItem() },
+        };
+        var an = new[] { A("a1", "결론만", "p1"), A("a2", "영상 중", "p2"), A("a3", "영상 끝", "p3"), A("a4", "영상 실패", "p4") };
+        var js = new[] { J("j1", "10.0.0.5", "kim", analysis: "a1", plan: "p1"), J("j2", "10.0.0.5", "kim", analysis: "a2", plan: "p2"),
+                         J("j3", "10.0.0.5", "kim", analysis: "a3", plan: "p3", selected: true), J("j4", "10.0.0.5", "kim", analysis: "a4", plan: "p4"),
+                         J("q1", "10.0.0.9", "park", "queued", "a1", "p1", 2) };
+        var fs = new[] { Film("f2", "a2", "running", "j2", 1), Film("f3", "a3", "done", "j3", 3), Film("f4", "a4", "failed", "j4") };
+        var v = HomeView.Build(an, js, fs, fs[0], (1, null, null), true, 1, "10.0.0.5", false, now);
+        Assert.Equal(new[] { "a1", "a4" }, v.Conclusions.Select(c => c.AnalysisId).OrderBy(x => x)); // a failed film counts as none
+        Assert.Equal(2, v.Conclusions.Single(c => c.AnalysisId == "a1").Total); Assert.True(double.IsNaN(v.Conclusions[0].Util)); // no JobStore: numbers unknown
+        Assert.Equal("f2", Assert.Single(v.Films).FilmId); Assert.Equal((1, 3), (v.Films[0].Done, v.Films[0].Total));
+        var r = Assert.Single(v.Reports); Assert.Equal(("a3", "f3", "j3", true), (r.AnalysisId, r.FilmId, r.JobId, r.Selected));
+        Assert.False(Assert.Single(v.Queued).Mine);
+        var l = LiveFields.OfHome(v);
+        Assert.Equal("1 / 3", l.Fields["film.f2.done"]); Assert.Equal("33", l.Fields["film.f2.bar"]); Assert.Equal("running", l.Watch["f2"]);
+        var html = HomePages.Home(v, "", "", null);
+        foreach (var s in new[] { "href=\"/analyses/a1/cuts?job=j1\"", "href=\"/jobs/j3/files/report.xlsx\"", "data-field=\"film.f2.done\"", "결론 확인", "보고서", "class=\"lanes\"" })
+            Assert.Contains(s, html);
+    }
 }
