@@ -1,6 +1,8 @@
 using System.Globalization;
 using System.Text;
+using ASH.Core;
 using ASH.Core.Analysis;
+using ASH.Core.Geometry;
 using ASH.Core.Runner;
 using static ASH.Server.JobPages;
 
@@ -9,6 +11,10 @@ namespace ASH.Server;
 /// <summary>The analysis pages: the list (/analyses), one analysis with its plans' versions and the compare table of the selected ones
 /// (/analyses/{id}), the jobs not filed anywhere (/analyses/unclassified), and the "where is this job filed" header of a job page.</summary>
 public sealed record AnalysisPageData(AnalysisInfo A, IReadOnlyList<JobInfo> Jobs, IReadOnlyList<FilmInfo> Films, JobStore Store, (int Ahead, DateTime? Start, TimeSpan? Typical) Queue, int Parallel, int CutCount, FilmStore? Fs = null, IReadOnlyDictionary<string, PriceRow>? Prices = null);
+
+/// <summary>The left list of the analysis pages: rows (in progress first), whether only mine are shown, the search text, the tag selects,
+/// the list's own query (me, q, tags) that row links keep, the unclassified count and every film (for the "영상 만드는 중" stage).</summary>
+public sealed record AnalysisListData(IReadOnlyList<AnalysisRow> Rows, bool Me, string Q, string TagFilter, string Keep, int Unclassified, IReadOnlyList<FilmInfo> Films);
 
 public static class AnalysisPages
 {
@@ -26,6 +32,14 @@ public static class AnalysisPages
     }
 
     static string Num(double d, string fmt = "0.#") => F(d, fmt);
+    static string Pc0(double u) => double.IsNaN(u) ? "-" : F(u * 100, "0") + "%";
+    static string Md(DateTime? utc) => utc is { } t ? SeoulTime.FromUtc(t).ToString("MM/dd", CultureInfo.InvariantCulture) : "";
+
+    static bool Ok(JobInfo j) => j.State == JobState.Done && j.Decided != null;
+    static DateTime At(JobInfo j) => j.FinishedUtc ?? j.CreatedUtc;
+    /// <summary>The version a plan (or the analysis) stands for: the latest selected finished one, else the latest finished one.</summary>
+    static JobInfo? Pick(IEnumerable<JobInfo> js) { var l = js.Where(Ok).ToList(); return l.Where(j => j.Selected).OrderByDescending(At).FirstOrDefault() ?? l.OrderByDescending(At).FirstOrDefault(); }
+    static string PlanName(AnalysisInfo a, JobInfo j) => a.Plans.FirstOrDefault(p => p.Id == j.PlanId)?.Name ?? j.Plan;
 
     /// <summary>One option per "analysis › plan", value "analysisId|planId" (the move endpoint splits it).</summary>
     static string Options(IReadOnlyList<AnalysisInfo> analyses, string? planId = null)
@@ -66,9 +80,10 @@ public static class AnalysisPages
 
     public static string Unclassified(IReadOnlyList<JobInfo> jobs, IReadOnlyList<AnalysisInfo> analyses)
     {
-        var sb = new StringBuilder("<p class=\"crumb\"><a href=\"/analyses\">분석</a> › 분석에 넣지 않은 작업</p><h1>분석에 넣지 않은 작업</h1>");
-        sb.Append("<p class=\"muted\">분석을 고르지 않고 보낸 작업과 예전 작업입니다. 안을 골라 옮기면 그 안의 다음 버전이 됩니다.</p>");
-        sb.Append("<div class=\"scroll\"><table><tr><th>작업</th><th>상태</th><th>프로젝트 / 안</th><th>보낸 사람</th><th>보낸 시각(서울)</th><th>권장 총 대수(대)</th><th>옮기기</th></tr>");
+        var sb = new StringBuilder("<p class=\"crumb\"><a href=\"/analyses\">분석</a> › 분석에 넣지 않은 작업</p><div class=\"head\"><h1>분석에 넣지 않은 작업</h1>" +
+            $"<span class=\"tag\">{jobs.Count(j => j.AnalysisId == null)}건</span></div>");
+        sb.Append("<p class=\"t3\">안을 골라 옮기면 그 안의 다음 버전이 됩니다.</p>");
+        sb.Append("<div class=\"box scroll\"><table><tr><th>작업</th><th>상태</th><th>프로젝트 / 안</th><th>보낸 사람</th><th>보낸 시각</th><th>권장(대)</th><th>옮기기</th></tr>");
         foreach (var j in jobs.Where(j => j.AnalysisId == null))
         {
             var total = j.Decided?.Values.Sum();
@@ -76,9 +91,9 @@ public static class AnalysisPages
                 $"<td class=\"num\">{(total is { } n ? n.ToString(CultureInfo.InvariantCulture) : "-")}</td><td>{MoveForm(j, analyses, "/analyses/unclassified", "옮기기")}</td></tr>");
         }
         if (!jobs.Any(j => j.AnalysisId == null))
-            sb.Append("<tr><td colspan=\"7\" class=\"muted\">분석에 넣지 않은 작업이 없습니다. ZWCAD의 ASH에서 \"서버로 보내기\"를 할 때 분석과 안을 고르면 처음부터 분석에 들어갑니다.</td></tr>");
+            sb.Append("<tr><td colspan=\"7\" class=\"muted\">없습니다. ZWCAD에서 보낼 때 분석과 안을 고르면 처음부터 분석에 들어갑니다.</td></tr>");
         sb.Append("</table></div>");
-        return Page("ASH 분석에 넣지 않은 작업", sb.ToString());
+        return Page("ASH 분석에 넣지 않은 작업", sb.ToString(), nav: "analyses");
     }
 
     static readonly System.Collections.Concurrent.ConcurrentDictionary<string, List<(string Name, int Max)>> GroupCache = new();
@@ -132,78 +147,395 @@ public static class AnalysisPages
         return string.Join(" · ", groups.Select(g => done.TryGetValue(g.Name, out var n) ? $"{g.Name} {n}" : trying.Contains(g.Name) ? $"{g.Name} {g.Max} 시험 중" : $"{g.Name} 탐색 중"));
     }
 
-    static readonly (string Key, string Name)[] Tabs = { ("status", "현황"), ("conclusion", "결론"), ("compare", "비교"), ("films", "영상") };
+    // ---------------------------------------------------------------- master-detail shell
 
-    public static string Detail(AnalysisPageData d, string tab, IQueryCollection q, string? pollScript)
+    // page-only CSS: the 270px list, the detail pane (scrolls by itself) and the 결론 grid that takes the remaining height
+    const string Css = @"<style>
+.ana{flex:1;min-height:0;display:grid;grid-template-columns:270px minmax(0,1fr);grid-template-rows:minmax(0,1fr);margin:-18px -26px -22px}
+.lp{background:#fff;border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.lp-h{display:flex;align-items:center;gap:8px;padding:14px 14px 8px}.lp-h b{font-size:16px;flex:1}
+.lp-new{position:relative}.lp-new summary{list-style:none;margin:0;width:34px;padding:0;font-size:20px}.lp-new summary::-webkit-details-marker{display:none}
+.lp-new form{position:absolute;right:0;top:40px;z-index:20;width:260px;background:#fff;border:1px solid var(--line2);border-radius:12px;padding:12px;box-shadow:0 6px 24px rgba(0,0,0,.14);display:flex;flex-direction:column;gap:8px}
+.lp-f{padding:0 14px 10px}.lp-f input[type=search]{max-width:none}.lp-f details summary{font-size:13px;margin-top:6px}.lp-f label{display:block;font-size:13px;color:var(--sub2);margin-top:6px}.lp-f select{max-width:none}.lp-f button{margin-top:8px}
+.lp-l{flex:1;min-height:0;overflow:auto;border-top:1px solid var(--line)}
+.lr{display:flex;align-items:center;gap:10px;min-height:56px;padding:8px 14px;border-bottom:1px solid var(--line);color:var(--ink);text-decoration:none}
+.lr:hover{background:var(--gray-b)}.lr.on{background:var(--blue);color:#fff}.lr.on .st{color:#fff}.lr.on .dot{background:#fff}
+.lr .dot{width:8px;height:8px;border-radius:50%;background:var(--c);flex:none}.lr .t{flex:1;min-width:0}
+.lr .t b{display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.lr .st{font-size:13px;color:var(--sub2)}.lr em{font-style:normal;font-weight:700;font-size:15px}
+.lp-x{display:block;padding:12px 14px;border-top:1px solid var(--line);font-size:13px;color:var(--sub2);text-decoration:none}
+.dp{min-height:0;overflow:auto;padding:16px 24px 20px;display:flex;flex-direction:column}.dp>*{flex:none}.dp>.fill{flex:1}
+.hint{margin:auto;text-align:center;color:var(--sub2)}
+.dh{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.dh h1{font-size:22px;margin:0 6px 0 0}.dh .sp{flex:1}
+.tb{display:flex;justify-content:center;align-items:center;gap:10px;flex-wrap:wrap;margin:14px 0 12px}.tb form{flex-wrap:nowrap}.tb select{flex:none;width:auto;min-height:32px}
+.kpi .t4{font-weight:600;margin-top:4px}.kpi .t1{margin-top:4px}
+.cg{flex:1;min-height:520px;display:grid;grid-template-columns:minmax(360px,560px) minmax(0,1fr);gap:14px;margin-top:14px}
+.cg .col{display:flex;flex-direction:column;gap:14px;min-height:0}.cg .box{margin-top:0;display:flex;flex-direction:column;min-height:0}.cg .gbox{flex:1}
+.gl{flex:1;min-height:0;overflow:auto}
+.gr{display:grid;grid-template-columns:92px minmax(60px,1fr) 52px 66px;align-items:center;gap:10px;min-height:36px;padding:0 8px;border-bottom:1px solid var(--line);font-size:14px}
+.gr.g-over{--c:var(--red);background:var(--red-b);color:var(--red);border-radius:6px}.gr.g-under{--c:var(--gray);color:var(--sub2)}.gr.g-ok{--c:var(--blue)}
+.gr .gn{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.gr .gb{position:relative;height:6px;border-radius:3px;background:var(--fill)}
+.gr .gb i{display:block;height:100%;border-radius:3px;background:var(--c)}.gr .gb b{position:absolute;top:-5px;bottom:-5px;width:2px;background:var(--ink);opacity:.55}
+.gr .gc{text-align:right;font-weight:700;font-size:17px}.gr .gc span,.pr .v b span{font-size:12px;font-weight:600}.gr .gu{text-align:right;font-size:13px;color:var(--c)}.gr.g-ok .gu{color:var(--sub2)}
+.lg{display:flex;gap:14px;justify-content:center;font-size:13px;color:var(--sub2);padding-top:10px}.lg i{display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--c);margin-right:4px}
+.pl{display:flex;flex-direction:column;gap:8px}
+.pr{display:grid;grid-template-columns:minmax(0,1fr) repeat(4,64px);align-items:center;gap:6px;border:1px solid var(--line);border-radius:12px;padding:8px 14px;color:var(--ink);text-decoration:none}
+.pr.on{border:2px solid var(--blue);background:var(--blue-b)}.pr .pn b{display:block}.pr .pn span{font-size:13px;color:var(--sub2)}
+.pr .v{text-align:center}.pr .v b{display:block;font-size:16px}.pr .v>span{font-size:12px;color:var(--sub2)}
+.mapb{min-width:0}.mw{flex:1;min-height:0;display:flex;gap:14px}
+.mv{flex:1;min-width:0;min-height:260px;position:relative;background:var(--gray-b);border-radius:10px;overflow:hidden}
+.mv svg.bm{position:absolute;inset:0;width:100%;height:100%}
+.mv svg.mm{position:absolute;top:10px;right:10px;width:150px;height:96px;background:#fff;border:1px solid var(--line2);border-radius:8px}
+.mv .segc{position:absolute;left:10px;bottom:10px}
+.rk{width:220px;flex:none;display:flex;flex-direction:column}.rk ol{list-style:none;margin:0;padding:0}
+.rk li{display:flex;align-items:center;gap:8px;min-height:36px;border-bottom:1px solid var(--line)}.rk li span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rk li i{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-style:normal;font-size:12px;font-weight:700;background:var(--gray-b);color:var(--sub2);flex:none}
+.rk li:first-child i{background:var(--red-b);color:var(--red)}.rk li b{font-variant-numeric:tabular-nums}
+.rk .end{margin-top:auto;text-decoration:none;text-align:center;padding-top:10px;border-top:1px solid var(--line);font-weight:600}
+.vr{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-height:44px;border-top:1px solid var(--line);padding:6px 0}.vr:first-of-type{border-top:0}.vr .vn{text-decoration:none;font-weight:700;font-size:16px;min-width:34px}.vr .sp{flex:1}
+.fgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px}.fgrid .box{margin-top:0}.fgrid video,.fgrid img{width:100%;border-radius:10px;background:#000;display:block}
+.cl{margin:8px 0 0;padding-left:18px}
+@media(max-width:1500px){.cg{grid-template-columns:minmax(340px,460px) minmax(0,1fr)}.rk{width:180px}}
+</style>";
+
+    /// <summary>Colour (a .c-* class) and one-line stage of an analysis row: running with its progress, queued, a film being made,
+    /// report ready (a finished version and a made film), a new conclusion (a finished version), failed, or nothing yet.</summary>
+    internal static (string Color, string Text) Stage(AnalysisRow r, IEnumerable<FilmInfo> films)
     {
-        var a = d.A;
-        if (!Tabs.Any(t => t.Key == tab)) tab = "status";
-        var sb = new StringBuilder(PollSlots + $"<p class=\"crumb\"><a href=\"/analyses\">분석</a> › {H(a.Name)}</p><h1>{H(a.Name)}</h1>");
-        if (a.Note.Length > 0) sb.Append($"<p>{H(a.Note)}</p>");
-        sb.Append($"<p class=\"muted\">만든 시각 {H(When(a.CreatedUtc))} · <a href=\"/analyses/{H(a.Id)}/cuts\">컷 영상 →</a></p>");
-        sb.Append("<div class=\"cards\">");
-        foreach (var (n, label) in new[] { (a.Plans.Count, "안"), (d.Jobs.Count, "버전"), (d.Jobs.Count(j => j.Selected), "선정"), (d.Films.Count, "영상") })
-            sb.Append($"<div class=\"card\"><div class=\"big\">{n}</div><div class=\"sub\">{label}</div></div>");
-        sb.Append("</div><div class=\"tabs\" style=\"margin-top:14px\">");
-        foreach (var (k, name) in Tabs) sb.Append($"<a href=\"/analyses/{H(a.Id)}?tab={k}\"{(k == tab ? " class=\"on\"" : "")}>{name}</a>");
-        sb.Append("</div><div class=\"panel\">");
+        if (r.Chips.FirstOrDefault(c => c.State == JobState.Running) is { } run) return ("blue", $"실행 중 {Math.Round((run.Progress ?? 0) * 100):0}%");
+        if (r.Chips.Any(c => c.State == JobState.Queued)) return ("gray", "대기");
+        var mine = films.Where(f => f.Request.AnalysisId == r.Id).ToList();
+        if (mine.Any(f => !f.Finished)) return ("orange", "영상 만드는 중");
+        var done = r.Chips.Any(c => c.State == JobState.Done && c.Total != null);
+        if (done && mine.Any(f => f.State == JobState.Done)) return ("green", "보고서 준비");
+        if (done) return ("indigo", "새 결론");
+        if (r.Chips.Any(c => c.State == JobState.Failed)) return ("red", "⚠ 실패");
+        return ("gray", r.Versions == 0 ? "버전 없음" : "결과 없음");
+    }
+
+    static void ListPane(StringBuilder sb, AnalysisListData l, string? currentId)
+    {
+        var path = currentId == null ? "/analyses" : "/analyses/" + currentId;
+        var others = string.Join("&", l.Keep.Split('&', StringSplitOptions.RemoveEmptyEntries).Where(x => !x.StartsWith("me=", StringComparison.Ordinal)));
+        string MeHref(int me) => H($"{path}?me={me}{(others.Length > 0 ? "&" + others : "")}");
+        sb.Append("<aside class=\"lp\" aria-label=\"분석 목록\"><div class=\"lp-h\"><b>분석</b>");
+        sb.Append($"<span class=\"segc\"><a href=\"{MeHref(1)}\"{(l.Me ? " class=\"on\" aria-current=\"true\"" : "")}>내 것</a><a href=\"{MeHref(0)}\"{(l.Me ? "" : " class=\"on\" aria-current=\"true\"")}>전체</a></span>");
+        sb.Append("<details class=\"lp-new\"><summary class=\"btn\" aria-label=\"새 분석\" title=\"새 분석\">+</summary><form method=\"post\" action=\"/analyses\">" +
+            "<input type=\"text\" name=\"name\" required maxlength=\"100\" placeholder=\"분석 이름\" aria-label=\"분석 이름\">" +
+            "<input type=\"text\" name=\"note\" maxlength=\"200\" placeholder=\"메모(선택)\" aria-label=\"메모\"><button class=\"primary\">만들기</button></form></details></div>");
+        sb.Append($"<form class=\"lp-f\" action=\"{H(path)}\"><input type=\"hidden\" name=\"me\" value=\"{(l.Me ? 1 : 0)}\">" +
+            $"<input type=\"search\" name=\"q\" value=\"{H(l.Q)}\" placeholder=\"이름·보낸 사람\" aria-label=\"검색\">" +
+            $"<details><summary>법인·제품군·라인</summary>{l.TagFilter}<button>거르기</button></details></form>");
+        var rows = l.Q.Length == 0 ? l.Rows : l.Rows.Where(r => r.Name.Contains(l.Q, StringComparison.OrdinalIgnoreCase) || r.Submitters.Any(s => s.Contains(l.Q, StringComparison.OrdinalIgnoreCase))).ToList();
+        sb.Append("<nav class=\"lp-l\">");
+        if (rows.Count == 0) sb.Append("<div class=\"empty\" style=\"margin:14px\">분석 없음</div>");
+        foreach (var r in rows)
+        {
+            var (c, text) = Stage(r, l.Films);
+            var on = r.Id == currentId;
+            // the open analysis' running percent follows the poll
+            var st = on && c == "blue" ? $"실행 중 <span data-field=\"running.progress\">{H(text[5..])}</span>" : H(text);
+            var when = Md(r.LastSentUtc);
+            var count = r.Chips.Where(x => x.Total != null).OrderByDescending(x => x.Selected).Select(x => x.Total).FirstOrDefault();
+            sb.Append($"<a class=\"lr c-{c}{(on ? " on" : "")}\" href=\"/analyses/{H(r.Id)}{(l.Keep.Length > 0 ? "?" + H(l.Keep) : "")}\"{(on ? " aria-current=\"page\"" : "")}>" +
+                $"<i class=\"dot\" aria-hidden=\"true\"></i><span class=\"t\"><b>{H(r.Name)}</b><span class=\"st\">{st}{(when.Length > 0 && c != "blue" ? " · " + when : "")}</span></span>" +
+                (count is { } n ? $"<em>{n}대</em>" : "") + "</a>");
+        }
+        sb.Append("</nav>");
+        sb.Append($"<a class=\"lp-x\" href=\"/analyses/unclassified\">분석에 넣지 않은 작업 {l.Unclassified}건 ›</a></aside>");
+    }
+
+    static string Shell(AnalysisListData? l, string? currentId, string detail)
+    {
+        var sb = new StringBuilder(Css);
+        if (l == null) return sb.Append("<div class=\"ana\" style=\"grid-template-columns:minmax(0,1fr)\"><div class=\"dp\">").Append(detail).Append("</div></div>").ToString();
+        sb.Append("<div class=\"ana\">");
+        ListPane(sb, l, currentId);
+        return sb.Append("<div class=\"dp\">").Append(detail).Append("</div></div>").ToString();
+    }
+
+    /// <summary>/analyses: the list and an empty detail.</summary>
+    public static string Index(AnalysisListData l) =>
+        Page("ASH 분석", Shell(l, null, "<div class=\"hint\"><div class=\"t2\">분석을 고르세요</div><div class=\"t4\">새 분석은 목록 위 + 버튼</div></div>"), nav: "analyses", fill: true);
+
+    // ---------------------------------------------------------------- detail
+
+    static readonly (string Key, string Name)[] Tabs = { ("conclusion", "결론"), ("compare", "비교"), ("films", "영상"), ("status", "버전") };
+
+    /// <summary>The tab to show: a known ?tab=, else 결론 when a version has a result, else 버전(status).</summary>
+    public static string TabOf(AnalysisPageData d, string? tab) => Tabs.Any(t => t.Key == tab) ? tab! : d.Jobs.Any(Ok) ? "conclusion" : "status";
+
+    public static string Detail(AnalysisPageData d, string? tab, IQueryCollection q, string? pollScript, AnalysisListData? list = null)
+    {
+        var a = d.A; var id = H(a.Id);
+        tab = TabOf(d, tab);
+        var cur = Pick(d.Jobs);
+        var sb = new StringBuilder(PollSlots);
+        sb.Append($"<div class=\"dh\"><h1 title=\"{H(a.Note)}\">{H(a.Name)}</h1>");
+        foreach (var t in new[] { a.Corp, a.ProductLine, a.Line }.Where(t => t.Length > 0)) sb.Append($"<span class=\"tag\">{H(t)}</span>");
+        sb.Append("<span class=\"sp\"></span>");
+        // one blue button: the next step (영상 once there is a result, then the report once a film is made)
+        var report = cur == null ? null : $"/jobs/{H(cur.Id)}/files/report.xlsx";
+        if (cur == null) sb.Append($"<a class=\"btn\" href=\"/analyses/{id}/cuts\">컷 편집</a>");
+        else if (d.Films.Any(f => f.State == JobState.Done))
+            sb.Append($"<a class=\"btn\" href=\"/analyses/{id}?tab=films\">◐ 영상 보기</a><a class=\"btn pri\" href=\"{report}\" download>↓ 보고서 받기</a>");
+        else sb.Append($"<a class=\"btn\" href=\"{report}\" download>↓ 보고서 받기</a><a class=\"btn pri\" href=\"/analyses/{id}/cuts\">◐ 영상 만들기</a>");
+        sb.Append("</div><div class=\"tb\"><nav class=\"segc\" aria-label=\"보기\">");
+        foreach (var (k, name) in Tabs)
+        {
+            var n = k == "films" ? $" <em>{d.Films.Count}</em>" : k == "status" ? $" <em>{d.Jobs.Count}</em>" : "";
+            sb.Append($"<a href=\"/analyses/{id}?tab={k}\"{(k == tab ? " class=\"on\" aria-current=\"page\"" : "")}>{name}{n}</a>");
+        }
+        sb.Append("</nav>");
+        var done = d.Jobs.Where(Ok).OrderBy(j => a.Plans.FindIndex(p => p.Id == j.PlanId)).ThenBy(j => j.Version).ToList();
+        var shown = done.FirstOrDefault(j => j.Id == q["job"].ToString()) ?? cur;
+        if (tab == "conclusion" && shown != null && q["view"] != "plans")
+        {
+            sb.Append("<form class=\"mini\"><input type=\"hidden\" name=\"tab\" value=\"conclusion\">" + (q["metric"] == "occ" ? "<input type=\"hidden\" name=\"metric\" value=\"occ\">" : "") +
+                "<select name=\"job\" aria-label=\"버전\" onchange=\"this.form.submit()\">");
+            foreach (var j in done) sb.Append($"<option value=\"{H(j.Id)}\"{(j.Id == shown.Id ? " selected" : "")}>{H(PlanName(a, j))} v{j.Version}{(j.Selected ? " · 선정" : "")}</option>");
+            sb.Append($"</select><noscript><button>보기</button></noscript><a class=\"btn\" href=\"/jobs/{H(shown.Id)}?tab=detail\">상세</a></form>");
+        }
+        sb.Append("</div>");
         switch (tab)
         {
-            case "conclusion": ConclusionTab(sb, d, q); break;
+            case "conclusion": sb.Append("<div class=\"fill\">"); ConclusionTab(sb, d, q); sb.Append("</div>"); break;
             case "compare": CompareTab(sb, d, q); break;
             case "films": FilmsTab(sb, d); break;
             default: StatusTab(sb, d); break;
         }
-        sb.Append("</div>");
-        return Page("ASH 분석 " + a.Name, sb.ToString(), pollScript);
+        return Page("ASH 분석 " + a.Name, Shell(list, a.Id, sb.ToString()), pollScript, "analyses", true);
     }
 
-    /// <summary>결론 tab: one version (the latest selected, else the latest finished; chips pick another) or every plan's version one under the other.
-    /// The chosen view is kept in localStorage and applied when the tab is opened without ?view=.</summary>
+    // ---------------------------------------------------------------- 결론
+
+    /// <summary>Utilisation under this is "too much slack" (gray ▼).</summary>
+    internal const double UnderUtil = 0.10;
+
+    /// <summary>"over" (red ▲: above UtilMax or judgement failed), "under" (gray ▼: below 10 %) or "ok" (blue).</summary>
+    internal static string GroupClass(GroupView g, double utilMax) =>
+        !g.AllOk || Over(g, utilMax) ? "over" : !double.IsNaN(g.Util) && g.Util < UnderUtil ? "under" : "ok";
+
+    /// <summary>Groups with the problems first: over (busiest first), then under (idlest first), then the rest in input order.</summary>
+    internal static List<GroupView> ProblemsFirst(IEnumerable<GroupView> groups, double utilMax) =>
+        groups.Select((g, i) => (g, i, c: GroupClass(g, utilMax)))
+            .OrderBy(x => x.c == "over" ? 0 : x.c == "under" ? 1 : 2)
+            .ThenBy(x => x.c == "over" ? -x.g.Util : x.c == "under" ? x.g.Util : x.i)
+            .Select(x => x.g).ToList();
+
+    /// <summary>"1.4억", "3,500만", or the plain amount (with the currency when it is not KRW).</summary>
+    internal static string Money(decimal d, string currency = "KRW")
+    {
+        if (currency is not ("" or "KRW")) return Won(d) + " " + currency;
+        var x = Math.Abs(d);
+        return x >= 100_000_000m ? F((double)(d / 100_000_000m), "0.##") + "억" : x >= 10_000m ? F((double)(d / 10_000m), "#,0") + "만" : Won(d);
+    }
+
+    static string Kpi(string label, string value, string unit, string color, string sub, string subColor = "") =>
+        $"<div class=\"kpi\" style=\"--c:var(--{color})\"><div class=\"t3\">{label}</div><div class=\"t1\">{value}<small>{unit}</small></div><div class=\"t4\"{(subColor.Length > 0 ? $" style=\"color:var(--{subColor})\"" : "")}>{sub}</div></div>";
+
+    /// <summary>결론 tab: four numbers, then 그룹별 권장 대수 (problems first) and 안별 결론 beside the bottleneck map, for one version
+    /// (?job=, else the latest selected, else the latest finished). ?view=plans keeps the older per-plan listing.</summary>
     internal static void ConclusionTab(StringBuilder sb, AnalysisPageData d, IQueryCollection q)
     {
-        var a = d.A; var plans = q["view"] == "plans"; var metric = q["metric"] == "occ" ? "occ" : "wait";
-        bool Ok(JobInfo j) => j.State == JobState.Done && j.Decided != null;
-        DateTime At(JobInfo j) => j.FinishedUtc ?? j.CreatedUtc;
-        JobInfo? Pick(IEnumerable<JobInfo> js) { var l = js.Where(Ok).ToList(); return (l.Where(j => j.Selected).OrderByDescending(At).FirstOrDefault()) ?? l.OrderByDescending(At).FirstOrDefault(); }
-        var done = d.Jobs.Where(Ok).OrderBy(j => a.Plans.FindIndex(p => p.Id == j.PlanId)).ThenBy(j => j.Version).ToList();
-        string PlanName(JobInfo j) => a.Plans.FirstOrDefault(p => p.Id == j.PlanId)?.Name ?? j.Plan;
-        string Radio(string v, string text) => $"<a href=\"?tab=conclusion&amp;view={v}\" data-view=\"{v}\" class=\"chip{((v == "plans") == plans ? " sel" : "")}\">{text}</a>";
-        sb.Append("<p>보기: ").Append(Radio("one", "선정 버전 하나")).Append(Radio("plans", "안별 펼침")).Append("</p>");
-        sb.Append("<script>(function(){try{var k='ashConclusionView',r=document.querySelectorAll('a[data-view]');" +
-            "r.forEach(function(e){e.addEventListener('click',function(){localStorage.setItem(k,e.getAttribute('data-view'));});});" +
-            "var s=localStorage.getItem(k);if((s==='one'||s==='plans')&&!/[?&]view=/.test(location.search)&&/[?&]tab=conclusion/.test(location.search)){var u=new URL(location.href);u.searchParams.set('view',s);location.replace(u.toString());}}catch(e){}})();</script>");
-        if (done.Count == 0) { sb.Append("<p class=\"muted\">결과가 나온 버전이 없습니다.</p>"); return; }
-        if (plans)
+        var a = d.A; var metric = q["metric"] == "occ" ? "occ" : "wait";
+        var done = d.Jobs.Where(Ok).ToList();
+        if (done.Count == 0) { sb.Append("<div class=\"empty\">결과가 나온 버전이 없습니다.</div>"); return; }
+        if (q["view"] == "plans")
         {
             foreach (var p in a.Plans)
             {
-                if (Pick(d.Jobs.Where(j => j.PlanId == p.Id)) is not { } j) { sb.Append($"<section class=\"box\"><h2>{H(p.Name)}</h2><p class=\"muted\">완료된 버전 없음</p></section>"); continue; }
-                {
-                    sb.Append($"<section class=\"box\"><h2>{H(p.Name)} · <a href=\"/jobs/{H(j.Id)}\">v{j.Version}</a>{(j.Selected ? " <span class=\"tag\">선정</span>" : "")}</h2>");
-                    Conclusion(sb, j, JobView.For(d.Store, j), true, metric);
-                    sb.Append("</section>");
-                }
+                if (Pick(d.Jobs.Where(j => j.PlanId == p.Id)) is not { } pj) { sb.Append($"<section class=\"box\"><h2>{H(p.Name)}</h2><p class=\"muted\">완료된 버전 없음</p></section>"); continue; }
+                sb.Append($"<section class=\"box\"><h2>{H(p.Name)} · <a href=\"/jobs/{H(pj.Id)}\">v{pj.Version}</a>{(pj.Selected ? " <span class=\"tag\">선정</span>" : "")}</h2>");
+                Conclusion(sb, pj, JobView.For(d.Store, pj), true, metric);
+                sb.Append("</section>");
             }
             return;
         }
         var cur = done.FirstOrDefault(j => j.Id == q["job"].ToString()) ?? Pick(done)!;
-        sb.Append("<p>");
-        foreach (var j in done) sb.Append($"<a href=\"?tab=conclusion&amp;view=one&amp;job={H(j.Id)}\" class=\"chip{(j.Id == cur.Id ? " sel" : "")}\">{H(PlanName(j))} v{j.Version}{(j.Selected ? " · 선정" : "")}</a>");
-        sb.Append("</p>");
-        Conclusion(sb, cur, JobView.For(d.Store, cur), false, metric);
+        var m = MetricsOf(d.Store, cur, d.Prices);
+        var v = m?.View ?? JobView.For(d.Store, cur);
+        if (m == null || v.Input == null) { sb.Append("<div class=\"empty\">결과를 읽지 못했습니다.</div>"); return; }
+        // the other plans' versions, each plan's own pick; the first one is what the numbers are compared with
+        var picks = a.Plans.Select(p => (Plan: p, J: p.Id == cur.PlanId ? cur : Pick(d.Jobs.Where(j => j.PlanId == p.Id)))).ToList();
+        var other = picks.Where(x => x.J != null && x.Plan.Id != cur.PlanId).Select(x => (x.Plan.Name, M: MetricsOf(d.Store, x.J!, d.Prices))).FirstOrDefault(x => x.M != null);
+
+        // ---- 4 numbers
+        sb.Append("<div class=\"kpis\">");
+        var total = m.Total ?? 0;
+        var diff = other.M?.Total is { } ot ? total - ot : (int?)null;
+        sb.Append(Kpi("권장 대수", total.ToString(CultureInfo.InvariantCulture), "대", "blue",
+            diff is { } df ? df == 0 ? $"{H(other.Name)} 대비 동일" : $"{H(other.Name)}보다 {Math.Abs(df)}대 {(df < 0 ? "적음" : "많음")}" : $"시험 {v.Input.Groups.Sum(g => g.MinCount)}~{v.Input.Groups.Sum(g => g.MaxCount)}대",
+            diff is < 0 ? "green" : ""));
+        var top = v.Groups.Where(g => !double.IsNaN(g.Util)).OrderByDescending(g => g.Util).FirstOrDefault();
+        var over = top != null && Over(top, v.UtilMax);
+        sb.Append(Kpi("최대 가동률", top == null ? "-" : F(top.Util * 100, "0"), top == null ? "" : "%", over ? "red" : "ink",
+            top == null ? "" : over ? $"▲ 상한 {F(v.UtilMax * 100, "0")}% 초과 · {H(top.Group)}" : $"✓ 상한 {F(v.UtilMax * 100, "0")}% 이하 · {H(top.Group)}", over ? "red" : ""));
+        var stop = m.Stop;
+        sb.Append(double.IsNaN(stop) ? Kpi("결품", "-", "", "ink", "")
+            : stop <= 0 ? Kpi("결품", "0", "초", "ink", "✓ 없음", "green") : Kpi("결품", F(stop, "0"), "초", "red", "⚠ 결품 있음", "red"));
+        if (m.Investment is { AnyPriced: true } inv)
+        {
+            var o = other.M?.Investment is { AnyPriced: true } oi && oi.Currency == inv.Currency ? oi : null;
+            var dm = o == null ? (decimal?)null : inv.Total - o.Total;
+            var s = Money(inv.Total, inv.Currency);
+            int cut = s.Length; while (cut > 0 && !char.IsDigit(s[cut - 1])) cut--; // "1.4억" → "1.4" + "억"
+            sb.Append(Kpi("투자비", H(s[..cut]), H(s[cut..]), "ink",
+                dm is { } x ? x == 0 ? $"{H(other.Name)} 대비 동일" : $"{H(other.Name)}보다 {H(Money(Math.Abs(x), inv.Currency))} {(x < 0 ? "절감" : "증가")}" : inv.Unpriced.Count > 0 ? $"단가 없음: {H(string.Join(", ", inv.Unpriced))}" : ""));
+        }
+        sb.Append("</div><div class=\"cg\"><div class=\"col\">");
+
+        // ---- 그룹별 권장 대수
+        var groups = ProblemsFirst(v.Groups, v.UtilMax);
+        sb.Append($"<section class=\"box gbox\"><div class=\"box-head\"><h3>그룹별 권장 대수</h3><span class=\"t4\">{groups.Count}개 · 문제 먼저</span></div><div class=\"gl\">");
+        var tick = F(Math.Min(1, v.UtilMax) * 100, "0.#");
+        foreach (var g in groups)
+        {
+            var c = GroupClass(g, v.UtilMax);
+            var sym = c == "over" ? (g.AllOk ? "▲ " : "⚠ ") : c == "under" ? "▼ " : "";
+            var w = double.IsNaN(g.Util) ? 0 : Math.Clamp(g.Util, 0, 1);
+            var tip = $"{g.Group} · {g.Type} · 범위 {g.Min}~{g.Max}대" + (g.AllOk ? "" : " · 실패: " + g.Reason);
+            sb.Append($"<div class=\"gr g-{c}\" title=\"{H(tip)}\"><span class=\"gn\">{H(g.Group)}</span><span class=\"gb\"><i style=\"width:{F(w * 100, "0.#")}%\"></i><b style=\"left:{tick}%\"></b></span>" +
+                $"<span class=\"gc\">{g.Decided?.ToString(CultureInfo.InvariantCulture) ?? "-"}<span>대</span></span><span class=\"gu\">{sym}{Pc0(g.Util)}</span></div>");
+        }
+        int nOver = groups.Count(g => GroupClass(g, v.UtilMax) == "over"), nUnder = groups.Count(g => GroupClass(g, v.UtilMax) == "under");
+        sb.Append($"</div><div class=\"lg\"><span class=\"c-red\"><i></i>상한 {F(v.UtilMax * 100, "0")}% 초과 {nOver}</span><span class=\"c-blue\"><i></i>적정 {groups.Count - nOver - nUnder}</span>" +
+            $"<span class=\"c-gray\"><i></i>10% 미만 {nUnder}</span></div></section>");
+
+        // ---- 안별 결론
+        sb.Append("<section class=\"box\"><h3 style=\"text-align:center\">안별 결론</h3><div class=\"pl\">");
+        var priced = d.Prices is { Count: > 0 };
+        foreach (var (p, pj) in picks)
+        {
+            if (pj == null) { sb.Append($"<div class=\"pr\"><span class=\"pn\"><b>{H(p.Name)}</b><span>완료된 버전 없음</span></span></div>"); continue; }
+            var pm = pj.Id == cur.Id ? m : MetricsOf(d.Store, pj, d.Prices);
+            string V(string val, string unit, string label, string color = "") =>
+                $"<span class=\"v\"><b{(color.Length > 0 ? $" style=\"color:var(--{color})\"" : "")}>{val}<span>{unit}</span></b><span>{label}</span></span>";
+            var pu = pm == null ? double.NaN : pm.Util; var ps = pm == null ? double.NaN : pm.Stop;
+            sb.Append($"<a class=\"pr{(pj.Id == cur.Id ? " on" : "")}\" href=\"?tab=conclusion&amp;job={H(pj.Id)}\"{(pj.Id == cur.Id ? " aria-current=\"true\"" : "")}>" +
+                $"<span class=\"pn\"><b>{H(p.Name)} v{pj.Version}{(pj.Selected ? " · 선정" : "")}</b><span>{Md(At(pj))}</span></span>" +
+                V(pm?.Total?.ToString(CultureInfo.InvariantCulture) ?? "-", "대", "권장", pj.Id == cur.Id ? "blue" : "") +
+                V(double.IsNaN(pu) ? "-" : F(pu * 100, "0"), "%", "가동률", pm != null && pu > pm.View.UtilMax ? "red" : "") +
+                V(double.IsNaN(ps) ? "-" : F(ps, "0"), "초", "결품", double.IsNaN(ps) ? "" : ps > 0 ? "red" : "green") +
+                (priced ? V(pm?.Investment is { AnyPriced: true } pi ? H(Money(pi.Total, pi.Currency)) : "-", "", "투자비") : "") + "</a>");
+        }
+        sb.Append("</div></section></div>");
+
+        // ---- 병목 지도
+        bool occ = metric == "occ";
+        string Url(string? mt, string? map) => $"?tab=conclusion&amp;job={H(cur.Id)}{((mt ?? metric) == "occ" ? "&amp;metric=occ" : "")}{((map ?? q["map"].ToString()) == "all" ? "&amp;map=all" : "")}";
+        sb.Append("<section class=\"box mapb\"><div class=\"box-head\"><h3>병목 지도</h3>" +
+            $"<span class=\"segc\"><a href=\"{Url("wait", null)}\"{(occ ? "" : " class=\"on\"")}>평균 대기</a><a href=\"{Url("occ", null)}\"{(occ ? " class=\"on\"" : "")}>점유율</a></span></div>");
+        if (v.Layout == null) sb.Append("<div class=\"empty\">레이아웃을 읽지 못했습니다.</div>");
+        else BottleneckMap(sb, v, occ ? b => b.Utilization : b => b.AvgWaitSec, occ ? x => F(x * 100, "0") + "%" : x => F(x, x < 10 ? "0.#" : "0") + "초",
+            q["map"] == "all", Url(null, "zoom"), Url(null, "all"), $"/jobs/{H(cur.Id)}?tab=detail");
+        sb.Append("</section></div>");
     }
+
+    /// <summary>The part of the layout to show first: the hot blocks with their own size again as margin, at least 30 % of the layout each way,
+    /// kept inside the layout. Model coordinates; the whole layout when nothing is hot.</summary>
+    internal static (double X0, double X1, double Y0, double Y1) ZoomBox((double X0, double X1, double Y0, double Y1) all, IReadOnlyList<(double X0, double X1, double Y0, double Y1)> hot)
+    {
+        if (hot.Count == 0) return all;
+        double hx0 = hot.Min(h => h.X0), hx1 = hot.Max(h => h.X1), hy0 = hot.Min(h => h.Y0), hy1 = hot.Max(h => h.Y1);
+        double W = all.X1 - all.X0, Hh = all.Y1 - all.Y0;
+        double w = Math.Min(W, Math.Max((hx1 - hx0) * 2, W * 0.3)), h = Math.Min(Hh, Math.Max((hy1 - hy0) * 2, Hh * 0.3));
+        double cx = Math.Clamp((hx0 + hx1) / 2, all.X0 + w / 2, all.X1 - w / 2), cy = Math.Clamp((hy0 + hy1) / 2, all.Y0 + h / 2, all.Y1 - h / 2);
+        return (cx - w / 2, cx + w / 2, cy - h / 2, cy + h / 2);
+    }
+
+    // markers and labels are drawn in screen px inside a group scaled by "user units per px"; this keeps them the same size at any zoom or window size
+    const string FitScript = "<script>(function(){function fit(){document.querySelectorAll('svg.bm').forEach(function(s){var m=s.getScreenCTM();if(!m||!m.a)return;var k=1/m.a;" +
+        "s.querySelectorAll('g.mk').forEach(function(g){g.setAttribute('transform','translate('+g.getAttribute('data-x')+' '+g.getAttribute('data-y')+') scale('+k+')');});});}" +
+        "fit();addEventListener('resize',fit);})();</script>";
+
+    /// <summary>Paths, blocks shaded by the value, the top 5 blocks as numbered markers; zoomed to the hot blocks (minimap + 전체 toggle) unless
+    /// <paramref name="whole"/>. The SVG fills its box (sized by the window), so a large drawing never makes the page larger. Beside it the ranked list.</summary>
+    internal static void BottleneckMap(StringBuilder sb, JobView v, Func<BlockView, double> value, Func<double, string> label, bool whole, string zoomHref, string allHref, string impactHref)
+    {
+        var l = v.Layout!;
+        sb.Append("<div class=\"mw\"><div class=\"mv\">");
+        if (LayoutBounds(l) is not { } bb) { sb.Append("<div class=\"hint\" style=\"padding-top:40px\">그릴 경로가 없습니다.</div></div></div>"); return; }
+        var vals = v.Blocks.Where(b => !double.IsNaN(value(b))).ToDictionary(b => b.Name, value, StringComparer.Ordinal);
+        double hi = vals.Values.DefaultIfEmpty(0).Max();
+        var rects = l.Blocks.GroupBy(b => b.Name, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First().Rect, StringComparer.Ordinal);
+        var ranked = v.Blocks.Where(b => vals.TryGetValue(b.Name, out var x) && x > 0).OrderByDescending(b => vals[b.Name]).Take(5).ToList();
+        (double X0, double X1, double Y0, double Y1) R(Rect2 r) => (Math.Min(r.Min.X, r.Max.X), Math.Max(r.Min.X, r.Max.X), Math.Min(r.Min.Y, r.Max.Y), Math.Max(r.Min.Y, r.Max.Y));
+        var zb = ZoomBox(bb, ranked.Take(3).Where(b => rects.ContainsKey(b.Name)).Select(b => R(rects[b.Name])).ToList());
+        double Area((double X0, double X1, double Y0, double Y1) b) => Math.Max(1e-9, b.X1 - b.X0) * Math.Max(1e-9, b.Y1 - b.Y0);
+        var zoomed = Area(zb) < 0.8 * Area(bb);
+        var box = whole || !zoomed ? bb : zb;
+        // drawing coordinates: x from the layout's left, y down from its top
+        string X(double x) => F(x - bb.X0, "0.###");
+        string Y(double y) => F(bb.Y1 - y, "0.###");
+        string ViewBox((double X0, double X1, double Y0, double Y1) b)
+        {
+            double w = b.X1 - b.X0, h = b.Y1 - b.Y0, p = Math.Max(1e-6, 0.05 * Math.Max(w, h));
+            return $"{F(b.X0 - bb.X0 - p, "0.###")} {F(bb.Y1 - b.Y1 - p, "0.###")} {F(w + 2 * p, "0.###")} {F(h + 2 * p, "0.###")}";
+        }
+        string Paths(string stroke, string width)
+        {
+            var ps = new StringBuilder();
+            foreach (var p in l.Paths)
+            {
+                int n = p.Segments.Any(sg => sg is ArcSeg) ? 16 : 1; double len = p.Length;
+                ps.Append("<polyline points=\"");
+                for (int i = 0; i <= n; i++) { var pt = p.PointAt(len * i / n); ps.Append(X(pt.X)).Append(',').Append(Y(pt.Y)).Append(' '); }
+                ps.Append($"\" fill=\"none\" stroke=\"{stroke}\" stroke-width=\"{width}\" stroke-linecap=\"round\" vector-effect=\"non-scaling-stroke\"><title>{H(p.Name)}</title></polyline>");
+            }
+            return ps.ToString();
+        }
+        double k0 = Math.Max(1e-6, (box.X1 - box.X0) * 1.1) / 700; // first guess of units per px until the script measures it
+        sb.Append($"<svg class=\"bm\" viewBox=\"{ViewBox(box)}\" preserveAspectRatio=\"xMidYMid meet\" role=\"img\" aria-label=\"병목 지도\">");
+        foreach (var b in l.Blocks)
+        {
+            var r = R(b.Rect); var has = vals.TryGetValue(b.Name, out var val);
+            sb.Append($"<rect x=\"{X(r.X0)}\" y=\"{Y(r.Y1)}\" width=\"{F(r.X1 - r.X0, "0.###")}\" height=\"{F(r.Y1 - r.Y0, "0.###")}\" fill=\"{(has && val > 0 ? Heat(hi > 0 ? val / hi : 0) : "none")}\" fill-opacity=\"0.55\" " +
+                $"stroke=\"#c7c7cc\" stroke-width=\"1\" vector-effect=\"non-scaling-stroke\"><title>{H(b.Name)}: {H(has ? label(val) : "결과 없음")}</title></rect>");
+        }
+        sb.Append(Paths("#aeaeb2", "4"));
+        string[] col = { "#d70015", "#ff9500", "#ffcc00", "#ffcc00", "#ffcc00" };
+        for (int i = ranked.Count - 1; i >= 0; i--) // the first drawn last, on top
+        {
+            var b = ranked[i];
+            if (!rects.TryGetValue(b.Name, out var rr)) continue;
+            var r = R(rr); string cx = X((r.X0 + r.X1) / 2), cy = Y((r.Y0 + r.Y1) / 2);
+            var text = $"{H(b.Name)} · {H(label(vals[b.Name]))}"; // H() would turn "·" into &#183;
+            sb.Append($"<g class=\"mk\" data-x=\"{cx}\" data-y=\"{cy}\" transform=\"translate({cx} {cy}) scale({F(k0, "0.######")})\"><title>{i + 1}. {text}</title>" +
+                $"<circle r=\"20\" fill=\"{col[i]}\" fill-opacity=\"0.25\"/><circle r=\"11\" fill=\"{col[i]}\"/>" +
+                $"<text y=\"4\" text-anchor=\"middle\" font-size=\"12\" font-weight=\"700\" fill=\"{(i < 2 ? "#fff" : "#1d1d1f")}\">{i + 1}</text>" +
+                (i == 0 ? $"<text x=\"18\" y=\"26\" font-size=\"13\" font-weight=\"600\" fill=\"#d70015\" stroke=\"#fff\" stroke-width=\"3\" paint-order=\"stroke\">{text}</text>" : "") + "</g>");
+        }
+        sb.Append("</svg>");
+        if (zoomed)
+        {
+            if (!whole)
+                sb.Append($"<svg class=\"mm\" viewBox=\"{ViewBox(bb)}\" preserveAspectRatio=\"xMidYMid meet\" aria-hidden=\"true\">{Paths("#c7c7cc", "1.5")}" +
+                    $"<rect x=\"{X(zb.X0)}\" y=\"{Y(zb.Y1)}\" width=\"{F(zb.X1 - zb.X0, "0.###")}\" height=\"{F(zb.Y1 - zb.Y0, "0.###")}\" fill=\"#007aff\" fill-opacity=\"0.15\" stroke=\"#007aff\" stroke-width=\"1.5\" vector-effect=\"non-scaling-stroke\"/></svg>");
+            sb.Append($"<span class=\"segc\"><a href=\"{zoomHref}\"{(whole ? "" : " class=\"on\"")}>병목 주변</a><a href=\"{allHref}\"{(whole ? " class=\"on\"" : "")}>전체</a></span>");
+        }
+        sb.Append("</div><div class=\"rk\">");
+        if (ranked.Count == 0) sb.Append("<div class=\"t4\">병목 없음</div>");
+        else
+        {
+            sb.Append("<ol>");
+            for (int i = 0; i < ranked.Count; i++) sb.Append($"<li><i>{i + 1}</i><span title=\"{H(ranked[i].Name)}\">{H(ranked[i].Name)}</span><b>{H(label(vals[ranked[i].Name]))}</b></li>");
+            sb.Append("</ol>");
+        }
+        sb.Append($"<a class=\"end\" href=\"{impactHref}\">영향표 전체 ›</a></div></div>").Append(FitScript);
+    }
+
+    // ---------------------------------------------------------------- 버전(status)
 
     internal static void StatusTab(StringBuilder sb, AnalysisPageData d)
     {
         var a = d.A; var jobs = d.Jobs; var back = "/analyses/" + a.Id;
-        string Title(JobInfo j) => $"{a.Name} › {a.Plans.FirstOrDefault(p => p.Id == j.PlanId)?.Name ?? j.Plan} v{j.Version}";
+        string Title(JobInfo j) => $"{a.Name} › {PlanName(a, j)} v{j.Version}";
         var running = jobs.Where(j => j.State == JobState.Running).OrderBy(j => j.StartedUtc ?? j.CreatedUtc).FirstOrDefault();
         if (running != null)
         {
             var eta = JobProgress.Eta(running, d.Queue.Typical, d.Parallel, DateTime.UtcNow);
             HomePages.RunningCard(sb, new(running.Id, Title(running), running.State, running.Phase, JobProgress.Ratio(running), running.RunsDone, running.ExpectedRuns,
-                running.RunsDone > 0 ? Dur(JobProgress.AvgRun(running)) : null, eta is { } e ? ASH.Core.SeoulTime.FromUtc(e).ToString("HH:mm") : null, running.LastLine ?? "", null), "running");
+                running.RunsDone > 0 ? Dur(JobProgress.AvgRun(running)) : null, eta is { } e ? SeoulTime.FromUtc(e).ToString("HH:mm") : null, running.LastLine ?? "", null), "running");
             sb.Append($"<p>중간 결과: <span data-field=\"partial.text\">{H(PartialText(d.Store, running))}</span></p>");
             if (PartialDetail(d.Store, running) is { } all) sb.Append($"<details><summary>그룹별 중간 결과</summary><p>{H(all)}</p></details>");
         }
@@ -212,24 +544,23 @@ public static class AnalysisPages
 
         foreach (var p in a.Plans)
         {
-            sb.Append($"<section class=\"box\"><h2>{H(p.Name)}</h2>");
-            if (p.Note.Length > 0) sb.Append($"<p class=\"muted\">{H(p.Note)}</p>");
-            var versions = jobs.Where(j => j.PlanId == p.Id).OrderBy(j => j.Version).ToList();
-            if (versions.Count == 0) sb.Append("<p class=\"muted\">아직 보낸 작업이 없습니다. ZWCAD의 ASH에서 이 분석과 안을 골라 \"서버로 보내기\"를 하면 v1이 됩니다.</p>");
+            sb.Append($"<section class=\"box\"><div class=\"box-head\"><h3>{H(p.Name)}</h3>{(p.Note.Length > 0 ? $"<span class=\"t4\">{H(p.Note)}</span>" : "")}</div>");
+            var versions = jobs.Where(j => j.PlanId == p.Id).OrderByDescending(j => j.Version).ToList();
+            if (versions.Count == 0) sb.Append("<div class=\"t4\">버전 없음 · ZWCAD에서 이 안으로 보내면 v1</div>");
             foreach (var j in versions)
             {
                 var m = MetricsOf(d.Store, j);
-                var parts = new List<string> { $"<a href=\"/jobs/{H(j.Id)}\">v{j.Version}</a>{(j.Selected ? " <span class=\"tag\">선정</span>" : "")}" };
-                if (j.State == JobState.Failed) parts.Add($"<span class=\"state s-failed\">실패</span> <span class=\"bad\">{H((j.Error ?? "").Split('\n')[0].Trim())}</span>");
-                else if (!j.Finished || j.State == JobState.Cancelled) parts.Add(State(j));
-                else if (m?.Total is { } t) parts.Add($"{t}대 · 가동률 {(double.IsNaN(m.Util) ? "-" : Math.Round(m.Util * 100).ToString("0", CultureInfo.InvariantCulture) + "%")} · 결품 {(double.IsNaN(m.Stop) ? "-" : Num(m.Stop, "0"))}초");
-                parts.Add(H(When(j.CreatedUtc))); parts.Add(H(j.Submitter)); if (j.VersionNote.Length > 0) parts.Add(H(j.VersionNote));
-                parts.Add(FileRoutes.ContinueLink(j));
-                sb.Append($"<div class=\"mini\" style=\"margin:6px 0\">{string.Join(" · ", parts.Where(x => x.Length > 0))} {SelectForm(j, back)} <a href=\"/jobs/{H(j.Id)}\">열기</a></div>");
+                sb.Append($"<div class=\"vr\"><a class=\"vn\" href=\"/jobs/{H(j.Id)}\">v{j.Version}</a>{(j.Selected ? "<span class=\"tag green\">✓ 선정</span>" : "")}");
+                if (j.State == JobState.Failed) sb.Append($"<span class=\"state s-failed\">⚠ 실패</span><span class=\"bad\">{H((j.Error ?? "").Split('\n')[0].Trim())}</span>");
+                else if (!j.Finished || j.State == JobState.Cancelled) sb.Append(State(j));
+                else if (m?.Total is { } t)
+                    sb.Append($"<b>{t}대</b><span class=\"{(m.Util > m.View.UtilMax ? "bad" : "")}\">가동률 {Pc0(m.Util)}</span><span class=\"{(m.Stop > 0 ? "bad" : "")}\">결품 {(double.IsNaN(m.Stop) ? "-" : Num(m.Stop, "0"))}초</span>");
+                sb.Append($"<span class=\"t4\">{H(When(j.CreatedUtc))} · {H(j.Submitter)}{(j.VersionNote.Length > 0 ? " · " + H(j.VersionNote) : "")}</span><span class=\"sp\"></span>");
+                sb.Append(FileRoutes.ContinueLink(j)).Append(SelectForm(j, back)).Append($"<a class=\"btn\" href=\"/jobs/{H(j.Id)}\">열기</a></div>");
             }
             sb.Append("</section>");
         }
-        if (a.Plans.Count == 0) sb.Append("<p class=\"muted\">아직 안이 없습니다. 아래에서 안을 추가하거나, ZWCAD에서 보낼 때 안 이름을 적으면 만들어집니다.</p>");
+        if (a.Plans.Count == 0) sb.Append("<div class=\"empty\">안 없음 · 아래에서 추가하거나 ZWCAD에서 보낼 때 안 이름을 적으세요</div>");
 
         sb.Append("<details><summary>안 추가 · 이름 바꾸기 · 지우기</summary><div class=\"box\">");
         sb.Append($"<form method=\"post\" action=\"/analyses/{H(a.Id)}/plans\" class=\"mini\"><input type=\"hidden\" name=\"back\" value=\"{H(back)}\">" +
@@ -241,118 +572,144 @@ public static class AnalysisPages
             sb.Append($"<form method=\"post\" action=\"/analyses/{H(a.Id)}/plans/{H(p.Id)}/rename\" class=\"mini\" style=\"margin-top:8px\"><input type=\"hidden\" name=\"back\" value=\"{H(back)}\">" +
                 $"<input type=\"text\" name=\"name\" required maxlength=\"100\" value=\"{H(p.Name)}\" aria-label=\"{H(p.Name)} 새 이름\"><button>안 이름 바꾸기</button></form>");
         if (jobs.Count == 0)
-            sb.Append($"<form method=\"post\" action=\"/analyses/{H(a.Id)}/delete\" style=\"margin-top:12px\"><button>이 분석 지우기</button> <span class=\"muted\">보낸 작업이 없을 때만 지울 수 있습니다.</span></form>");
-        else sb.Append("<p class=\"muted\">보낸 작업이 있는 분석은 지울 수 없습니다.</p>");
+            sb.Append($"<form method=\"post\" action=\"/analyses/{H(a.Id)}/delete\" style=\"margin-top:12px\"><button class=\"btn danger\">이 분석 지우기</button> <span class=\"t4\">보낸 작업이 없을 때만</span></form>");
+        else sb.Append("<p class=\"t4\">보낸 작업이 있는 분석은 지울 수 없습니다.</p>");
         sb.Append("</div></details>");
-        sb.Append($"<p class=\"muted\" style=\"font-size:13px\"><a href=\"/admin/analyses/{H(a.Id)}/delete\">관리자: 분석 삭제…</a></p>");
+        sb.Append($"<p class=\"t4\"><a href=\"/admin/analyses/{H(a.Id)}/delete\">관리자: 분석 삭제…</a></p>");
     }
 
     /// <summary>/admin/analyses/{id}/delete: what the delete does, and the form that needs the analysis name typed.</summary>
     public static string DeleteConfirm(AnalysisInfo a, int jobCount, IReadOnlyList<FilmInfo> films, int cutCount)
     {
         var active = films.Where(f => !f.Finished).ToList();
-        var sb = new StringBuilder($"<p class=\"crumb\"><a href=\"/analyses\">분석</a> › <a href=\"/analyses/{H(a.Id)}\">{H(a.Name)}</a> › 삭제</p><h1>분석 삭제(관리자)</h1>");
-        sb.Append($"<section class=\"box\"><h2>{H(a.Name)}</h2><p>이 분석을 지우면 다음과 같이 됩니다. 되돌릴 수 없습니다.</p><ul>" +
+        var sb = new StringBuilder($"<p class=\"crumb\"><a href=\"/analyses\">분석</a> › <a href=\"/analyses/{H(a.Id)}?tab=status\">{H(a.Name)}</a> › 삭제</p><h1>분석 삭제(관리자)</h1>");
+        sb.Append($"<section class=\"box\"><h2>{H(a.Name)}</h2><p class=\"bad\">⚠ 되돌릴 수 없습니다.</p><ul>" +
             $"<li><b>보낸 작업 {jobCount}건은 그대로 남고</b> \"분석에 넣지 않은 작업\"이 됩니다(안·버전·선정은 해제, 버전 메모는 유지).</li>" +
             $"<li>분석과 안 {a.Plans.Count}개가 지워집니다.</li>" +
             $"<li>컷 목록({cutCount}개)이 지워집니다.</li>" +
             $"<li>만든 영상 {films.Count}건의 기록과 영상 파일이 지워집니다.</li></ul></section>");
         if (active.Count > 0)
         {
-            sb.Append("<div class=\"msg bad\">대기 중이거나 만드는 중인 영상이 있어 지울 수 없습니다. 먼저 취소하세요: ");
+            sb.Append("<div class=\"msg bad\" role=\"alert\">대기 중이거나 만드는 중인 영상이 있어 지울 수 없습니다. 먼저 취소하세요: ");
             sb.Append(string.Join(", ", active.Select(f => $"<a href=\"/films/{H(f.Id)}\">{H(When(f.CreatedUtc))}</a>"))).Append("</div>");
-            return Page("ASH 분석 삭제", sb.ToString());
+            return Page("ASH 분석 삭제", sb.ToString(), nav: "analyses");
         }
         sb.Append($"<form method=\"post\" action=\"/admin/analyses/{H(a.Id)}/delete\" class=\"box\"><div class=\"field\"><label for=\"name\">분석 이름 입력</label><div>" +
             $"<input type=\"text\" id=\"name\" name=\"name\" required autocomplete=\"off\" maxlength=\"100\"><div class=\"help\">지울 분석의 이름 <b>{H(a.Name)}</b> 을(를) 그대로 입력하세요.</div></div></div>" +
-            "<div class=\"actions\"><button class=\"primary\">분석 지우기</button><a href=\"/analyses/" + H(a.Id) + "\">취소</a></div></form>");
-        return Page("ASH 분석 삭제", sb.ToString());
+            "<div class=\"actions\"><button class=\"btn danger\">분석 지우기</button><a class=\"btn\" href=\"/analyses/" + H(a.Id) + "\">취소</a></div></form>");
+        return Page("ASH 분석 삭제", sb.ToString(), nav: "analyses");
     }
+
+    // ---------------------------------------------------------------- 영상
 
     internal static string FileUrl(FilmInfo f, string name) => $"/films/{H(f.Id)}/files/{H(Uri.EscapeDataString(name))}";
 
-    /// <summary>영상 tab: the new-film button, the films being made (progress bar, estimate, cancel) and the finished ones (thumbnail, player, per-cut links, zip).</summary>
     static string StateSpan(FilmInfo f, string? liveKey) =>
         $"<span class=\"state s-{H(f.State)}\"{(liveKey != null ? $" data-state=\"{liveKey}.state\" data-field=\"{liveKey}.statetext\"" : "")}>{H(JobState.Korean(f.State))}</span>";
 
+    /// <summary>영상 tab: the new-film button, the films being made (progress bar, estimate, cancel) and the finished ones (player, per-cut links, zip).</summary>
     internal static void FilmsTab(StringBuilder sb, AnalysisPageData d)
     {
         var id = H(d.A.Id);
-        sb.Append($"<p><a class=\"primary\" href=\"/analyses/{id}/cuts\">새 영상 만들기</a> · 컷 리스트 {d.CutCount}개</p>");
+        sb.Append($"<div class=\"box-head\"><span class=\"t3\">컷 리스트 {d.CutCount}개</span><a class=\"btn\" href=\"/analyses/{id}/cuts\">◐ 새 영상 만들기</a></div>");
         var films = d.Films.OrderByDescending(f => f.CreatedUtc).ToList();
-        if (films.Count == 0) { sb.Append("<p class=\"muted\">아직 만든 영상이 없습니다.</p>"); return; }
+        if (films.Count == 0) { sb.Append("<div class=\"empty\">아직 만든 영상이 없습니다.</div>"); return; }
+        sb.Append("<div class=\"fgrid\">");
         foreach (var f in films.Where(f => !f.Finished))
         {
-            var k = "film." + H(f.Id); var total = f.Items.Count;
-            sb.Append($"<section class=\"box\"><div class=\"box-head\"><h2><a href=\"/films/{H(f.Id)}\">{H(When(f.CreatedUtc))}</a></h2>" +
-                StateSpan(f, k) + "</div>");
+            var k = "film." + H(f.Id);
+            sb.Append($"<section class=\"box\"><div class=\"box-head\"><h3><a href=\"/films/{H(f.Id)}\">{H(When(f.CreatedUtc))}</a></h3>" + StateSpan(f, k) + "</div>");
             sb.Append($"<p><span data-field=\"{k}.phase\">{H(f.Phase)}</span> · <span data-field=\"{k}.done\">{LiveFields.FilmDone(f)}</span></p>");
-            sb.Append($"<div class=\"prog\"><i data-bar=\"{k}.bar\" style=\"width:{LiveFields.FilmPct(f)}%\"></i></div>");
-            sb.Append($"<p>완료 예상 <span data-field=\"{k}.eta\">{H(LiveFields.FilmEta(f))}</span></p>");
-            sb.Append(f.CancelRequested ? "<p class=\"muted\">취소하는 중입니다.</p>"
+            sb.Append($"<div class=\"prog c-orange\"><i data-bar=\"{k}.bar\" style=\"width:{LiveFields.FilmPct(f)}%\"></i></div>");
+            sb.Append($"<p class=\"t4\">완료 예상 <span data-field=\"{k}.eta\">{H(LiveFields.FilmEta(f))}</span></p>");
+            sb.Append(f.CancelRequested ? "<p class=\"t4\">취소하는 중</p>"
                 : $"<form method=\"post\" action=\"/films/{H(f.Id)}/cancel\"><button>{(f.State == JobState.Queued ? "대기 취소" : "취소")}</button></form>");
             sb.Append("</section>");
         }
         foreach (var f in films.Where(f => f.Finished))
         {
             var r = f.Request; var fid = H(f.Id);
-            sb.Append($"<section class=\"box\"><h2><a href=\"/films/{fid}\">{H(When(f.CreatedUtc))}</a>{(f.State != JobState.Done ? " " + StateSpan(f, null) : "")}</h2>" +
-                $"<p class=\"muted\">{H(When(f.CreatedUtc))} · 컷 {f.Cuts.Count} × 버전 {r.JobIds.Count} · {r.Width}×{r.Height} · {r.Fps} fps</p>");
-            sb.Append(d.Fs != null && File.Exists(Path.Combine(d.Fs.FilmDir(f.Id), "thumb.jpg")) ? $"<img src=\"/films/{fid}/files/thumb.jpg\" width=\"320\" alt=\"\">" : "<div class=\"thumb-none\"></div>");
             bool Has(string n) => d.Fs != null && File.Exists(Path.Combine(d.Fs.FilmDir(f.Id), n));
+            var thumb = Has("thumb.jpg");
             var joinedOk = f.JoinedOk && f.Joined != null && Has(f.Joined);
             var oks = f.Items.Where(i => i.Ok && Has(i.Name)).ToList();
             var main = joinedOk ? f.Joined : oks.FirstOrDefault()?.Name;
-            if (main != null) sb.Append($"<div><video controls preload=\"none\" src=\"{FileUrl(f, main)}\" style=\"width:100%;max-width:720px;background:#000\"></video></div>");
+            sb.Append($"<section class=\"box\"><div class=\"box-head\"><h3><a href=\"/films/{fid}\">{H(When(f.CreatedUtc))}</a></h3>{(f.State != JobState.Done ? StateSpan(f, null) : "")}</div>");
+            if (main != null) sb.Append($"<video controls preload=\"none\" src=\"{FileUrl(f, main)}\"{(thumb ? $" poster=\"/films/{fid}/files/thumb.jpg\"" : "")}></video>");
+            else sb.Append(thumb ? $"<img src=\"/films/{fid}/files/thumb.jpg\" alt=\"\">" : "<div class=\"thumb-none\"></div>");
+            sb.Append($"<p class=\"t4\">컷 {f.Cuts.Count} × 버전 {r.JobIds.Count} · {r.Width}×{r.Height} · {r.Fps} fps</p>");
             if (oks.Count > 0)
             {
-                sb.Append("<ul>");
+                sb.Append("<ul class=\"cl\">");
                 foreach (var i in oks) sb.Append($"<li><a href=\"{FileUrl(f, i.Name)}\">{H(i.Label)}</a></li>");
                 sb.Append("</ul>");
             }
-            else if (joinedOk) sb.Append("<p class=\"muted\">이어 붙인 영상에만 넣었습니다.</p>");
-            if (f.Error != null) sb.Append($"<p class=\"bad\">{H(f.Error)}</p>");
-            sb.Append((oks.Count > 0 || joinedOk ? $"<a href=\"/films/{fid}/files/all.zip\">전체 zip 받기</a> · " : "") + $"<a href=\"/films/{fid}\">자세히</a></section>");
+            else if (joinedOk) sb.Append("<p class=\"t4\">이어 붙인 영상에만 넣었습니다.</p>");
+            if (f.Error != null) sb.Append($"<p class=\"bad\">⚠ {H(f.Error)}</p>");
+            sb.Append("<div class=\"actions\">" + (oks.Count > 0 || joinedOk ? $"<a class=\"btn\" href=\"/films/{fid}/files/all.zip\">↓ 전체 zip</a>" : "") + $"<a class=\"btn\" href=\"/films/{fid}\">자세히</a></div></section>");
         }
+        sb.Append("</div>");
     }
 
-    /// <summary>/films/{id}: progress while it runs, then the players and downloads. <paramref name="exists"/> tells which files are still on disk.</summary>
+    // clicking ▶ on a cut plays it in the page's player instead of opening the file
+    const string PlayScript = "<script>document.querySelectorAll('a[data-play]').forEach(function(a){a.addEventListener('click',function(e){var v=document.getElementById('fv');if(!v)return;" +
+        "e.preventDefault();v.src=a.getAttribute('href');var t=document.getElementById('fvt');if(t)t.textContent=a.getAttribute('data-play');v.play();v.scrollIntoView({block:'nearest'});});});</script>";
+
+    /// <summary>/films/{id}: the player first (the joined film, else the first cut), progress while it runs, the cuts with play and download, the log.
+    /// <paramref name="exists"/> tells which files are still on disk.</summary>
     public static string Film(FilmInfo f, Func<string, bool> exists, string logTail)
     {
-        var r = f.Request;
-        var sb = new StringBuilder(PollSlots + $"<p class=\"crumb\"><a href=\"/analyses\">분석</a> › <a href=\"/analyses/{H(r.AnalysisId)}\">{H(f.AnalysisName)}</a> › 영상</p>");
-        sb.Append($"<h1>영상 <span class=\"muted\">· {H(When(f.CreatedUtc))}</span></h1>");
-        sb.Append($"<p><span class=\"state s-{H(f.State)}\" data-state=\"film.state\" data-field=\"film.statetext\">{H(JobState.Korean(f.State))}</span> <span data-field=\"film.phase\">{H(f.Phase)}</span><span data-field=\"film.sep\">{(f.Phase != null ? " · " : "")}</span><span data-field=\"film.done\">컷 {f.Items.Count}개 중 {f.Done}개 완료</span>" +
-            $"{(f.Failed > 0 ? $" · <span class=\"bad\">실패 {f.Failed}개</span>" : "")}{(f.StartedUtc != null ? " · 걸린 시간 " + Dur((f.FinishedUtc ?? DateTime.UtcNow) - f.StartedUtc.Value) : "")}</p>");
-        sb.Append($"<div class=\"prog\"><i data-bar=\"film.bar\" style=\"width:{LiveFields.FilmPct(f)}%\"></i></div>");
-        if (f.State == JobState.Queued) sb.Append("<p class=\"muted\">작업 대기열에서 차례를 기다립니다. 대수 탐색 작업 사이에 하나씩 찍습니다.</p>");
+        var r = f.Request; var fid = H(f.Id);
+        var sb = new StringBuilder(PollSlots + "<style>.fv{width:100%;max-height:62vh;background:#000;border-radius:10px;display:block}.fc .row{margin-top:8px}.fc .row .t>div{font-weight:600}</style>");
+        sb.Append($"<p class=\"crumb\"><a href=\"/analyses\">분석</a> › <a href=\"/analyses/{H(r.AnalysisId)}?tab=films\">{H(f.AnalysisName)}</a> › 영상</p>");
+        var joinedOk = f.Joined != null && f.JoinedOk && exists(f.Joined);
+        var oks = f.Items.Where(i => i.Ok && exists(i.Name)).ToList();
+        sb.Append($"<div class=\"head\"><h1>영상</h1><span class=\"state s-{H(f.State)}\" data-state=\"film.state\" data-field=\"film.statetext\">{H(JobState.Korean(f.State))}</span>" +
+            $"<span class=\"t4\">{H(When(f.CreatedUtc))}</span><span class=\"sp\"></span>");
+        if (f.Finished && (joinedOk || oks.Count > 0)) sb.Append($"<a class=\"btn pri\" href=\"/films/{fid}/files/all.zip\">↓ 전체 zip</a>");
+        sb.Append("</div>");
+        sb.Append($"<p class=\"t3\"><span data-field=\"film.phase\">{H(f.Phase)}</span><span data-field=\"film.sep\">{(f.Phase != null ? " · " : "")}</span><span data-field=\"film.done\">컷 {f.Items.Count}개 중 {f.Done}개 완료</span>" +
+            $"{(f.Failed > 0 ? $" · <span class=\"bad\">⚠ 실패 {f.Failed}개</span>" : "")}{(f.StartedUtc != null ? " · 걸린 시간 " + Dur((f.FinishedUtc ?? DateTime.UtcNow) - f.StartedUtc.Value) : "")}</p>");
+        sb.Append($"<div class=\"prog c-orange\"><i data-bar=\"film.bar\" style=\"width:{LiveFields.FilmPct(f)}%\"></i></div>");
         if (!f.Finished)
-            sb.Append(f.CancelRequested ? "<p class=\"muted\">취소하는 중입니다. 지금 단계가 끝나면 멈춥니다.</p>"
-                : $"<form method=\"post\" action=\"/films/{H(f.Id)}/cancel\"><button>{(f.State == JobState.Queued ? "대기 취소" : "촬영 취소")}</button> <span class=\"muted\">찍는 동안 다른 작업은 기다립니다. 다 찍은 컷 영상은 남습니다.</span></form>");
-        if (f.Error != null) sb.Append($"<p class=\"bad\"><b>{(f.State == JobState.Done ? "주의" : "오류")}:</b> {H(f.Error)}</p>");
+        {
+            if (f.State == JobState.Queued) sb.Append("<p class=\"t4\">대수 탐색 작업 사이에 하나씩 찍습니다.</p>");
+            sb.Append(f.CancelRequested ? "<p class=\"t4\">취소하는 중 · 지금 단계가 끝나면 멈춥니다</p>"
+                : $"<form method=\"post\" action=\"/films/{fid}/cancel\" class=\"actions\"><button>{(f.State == JobState.Queued ? "대기 취소" : "촬영 취소")}</button> <span class=\"t4\">다 찍은 컷은 남습니다</span></form>");
+        }
+        if (f.Error != null) sb.Append($"<div class=\"msg {(f.State == JobState.Done ? "warn" : "bad")}\" role=\"alert\"><b>{(f.State == JobState.Done ? "주의" : "오류")}:</b> {H(f.Error)}</div>");
         foreach (var w in f.Warnings) sb.Append($"<div class=\"msg warn\">{H(w)}</div>");
-        sb.Append($"<p class=\"muted\">{r.Width}×{r.Height} · {r.Fps} fps · 자막 {(r.Caption ? "켬" : "끔")}" +
-            $"{(r.SameCounts != null ? " · 같은 대수 " + H(string.Join(", ", r.SameCounts.Select(kv => kv.Key + " " + kv.Value + "대"))) : r.VehicleDelta != 0 ? $" · 결론 {r.VehicleDelta:+0;-0}대" : " · 결론 대수")}" +
-            $" · 시드 {(r.Seed?.ToString(CultureInfo.InvariantCulture) ?? "첫 버전의 시작 시드")}</p>");
-        string Player(string name) =>
-            $"<video controls playsinline preload=\"metadata\" src=\"{FileUrl(f, name)}\" style=\"width:100%;max-width:720px;background:#000;display:block\"></video>" +
-            $"<a href=\"{FileUrl(f, name)}\" download=\"{H(name)}\">{H(name)} 받기</a>";
-        if (f.Joined != null)
-            sb.Append("<section class=\"box\"><h2>이어 붙인 영상</h2>").Append(f.JoinedOk && exists(f.Joined) ? Player(f.Joined) : $"<p class=\"muted\">{(f.Finished ? "만들지 못했습니다." : "컷을 다 찍은 뒤 이어 붙입니다.")}</p>").Append("</section>");
-        sb.Append("<section class=\"box\"><h2>컷별 영상</h2><div class=\"grid\">");
+
+        string Dl(string name) => $"<a class=\"btn\" href=\"{FileUrl(f, name)}\" download=\"{H(name)}\">↓ 받기</a>";
+        if (f.Joined != null || oks.Count > 0)
+        {
+            var main = joinedOk ? f.Joined : f.Joined == null ? oks[0].Name : null;
+            var title = f.Joined != null ? "이어 붙인 영상" : oks[0].Label;
+            sb.Append($"<section class=\"box\"><div class=\"box-head\"><h2 id=\"fvt\">{H(title)}</h2>{(main != null ? Dl(main) : "")}</div>");
+            if (main != null) sb.Append($"<video id=\"fv\" class=\"fv\" controls playsinline preload=\"metadata\" src=\"{FileUrl(f, main)}\"></video>");
+            else sb.Append($"<p class=\"t4\">{(f.Finished ? "만들지 못했습니다." : "컷을 다 찍은 뒤 이어 붙입니다.")}</p>");
+            sb.Append("</section>");
+        }
+        sb.Append($"<section class=\"box fc\"><h2>컷 {f.Items.Count}개</h2>");
         foreach (var i in f.Items)
         {
-            sb.Append($"<div><b>{H(i.Label)}</b><br>");
-            if (i.Ok && exists(i.Name)) sb.Append(Player(i.Name));
-            else if (i.Ok) sb.Append("<span class=\"muted\">이어 붙인 영상에만 넣었습니다.</span>");
-            else if (i.Error != null) sb.Append($"<span class=\"bad\">{H(i.Error)}</span>");
-            else sb.Append($"<span class=\"muted\">{(f.Finished ? "만들지 못했습니다." : "차례를 기다립니다.")}</span>");
+            sb.Append($"<div class=\"row\"><span class=\"t\"><div>{H(i.Label)}</div></span>");
+            if (i.Ok && exists(i.Name)) sb.Append($"<a class=\"btn\" href=\"{FileUrl(f, i.Name)}\" data-play=\"{H(i.Label)}\">▶ 재생</a>").Append(Dl(i.Name));
+            else if (i.Ok) sb.Append("<span class=\"t4\">이어 붙인 영상에만 넣었습니다.</span>");
+            else if (i.Error != null) sb.Append($"<span class=\"bad\">⚠ {H(i.Error)}</span>");
+            else sb.Append($"<span class=\"t4\">{(f.Finished ? "만들지 못했습니다." : "차례를 기다립니다.")}</span>");
             sb.Append("</div>");
         }
-        sb.Append("</div></section>");
-        sb.Append($"<details><summary>촬영 기록 (film.log)</summary><pre>{H(logTail)}</pre><a href=\"/films/{H(f.Id)}/files/film.log\">film.log 전체</a></details>");
-        return Page("ASH 영상 " + f.AnalysisName, sb.ToString(), f.Finished ? null : PollScript("/api/films/" + f.Id, new Dictionary<string, string> { [f.Id] = f.State }));
+        sb.Append("</section>");
+        sb.Append($"<p class=\"t4\">{r.Width}×{r.Height} · {r.Fps} fps · 자막 {(r.Caption ? "켬" : "끔")}" +
+            $"{(r.SameCounts != null ? " · 같은 대수 " + H(string.Join(", ", r.SameCounts.Select(kv => kv.Key + " " + kv.Value + "대"))) : r.VehicleDelta != 0 ? $" · 결론 {r.VehicleDelta:+0;-0}대" : " · 결론 대수")}" +
+            $" · 시드 {(r.Seed?.ToString(CultureInfo.InvariantCulture) ?? "첫 버전의 시작 시드")}</p>");
+        sb.Append($"<details><summary>촬영 기록 (film.log)</summary><pre>{H(logTail)}</pre><a href=\"/films/{fid}/files/film.log\">film.log 전체</a></details>");
+        sb.Append(PlayScript);
+        return Page("ASH 영상 " + f.AnalysisName, sb.ToString(), f.Finished ? null : PollScript("/api/films/" + f.Id, new Dictionary<string, string> { [f.Id] = f.State }), "films");
     }
+
+    // ---------------------------------------------------------------- 비교
 
     internal sealed record CompareColumn(JobInfo Job, string PlanName, Metrics? M);
 
@@ -371,13 +728,13 @@ public static class AnalysisPages
         var showAll = q["groups"] == "all";
         string Url(IEnumerable<string> l, bool maps = false, bool? all = null) =>
             $"?tab=compare&amp;jobs={string.Join(",", l.Select(Uri.EscapeDataString))}{(maps ? "&amp;maps=1" : "")}{((all ?? showAll) ? "&amp;groups=all" : "")}";
-        string PlanName(JobInfo j) => a.Plans.FirstOrDefault(p => p.Id == j.PlanId)?.Name ?? j.Plan;
-        sb.Append("<section class=\"box\"><h2>버전 비교</h2><p>");
+        string Name(JobInfo j) => PlanName(a, j);
+        sb.Append("<section class=\"box\"><div class=\"box-head\"><h2>버전 비교</h2><span class=\"t4\">첫 열이 기준 · 작을수록 좋음</span></div><p>");
         foreach (var j in all)
-            sb.Append($"<a href=\"{Url(ids.Contains(j.Id) ? ids.Where(x => x != j.Id) : ids.Append(j.Id))}\" class=\"chip{(ids.Contains(j.Id) ? " sel" : "")}\">{H(PlanName(j))} v{j.Version}{(j.Selected ? " · 선정" : "")}</a>");
+            sb.Append($"<a href=\"{Url(ids.Contains(j.Id) ? ids.Where(x => x != j.Id) : ids.Append(j.Id))}\" class=\"chip{(ids.Contains(j.Id) ? " sel" : "")}\">{H(Name(j))} v{j.Version}{(j.Selected ? " · 선정" : "")}</a>");
         sb.Append("</p>");
         if (ids.Count < 2) { sb.Append("<p class=\"muted\">버전을 2개 이상 고르세요.</p></section>"); return; }
-        var cols = ids.Select(id => new CompareColumn(byId[id], PlanName(byId[id]), MetricsOf(d.Store, byId[id], d.Prices))).ToList();
+        var cols = ids.Select(id => new CompareColumn(byId[id], Name(byId[id]), MetricsOf(d.Store, byId[id], d.Prices))).ToList();
         var groups = cols.Where(c => c.M != null).SelectMany(c => c.M!.View.Groups.Select(g => g.Group)).Distinct(StringComparer.Ordinal).ToList();
         var baseM = cols[0].M;
         var many = groups.Count > ManyGroups;
@@ -476,7 +833,7 @@ public static class AnalysisPages
             }
             sb.Append("</tr>");
         }
-        return sb.Append("</table><div class=\"muted\" style=\"font-size:12px\">칸 숫자 = 권장 대수(대) · 색 = 가동률(옅을수록 낮음, 빨강 100%) · 빨간 테두리 = 판정 실패</div>").ToString();
+        return sb.Append("</table><div class=\"t4\">숫자 = 권장(대) · 색 = 가동률(빨강 100%) · 빨간 테두리 = 판정 실패</div>").ToString();
     }
 
     /// <summary>Grouped bars: per group one bar per version (palette colour per version), dashed line = utilization limit.</summary>
@@ -486,7 +843,7 @@ public static class AnalysisPages
         var vals = cols.SelectMany(c => c.M?.View.Groups.Select(g => g.Util) ?? Enumerable.Empty<double>()).Where(u => !double.IsNaN(u));
         double hi = Math.Max(1, Math.Max(utilMax, vals.DefaultIfEmpty(0).Max()));
         string Y(double u) => F(top + ph * (1 - u / hi), "0.#");
-        var sb = new StringBuilder($"<svg width=\"{F(w, "0.#")}\" height=\"{h}\" viewBox=\"0 0 {F(w, "0.#")} {h}\" style=\"background:#fff;border:1px solid #d3d1c7\">");
+        var sb = new StringBuilder($"<svg width=\"{F(w, "0.#")}\" height=\"{h}\" viewBox=\"0 0 {F(w, "0.#")} {h}\" style=\"background:#fff;border:1px solid var(--line);border-radius:10px\">");
         sb.Append($"<line x1=\"{l}\" x2=\"{F(w - 4, "0.#")}\" y1=\"{Y(0)}\" y2=\"{Y(0)}\" stroke=\"#888780\"/>");
         double slot = (w - l - 4) / Math.Max(1, groups.Count);
         for (int gi = 0; gi < groups.Count; gi++)
@@ -499,11 +856,11 @@ public static class AnalysisPages
                 double x = gx + 3 + ci * bw;
                 sb.Append($"<rect x=\"{F(x, "0.#")}\" y=\"{Y(gv.Util)}\" width=\"{F(bw - 1, "0.#")}\" height=\"{F(ph * gv.Util / hi, "0.#")}\" fill=\"{Palette[ci % Palette.Length]}\"><title>{H(groups[gi])} · {H(cols[ci].PlanName)} v{cols[ci].Job.Version}: {H(F(gv.Util * 100, "0.#"))}%</title></rect>");
             }
-            sb.Append($"<text x=\"{F(gx + slot / 2, "0.#")}\" y=\"{h - 10}\" font-size=\"11\" text-anchor=\"middle\">{H(groups[gi])}</text>");
+            sb.Append($"<text x=\"{F(gx + slot / 2, "0.#")}\" y=\"{h - 10}\" font-size=\"13\" text-anchor=\"middle\">{H(groups[gi])}</text>");
         }
         sb.Append($"<line x1=\"{l}\" x2=\"{F(w - 4, "0.#")}\" y1=\"{Y(utilMax)}\" y2=\"{Y(utilMax)}\" stroke=\"#a32d2d\" stroke-dasharray=\"5 4\"><title>가동률 상한 {H(F(utilMax * 100, "0.#"))}%</title></line>");
-        sb.Append($"<text x=\"{l - 4}\" y=\"{Y(utilMax)}\" font-size=\"10\" text-anchor=\"end\" fill=\"#a32d2d\">{H(F(utilMax * 100, "0"))}%</text></svg>");
-        sb.Append("<div class=\"muted\" style=\"font-size:12px\">");
+        sb.Append($"<text x=\"{l - 4}\" y=\"{Y(utilMax)}\" font-size=\"11\" text-anchor=\"end\" fill=\"#a32d2d\">{H(F(utilMax * 100, "0"))}%</text></svg>");
+        sb.Append("<div class=\"t4\">");
         for (int ci = 0; ci < cols.Count; ci++) sb.Append($"<span style=\"color:{Palette[ci % Palette.Length]}\">■</span> {H(cols[ci].PlanName)} v{cols[ci].Job.Version} &nbsp;");
         return sb.Append("· 가동률(%) · 빨간 점선은 상한</div>").ToString();
     }
