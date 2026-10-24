@@ -66,7 +66,7 @@ public class ConclusionTests
         Assert.Contains($"<option value=\"{a.Id}\" selected>A안 v1 · 선정</option>", one); Assert.Single(Regex.Matches(one, ">권장 대수<"));
         Assert.Equal(2, Regex.Matches(one, "class=\"pr( on)?\"").Count); // 안별 결론: one row per plan, the shown one outlined
         Assert.Contains($"class=\"pr on\" href=\"?tab=conclusion&amp;job={a.Id}\"", one);
-        Assert.Contains($"href=\"/jobs/{a.Id}/files/report.xlsx\" download", one); Assert.Contains($"class=\"btn pri\" href=\"/analyses/{aid}/cuts\"", one); // next step: the film
+        Assert.Contains($"href=\"/analyses/{aid}/report\">", one); Assert.Contains($"class=\"btn pri\" href=\"/analyses/{aid}/cuts\"", one); // next step: the film
         var other = await env.Http.GetStringAsync($"/analyses/{aid}?tab=conclusion&job={b.Id}");
         Assert.Contains($"<option value=\"{b.Id}\" selected>", other); Assert.Contains($"class=\"pr on\" href=\"?tab=conclusion&amp;job={b.Id}\"", other);
         Assert.Contains("A안 대비 동일", other); // both versions recommend the same count
@@ -121,7 +121,7 @@ public class ConclusionTests
         double VbWidth(string page) => double.Parse(Regex.Match(page, "<svg class=\"bm\" viewBox=\"[^ ]+ [^ ]+ ([^ ]+) ").Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
         Assert.DoesNotContain("width=", Regex.Match(html, "<svg class=\"bm\"[^>]*>").Value);
         Assert.True(VbWidth(html) < 8); Assert.Contains("<svg class=\"mm\"", html); Assert.Contains("&amp;map=all\">전체</a>", html);
-        Assert.Contains("B_x1 · 12초", html); Assert.Contains("<li><i>1</i><span title=\"B_x1\">B_x1</span><b>12초</b></li>", html);
+        Assert.Contains("B_x1 · 12초", html); Assert.Contains("<li><i>1</i><span title=\"B_x1\">B_x1</span><b>12초</b><a class=\"btn\"", html);
         var all = await env.Http.GetStringAsync($"/analyses/{aid}?tab=conclusion&map=all");
         Assert.True(VbWidth(all) > 11); Assert.DoesNotContain("<svg class=\"mm\"", all);
     }

@@ -12,8 +12,9 @@ namespace ASH.Core.Runner;
 
 /// <param name="RunTimeout">Per model run.</param>
 /// <param name="Append">Keep an existing runs\ folder instead of rotating it to runs.&lt;yyyyMMdd_HHmmss&gt;\.</param>
+/// <param name="FixedCounts">Confirmation only: no search, run exactly these counts (every group) once at the settings' replications (<see cref="SearchStrategy.Confirm"/>); Impact is ignored.</param>
 public sealed record SearchJobOptions(string ProjectDir, string Model, string? AmHome = null, int Parallel = 2, string? DialogButton = null,
-    TimeSpan? RunTimeout = null, int InitialReps = 1, bool Impact = false, bool Debug = false, bool Append = false);
+    TimeSpan? RunTimeout = null, int InitialReps = 1, bool Impact = false, bool Debug = false, bool Append = false, IReadOnlyDictionary<string, int>? FixedCounts = null);
 
 /// <summary>ExitCode: 0 ok, 1 error (Error says why), 2 ok with warnings. Search, Input and Clusters are null when the job stopped before the search.</summary>
 public sealed record SearchJobResult(int ExitCode, string? Error, ProjectInput? Input, GroupClusters? Clusters, SearchResult? Search, int Runs, int Failures,
@@ -134,11 +135,17 @@ public static class SearchJob
         var mx = new ModelExecutor(new ExecutorOptions(a.ProjectDir, a.Model, a.Parallel, a.RunTimeout ?? TimeSpan.FromMinutes(30), a.DialogButton, a.AmHome,
             a.Debug, runsDir, Progress: progress), input);
         var exec = new ParallelExecutor(a.Parallel, mx.Run);
-        var expected = SearchEstimate.Expected(input, clusters, a.InitialReps, a.Impact);
+        var expected = a.FixedCounts != null ? (SearchStrategy.FixedStock(input.Settings) ? 1 : Math.Max(1, input.Settings.Replications)) : SearchEstimate.Expected(input, clusters, a.InitialReps, a.Impact);
         o.WriteLine("expected runs: " + expected);
         onProgress?.Invoke(new SearchProgress("탐색 시작", new Dictionary<string, int>(), new Dictionary<string, int>(), clusters.Clusters.Sum(c => c.Count), expected));
-        var res = SearchStrategy.Search(input, exec, clusters, new SearchOptions(a.InitialReps, a.Impact, ExpectedRuns: expected), ct, onProgress);
-        if (a.Impact) { Directory.CreateDirectory(runsDir); ImpactTsv.Write(Path.Combine(runsDir, "impact.tsv"), res.Impact); }
+        SearchResult res;
+        if (a.FixedCounts != null)
+        {
+            try { res = SearchStrategy.Confirm(input, exec, a.FixedCounts, ct); }
+            catch (ArgumentException e) { return Fail(e.Message, input, clusters); }
+        }
+        else res = SearchStrategy.Search(input, exec, clusters, new SearchOptions(a.InitialReps, a.Impact, ExpectedRuns: expected), ct, onProgress);
+        if (a.Impact && a.FixedCounts == null) { Directory.CreateDirectory(runsDir); ImpactTsv.Write(Path.Combine(runsDir, "impact.tsv"), res.Impact); }
 
         // every baseline run failed: the model itself does not run, so no search result means anything
         var baseline = res.Trace.Where(t => t.Phase == "baseline")

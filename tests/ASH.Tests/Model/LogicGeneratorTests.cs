@@ -136,6 +136,42 @@ public class LogicGeneratorTests
     }
 
     [Fact]
+    public void Render_Splits_The_Busy_Time_Per_Vehicle()
+    {
+        var p = Sample();
+        p.AgvTypes[0] = p.AgvTypes[0] with { MTBF = 3600, MTTR = 120 };
+        p.Materials[0] = p.Materials[0] with { EmptyReturn = true };
+        p.Routes[0] = p.Routes[0] with { ExtraTime = 5, BufferWaitSec = 60, ReturnFromCP = "U001", ReturnToCP = "L001" };
+        string Supply1(string t) => t.Substring(t.IndexOf("begin P_supply_1"), t.IndexOf("begin P_consume_2") - t.IndexOf("begin P_supply_1"));
+        var s = Supply1(LogicGenerator.Render(p, Layout));
+        Assert.Contains("set A_hold to 0\n\tset A_bw to 0\n\tset A_ld to 0\n\tset A_dn to 0\n", s); // reset per job
+        // loaded legs: buffer, unload, the empty container to ReturnTo (not the run to ReturnFrom)
+        Assert.Equal(3, Regex.Matches(s, @"inc A_ld by ac - A_t0").Count);
+        Assert.Matches(@"travel to agv:U001\n\tset V_inLeg\(1\) to 0\n\tinc A_ld by ac - A_t0\n", s);
+        Assert.Matches(@"travel to agv:U001\n\tset V_inLeg\(3\) to 0\n\t/\*", s);
+        // the whole buffer wait (A_bw) next to the part left out (A_hold)
+        Assert.Contains("\tset A_bw to ac\n\tset A_hold to ac\n\twhile V_stock(1) > V_unload(1) do begin", s);
+        Assert.Contains("\tif A_hold < 0 then set A_hold to 0\n\tset A_bw to ac - A_bw\n", s);
+        // every repair before the busy time ends holds the job: at boarding, after the pickup run, 4 legs and the way home
+        Assert.Equal(7, Regex.Matches(s, "set A_rep to rn RS_fail").Count);
+        Assert.Equal(7, Regex.Matches(s, @"inc A_dn by A_rep - ac\n\t\t\twait for A_rep - ac sec").Count);
+        // load 10 + unload 10 + extra 5 + the empty container's load 10 + unload 10
+        Assert.Contains("inc V_vBusy(A_vid) by A_ret + A_fin - A_tPick - A_hold", s);
+        Assert.Contains("inc V_vLoad(A_vid) by A_ld\n\t\tinc V_vHand(A_vid) by 45\n\t\tinc V_vBufB(A_vid) by A_bw - A_hold\n\t\tinc V_vBufX(A_vid) by A_hold\n\t\tinc V_vRep(A_vid) by A_dn\n", s);
+
+        // with a Finish CP the busy time ends there: a repair on the way home after it is idle time, not the job's
+        p.Groups[0] = p.Groups[0] with { FinishCP = "L001" };
+        s = Supply1(LogicGenerator.Render(p, Layout));
+        Assert.Equal(8, Regex.Matches(s, "set A_rep to rn RS_fail").Count);
+        Assert.Equal(7, Regex.Matches(s, "inc A_dn by A_rep - ac").Count);
+        Assert.Matches(@"travel to agv:S001\n(?:(?!inc A_dn)[\s\S])*?wait for A_rep - ac sec", s);
+
+        var pm = LogicGenerator.BuildProcessModel(p, Layout, "Meters");
+        foreach (var v in new[] { "V_vLoad", "V_vHand", "V_vBufB", "V_vBufX", "V_vRep" }) Assert.Contains(pm.Vars, x => x.Name == v && x.Type == "Real");
+        foreach (var a in new[] { "A_bw", "A_ld", "A_dn" }) Assert.Contains(pm.Atts, x => x.Name == a);
+    }
+
+    [Fact]
     public void Render_Has_No_Group_Block_Rows_And_Debug_Gated_Prints()
     {
         var t = LogicGenerator.Render(Sample(), Layout);
@@ -183,7 +219,7 @@ public class LogicGeneratorTests
         // empty to the pickup and after the unload, loaded speed in between and before the load leaves
         Assert.Contains("set A_veh defined velocity to 1.5\n\ttravel to agv:L001", t);
         Assert.Contains("set A_veh defined velocity to specification\n\tif ac >= V_warmup then begin\n\t\ttabulate ac - A_tCall in T_pick_1", t);
-        Assert.Contains("V_vDown(1) \"\\t0\\t0\" to V_out", t);
+        Assert.Contains("V_vDown(1) \"\\t\" V_vLoad(1) \"\\t\" V_vHand(1) \"\\t\" V_vBufB(1) \"\\t\" V_vBufX(1) \"\\t\" V_vRep(1) to V_out", t);
         var pm = LogicGenerator.BuildProcessModel(p, Layout, "Meters");
         Assert.Equal("RS_fail", Assert.Single(pm.RnStreams).Name);
         Assert.Contains(pm.Vars, v => v.Name == "V_vDown");

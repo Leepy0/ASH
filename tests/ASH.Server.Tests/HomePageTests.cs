@@ -7,6 +7,7 @@ namespace ASH.Server.Tests;
 
 public class HomePageTests
 {
+    const string PollMarker = "setInterval(tick,10000)"; // the 10 s page poll; the 30 s notifier on every page is not it
     [Fact] public async Task Poll_Script_Only_When_Active()
     {
         using var env = new JobEnv(); env.Runner.Gate.Reset();
@@ -17,7 +18,7 @@ public class HomePageTests
         var api = JsonDocument.Parse(await env.Http.GetStringAsync("/api/home?me=1")).RootElement;
         Assert.True(api.GetProperty("active").GetBoolean()); Assert.Equal("running", api.GetProperty("fields").GetProperty("running.state").GetString());
         env.Runner.Gate.Set(); await env.WaitFinished(id);
-        Assert.DoesNotContain("fetch(", await env.Http.GetStringAsync("/")); Assert.DoesNotContain("fetch(", await env.Http.GetStringAsync("/jobs/" + id));
+        Assert.DoesNotContain(PollMarker, await env.Http.GetStringAsync("/")); Assert.DoesNotContain(PollMarker, await env.Http.GetStringAsync("/jobs/" + id));
     }
 
     [Fact] public async Task Home_Shows_A_Running_Film_When_No_Job_Runs()

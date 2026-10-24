@@ -121,7 +121,7 @@ document.querySelectorAll('a[data-me]').forEach(function(a){
             var total = p.Total is { } n ? $"{n}<small>대</small>" : "-";
             if (i == 0)
                 sb.Append($"<div class=\"card hot\"><a class=\"t2\" href=\"/analyses/{H(p.AnalysisId)}\">{H(p.Name)}</a><div class=\"t4\">{sub}</div><div class=\"t1\">{total}</div><div class=\"acts\">" +
-                    (p.JobId != null ? $"<a class=\"btn\" href=\"/films/{H(p.FilmId)}\">영상 보기</a><a class=\"btn pri\" href=\"/jobs/{H(p.JobId)}/files/report.xlsx\">보고서 받기</a>"
+                    (p.JobId != null ? $"<a class=\"btn\" href=\"/films/{H(p.FilmId)}\">영상 보기</a><a class=\"btn pri\" href=\"/analyses/{H(p.AnalysisId)}/report?job={H(p.JobId)}\">보고서 받기</a>"
                         : $"<a class=\"btn pri\" href=\"/films/{H(p.FilmId)}\">영상 보기</a>") + "</div></div>");
             else
             {

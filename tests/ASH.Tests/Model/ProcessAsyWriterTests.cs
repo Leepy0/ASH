@@ -32,7 +32,7 @@ public class ProcessAsyWriterTests
         var m = new ProcessModel();
         m.Blocks.Add(new("B001", 1, new Rect2(new Point2(0, 0), new Point2(4, 2))));
         var t = Render(m);
-        Assert.Contains("BLOCK name B001 0 cap 1\n dis 0 picpos begx 2 begy 1 endx 3 endy 1 scx 1 scy 0.5 scz 0.25\n\n\tUserDef\ttemplate Feet\n310 0\n4 4 4 4 4 0 0\nend\n", t);
+        Assert.Contains("BLOCK name B001 0 cap 1\n dis 0 picpos begx 2 begy 1 endx 3 endy 1 scx 1 scy 0.5 scz 0.25\n\n\tUserDef\ttemplate Feet\n310 17\n1 1 0 1 0 block\n4 4 4 4 4 0 0\nend\n", t); // style line with fill 0: an outline, not a solid box
     }
 
     [Fact]

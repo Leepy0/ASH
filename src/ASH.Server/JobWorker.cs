@@ -43,8 +43,8 @@ public sealed class AutoModJobRunner(IConfiguration cfg) : IJobRunner
         }
         ct.ThrowIfCancellationRequested();
 
-        phase("대수 탐색");
-        var r = SearchJob.Run(new SearchJobOptions(projectDir, job.Model, AmHome, Parallel, DialogButton, RunTimeout, job.InitialReps, job.Impact), null, log, progress, ct, onProgress: search);
+        phase(job.FixedCounts != null ? "확인 실행" : "대수 탐색");
+        var r = SearchJob.Run(new SearchJobOptions(projectDir, job.Model, AmHome, Parallel, DialogButton, RunTimeout, job.InitialReps, job.Impact, FixedCounts: job.FixedCounts), null, log, progress, ct, onProgress: search);
         var sum = SearchSummaryFile.From(r);
         return new JobOutcome(r.ExitCode, r.Error, r.Search?.Decided, r.Clusters?.Clusters, sum.ConfirmRunIds, sum.Warnings, sum.FailureMessages);
     }

@@ -20,15 +20,17 @@ public sealed record CountPoint(int Active, double Mean, double Lo, double Hi, i
 /// <summary>Traffic block numbers at the recommended counts (mean over the confirm runs that have them).</summary>
 public sealed record BlockView(string Name, double Utilization, double AvgWaitSec, double Passes);
 
-/// <summary>One active vehicle, mean over the confirm runs it was active in. Down = breakdown seconds, NaN when the model does not write it.</summary>
-public sealed record VehicleView(string Name, string Group, double Util, double BusySec, double Distance, double Jobs, double Down)
+/// <summary>One active vehicle, mean over the confirm runs it was active in. Down = breakdown seconds, NaN when the model does not write it.
+/// Split = where its time went (mean per part), null when the model does not write it.</summary>
+public sealed record VehicleView(string Name, string Group, double Util, double BusySec, double Distance, double Jobs, double Down, TimeSplit? Split = null)
 {
     public double DistPerJob => Jobs > 0 ? Distance / Jobs : double.NaN;
     public double BusyPerJob => Jobs > 0 ? BusySec / Jobs : double.NaN;
 }
 
-/// <summary>Per group, from its active vehicles: mean utilisation, mean distance and jobs per vehicle, distance and busy seconds per job.</summary>
-public sealed record GroupVehicleView(string Group, int Count, double Util, double Distance, double Jobs, double DistPerJob, double BusyPerJob);
+/// <summary>Per group, from its active vehicles: mean utilisation, mean distance and jobs per vehicle, distance and busy seconds per job.
+/// Split = the vehicles' splits summed (its busy share is the group's utilization), null when a vehicle has none.</summary>
+public sealed record GroupVehicleView(string Group, int Count, double Util, double Distance, double Jobs, double DistPerJob, double BusyPerJob, TimeSplit? Split = null);
 
 /// <summary>Per material: lead times (call -> load CP, call -> unload done) and stock statistics, plus supplies and stop time. Mean over the confirm runs,
 /// except the Max/Min columns (extreme over the runs). Safety is NaN when the input is unreadable. Trips = supply jobs and Distance = metres driven
@@ -176,7 +178,8 @@ public sealed class JobView
         {
             var jobs = g.Sum(x => x.Jobs);
             return new GroupVehicleView(g.Key, g.Count(), Mean(g.Select(x => x.Util)), Mean(g.Select(x => x.Distance)), Mean(g.Select(x => x.Jobs)),
-                jobs > 0 ? g.Sum(x => x.Distance) / jobs : double.NaN, jobs > 0 ? g.Sum(x => x.BusySec) / jobs : double.NaN);
+                jobs > 0 ? g.Sum(x => x.Distance) / jobs : double.NaN, jobs > 0 ? g.Sum(x => x.BusySec) / jobs : double.NaN,
+                g.All(x => x.Split != null) ? Combine(g.Select(x => x.Split!), 1) : null);
         }).ToList();
 
         try { v.Layout = ArcLayout.Load(Path.Combine(project, job.Model + ".arc")).Layout; } catch (Exception e) when (e is IOException or FormatException or InvalidDataException) { }
@@ -199,6 +202,14 @@ public sealed class JobView
         return v;
     }
 
+    /// <summary>Part by part: the sum of the splits times <paramref name="scale"/> (1 = sum, 1/n = mean).</summary>
+    internal static TimeSplit Combine(IEnumerable<TimeSplit> xs, double scale)
+    {
+        var l = xs.ToList();
+        double S(Func<TimeSplit, double> f) => l.Sum(f) * scale;
+        return new TimeSplit(S(x => x.Window), S(x => x.Busy), S(x => x.Loaded), S(x => x.Handling), S(x => x.BufferBusy), S(x => x.BufferIdle), S(x => x.Repair));
+    }
+
     static double Max(IEnumerable<double> xs) { var l = xs.Where(x => !double.IsNaN(x)).ToList(); return l.Count == 0 ? double.NaN : l.Max(); }
     static double Min(IEnumerable<double> xs) { var l = xs.Where(x => !double.IsNaN(x)).ToList(); return l.Count == 0 ? double.NaN : l.Min(); }
 
@@ -206,7 +217,7 @@ public sealed class JobView
     /// Downtime is value6 of the row, read defensively (older models do not write it).</summary>
     static List<VehicleView> VehicleViews(List<ResultSet> sets, double perM)
     {
-        var per = new List<(string Name, string Group, double Busy, double Window, double Dist, double Jobs, double Down)>();
+        var per = new List<(string Name, string Group, double Busy, double Window, double Dist, double Jobs, double Down, TimeSplit? Split)>();
         foreach (var rs in sets)
         {
             if (rs.Vehicles == null) continue;
@@ -216,12 +227,19 @@ public sealed class JobView
             {
                 if (!active.TryGetValue(x.Group, out var n) || x.Index > n) continue;
                 var down = raw.TryGetValue((x.Name, x.Group), out var row) && row.Values.Length > 5 ? row.Values[5] : double.NaN;
-                per.Add((x.Name, x.Group, x.BusySec, x.WindowSec, x.Distance / perM, x.Jobs, down));
+                per.Add((x.Name, x.Group, x.BusySec, x.WindowSec, x.Distance / perM, x.Jobs, down, x.Split));
             }
         }
         return per.GroupBy(x => (x.Name, x.Group)).Select(g => new VehicleView(g.Key.Name, g.Key.Group,
             Mean(g.Select(x => x.Window > 0 ? x.Busy / x.Window : double.NaN)), Mean(g.Select(x => x.Busy)), Mean(g.Select(x => x.Dist)), Mean(g.Select(x => x.Jobs)),
-            Mean(g.Select(x => x.Down)))).ToList();
+            Mean(g.Select(x => x.Down)), Split(g.Select(x => x.Split)))).ToList();
+    }
+
+    /// <summary>Mean over the runs that have a split; null when none has.</summary>
+    static TimeSplit? Split(IEnumerable<TimeSplit?> xs)
+    {
+        var l = xs.OfType<TimeSplit>().ToList();
+        return l.Count == 0 ? null : Combine(l, 1.0 / l.Count);
     }
 
     /// <summary>Value7/value8 of a material row are the supply jobs' distance and count; older models write 0 there, read as no data
@@ -247,7 +265,8 @@ public sealed class JobView
     {
         static string R(double d) => double.IsNaN(d) ? "" : d.ToString("R", CultureInfo.InvariantCulture);
         return new[] { "kind\tname\tgroup\tvalues" }
-            .Concat(v.Vehicles.Select(x => string.Join("\t", "vehicle", x.Name, x.Group, R(x.Util), R(x.BusySec), R(x.Distance), R(x.Jobs), R(x.Down))))
+            .Concat(v.Vehicles.Select(x => string.Join("\t", new[] { "vehicle", x.Name, x.Group, R(x.Util), R(x.BusySec), R(x.Distance), R(x.Jobs), R(x.Down) }
+                .Concat(x.Split is { } p ? new[] { p.Window, p.Busy, p.Loaded, p.Handling, p.BufferBusy, p.BufferIdle, p.Repair }.Select(R) : Array.Empty<string>()))))
             .Concat(v.Materials.Select(m => string.Join("\t", "material", m.Name, m.Group, R(m.Supplies), R(m.Expected), R(m.StopSec), R(m.PickAvg), R(m.PickMax),
                 R(m.DelivAvg), R(m.DelivMax), R(m.StockAvg), R(m.StockStd), R(m.StockMin), R(m.StockMax), R(m.Safety), R(m.Trips), R(m.Distance)))).ToArray();
     }
@@ -258,7 +277,8 @@ public sealed class JobView
         var veh = new List<VehicleView>(); var mat = new List<MaterialView>();
         foreach (var t in File.ReadAllLines(path).Skip(1).Select(l => l.TrimEnd('\r').Split('\t')))
         {
-            if (t[0] == "vehicle" && t.Length >= 8) veh.Add(new VehicleView(t[1], t[2], D(t[3]), D(t[4]), D(t[5]), D(t[6]), D(t[7])));
+            if (t[0] == "vehicle" && t.Length >= 8) veh.Add(new VehicleView(t[1], t[2], D(t[3]), D(t[4]), D(t[5]), D(t[6]), D(t[7]),
+                t.Length >= 15 ? new TimeSplit(D(t[8]), D(t[9]), D(t[10]), D(t[11]), D(t[12]), D(t[13]), D(t[14])) : null)); // stats.tsv from before the split: none
             else if (t[0] == "material" && t.Length >= 15)
                 mat.Add(new MaterialView(t[1], t[2], D(t[3]), D(t[4]), D(t[5]), D(t[6]), D(t[7]), D(t[8]), D(t[9]), D(t[10]), D(t[11]), D(t[12]), D(t[13]), D(t[14]),
                     t.Length > 16 ? D(t[15]) : double.NaN, t.Length > 16 ? D(t[16]) : double.NaN)); // stats.tsv from before the supply columns: no data

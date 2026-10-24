@@ -168,10 +168,65 @@ document.querySelectorAll('table.sort').forEach(function(t){
     {
         var side = new StringBuilder("<nav class=\"side\" aria-label=\"메뉴\"><a href=\"/\" class=\"logo\" aria-label=\"ASH 홈\">ASH</a>");
         foreach (var n in Nav) side.Append(NavLink(n.Key, n.Label, n.Href, nav));
-        side.Append(NavLink("admin", "관리", "/admin/settings", nav, "end")).Append("</nav>");
+        side.Append(Bell).Append(NavLink("admin", "관리", "/admin/settings", nav, "end")).Append("</nav>");
         return "<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" + H(title) + "</title>" +
-            "<style>" + Css + NavCss + "</style></head><body>" + side + "<main" + (fill ? " class=\"fillpage\"" : "") + ">" + body + "</main>" + script + "</body></html>";
+            "<style>" + Css + NavCss + NotifyCss + "</style></head><body>" + side + "<main" + (fill ? " class=\"fillpage\"" : "") + ">" + body + "</main>" + NotifyScript + script + "</body></html>";
     }
+
+    /// <summary>Sidebar bell above 관리: the only place that asks for notification permission (never on load). The script sets its state, label and tooltip.</summary>
+    const string Bell = "<button type=\"button\" id=\"bell\" class=\"bell\" aria-label=\"알림\" title=\"알림\"><i aria-hidden=\"true\"></i><span id=\"bell-t\">알림</span></button>";
+
+    const string NotifyCss = @".side .bell{all:unset;box-sizing:border-box;display:flex;align-items:center;gap:12px;height:40px;padding:0 6px;border-radius:8px;color:var(--ink);cursor:pointer;white-space:nowrap;font-size:14px;margin-top:auto}
+.side .bell+.end{margin-top:0}.side .bell:hover{background:#dedee2}.side .bell:focus-visible{outline:3px solid var(--blue);outline-offset:-1px}
+.side .bell span{opacity:0;transition:opacity .1s}.side:hover .bell span,.side:focus-within .bell span{opacity:1}
+.side .bell i{width:28px;height:28px;border-radius:7px;flex:none;background:#8e8e93 url(""data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='white'%3E%3Cpath d='M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z'/%3E%3C/svg%3E"") center/16px no-repeat}
+.side .bell[data-s=granted] i,.side .bell[data-s=insecure] i{background-color:var(--green)}.side .bell[data-s=denied] i{background-color:var(--red)}
+#toasts{position:fixed;top:12px;right:12px;z-index:100;display:flex;flex-direction:column;gap:8px;max-width:360px}
+#toasts a,#toasts div{display:block;background:var(--ink);color:#fff;padding:10px 14px;border-radius:10px;text-decoration:none;font-size:14px;box-shadow:0 4px 18px rgba(0,0,0,.25)}#toasts b{display:block}";
+
+    /// <summary>Every 30 s (and when the tab shows) asks /api/me/events for my jobs/films that ended since the last look and tells the user:
+    /// a Notification where the browser allows it (secure context + permission granted), else an in-page toast and a "(n)" in the title.
+    /// The last seen server time lives in localStorage so a reload repeats nothing; the first visit starts from now. Texts go in with textContent only.</summary>
+    internal const string NotifyScript = @"<div id=""toasts"" role=""status"" aria-live=""polite""></div><script>
+(function(){
+  var KEY='ash.notify.since', mem=null, unread=0, base=document.title, bell=document.getElementById('bell'), bt=document.getElementById('bell-t'), box=document.getElementById('toasts');
+  var native=('Notification' in window)&&window.isSecureContext;
+  function ls(v){ try{ if(v===undefined) return localStorage.getItem(KEY); localStorage.setItem(KEY,v); }catch(e){} return null; }
+  function perm(){ return native?Notification.permission:'insecure'; }
+  var TXT={'default':['알림 켜기','클릭하면 브라우저 알림을 허용할지 묻습니다. 내 작업·영상이 끝나거나 실패하면 다른 탭을 보고 있어도 알려 드립니다.'],
+    granted:['알림 켜짐 ✓','내 작업·영상이 끝나거나 실패하면 브라우저 알림으로 알려 드립니다(ASH 화면이 한 곳이라도 열려 있어야 합니다).'],
+    denied:['알림 차단됨','브라우저에서 차단되어 있습니다. 주소창 왼쪽 자물쇠(사이트 설정) → 알림 → 허용으로 바꾼 뒤 새로 읽어 주세요.'],
+    insecure:['화면 안 알림','이 주소(http)에서는 브라우저 알림을 쓸 수 없어, 열려 있는 ASH 화면 안에 알려 드립니다. https 또는 localhost 주소에서는 브라우저 알림을 쓸 수 있습니다.']};
+  function paint(){ var p=perm(), t=TXT[p]||TXT['default']; bell.setAttribute('data-s',p); bt.textContent=t[0]; bell.title=t[1]; bell.setAttribute('aria-label',t[0]+'. '+t[1]); }
+  function toast(e){
+    var el=document.createElement(e.href?'a':'div'), b=document.createElement('b');
+    if(e.href) el.href=e.href;
+    b.textContent=e.title; el.appendChild(b); if(e.body) el.appendChild(document.createTextNode(e.body));
+    box.appendChild(el); setTimeout(function(){ el.remove(); },10000);
+  }
+  function show(e){
+    if(native&&Notification.permission==='granted'){
+      var n=new Notification(e.title,{body:e.body,tag:e.tag});
+      n.onclick=function(){ window.focus(); n.close(); location.href=e.href; };
+      return;
+    }
+    toast(e);
+    if(document.hidden){ unread++; document.title='('+unread+') '+base; }
+  }
+  function tick(){
+    var s=ls()||mem;
+    fetch('/api/me/events'+(s?'?since='+encodeURIComponent(s):''),{cache:'no-store'}).then(function(r){ if(!r.ok) throw 0; return r.json(); }).then(function(d){
+      mem=d.now; ls(d.now); (d.events||[]).forEach(show);
+    }).catch(function(){});
+  }
+  bell.addEventListener('click',function(){
+    if(native&&Notification.permission==='default'){ var r=Notification.requestPermission(); if(r&&r.then) r.then(paint); }
+    else toast({title:bt.textContent,body:bell.title});
+  });
+  document.addEventListener('visibilitychange',function(){ if(!document.hidden){ unread=0; document.title=base; tick(); } });
+  paint(); setInterval(tick,30000); tick();
+})();
+</script>";
 
 
     /// <summary>Polls <paramref name="url"/> every 10 s and sets the data-field/data-bar/data-state elements (textContent only); shows #reload-bar when a watched job/film ends.</summary>
@@ -229,6 +284,11 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
 .curves{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px}.curves svg{width:100%;height:auto;border-radius:10px}
 .files{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:8px}.files .row{font-size:14px}.files .row .t>div{font-family:Consolas,monospace;font-size:14px}
 .jt td{padding:11px 10px}
+/* time split bar: busy parts strong, not busy pale */
+.sbar{position:relative;display:inline-block;width:150px;height:10px;vertical-align:middle}.sbar>span{display:flex;height:10px;border-radius:5px;overflow:hidden;background:#e5e5ea}.sbar i{display:block;height:10px}
+.sbar b{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--ink);opacity:.55}
+.u-ld{background:#0055b3}.u-em{background:#5fa8ff}.u-hd{background:#5856d6}.u-bb{background:#a9a8f0}.u-rp{background:var(--red)}.u-bx{background:#f2c27f}.u-id{background:#d1d1d6}
+.lg i{display:inline-block;width:10px;height:10px;border-radius:2px;margin:0 4px 0 10px;vertical-align:-1px}
 ";
 
     /// <summary>State tag with its symbol in the text (for tables that no script touches).</summary>
@@ -330,13 +390,13 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
             case "detail": Detail(sb, j, v); break;
             case "input": InputTab(sb, j, v); break;
             case "files": FilesTab(sb, j, logTail); break;
-            default: Summary(sb, j, v, prices); break;
+            default: Summary(sb, j, v, prices, canCancel); break;
         }
         sb.Append("</div>");
         return Page($"ASH 작업 {j.Id}", sb.ToString(), j.Finished ? null : PollScript("/api/jobs/" + j.Id, new Dictionary<string, string> { [j.Id] = j.State }), nav: "analyses");
     }
 
-    static void Summary(StringBuilder sb, JobInfo j, JobView? v, IReadOnlyDictionary<string, PriceRow>? prices)
+    static void Summary(StringBuilder sb, JobInfo j, JobView? v, IReadOnlyDictionary<string, PriceRow>? prices, bool canRerun = false)
     {
         if (j.Decided == null || v?.Input == null)
         {
@@ -369,7 +429,7 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
         // units sit in the headers, so the cells are plain numbers (and JobReport uses the same headers); the vehicle numbers are sums over the group's vehicles
         var byGroup = v.VehicleGroups.ToDictionary(x => x.Group, StringComparer.Ordinal);
         sb.Append("<div class=\"box\"><h2>그룹별 권장 대수와 부하율</h2><div class=\"scroll\"><table class=\"sort gt\"><thead><tr>").Append(Th("그룹")).Append(Th("AGV 타입")).Append(Th("권장(대)")).Append(Th("범위(대)"))
-          .Append(Th("가동률(%, 확인 실행 평균)")).Append(Th("최소 재고/안전재고(배)")).Append(Th("공급 횟수(회)")).Append(Th("총 이동 거리(km)")).Append(Th("공급당 이동 거리(m)"))
+          .Append(Th("가동률(%, 확인 실행 평균)")).Append("<th>시간 내역</th>").Append(Th("최소 재고/안전재고(배)")).Append(Th("공급 횟수(회)")).Append(Th("총 이동 거리(km)")).Append(Th("공급당 이동 거리(m)"))
           .Append(Th("판정")).Append("</tr></thead><tbody>");
         // problems first: judgement failed or over the limit, then the rest in the given order
         foreach (var g in v.Groups.OrderBy(g => !g.AllOk ? 0 : Over(g, v.UtilMax) ? 1 : 2))
@@ -382,9 +442,12 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
             var verdict = !g.AllOk ? $"<td class=\"bad\">▲ 실패: {H(g.Reason)}</td>" : over ? "<td class=\"wn\">⚠ 경고: 가동률 초과</td>" : "<td class=\"ok\">✓ 통과</td>";
             sb.Append($"<tr{(!g.AllOk ? " class=\"over\"" : over ? " class=\"ow\"" : under ? " class=\"under\"" : "")}><td>{H(g.Group)}</td><td>{H(g.Type)}</td><td><b>{(g.Decided?.ToString(CultureInfo.InvariantCulture) ?? "-")}</b></td><td>{g.Min}~{g.Max}</td>" +
                 $"<td><span class=\"bar{bc}\"><i style=\"width:{F(w * 100, "0.#")}%\"></i><b style=\"left:{F(Math.Min(1, v.UtilMax) * 100, "0.#")}%\"></b></span> {P(g.Util)}{sym}</td>" +
-                $"<td>{F(g.MinStockRatio)}</td><td>{(vg == null ? "-" : F(vg.Jobs * vg.Count, "0"))}</td><td>{(vg == null ? "-" : F(vg.Distance * vg.Count / 1000, "0.0"))}</td><td>{(vg == null ? "-" : F(vg.DistPerJob, "0.#"))}</td>{verdict}</tr>");
+                $"<td>{SplitBar(vg?.Split, v.UtilMax)}</td><td>{F(g.MinStockRatio)}</td><td>{(vg == null ? "-" : F(vg.Jobs * vg.Count, "0"))}</td><td>{(vg == null ? "-" : F(vg.Distance * vg.Count / 1000, "0.0"))}</td><td>{(vg == null ? "-" : F(vg.DistPerJob, "0.#"))}</td>{verdict}</tr>");
         }
-        sb.Append($"</tbody></table></div><div class=\"t4\">▲ 상한 초과(경고) · ▼ 10% 미만 · 세로선 = 가동률 상한 {Pct(v.UtilMax)} · 공급·거리 = 권장 대수 차량의 합</div></div>");
+        sb.Append($"</tbody></table></div><div class=\"t4\">▲ 상한 초과(경고) · ▼ 10% 미만 · 세로선 = 가동률 상한 {Pct(v.UtilMax)} · 공급·거리·시간 내역 = 권장 대수 차량의 합</div>");
+        if (byGroup.Values.Any(x => x.Split != null)) sb.Append(SplitLegend(v.UtilMax));
+        sb.Append("</div>");
+        RerunPage.Box(sb, j, v, canRerun);
         if (v.VehicleGroups.Count > 0)
         {
             sb.Append("<div class=\"box\"><h2>차량</h2><div class=\"scroll\"><table class=\"sort\"><thead><tr>").Append(Th("그룹")).Append(Th("대수(대)")).Append(Th("평균 가동률(%)")).Append(Th("작업/대(회)"))
@@ -476,6 +539,28 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
 
     /// <summary>Over the utilization limit: the mean, or any confirm run (a warning, not a failure).</summary>
     internal static bool Over(GroupView g, double utilMax) => g.UtilOver || !double.IsNaN(g.Util) && g.Util > utilMax;
+
+    /// <summary>The parts of a time split in bar order (busy first, so the busy ones end at the utilization): name, CSS class, seconds.</summary>
+    internal static (string Name, string Cls, double Sec)[] Parts(ASH.Core.Runner.TimeSplit s) => new[]
+    {
+        ("적재 주행", "u-ld", s.Loaded), ("공차 주행", "u-em", s.Empty), ("상하차", "u-hd", s.Handling), ("버퍼 대기(허용)", "u-bb", s.BufferBusy), ("고장", "u-rp", s.Repair),
+        ("버퍼 대기(허용 초과)", "u-bx", s.BufferIdle), ("유휴", "u-id", s.Idle),
+    };
+
+    /// <summary>Stacked bar of where the time went, the utilization limit as a tick; "-" for results without a split. Hover: seconds and share per part.</summary>
+    internal static string SplitBar(ASH.Core.Runner.TimeSplit? s, double utilMax)
+    {
+        if (s == null || !(s.Window > 0)) return "-";
+        var sb = new StringBuilder($"<span class=\"sbar\" title=\"가동 {P(s.Busy / s.Window)}%\"><span>");
+        foreach (var (name, cls, sec) in Parts(s))
+            if (sec > 0) sb.Append($"<i class=\"{cls}\" style=\"width:{F(sec / s.Window * 100, "0.##")}%\" title=\"{name} {F(sec, "0")}초 · {P(sec / s.Window)}%\"></i>");
+        return sb.Append($"</span><b style=\"left:{F(Math.Min(1, utilMax) * 100, "0.#")}%\"></b></span>").ToString();
+    }
+
+    /// <summary>Legend of <see cref="SplitBar"/>.</summary>
+    internal static string SplitLegend(double utilMax) =>
+        "<div class=\"t4 lg\">시간 내역: " + string.Concat(Parts(new ASH.Core.Runner.TimeSplit(0, 0, 0, 0, 0, 0, 0)).Select(p => $"<i class=\"{p.Cls}\"></i>{p.Name}")) +
+        $" · 적재 주행~고장 = 가동 · 세로선 = 가동률 상한 {Pct(utilMax)}</div>";
 
     /// <summary>At most five groups worth a look: judgement failed first, then over the limit, then the busiest.</summary>
     internal static List<GroupView> Notable(JobView v) =>
@@ -639,13 +724,15 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
         }
         if (v.Vehicles.Count > 0)
         {
-            bool down = v.Vehicles.Any(x => x.Down > 0);
-            sb.Append("<div class=\"box\"><div class=\"box-head\"><h2>차량별</h2><span class=\"t4\">권장 대수만큼 움직인 차량의 확인 실행 평균</span></div><div class=\"scroll\"><table><tr><th>차량</th><th>그룹</th><th>가동률(%)</th><th>작업 수(회)</th><th>주행 거리(m)</th><th>거리/작업(m)</th><th>시간/작업(초)</th>" +
+            bool down = v.Vehicles.Any(x => x.Down > 0), split = v.Vehicles.Any(x => x.Split != null);
+            sb.Append("<div class=\"box\"><div class=\"box-head\"><h2>차량별</h2><span class=\"t4\">권장 대수만큼 움직인 차량의 확인 실행 평균</span></div><div class=\"scroll\"><table><tr><th>차량</th><th>그룹</th><th>가동률(%)</th>" +
+                (split ? "<th>시간 내역</th>" : "") + "<th>작업 수(회)</th><th>주행 거리(m)</th><th>거리/작업(m)</th><th>시간/작업(초)</th>" +
                 (down ? "<th>고장 시간(초)</th>" : "") + "</tr>");
             foreach (var x in v.Vehicles)
-                sb.Append($"<tr><td>{H(x.Name)}</td><td>{H(x.Group)}</td><td class=\"num\">{P(x.Util)}</td><td class=\"num\">{F(x.Jobs, "0.#")}</td><td class=\"num\">{F(x.Distance, "0")}</td>" +
+                sb.Append($"<tr><td>{H(x.Name)}</td><td>{H(x.Group)}</td><td class=\"num\">{P(x.Util)}</td>" + (split ? $"<td>{SplitBar(x.Split, v.UtilMax)}</td>" : "") +
+                    $"<td class=\"num\">{F(x.Jobs, "0.#")}</td><td class=\"num\">{F(x.Distance, "0")}</td>" +
                     $"<td class=\"num\">{F(x.DistPerJob, "0.#")}</td><td class=\"num\">{F(x.BusyPerJob, "0.#")}</td>" + (down ? $"<td class=\"num\">{F(x.Down, "0")}</td>" : "") + "</tr>");
-            sb.Append("</table></div></div>");
+            sb.Append("</table></div>" + (split ? SplitLegend(v.UtilMax) : "") + "</div>");
         }
         if (v.Materials.Count > 0) MaterialTable(sb, v);
         // one row per run and group; every group's count of the run is a column, so the list sorts by any of them

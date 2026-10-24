@@ -42,8 +42,11 @@ public sealed class FakeRunner : IJobRunner
     public ManualResetEventSlim Gate { get; } = new(true);
     /// <summary>Replaces the default run (after the phase is set) so a test can script progress, failure or a wait.</summary>
     public Func<IProgress<RunOutcome>, Action<SearchProgress>, CancellationToken, JobOutcome>? Script { get; set; }
+    /// <summary>FixedCounts of every job run (null = a normal search).</summary>
+    public List<Dictionary<string, int>?> FixedSeen { get; } = new();
     public JobOutcome Run(JobInfo job, string projectDir, TextWriter log, Action<string> phase, IProgress<RunOutcome> progress, Action<SearchProgress> search, CancellationToken ct)
     {
+        lock (FixedSeen) FixedSeen.Add(job.FixedCounts);
         phase("대수 탐색");
         if (Script != null) return Script(progress, search, ct);
         search(new SearchProgress("탐색 시작", new Dictionary<string, int>(), new Dictionary<string, int>(), 1, 3));
@@ -60,7 +63,7 @@ public sealed class FakeRunner : IJobRunner
         Directory.CreateDirectory(Path.Combine(runs, "n2_s1"));
         File.WriteAllText(Path.Combine(runs, "n2_s1", "result.tsv"), FakeResult.Tsv(input.Materials.Select(m => m.Material)));
         log.WriteLine("fake done");
-        return new JobOutcome(0, null, new Dictionary<string, int> { ["G1"] = 2 }, new[] { new[] { "G1" } }, new[] { "n2_s1" }, new[] { "샘플 경고" }, Array.Empty<string>());
+        return new JobOutcome(0, null, job.FixedCounts ?? new Dictionary<string, int> { ["G1"] = 2 }, new[] { new[] { "G1" } }, new[] { "n2_s1" }, new[] { "샘플 경고" }, Array.Empty<string>());
     }
 }
 

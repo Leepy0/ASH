@@ -37,6 +37,8 @@ public sealed class JobInfo
     public DateTime? StartedUtc { get; set; }
     public DateTime? FinishedUtc { get; set; }
     public bool Impact { get; set; } = true;
+    /// <summary>Confirmation only (대수 바꿔 다시 돌리기): no search, run exactly these counts of every group. Null = the normal search.</summary>
+    public Dictionary<string, int>? FixedCounts { get; set; }
     public int InitialReps { get; set; } = 1;
     public bool CancelRequested { get; set; }
     public int RunsDone { get; set; }

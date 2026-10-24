@@ -201,11 +201,14 @@ app.MapGet("/jobs", () => Results.Redirect("/admin/jobs", permanent: true));
 
 app.MapJobs();
 app.MapAnalysis();
+app.MapReport();
 app.MapCatalog();
 app.MapAssets();
 app.MapFiles();
 app.MapFilms();
+app.MapPreview();
 app.MapAdminFs();
+app.MapNotify();
 
 app.Run();
 return 0;

@@ -171,8 +171,8 @@ internal static partial class Routes
                 : Msg(404, "분석이 없습니다."));
 
         // ---- cuts: an analysis' film cuts, edited in the browser and filmed by the server ----
-        app.MapGet("/analyses/{id}/cuts", (string id, string? job, AnalysisStore st, JobStore js) =>
-            st.Get(id) is { } a ? Html(CutEditorPage.Render(a, js.All(), js, job)) : Msg(404, "분석이 없습니다."));
+        app.MapGet("/analyses/{id}/cuts", (string id, string? job, string? add, AnalysisStore st, JobStore js) =>
+            st.Get(id) is { } a ? Html(CutEditorPage.Render(a, js.All(), js, job, add)) : Msg(404, "분석이 없습니다."));
 
         app.MapGet("/api/analyses/{id}/cuts", (string id, AnalysisStore st, CutStore cs) =>
             st.Get(id) == null ? Msg(404, "분석이 없습니다.") : Results.Json(cs.Get(id), CutStore.Json));

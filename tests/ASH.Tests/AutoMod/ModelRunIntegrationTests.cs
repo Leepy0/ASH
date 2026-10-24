@@ -96,7 +96,7 @@ public class ModelRunIntegrationTests
     {
         Skip.If(AmHome is null, "ASH_AM_HOME not set");
         var run = BuildAndRun(LogicGeneratorTests.Sample(), 1);
-        Assert.Equal("kind\tname\tgroup\tvalue1\tvalue2\tvalue3\tvalue4\tvalue5\tvalue6\tvalue7\tvalue8", run.Tsv.Split('\n')[0].TrimEnd('\r'));
+        Assert.Equal("kind\tname\tgroup\tvalue1\tvalue2\tvalue3\tvalue4\tvalue5\tvalue6\tvalue7\tvalue8\tvalue9\tvalue10\tvalue11", run.Tsv.Split('\n')[0].TrimEnd('\r'));
         var mats = run.Rows.Where(x => x[0] == "material").ToList();
         Assert.Equal(new[] { "M1", "M2" }, mats.Select(x => x[1]));
         Assert.All(mats, x => { Assert.Equal(11, x.Length); Assert.True(V(x, 3) > 0, "supplies"); Assert.True(V(x, 4) > 0, "expected");
@@ -108,7 +108,7 @@ public class ModelRunIntegrationTests
         Assert.DoesNotContain(run.Rows, x => x[0] == "blockgroup");
         var veh = run.Rows.Where(x => x[0] == "vehicle").ToList();
         Assert.Equal(3, veh.Count);
-        Assert.All(veh, x => { Assert.Equal(11, x.Length); Assert.Equal(0, V(x, 6)); }); // no MTBF: no repair time
+        Assert.All(veh, x => { Assert.Equal(14, x.Length); Assert.Equal(0, V(x, 6)); Assert.Equal(0, V(x, 11)); }); // no MTBF: no repair time
         // the sample's vehicle waits at the buffer B001 for the unload threshold (pickup -> delivered is mostly that hold), which is not busy time:
         // a whole job's busy time stays under the pickup -> delivered span alone
         var tug = veh.Single(x => x[1] == "Tug1"); var st = run.Rows.Single(x => x[0] == "matstat" && x[1] == "M1");
@@ -138,6 +138,35 @@ public class ModelRunIntegrationTests
         Assert.True(b0 < b60 && b60 < ball, "a larger allowance counts more of the hold as busy");
         Assert.True(b60 - b0 <= 60 * jobs + 1e-6, "at most the allowance per job comes back");
         Cleanup(none.Work); Cleanup(some.Work); Cleanup(all.Work);
+    }
+
+    // the time split the job page draws: the busy parts make up exactly the busy time (the utilization), all parts the measured window
+    [SkippableFact]
+    public void Time_Split_Adds_Up_To_Busy_Time_And_The_Window()
+    {
+        Skip.If(AmHome is null, "ASH_AM_HOME not set");
+        var input = LogicGeneratorTests.Sample();
+        input.AgvTypes[0] = input.AgvTypes[0] with { MTBF = 600, MTTR = 60 };
+        for (int i = 0; i < input.Materials.Count; i++) input.Materials[i] = input.Materials[i] with { EmptyReturn = true };
+        for (int i = 0; i < input.Routes.Count; i++) input.Routes[i] = input.Routes[i] with { BufferWaitSec = 60, ExtraTime = 5, ReturnFromCP = "U001", ReturnToCP = "L001" };
+        var run = BuildAndRun(input, new Dictionary<string, int> { ["G1"] = 2 });
+        var rs = ResultParser.Parse(run.ResultTsvPath);
+        var active = rs.Vehicles!.Where(x => x.Index <= 2).ToList();
+        foreach (var v in active)
+        {
+            var s = v.Split!;
+            Console.WriteLine($"{v.Name}: window {s.Window:0} busy {s.Busy:0} ({s.Busy / s.Window:P1}) = loaded {s.Loaded:0} + empty {s.Empty:0} + handling {s.Handling:0} + buffer(busy) {s.BufferBusy:0} + repair {s.Repair:0}; " +
+                              $"buffer(not busy) {s.BufferIdle:0}, idle {s.Idle:0}; repair total {v.DownSec:0}; jobs {v.Jobs}");
+            Assert.Equal(v.BusySec, s.Busy);
+            Assert.Equal(s.Window, s.Loaded + s.Empty + s.Handling + s.BufferBusy + s.Repair + s.BufferIdle + s.Idle, 6);
+            Assert.True(v.Jobs > 0 && s.Loaded > 0 && s.Empty > 0 && s.Idle >= 0 && s.BufferIdle >= 0, "every part in range");
+            Assert.Equal(v.Jobs * (10 + 10 + 5 + 10 + 10), s.Handling, 6); // load + unload + extra + the empty container's load + unload
+            Assert.True(s.BufferBusy <= 60 * v.Jobs + 1e-6, "at most the allowance per job is busy");
+            Assert.True(s.Repair <= v.DownSec + 1e-6, "repairs that held a job are part of all repairs");
+        }
+        var kpi = Kpi.FromRun(rs, null, input).Single();
+        Assert.Equal(kpi.Utilization, active.Sum(x => x.Split!.Busy) / active.Sum(x => x.Split!.Window), 9); // busy share = the reported utilization
+        Cleanup(run.Work);
     }
 
     [SkippableFact]
