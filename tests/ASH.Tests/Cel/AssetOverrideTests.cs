@@ -149,7 +149,7 @@ public class AssetCelTimeoutTests
 
     [Fact] public void Hanging_Cel_Download_Stalls_Once()
     {
-        var h = new HangOnCel(); var c = new AssetCatalogClient(new Uri("http://srv"), h, TimeSpan.FromMilliseconds(150));
+        var h = new HangOnCel(); var c = new AssetCatalogClient(new Uri("http://srv"), h, TimeSpan.FromSeconds(1)); // the list call shares the limit; 150 ms timed it out on a loaded CI runner
         var w = new List<string>();
         var o = AssetOverrides.Build(new[] { Type("A", "a"), Type("B", "b") }, new[] { "x" }, (ty, n) => c.FetchCel(ty, n), w);
         Assert.Empty(o); Assert.Equal(1, h.List); Assert.Equal(1, h.Cel); Assert.Single(w); Assert.Contains("2개 타입", w[0]);
