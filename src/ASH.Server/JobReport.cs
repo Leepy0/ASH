@@ -99,15 +99,18 @@ public static class JobReport
 
         Kv("권장 총 대수(대)", j.Decided.Values.Sum());
         Kv("시험 범위(대)", $"{v.Input.Groups.Sum(g => g.MinCount)}~{v.Input.Groups.Sum(g => g.MaxCount)}");
-        Kv("확인 판정", v.Groups.All(g => g.AllOk) ? "통과" : "실패");
+        Kv("확인 판정", !v.Groups.All(g => g.AllOk) ? "실패" : v.Groups.Any(g => JobPages.Over(g, v.UtilMax)) ? "경고: 가동률 초과" : "통과");
         Kv("모델 실행 수(회)", j.RunsDone); Kv("실패 수(회)", j.RunsFailed);
 
         r++; Title(ws, r++, "그룹별 권장 대수");
-        Header(ws, r++, "그룹", "AGV 타입", "권장(대)", "최소(대)", "최대(대)", "가동률(%)", "최소 재고/안전재고(배)", "판정", "사유");
+        Header(ws, r++, "그룹", "AGV 타입", "권장(대)", "최소(대)", "최대(대)", "가동률(%)", "최소 재고/안전재고(배)", "판정", "사유", "공급 횟수(회)", "총 이동 거리(km)", "공급당 이동 거리(m)");
+        var byGroup = v.VehicleGroups.ToDictionary(x => x.Group, StringComparer.Ordinal);
         foreach (var g in v.Groups)
         {
             Put(ws, r, 1, g.Group); Put(ws, r, 2, g.Type); Put(ws, r, 3, g.Decided); Put(ws, r, 4, g.Min); Put(ws, r, 5, g.Max);
-            Put(ws, r, 6, g.Util, Pct); Put(ws, r, 7, g.MinStockRatio, "0.00"); Put(ws, r, 8, g.AllOk ? "통과" : "실패"); Put(ws, r, 9, g.Reason);
+            Put(ws, r, 6, g.Util, Pct); Put(ws, r, 7, g.MinStockRatio, "0.00");
+            Put(ws, r, 8, !g.AllOk ? "실패" : JobPages.Over(g, v.UtilMax) ? "경고: 가동률 초과" : "통과"); Put(ws, r, 9, g.Reason);
+            if (byGroup.TryGetValue(g.Group, out var vg)) { Put(ws, r, 10, vg.Jobs * vg.Count, "0"); Put(ws, r, 11, vg.Distance * vg.Count / 1000, "0.0"); Put(ws, r, 12, vg.DistPerJob, "0.#"); }
             r++;
         }
         if (j.Warnings.Count > 0)
@@ -140,7 +143,7 @@ public static class JobReport
         int r = 2;
         foreach (var x in v.Rows)
         {
-            Put(ws, r, 1, x.RunId); Put(ws, r, 2, x.Group); Put(ws, r, 3, x.Active); Put(ws, r, 4, x.Seed); Put(ws, r, 5, x.Ok ? "통과" : "실패"); Put(ws, r, 6, x.Reason);
+            Put(ws, r, 1, x.RunId); Put(ws, r, 2, x.Group); Put(ws, r, 3, x.Active); Put(ws, r, 4, x.Seed); Put(ws, r, 5, x.Ok ? "통과" : JobView.UtilOnly(x) ? "경고" : "실패"); Put(ws, r, 6, x.Reason);
             Put(ws, r, 7, x.Utilization, Pct); Put(ws, r, 8, x.MinStockRatio, "0.00"); Put(ws, r, 9, x.Supplies); Put(ws, r, 10, x.Expected, "0.##");
             Put(ws, r, 11, x.StopTimeSec, "0.#"); Put(ws, r, 12, x.Deadlocks); Put(ws, r, 13, x.DurationSec, "0.#"); Put(ws, r, 14, x.Scenario);
             r++;
@@ -198,7 +201,8 @@ public static class JobReport
     {
         if (v.Materials.Count == 0) { Note(ws, "자재 통계가 없습니다(모델이 쓰지 않았거나 확인 실행 결과가 없음)."); return; }
         Header(ws, 1, "자재", "그룹", "공급(회)", "기대 공급(회)", "결품 시간(초)", "호출→상차 평균(초)", "호출→상차 최대(초)", "호출→하차 평균(초)", "호출→하차 최대(초)",
-            "재고 평균(용기)", "재고 표준편차(용기)", "재고 최소(용기)", "재고 최대(용기)", "안전재고(용기)", "주의");
+            "재고 평균(용기)", "재고 표준편차(용기)", "재고 최소(용기)", "재고 최대(용기)", "안전재고(용기)", "주의",
+            "공급 횟수(회)", "공급 빈도(초)", "공급당 이동 거리(m)", "재고 평균(개)", "재고 최소(개)", "재고 최대(개)");
         int r = 2;
         foreach (var m in v.Materials)
         {
@@ -206,6 +210,9 @@ public static class JobReport
             Put(ws, r, 6, m.PickAvg, "0.0"); Put(ws, r, 7, m.PickMax, "0.0"); Put(ws, r, 8, m.DelivAvg, "0.0"); Put(ws, r, 9, m.DelivMax, "0.0");
             Put(ws, r, 10, m.StockAvg, "0.0"); Put(ws, r, 11, m.StockStd, "0.0"); Put(ws, r, 12, m.StockMin, "0.#"); Put(ws, r, 13, m.StockMax, "0.#");
             Put(ws, r, 14, m.Safety, "0.##"); Put(ws, r, 15, m.Warn ? "주의" : "");
+            var per = JobPages.PerContainer(v, m);
+            Put(ws, r, 16, m.Trips, "0.#"); Put(ws, r, 17, JobPages.SupplyInterval(v, m), "0"); Put(ws, r, 18, m.DistPerTrip, "0.#");
+            Put(ws, r, 19, m.StockAvg * per, "0"); Put(ws, r, 20, m.StockMin * per, "0"); Put(ws, r, 21, m.StockMax * per, "0");
             r++;
         }
         ws.SheetView.FreezeRows(1); Widths(ws);

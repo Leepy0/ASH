@@ -12,7 +12,7 @@ public class ManyGroupsTests
 {
     // JobView's lists have private setters; the cached view of a finished job is patched (as in ConclusionTests).
     static void SetGroups(JobView v, IEnumerable<GroupView> gs) => typeof(JobView).GetProperty("Groups")!.SetValue(v, gs.ToList());
-    static GroupView G(string name, double util, int count = 2, bool ok = true) => new(name, "T", 1, 6, count, util, 1, ok, ok ? null : "가동률 초과");
+    static GroupView G(string name, double util, int count = 2, bool ok = true) => new(name, "T", 1, 6, count, util, 1, ok, ok ? null : "교착 1건");
 
     static async Task<(JobEnv Env, JobInfo J, JobView V)> One(int groups, Func<int, double>? util = null)
     {
@@ -30,7 +30,7 @@ public class ManyGroupsTests
         foreach (var x in new[] { "주목 그룹", "분포 그림", "<details>", "상한 초과", "class=\"strip\"" }) Assert.DoesNotContain(x, s3);
         var (e4, j4, v4) = await One(4); using var __ = e4;
         var four = new StringBuilder(); JobPages.Conclusion(four, j4, v4, false); var s4 = four.ToString();
-        foreach (var x in new[] { "<h3>주목 그룹</h3>", "<h3>분포 그림</h3>", "<details><summary>전체 4개 그룹 보기</summary>", "상한 초과 0개 · 판정 실패 0개 그룹", "class=\"strip\"" }) Assert.Contains(x, s4);
+        foreach (var x in new[] { "<h3>주목 그룹</h3>", "<h3>분포 그림</h3>", "<details><summary>전체 4개 그룹 보기</summary>", "경고(상한 초과) 0개 · 판정 실패 0개 그룹", "class=\"strip\"" }) Assert.Contains(x, s4);
         Assert.Equal(4 + 4, Regex.Matches(s4, "<span class=\"bar\">").Count); // 4 notable + 4 in the closed details
     }
 
@@ -40,9 +40,9 @@ public class ManyGroupsTests
         SetGroups(v, new[] { G("G1", 0.5), G("G2", lim + 0.15), G("G3", 0.3, ok: false), G("G4", lim - 0.05), G("G5", 0.2), G("G6", lim + 0.05), G("G7", 0.2, ok: false), G("G8", 0.4) });
         Assert.Equal(new[] { "G3", "G7", "G2", "G6", "G4" }, JobPages.Notable(v).Select(g => g.Group));
         var sb = new StringBuilder(); JobPages.Conclusion(sb, j, v, false); var s = sb.ToString();
-        Assert.Contains("상한 초과 2개 · 판정 실패 2개 그룹", s);
+        Assert.Contains("경고(상한 초과) 2개 · 판정 실패 2개 그룹", s);
         var notable = s[s.IndexOf("<h3>주목 그룹</h3>", StringComparison.Ordinal)..s.IndexOf("<h3>분포 그림</h3>", StringComparison.Ordinal)];
-        Assert.Equal(5, Regex.Matches(notable, "<span class=\"bar\">").Count); Assert.Contains("실패: 가동률 초과", notable);
+        Assert.Equal(5, Regex.Matches(notable, "<span class=\"bar\">").Count); Assert.Contains("실패: 교착 1건", notable); Assert.Contains("⚠ 경고: 가동률 초과", notable);
     }
 
     [Fact] public async Task Strip_Has_One_Dot_Per_Group_And_A_Fixed_Height()

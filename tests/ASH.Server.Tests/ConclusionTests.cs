@@ -17,11 +17,11 @@ public class ConclusionTests
         // 묶음 4개 × 그룹 5개(G1..G20); G1은 두 번째 묶음에도 들어 있어도 한 번만 그린다
         env.Store.Update(id, x => x.Clusters = Enumerable.Range(0, 4).Select(b => Enumerable.Range(1, 5).Select(i => $"G{b * 5 + i}").Concat(b == 1 ? new[] { "G1" } : Array.Empty<string>()).ToList()).ToList());
         var j = env.Store.Get(id)!; var v = JobView.For(env.Store, j);
-        Set(v, "Groups", Enumerable.Range(1, 20).Select(i => new GroupView($"G{i}", "T", 1, 4, 2, 0.5, 1, i != 7, i == 7 ? "가동률 초과" : null)).ToList());
+        Set(v, "Groups", Enumerable.Range(1, 20).Select(i => new GroupView($"G{i}", "T", 1, 4, 2, 0.5, 1, i != 7, i == 7 ? "교착 1건" : null)).ToList());
         var sb = new StringBuilder(); JobPages.ClusterBars(sb, j, v);
         // the 4 clusters hold 5/6/5/5 groups; no singleton here, so no "단독" heading
         Assert.Equal(4, Regex.Matches(sb.ToString(), "<h3>묶음:").Count); Assert.DoesNotContain("<h3>단독", sb.ToString()); Assert.Equal(20, Regex.Matches(sb.ToString(), "<span class=\"bar\">").Count);
-        Assert.Contains("실패: 가동률 초과", sb.ToString()); Assert.Contains("background:var(--bad)", sb.ToString());
+        Assert.Contains("실패: 교착 1건", sb.ToString()); Assert.Contains("background:var(--bad)", sb.ToString());
         var page = new StringBuilder(); JobPages.Conclusion(page, j, v, small: false);
         Assert.Equal(2, Regex.Matches(page.ToString(), "<svg").Count); // the distribution strip (more than three groups) and the map
         foreach (var s in new[] { "권장 총 대수", "최대 가동률", "최대 병목", "상세 보기", "?tab=detail", "/files/report.xlsx", "class=\"grid2\"" }) Assert.Contains(s, page.ToString());
@@ -74,12 +74,14 @@ public class ConclusionTests
         Assert.Equal(2, Regex.Matches(plans, "권장 총 대수").Count); Assert.Equal(2, Regex.Matches(plans, "<svg").Count);
     }
 
-    static GroupView G(string n, double u, bool ok = true) => new(n, "T", 1, 6, 2, u, 1, ok, ok ? null : "가동률 초과");
+    static GroupView G(string n, double u, bool ok = true) => new(n, "T", 1, 6, 2, u, 1, ok, ok ? null : "교착 1건");
 
     [Fact] public void Group_Class_Is_Over_Under_Or_Ok()
     {
         Assert.Equal("over", AnalysisPages.GroupClass(G("a", 0.9), 0.85));
-        Assert.Equal("over", AnalysisPages.GroupClass(G("a", 0.5, ok: false), 0.85)); // judgement failed counts as a problem
+        Assert.Equal("fail", AnalysisPages.GroupClass(G("a", 0.5, ok: false), 0.85)); // judgement failed: red, before any warning
+        Assert.Equal("fail", AnalysisPages.GroupClass(G("a", 0.9, ok: false), 0.85));
+        Assert.Equal("over", AnalysisPages.GroupClass(G("a", 0.5) with { UtilOver = true }, 0.85)); // one confirm run over the limit: warning
         Assert.Equal("ok", AnalysisPages.GroupClass(G("a", 0.85), 0.85)); // at the limit is not over
         Assert.Equal("under", AnalysisPages.GroupClass(G("a", 0.05), 0.85));
         Assert.Equal("ok", AnalysisPages.GroupClass(G("a", 0.10), 0.85)); // 10 % itself is not under
@@ -89,8 +91,8 @@ public class ConclusionTests
     [Fact] public void Problems_Come_First()
     {
         var gs = new[] { G("G1", 0.5), G("G2", 0.07), G("G3", 0.88), G("G4", 0.6), G("G5", 0.09), G("G6", 0.86), G("G7", 0.3, ok: false) };
-        // over (busiest first, failed with it), under (idlest first), then the rest in input order
-        Assert.Equal(new[] { "G3", "G6", "G7", "G2", "G5", "G1", "G4" }, AnalysisPages.ProblemsFirst(gs, 0.85).Select(g => g.Group));
+        // failed, over (busiest first), under (idlest first), then the rest in input order
+        Assert.Equal(new[] { "G7", "G3", "G6", "G2", "G5", "G1", "G4" }, AnalysisPages.ProblemsFirst(gs, 0.85).Select(g => g.Group));
     }
 
     [Fact] public void Zoom_Box_Holds_The_Hot_Blocks_Inside_The_Layout()

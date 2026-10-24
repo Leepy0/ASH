@@ -56,6 +56,15 @@ public class ResultJudgeTests
 
     [Fact] public void Judge_Fails_When_Stock_Below_Safety() => Assert.Contains("재고", Judge.Evaluate(new[] { K(stock: 0.5), K(stock: 1.2) }, S).Reason);
     [Fact] public void Judge_Fails_When_Util_Over_Max() { var v = Judge.Evaluate(new[] { K(util: 0.9) }, S); Assert.False(v.Ok); Assert.Contains("가동률", v.Reason); }
+    [Fact] public void Judge_Checks_Utilization_Last_So_Its_Verdict_Means_Only_The_Limit_Was_Missed()
+    {
+        var u = Judge.Evaluate(new[] { K(util: 0.9) }, S);
+        Assert.Equal(RuleCode.Utilization, u.Rule); Assert.StartsWith(Judge.UtilPrefix + ":", u.Reason);
+        var d = Judge.Evaluate(new[] { K(util: 0.9, dead: 1) }, S);
+        Assert.False(d.Ok); Assert.Equal(RuleCode.Deadlock, d.Rule);   // the real failure wins the reason; Ok is the same as before
+        Assert.Equal(RuleCode.Supply, Judge.Evaluate(new[] { K(util: 0.9, con: 9, exp: 10) }, S).Rule);
+        Assert.Equal(RuleCode.StopTime, Judge.Evaluate(new[] { K(util: 0.9, stop: 5) }, S).Rule);
+    }
     [Fact] public void Judge_Fails_On_Supply_Shortfall_Then_Deadlock()
     {
         Assert.Contains("생산 미달", Judge.Evaluate(new[] { K(con: 9, exp: 10) }, S).Reason);

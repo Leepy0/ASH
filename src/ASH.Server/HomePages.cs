@@ -43,6 +43,7 @@ document.querySelectorAll('a[data-me]').forEach(function(a){
 .lanes .card{gap:2px}.lanes .card a.t2{color:var(--ink);text-decoration:none}.lanes .card .t1{color:var(--c)}.lanes .card .pv{margin:10px 0 6px}
 .acts{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:12px}.lanes .warn{margin-top:10px}.lanes .warn a{color:var(--blue-d)}
 .sec{font-size:13px;color:var(--sub2);text-align:center;margin-top:4px}
+.grp .wn b{color:var(--orange)}
 .qn{flex:none;width:28px;height:28px;border-radius:14px;background:var(--gray-b);color:var(--sub2);display:grid;place-items:center;font-weight:700;font-size:13px}.qn.me{background:var(--blue-b);color:var(--blue-d)}
 .row .n{font-size:18px;font-weight:700;white-space:nowrap}.row .n small{font-size:13px;color:var(--sub2)}
 .tagf{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:0}.tagf label{display:flex;gap:4px;align-items:center;font-size:13px;color:var(--sub2)}.tagf select{width:auto;min-height:30px;padding:2px 6px}
@@ -92,7 +93,7 @@ document.querySelectorAll('a[data-me]').forEach(function(a){
             var over = c.Util > c.UtilMax; var stop = c.Stop > 0;
             sb.Append($"<div class=\"card{(i == 0 ? " hot" : "")}\"><a class=\"t2\" href=\"/analyses/{H(c.AnalysisId)}\">{H(c.Name)}</a><div class=\"t4\">{H(c.Plan)} v{c.Version} · {Md(c.FinishedUtc)}</div>" +
                 $"<div class=\"t1\">{c.Total}<small>대</small></div><div class=\"t4\">권장 대수</div><div class=\"grp\">" +
-                $"<div{(over ? " class=\"bad\"" : "")}{(double.IsNaN(c.UtilMax) ? "" : $" title=\"상한 {Pct(c.UtilMax)}\"")}><b>{(over ? "▲ " : "")}{Pct(double.IsNaN(c.Util) ? null : c.Util)}</b><small>최대 가동률</small></div>" +
+                $"<div{(over ? " class=\"wn\"" : "")}{(double.IsNaN(c.UtilMax) ? "" : $" title=\"{(over ? "경고: 가동률 상한" : "상한")} {Pct(c.UtilMax)}{(over ? " 초과" : "")}\"")}><b>{(over ? "⚠ " : "")}{Pct(double.IsNaN(c.Util) ? null : c.Util)}</b><small>최대 가동률</small></div>" +
                 $"<div{(stop ? " class=\"bad\"" : "")}><b>{(stop ? "▲ " : "")}{(double.IsNaN(c.Stop) ? "-" : F(c.Stop, "0") + "초")}</b><small>결품</small></div>" +
                 $"<div><b>{H(c.Block ?? "-")}</b><small>병목</small></div></div>" +
                 $"<div class=\"acts\"><a class=\"btn\" href=\"/analyses/{H(c.AnalysisId)}\">결론 보기</a><a class=\"btn pri\" href=\"/analyses/{H(c.AnalysisId)}/cuts?job={H(c.JobId)}\">영상 만들기</a></div></div>");
