@@ -87,6 +87,7 @@ public sealed class CutStore
             if (!(c.Speed >= 1 && c.Speed <= 600)) return at + ": 배속은 1~600배입니다.";
             if (!(c.TiltDeg >= 0 && c.TiltDeg <= 70)) return at + ": 기울기는 0~70°입니다.";
             if (!(c.DirDeg >= 0 && c.DirDeg < 360)) return at + ": 방향은 0~359°입니다.";
+            if (!(c.RollDeg >= -180 && c.RollDeg <= 180)) return at + ": 회전은 -180~180°입니다.";
             if (!Time(c.StartSec) || !Time(c.HoldSec) || !Time(c.HoldASec) || !Time(c.MoveSec) || !Time(c.HoldBSec)) return at + ": 시각과 시간은 0초 이상이어야 합니다.";
             if (!(c.SimSeconds > 0)) return at + ": 촬영 시간은 0초보다 길어야 합니다.";
             // CameraScript needs every Move part: a 0 s hold would put two time statements on one instant (unverified in AutoView)

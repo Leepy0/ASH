@@ -84,6 +84,23 @@ public class CameraMathTests
     }
 
     [Fact]
+    public void Frame_Roll_Turns_Up_About_The_Sight_Line()
+    {
+        // plan view, roll 90: screen-up leans to the old screen-right (east), so a 100 x 10 m rect now fits by its 100 m side vertically
+        var v = CameraMath.Frame(new Rect(0, 0, 100, 10), Um, 80, 1280, 720, 0, 0, rollDeg: 90);
+        Assert.Equal(1.0, v.UpX, 9); Assert.Equal(0.0, v.UpY, 9); Assert.Equal(0.0, v.UpZ, 9);
+        Assert.Equal(80 / (100 * 1.08), v.Scale, 6);
+        // tilted and rolled: the upvector stays a unit vector off the sight line, camera position does not move
+        var t = CameraMath.Frame(A, Um, 81, 1280, 720, 45, 30, rollDeg: 20);
+        var t0 = CameraMath.Frame(A, Um, 81, 1280, 720, 45, 30);
+        Assert.Equal((t0.CamX, t0.CamY, t0.CamZ), (t.CamX, t.CamY, t.CamZ));
+        double dx = t.FocusX - t.CamX, dy = t.FocusY - t.CamY, dz = t.FocusZ - t.CamZ;
+        Assert.Equal(0, (t.UpX * dx + t.UpY * dy + t.UpZ * dz) / Math.Sqrt(dx * dx + dy * dy + dz * dz), 9);
+        Assert.Equal(1, Math.Sqrt(t.UpX * t.UpX + t.UpY * t.UpY + t.UpZ * t.UpZ), 9);
+        Assert.Equal(Math.Sin(45 * Math.PI / 180) * Math.Cos(20 * Math.PI / 180), t.UpZ, 9); // screen-up's vertical part shrinks by cos(roll)
+    }
+
+    [Fact]
     public void TimeScale_10x_15fps()
     {
         Assert.Equal(1.3333, CameraMath.TimeScale(10, 15), 4);   // guide 5.1 (m1: 1.3333 @ 15 fps = 9.97x)

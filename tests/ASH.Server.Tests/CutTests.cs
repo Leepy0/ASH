@@ -14,7 +14,7 @@ public class CutTests
         new(id, "조립라인 입구", CutKind.Hold, 7200, 600, new Rect(1, 2, 30, 18), null, 0, 0, 0, 10, tilt, 0, true, true);
 
     static CutSpec Move(string id = "c2") =>
-        new(id, "L001 → U001", CutKind.Move, 9000, 0, new Rect(0, 0, 10, 10), new Rect(20, 5, 12, 8), 120, 60, 90, 20, 45, 90, false, false, -1);
+        new(id, "L001 → U001", CutKind.Move, 9000, 0, new Rect(0, 0, 10, 10), new Rect(20, 5, 12, 8), 120, 60, 90, 20, 45, 90, false, false, -1, -15.5);
 
     static Task<HttpResponseMessage> Put(JobEnv env, string analysisId, string body, string? origin = Ok)
     {
@@ -48,9 +48,27 @@ public class CutTests
             Assert.Equal(new[] { Hold(), Move() }, back);
             Assert.True(File.Exists(Path.Combine(dir, "analyses", "a-12345678", "cuts.json")));
             Assert.Equal(13.5, back[1].VideoSeconds, 6); // (120+60+90) simulation s / 20
+            Assert.Equal(-15.5, back[1].RollDeg);
             Assert.Throws<ArgumentException>(() => st.Save("a-12345678", new[] { Hold(tilt: 80) }));
             Assert.Equal(2, st.Get("a-12345678").Count); // a rejected list leaves the saved one alone
             Assert.Throws<ArgumentException>(() => st.Get("..\\x"));
+        }
+        finally { try { Directory.Delete(dir, true); } catch (IOException) { } }
+    }
+
+    [Fact]
+    public void Cuts_Saved_Before_Roll_Load_With_Roll_Zero()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "ash-cut-test-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var file = Path.Combine(dir, "analyses", "a-12345678", "cuts.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+            File.WriteAllText(file, "[{\"id\":\"c1\",\"name\":\"old\",\"kind\":\"Hold\",\"startSec\":10,\"holdSec\":60,\"a\":{\"x\":0,\"y\":0,\"w\":5,\"h\":5},\"b\":null," +
+                "\"holdASec\":0,\"moveSec\":0,\"holdBSec\":0,\"speed\":10,\"tiltDeg\":30,\"dirDeg\":90,\"perspective\":true,\"caption\":true,\"vehicleDelta\":0}]");
+            var c = new CutStore(dir).Get("a-12345678").Single();
+            Assert.Equal(0, c.RollDeg); Assert.Equal(30, c.TiltDeg); Assert.Equal(90, c.DirDeg);
+            Assert.Contains("\"rollDeg\":0", JsonSerializer.Serialize(c, CutStore.Json));
         }
         finally { try { Directory.Delete(dir, true); } catch (IOException) { } }
     }
@@ -81,6 +99,7 @@ public class CutTests
     [InlineData("tilt", "기울기는 0~70°")]
     [InlineData("speed", "배속은 1~600")]
     [InlineData("dir", "방향은 0~359°")]
+    [InlineData("roll", "회전은 -180~180°")]
     [InlineData("time", "0초 이상")]
     [InlineData("noB", "구역 B")]
     [InlineData("name", "이름은 1~60자")]
@@ -99,6 +118,7 @@ public class CutTests
             "tilt" => new[] { c with { TiltDeg = 80 } },
             "speed" => new[] { c with { Speed = 0.5 } },
             "dir" => new[] { c with { DirDeg = 360 } },
+            "roll" => new[] { c with { RollDeg = 181 } },
             "time" => new[] { c with { StartSec = -1 } },
             "noB" => new[] { Move() with { B = null } },
             "name" => new[] { c with { Name = new string('가', 61) } },

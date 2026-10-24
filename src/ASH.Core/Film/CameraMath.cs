@@ -12,16 +12,21 @@ public static class CameraMath
     /// <paramref name="f0Metres"/> is the scene's reference field (guide 10.4), supplied by the caller. Output is in <paramref name="unitsPerMeter"/> (1e6 = um).
     /// <paramref name="tiltDeg"/>: 0 = straight down, 90 would be horizontal. <paramref name="dirDeg"/>: compass direction shown screen-up;
     /// 0 = looking north (+Y up, the plan view, camera south of the focus), 90 = looking east (+X up).
-    /// <paramref name="heightMetres"/>: extra height to keep in frame (vehicles/racks); focus is raised to half of it (guide 10.1).</summary>
+    /// <paramref name="heightMetres"/>: extra height to keep in frame (vehicles/racks); focus is raised to half of it (guide 10.1).
+    /// <paramref name="rollDeg"/>: turns the camera about its sight line; positive leans screen-up toward screen-right, so the picture turns counter-clockwise.
+    /// With roll 0 the upvector is the guide's verified one; otherwise it is the rolled screen-up vector (AutoView takes any upvector off the sight line, guide 3.5; rolled renders not yet checked in AutoView).</summary>
     public static View Frame(Rect r, double unitsPerMeter, double f0Metres, int width, int height, double tiltDeg, double dirDeg, double margin = 0.08,
-        double heightMetres = 0, bool perspective = false)
+        double heightMetres = 0, bool perspective = false, double rollDeg = 0)
     {
         if (tiltDeg < 0 || tiltDeg > 70) throw new ArgumentOutOfRangeException(nameof(tiltDeg), "tilt must be 0..70");
         if (width < height) throw new ArgumentOutOfRangeException(nameof(width), "width must be >= height (F0 is the short-side field)");
         if (tiltDeg < 5) tiltDeg = 0; // a near-vertical sight line makes upvector (0,0,1) degenerate: use the plan view
         double th = tiltDeg * Math.PI / 180, ph = dirDeg * Math.PI / 180;
         double sT = Math.Sin(th), cT = Math.Cos(th), sP = Math.Sin(ph), cP = Math.Cos(ph);
-        double[] d = { sT * sP, sT * cP, -cT }, right = { cP, -sP, 0 }, up = { cT * sP, cT * cP, sT };
+        double[] d = { sT * sP, sT * cP, -cT }, right0 = { cP, -sP, 0 }, up0 = { cT * sP, cT * cP, sT };
+        double sR = Math.Sin(rollDeg * Math.PI / 180), cR = Math.Cos(rollDeg * Math.PI / 180);
+        double[] right = { right0[0] * cR - up0[0] * sR, right0[1] * cR - up0[1] * sR, -up0[2] * sR },
+                 up = { up0[0] * cR + right0[0] * sR, up0[1] * cR + right0[1] * sR, up0[2] * cR };
         double cx = r.X + r.W / 2, cy = r.Y + r.H / 2, cz = heightMetres / 2, D = CameraDistanceMetres;
 
         double ax = 0, ay = 0; // guide 10.2: half-extents of the 8 projected corners
@@ -31,15 +36,15 @@ public static class CameraMath
                 {
                     double vx = x - cx, vy = y - cy, vz = z - cz;
                     double f = perspective ? D / (D + vx * d[0] + vy * d[1] + vz * d[2]) : 1;
-                    ax = Math.Max(ax, Math.Abs(f * (vx * right[0] + vy * right[1])));
+                    ax = Math.Max(ax, Math.Abs(f * (vx * right[0] + vy * right[1] + vz * right[2])));
                     ay = Math.Max(ay, Math.Abs(f * (vx * up[0] + vy * up[1] + vz * up[2])));
                 }
         double l = Math.Max(2 * ay, 2 * ax * height / width) * (1 + margin);
         if (!(l > 0)) throw new ArgumentException("rectangle has no extent", nameof(r));
 
         double u = unitsPerMeter;
-        return new View(cx * u, cy * u, cz * u, (cx - D * d[0]) * u, (cy - D * d[1]) * u, (cz - D * d[2]) * u,
-            tiltDeg == 0 ? sP : 0, tiltDeg == 0 ? cP : 0, tiltDeg == 0 ? 0 : 1, f0Metres / l);
+        var (ux, uy, uz) = rollDeg != 0 ? (up[0], up[1], up[2]) : tiltDeg == 0 ? (sP, cP, 0.0) : (0.0, 0.0, 1.0);
+        return new View(cx * u, cy * u, cz * u, (cx - D * d[0]) * u, (cy - D * d[1]) * u, (cz - D * d[2]) * u, ux, uy, uz, f0Metres / l);
     }
 
     /// <summary>Guide 5.1: one movie frame = displayStep x timeScale simulation seconds, so timeScale = speed / (displayStep x fps).</summary>

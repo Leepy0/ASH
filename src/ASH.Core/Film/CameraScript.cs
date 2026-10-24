@@ -24,7 +24,7 @@ public static class CameraScript
 
         string V(Rect r)
         {
-            var v = CameraMath.Frame(r, 1_000_000, f0Metres, width, height, cut.TiltDeg, cut.DirDeg, perspective: cut.Perspective);
+            var v = CameraMath.Frame(r, 1_000_000, f0Metres, width, height, cut.TiltDeg, cut.DirDeg, perspective: cut.Perspective, rollDeg: cut.RollDeg);
             return $"view focus relative to world pos {N(v.FocusX, "0")}, {N(v.FocusY, "0")}, {N(v.FocusZ, "0")} " +
                    $"camera relative to world pos {N(v.CamX, "0")}, {N(v.CamY, "0")}, {N(v.CamZ, "0")} " +
                    $"upvector {N(v.UpX, "0.######")}, {N(v.UpY, "0.######")}, {N(v.UpZ, "0.######")} scale {N(v.Scale)}";

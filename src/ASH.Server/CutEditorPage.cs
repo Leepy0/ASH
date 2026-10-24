@@ -114,10 +114,15 @@ public static class CutEditorPage
 .ir>label,.ir>.l{font-size:14px;color:var(--ink)}
 .iv{display:flex;gap:6px;align-items:center;line-height:1;min-width:0;justify-content:flex-end}
 .ir input[type=text]{width:7.5em;text-align:right}.ir input[type=number]{width:5.4em;text-align:right}
-.ir input[type=range]{width:110px}.u{font-size:13px;color:var(--sub2)}
+.ir input[type=range]{width:110px}.ir #speed{width:80px}.u{font-size:13px;color:var(--sub2)}
 .ir .full{flex-basis:100%;text-align:right}
 .ce-res{background:var(--gray-b);border-radius:12px;padding:8px 10px;text-align:center;margin:8px 0}
 .ce-res .t1{color:var(--blue);font-size:40px}
+.ce-res input.t1{display:block;width:100%;max-width:none;border:0;background:transparent;text-align:center;font-weight:700;padding:0;min-height:48px;font-variant-numeric:tabular-nums}
+.ce-res input.t1:hover,.ce-res input.t1:focus{background:#fff;border-radius:8px}
+.lock{min-height:30px;width:34px;padding:0;background:#fff;border:1px solid var(--line2);border-radius:8px;font-size:14px}.lock.on{background:var(--blue-b);border-color:var(--blue)}
+.vbtns{display:grid;grid-template-columns:1fr 1fr;gap:6px;width:100%}.vbtns button{min-height:34px;padding:0 6px;font-size:13px}.vbtns .w{grid-column:1/-1}
+.stage:focus-visible{outline:3px solid var(--blue);outline-offset:-3px}
 .fold{border-top:1px solid var(--line)}.fold>summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:44px;margin:0;color:var(--ink)}
 .fold>summary::-webkit-details-marker{display:none}.fold>summary::after{content:'›';color:var(--sub2);font-size:18px;margin-left:4px}.fold[open]>summary::after{transform:rotate(90deg)}
 .fold>summary span{margin-left:auto;font-size:13px;color:var(--sub2);text-align:right}
@@ -156,13 +161,13 @@ ol.cl{list-style:none;margin:0;padding:0;display:flex;gap:12px}
 <div class="ce">
  <section class="box ce-stagebox" aria-label="도면">
   <div class="ce-wrap">
-   <div class="stage" id="stage">
-    <div class="hud"><span class="chip" id="hudTilt">기울기 0°</span><span class="chip" id="hudDir">방향 북</span><span class="chip" id="hudPersp">원근 켬</span><span class="chip" id="hudFlat" hidden>미리보기 끔('평면 보기'를 누르면 다시 켜짐)</span><span class="chip warn" id="hudNote" hidden></span></div>
+   <div class="stage" id="stage" tabindex="0" aria-label="도면(시점 조정 모드에서 Ctrl+C·Ctrl+V = 시점 복사·붙여넣기)">
+    <div class="hud"><span class="chip" id="hudTilt">X 기울기 0°</span><span class="chip" id="hudRoll">Y 회전 0°</span><span class="chip" id="hudDir">Z 방향 북</span><span class="chip" id="hudPersp">원근 켬</span><span class="chip" id="hudFlat" hidden>미리보기 끔('평면 보기'를 누르면 다시 켜짐)</span><span class="chip warn" id="hudNote" hidden></span></div>
     <div class="tilter" id="tilter"><canvas id="bg"></canvas><canvas id="fg"></canvas></div>
    </div>
    <div class="ce-tr"><button type="button" id="flat" title="기울기·방향 미리보기를 끄고 켭니다">평면 보기</button><details class="layers"><summary>레이어</summary><div class="pop" id="layers"></div></details></div>
-   <div class="segc ce-tools" role="toolbar" aria-label="도면 도구" title="도면을 끌어 구역을 그리고, 그린 구역은 끌어서 옮기거나 모서리로 크기를 바꿉니다. 휠 = 확대. 방향은 화면 위쪽이 가리키는 쪽(0° = 북, +Y). 아래 컷은 끌거나 ↑↓(←→) 키로 순서를 바꿉니다.">
-    <button type="button" id="mA" class="on" aria-pressed="true">▭ 구역 그리기</button><button type="button" id="mB" aria-pressed="false" hidden>▭ B 그리기</button><button type="button" id="mPan" aria-pressed="false">✋ 이동</button><button type="button" id="zFit">⤢ 맞춤</button>
+   <div class="segc ce-tools" role="toolbar" aria-label="도면 도구" title="도면을 끌어 구역을 그리고, 그린 구역은 끌어서 옮기거나 모서리로 크기를 바꿉니다. 휠 = 확대. 방향은 화면 위쪽이 가리키는 쪽(0° = 북, +Y). 시점 조정: 휠 클릭(또는 왼쪽) 끌기 = 좌우 방향(Z)·위아래 기울기(X), Shift·Ctrl + 끌기 = 회전(Y). 도면을 누른 뒤 Ctrl+C·Ctrl+V로 시점 복사·붙여넣기. 아래 컷은 끌거나 ↑↓(←→) 키로 순서를 바꿉니다.">
+    <button type="button" id="mA" class="on" aria-pressed="true">▭ 구역 그리기</button><button type="button" id="mB" aria-pressed="false" hidden>▭ B 그리기</button><button type="button" id="mView" aria-pressed="false">⟲ 시점 조정</button><button type="button" id="mPan" aria-pressed="false">✋ 이동</button><button type="button" id="zFit">⤢ 맞춤</button>
    </div>
    <div class="ce-zoom"><button type="button" id="zIn" aria-label="확대">＋</button><button type="button" id="zOut" aria-label="축소">－</button></div>
   </div>
@@ -172,17 +177,19 @@ ol.cl{list-style:none;margin:0;padding:0;display:flex;gap:12px}
    <div class="ce-name"><div class="t4" id="formTitle">새 컷</div><label for="name" class="vh">이름</label><input type="text" id="name" maxlength="60" placeholder="컷 이름(예: 입구 대기열)"></div>
    <div class="segc ce-kind" role="group" aria-label="컷 종류"><button type="button" data-k="Hold" class="on" aria-pressed="true">구역 고정</button><button type="button" data-k="Move" aria-pressed="false">A → B 이동</button><button type="button" data-k="Whole" aria-pressed="false">전체</button></div>
    <div class="ir"><label for="start">시작</label><div class="iv"><input type="text" id="start" value="{START}" inputmode="numeric" aria-describedby="startEnd"></div><span class="u full" id="startEnd"></span></div>
-   <div id="holdSet"><div class="ir"><label for="dur">길이</label><div class="iv"><input type="number" id="dur" min="1" value="600"><span class="u">초</span></div></div></div>
+   <div id="holdSet"><div class="ir"><label for="dur">시뮬레이션 길이</label><div class="iv"><input type="number" id="dur" min="1" value="600"><span class="u">초</span></div></div></div>
    <div id="moveSet" hidden>
     <div class="ir"><label for="holdA">A에서</label><div class="iv"><input type="number" id="holdA" min="1" value="120"><span class="u">초</span></div></div>
     <div class="ir"><label for="moveS">이동</label><div class="iv"><input type="number" id="moveS" min="1" value="60"><span class="u">초</span></div></div>
     <div class="ir"><label for="holdB">B에서</label><div class="iv"><input type="number" id="holdB" min="1" value="120"><span class="u">초</span></div></div></div>
-   <div class="ir"><label for="speedN">배속</label><div class="iv"><input type="range" id="speed" min="0" max="1000" aria-label="배속 슬라이더"><input type="number" id="speedN" min="1" max="600" value="10"><span class="u">배</span></div></div>
-   <div class="ce-res"><div class="t1" id="vlen">0:00</div><div class="t4">영상 길이</div><div class="t4" id="calc" aria-live="polite"></div></div>
+   <div class="ir"><label for="speedN">배속</label><div class="iv"><input type="range" id="speed" min="0" max="1000" aria-label="배속 슬라이더"><input type="number" id="speedN" min="1" max="600" value="10"><span class="u">배</span><button type="button" class="lock" id="speedLock" aria-pressed="false" aria-label="배속 고정" title="켜면 영상 길이를 바꿀 때 배속은 두고 시뮬레이션 길이를 다시 계산합니다. 끄면 세 값 중 가장 오래전에 고친 값을 다시 계산합니다.">🔓</button></div></div>
+   <div class="ce-res"><input type="text" class="t1" id="vlen" value="0:00" inputmode="numeric" aria-label="영상 길이(분:초 또는 초)" title="분:초 또는 초로 적으면 배속(배속 고정이면 시뮬레이션 길이)을 다시 계산합니다"><div class="t4">영상 길이</div><div class="t4" id="calc" aria-live="polite"></div></div>
    <details class="fold" id="advForm"><summary>카메라 <span id="advSum"></span></summary>
     <div class="ir"><label for="tiltN">기울기</label><div class="iv"><input type="range" id="tilt" min="0" max="70" value="0" aria-label="기울기 슬라이더"><input type="number" id="tiltN" min="0" max="70" value="0"><span class="u">°</span></div></div>
     <div class="ir"><label for="dirN">방향</label><div class="iv"><span class="segc dirs" id="dirs" role="group" aria-label="화면 위쪽 방향"><button type="button" data-d="0">북</button><button type="button" data-d="90">동</button><button type="button" data-d="180">남</button><button type="button" data-d="270">서</button></span><input type="number" id="dirN" min="0" max="359" value="0" aria-label="방향 각도"><span class="u">°</span></div></div>
+    <div class="ir"><label for="rollN">회전</label><div class="iv"><input type="range" id="roll" min="-180" max="180" value="0" aria-label="회전 슬라이더"><input type="number" id="rollN" min="-180" max="180" value="0"><span class="u">°</span></div></div>
     <div class="ir"><span class="l">보기</span><div class="iv"><label><input type="checkbox" id="persp" checked> 원근</label><label><input type="checkbox" id="cap" checked> 자막</label></div></div>
+    <div class="ir"><div class="vbtns"><button type="button" class="btn" id="vCopy">시점 복사</button><button type="button" class="btn" id="vPaste">시점 붙여넣기</button><button type="button" class="btn w" id="vAll">모든 컷에 적용</button></div><label class="u full"><input type="checkbox" id="vZone"> 구역 크기도 함께 붙여넣기·적용</label></div>
    </details>
    <details class="fold" id="vdFold"><summary>대수 <span id="vdSum"></span></summary>
     <div class="ir"><label for="vd">대수 변경</label><div class="iv"><input type="number" id="vd" min="-20" max="20" value="0"><span class="u">대(0 = 결론 대수)</span></div></div>
@@ -228,7 +235,8 @@ function enc(s){return encodeURIComponent(s);}
 var api='/api/analyses/'+enc(D.analysisId)+'/cuts';
 var stage=$('stage'),tilter=$('tilter'),bg=$('bg'),fg=$('fg');
 var W=0,H=0,dpr=1,view={cx:0,cy:0,s:10},dw=null,layerOn=[],show={paths:true,cps:true,texts:true};
-var zones={A:null,B:null},mode='A',kind='Hold',tilt=0,dir=0,persp=true,preview=true,speed=10;
+var zones={A:null,B:null},mode='A',kind='Hold',tilt=0,dir=0,roll=0,persp=true,preview=true,speed=10;
+var order=['video','speed','sim'],lockSpeed=false,vid=0; // simulation length, speed, video length: the least recently edited one (order[0]) is recomputed
 var cuts=[],loaded=false,editId=null,skip={},drag=null,pollT=null; // loaded: never save over a list we have not read
 var KN={Hold:'구역 고정',Move:'A→B 이동',Whole:'전체'},COL={A:'#d9822b',B:'#7a4fbf'};
 
@@ -274,20 +282,23 @@ function drawFg(){
 }
 
 // ---- view: tilt / direction preview (CSS 3D, approximate)
+function angled(){return tilt>0||dir!==0||roll!==0;}
 function applyView(){
-  var on=preview&&(tilt>0||dir!==0);
-  tilter.style.transform=on?'rotateX('+tilt+'deg) rotateZ('+(-dir)+'deg)':'none';
+  var on=preview&&angled();
+  tilter.style.transform=on?'rotateZ('+(-roll)+'deg) rotateX('+tilt+'deg) rotateZ('+(-dir)+'deg)':'none';
   stage.classList.toggle('flat',!persp);
-  $('hudTilt').textContent='기울기 '+tilt+'°';$('hudDir').textContent='방향 '+dirName(dir);$('hudPersp').textContent=persp?'원근 켬':'원근 끔';
-  $('hudFlat').hidden=preview||!(tilt>0||dir!==0);
+  $('hudTilt').textContent='X 기울기 '+tilt+'°';$('hudRoll').textContent='Y 회전 '+roll+'°';$('hudDir').textContent='Z 방향 '+dirName(dir);$('hudPersp').textContent=persp?'원근 켬':'원근 끔';
+  $('hudFlat').hidden=preview||!angled();
   var vd=Math.round(num('vd')); // the folded settings stay readable on their summary rows
-  $('advSum').textContent='기울기 '+tilt+'° · '+dirName(dir)+(persp?'':' · 원근 끔')+($('cap').checked?'':' · 자막 끔');
+  $('advSum').textContent='기울기 '+tilt+'° · '+dirName(dir)+(roll?' · 회전 '+roll+'°':'')+(persp?'':' · 원근 끔')+($('cap').checked?'':' · 자막 끔');
   $('vdSum').textContent=vd?'결론 '+(vd>0?'+':'')+vd+'대':D.baseTotal?'결론 '+D.baseTotal+'대':'결론 대수';
 }
 function setPreview(on){preview=on;applyView();}
 function setTilt(v){tilt=Math.max(0,Math.min(70,Math.round(+v||0)));$('tilt').value=tilt;$('tiltN').value=tilt;applyView();calc();}
 function setDir(v){v=Math.round(+v||0);dir=((v%360)+360)%360;$('dirN').value=dir;
   Array.prototype.forEach.call($('dirs').children,function(b){var on=+b.dataset.d===dir;b.classList.toggle('on',on);b.setAttribute('aria-pressed',on);});applyView();}
+function setRoll(v){v=Math.round(+v||0);roll=((v+180)%360+360)%360-180;$('roll').value=roll;$('rollN').value=roll;applyView();}
+function setRoll(v){v=Math.round(+v||0);roll=((v+180)%360+360)%360-180;$('roll').value=roll;$('rollN').value=roll;applyView();}
 function setSpeed(v){speed=Math.max(1,Math.min(600,Math.round(+v||1)));$('speedN').value=speed;$('speed').value=Math.round(1000*Math.log(speed)/Math.log(600));calc();}
 function layoutRect(){
   if(!dw)return null;var x0=1e18,y0=1e18,x1=-1e18,y1=-1e18;function P(x,y){x0=Math.min(x0,x);y0=Math.min(y0,y);x1=Math.max(x1,x);y1=Math.max(y1,y);}
@@ -302,15 +313,20 @@ function setKind(k,keep){kind=k;
   if(k==='Move'&&!zones.B&&zones.A)zones.B={x:r2(zones.A.x+zones.A.w*1.3),y:zones.A.y,w:zones.A.w,h:zones.A.h};
   if(k!=='Move'&&mode==='B')setMode('A');
   drawFg();calc();}
-function setMode(m){mode=m;[['mA','A'],['mB','B'],['mPan','pan']].forEach(function(p){var b=$(p[0]),on=p[1]===m;b.classList.toggle('on',on);b.setAttribute('aria-pressed',on);});
-  if(m==='B'&&kind!=='Move')setKind('Move');stage.style.cursor=m==='pan'?'grab':'crosshair';drawFg();}
+function setMode(m){mode=m;[['mA','A'],['mB','B'],['mView','view'],['mPan','pan']].forEach(function(p){var b=$(p[0]),on=p[1]===m;b.classList.toggle('on',on);b.setAttribute('aria-pressed',on);});
+  if(m==='B'&&kind!=='Move')setKind('Move');stage.style.cursor=m==='pan'?'grab':m==='view'?'move':'crosshair';
+  if(m==='view'){setPreview(true);$('advForm').open=true;}drawFg();}
 
 // ---- pointer: draw / move / resize a zone, or pan
 function local(e){var r=stage.getBoundingClientRect();return {x:e.clientX-r.left,y:e.clientY-r.top};}
+function rot(p,e){return {t:'rot',x:p.x,y:p.y,t0:tilt,d0:dir,r0:roll,roll:e.shiftKey||e.ctrlKey};}
+stage.addEventListener('mousedown',function(e){if(e.button===1)e.preventDefault();}); // no autoscroll on a wheel click
 stage.addEventListener('pointerdown',function(e){
   if(e.button===2)return;
-  if(preview&&(tilt>0||dir!==0))setPreview(false); // drawing needs the flat plan; the cut keeps its tilt
-  var p=local(e);stage.setPointerCapture(e.pointerId);
+  stage.focus({preventScroll:true});var p=local(e);
+  if(mode==='view'){stage.setPointerCapture(e.pointerId);drag=rot(p,e);setPreview(true);return;}
+  if(preview&&angled())setPreview(false); // drawing needs the flat plan; the cut keeps its tilt
+  stage.setPointerCapture(e.pointerId);
   if(mode==='pan'||e.button===1){drag={t:'pan',x:p.x,y:p.y,cx:view.cx,cy:view.cy};return;}
   if(kind==='Whole'){say('전체 컷은 구역을 레이아웃 전체로 자동으로 잡습니다. 구역을 그리려면 종류를 바꾸세요.');return;}
   var k=mode,z=zones[k],X=mx(p.x),Y=my(p.y),tol=9/view.s;
@@ -320,6 +336,10 @@ stage.addEventListener('pointerdown',function(e){
 });
 stage.addEventListener('pointermove',function(e){if(!drag)return;var p=local(e);
   if(drag.t==='pan'){view.cx=drag.cx-(p.x-drag.x)/view.s;view.cy=drag.cy+(p.y-drag.y)/view.s;drawAll();return;}
+  if(drag.t==='rot'){if((e.shiftKey||e.ctrlKey)!==drag.roll)drag=rot(p,e); // a modifier pressed mid-drag starts from here
+    var dx=p.x-drag.x,dy=p.y-drag.y;if(drag.roll)setRoll(drag.r0-dx*0.4);else{setDir(drag.d0-dx*0.4);setTilt(drag.t0-dy*0.3);}return;}
+  if(drag.t==='rot'){if((e.shiftKey||e.ctrlKey)!==drag.roll)drag=rot(p,e); // a modifier pressed mid-drag starts from here
+    var dx=p.x-drag.x,dy=p.y-drag.y;if(drag.roll)setRoll(drag.r0-dx*0.4);else{setDir(drag.d0-dx*0.4);setTilt(drag.t0-dy*0.3);}return;}
   var X=mx(p.x),Y=my(p.y),z=zones[drag.k];
   zones[drag.k]=drag.t==='move'?{x:X-drag.ox,y:Y-drag.oy,w:z.w,h:z.h}:{x:Math.min(drag.fx,X),y:Math.min(drag.fy,Y),w:Math.abs(X-drag.fx),h:Math.abs(Y-drag.fy)};
   drawFg();calc();});
@@ -327,22 +347,37 @@ function endDrag(){if(drag&&drag.t==='size'){var z=zones[drag.k];if(!z||z.w*view
 stage.addEventListener('pointerup',endDrag);stage.addEventListener('pointercancel',endDrag);
 function zoom(f,p){p=p||{x:W/2,y:H/2};var X=mx(p.x),Y=my(p.y);view.s=Math.max(1e-4,Math.min(1e4,view.s*f));view.cx=X-(p.x-W/2)/view.s;view.cy=Y+(p.y-H/2)/view.s;drawAll();}
 stage.addEventListener('wheel',function(e){e.preventDefault();
-  zoom(e.deltaY<0?1.25:0.8,preview&&(tilt>0||dir!==0)?null:local(e));},{passive:false});
+  zoom(e.deltaY<0?1.25:0.8,preview&&angled()?null:local(e));},{passive:false});
 $('zIn').onclick=function(){zoom(1.25);};$('zOut').onclick=function(){zoom(0.8);};$('zFit').onclick=function(){if(dw){fit(dw.bounds);drawAll();}};
 $('flat').onclick=function(){setPreview(!preview);};
-$('mA').onclick=function(){setMode('A');};$('mB').onclick=function(){setMode('B');};$('mPan').onclick=function(){setMode('pan');};
+$('mA').onclick=function(){setMode('A');};$('mB').onclick=function(){setMode('B');};$('mPan').onclick=function(){setMode('pan');};$('mView').onclick=function(){setMode('view');};$('mView').onclick=function(){setMode('view');};
 
 // ---- form
 Array.prototype.forEach.call(document.querySelectorAll('[data-k]'),function(b){b.onclick=function(){setKind(b.dataset.k);};});
 Array.prototype.forEach.call($('dirs').children,function(b){b.onclick=function(){setDir(b.dataset.d);setPreview(true);};});
 $('dirN').onchange=function(){setDir(this.value);setPreview(true);};
 $('tilt').oninput=function(){setTilt(this.value);setPreview(true);};$('tiltN').onchange=function(){setTilt(this.value);setPreview(true);};
-$('speed').oninput=function(){setSpeed(Math.pow(600,this.value/1000));};$('speedN').onchange=function(){setSpeed(this.value);};
+$('roll').oninput=function(){setRoll(this.value);setPreview(true);};$('rollN').onchange=function(){setRoll(this.value);setPreview(true);};
 $('persp').onchange=function(){persp=this.checked;applyView();};$('cap').onchange=applyView;$('vd').oninput=applyView;
-['dur','holdA','moveS','holdB','start'].forEach(function(id){$(id).oninput=calc;});
+// ---- simulation length x speed = video length: editing one recomputes the least recently edited other (never the speed while it is locked)
+function target(f){var o=order.filter(function(x){return x!==f;});return o[0]==='speed'&&lockSpeed?o[1]:o[0];}
+function link(f,apply){var v=vid,t=target(f);apply();order=order.filter(function(x){return x!==f;}).concat(f);if(f==='video')v=vid;
+  if(t==='speed'){var raw=simSec()/v;setSpeed(raw);if(raw<1||raw>600)say('배속은 1~600배라 영상 길이를 '+dur(simSec()/speed)+'로 맞췄습니다.');}
+  else if(t==='sim')setSim(v*speed);
+  calc();}
+// Move scales A hold, move and B hold together; the rounding rest goes to the longest part
+function setSim(s){s=Math.max(kind==='Move'?3:1,Math.round(s));if(kind!=='Move'){$('dur').value=s;return;}
+  var ids=['holdA','moveS','holdB'],old=ids.map(num),tot=old[0]+old[1]+old[2],nv=old.map(function(x){return Math.max(1,Math.round(tot>0?x*s/tot:s/3));});
+  var i=nv.indexOf(Math.max.apply(null,nv));nv[i]=Math.max(1,nv[i]+s-nv[0]-nv[1]-nv[2]);ids.forEach(function(id,k){$(id).value=nv[k];});}
+$('speed').oninput=function(){var v=Math.pow(600,this.value/1000);link('speed',function(){setSpeed(v);});};$('speedN').onchange=function(){var v=this.value;link('speed',function(){setSpeed(v);});};
+['dur','holdA','moveS','holdB'].forEach(function(id){$(id).oninput=function(){if(target('sim')==='video')calc();};$(id).onchange=function(){link('sim',function(){});};});
+$('start').oninput=calc;
+$('vlen').onchange=function(){var v=parseT(this.value);if(!(v>0)){say('영상 길이는 분:초(예: 1:30) 또는 초로 적어 주세요.',true);calc();return;}link('video',function(){vid=v;});};
+$('vlen').onkeydown=function(e){if(e.key==='Enter')this.blur();};
+$('speedLock').onclick=function(){lockSpeed=!lockSpeed;this.classList.toggle('on',lockSpeed);this.setAttribute('aria-pressed',lockSpeed);this.textContent=lockSpeed?'\uD83D\uDD12':'\uD83D\uDD13';};
 function simSec(){return kind==='Move'?num('holdA')+num('moveS')+num('holdB'):num('dur');}
 function calc(){var s=simSec(),z=zones.A,b=zones.B,st=parseT($('start').value);
-  $('vlen').textContent=dur(s/speed);
+  vid=s/speed;if(document.activeElement!==$('vlen'))$('vlen').value=dur(vid);total();
   $('calc').textContent='시뮬레이션 '+dur(s)+(z?' · A '+z.w.toFixed(1)+'×'+z.h.toFixed(1)+' m':' · 구역 A 없음')+(kind==='Move'&&b?' · B '+b.w.toFixed(1)+'×'+b.h.toFixed(1)+' m':'');
   $('startEnd').textContent=isNaN(st)?'시:분:초로 적어 주세요':'~ '+hms(st+s)+(D.warmup?' · 워밍업 '+hms(D.warmup):'')+(D.simLength&&st+s>D.simLength?' · 시뮬레이션 끝('+hms(D.simLength)+')을 넘음':'');}
 function rect(z){return z&&{x:r2(z.x),y:r2(z.y),w:r2(z.w),h:r2(z.h)};}
@@ -354,7 +389,7 @@ function fromForm(){
   if(kind==='Move'&&!zones.B){say('구역 B를 그려 주세요.',true);return null;}
   var mv=kind==='Move';
   return {id:editId||newId(),name:$('name').value.trim()||('컷 '+(cuts.length+1)),kind:kind,startSec:st,holdSec:mv?0:num('dur'),a:rect(zones.A),b:mv?rect(zones.B):null,
-    holdASec:mv?num('holdA'):0,moveSec:mv?num('moveS'):0,holdBSec:mv?num('holdB'):0,speed:speed,tiltDeg:tilt,dirDeg:dir,perspective:persp,caption:$('cap').checked,vehicleDelta:Math.round(num('vd'))};
+    holdASec:mv?num('holdA'):0,moveSec:mv?num('moveS'):0,holdBSec:mv?num('holdB'):0,speed:speed,tiltDeg:tilt,dirDeg:dir,perspective:persp,caption:$('cap').checked,vehicleDelta:Math.round(num('vd')),rollDeg:roll};
 }
 // the server checks every list; a rejected list is not kept here either
 function commit(next,ok){
@@ -368,12 +403,40 @@ $('save').onclick=function(){var c=fromForm();if(!c)return;var next=cuts.slice()
   if(i>=0)next[i]=c;else next.push(c);commit(next,function(){cancelEdit();$('name').value='';});};
 $('cancel').onclick=function(){cancelEdit();say('');};
 function cancelEdit(){editId=null;$('formTitle').textContent='새 컷';$('save').textContent='리스트에 추가';$('cancel').hidden=true;render();}
-function edit(i){var c=cuts[i];editId=c.id;$('formTitle').textContent=(i+1)+'번 컷 수정';$('name').value=c.name;$('start').value=hms(c.startSec);
+function edit(i){var c=cuts[i];editId=c.id;order=['video','speed','sim'];$('formTitle').textContent=(i+1)+'번 컷 수정';$('name').value=c.name;$('start').value=hms(c.startSec);
   zones.A=rect(c.a);zones.B=c.b?rect(c.b):null;setKind(c.kind,true);
   if(c.kind!=='Move')$('dur').value=c.holdSec;else{$('holdA').value=c.holdASec;$('moveS').value=c.moveSec;$('holdB').value=c.holdBSec;}
-  setSpeed(c.speed);setTilt(c.tiltDeg);setDir(c.dirDeg);persp=!!c.perspective;$('persp').checked=persp;$('cap').checked=!!c.caption;$('vd').value=c.vehicleDelta||0;applyView();
+  setSpeed(c.speed);setTilt(c.tiltDeg);setDir(c.dirDeg);setRoll(c.rollDeg||0);persp=!!c.perspective;$('persp').checked=persp;$('cap').checked=!!c.caption;$('vd').value=c.vehicleDelta||0;applyView();
   $('save').textContent='수정 저장';$('cancel').hidden=false;setPreview(true);render();calc();say('');
   if(window.innerWidth<=1000)$('form').scrollIntoView({block:'start'});}
+
+// ---- view copy / paste: {tilt, dir, roll, perspective, zone?} as JSON text; kept in this browser too, since the clipboard API needs https
+var VK='ash.cutView',clip='';
+function viewData(){var d={ash:'view',tilt:tilt,dir:dir,roll:roll,perspective:persp};if(zones.A&&kind!=='Whole')d.zone={w:r2(zones.A.w),h:r2(zones.A.h)};return d;}
+function viewText(d){return 'X '+d.tilt+'° · Y '+(d.roll||0)+'° · Z '+dirName(d.dir)+(d.perspective===false?' · 원근 끔':'');}
+function keep(t){clip=t;try{localStorage.setItem(VK,t);}catch(x){}}
+function kept(){try{return localStorage.getItem(VK)||clip;}catch(x){return clip;}}
+function parseView(t){var d;try{d=JSON.parse(t);}catch(x){return null;}
+  return d&&d.ash==='view'&&isFinite(d.tilt)&&isFinite(d.dir)&&isFinite(d.roll||0)?d:null;}
+function resized(z,s){return z&&s&&s.w>0&&s.h>0?{x:r2(z.x+z.w/2-s.w/2),y:r2(z.y+z.h/2-s.h/2),w:r2(+s.w),h:r2(+s.h)}:z;}
+function copied(d){say('시점을 복사했습니다: '+viewText(d)+'. 다른 컷에서 "시점 붙여넣기"(도면에서 Ctrl+V).');}
+function copyView(){var d=viewData(),t=JSON.stringify(d);keep(t);
+  function old(){var ta=el('textarea');ta.value=t;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();try{document.execCommand('copy');}catch(x){}ta.remove();copied(d);}
+  if(navigator.clipboard&&window.isSecureContext)navigator.clipboard.writeText(t).then(function(){copied(d);},old);else old();}
+function pasteView(t){var d=parseView(t)||parseView(kept());
+  if(!d){say('붙여넣을 시점이 없습니다. 먼저 "시점 복사"를 누르세요.',true);return;}
+  setTilt(d.tilt);setDir(d.dir);setRoll(d.roll||0);if(typeof d.perspective==='boolean'){persp=d.perspective;$('persp').checked=persp;}
+  if($('vZone').checked&&d.zone&&kind!=='Whole'){zones.A=resized(zones.A,d.zone);zones.B=resized(zones.B,d.zone);}
+  setPreview(true);drawFg();calc();say('시점을 붙여넣었습니다: '+viewText(d)+(editId?'. "수정 저장"을 누르면 이 컷에 저장됩니다.':'.'));}
+$('vCopy').onclick=copyView;
+$('vPaste').onclick=function(){
+  if(navigator.clipboard&&navigator.clipboard.readText&&window.isSecureContext)navigator.clipboard.readText().then(pasteView,function(){pasteView('');});else pasteView('');};
+document.addEventListener('copy',function(e){if(document.activeElement!==stage)return;var d=viewData(),t=JSON.stringify(d);keep(t);e.clipboardData.setData('text/plain',t);e.preventDefault();copied(d);});
+document.addEventListener('paste',function(e){if(document.activeElement!==stage)return;e.preventDefault();pasteView(e.clipboardData.getData('text/plain'));});
+$('vAll').onclick=function(){if(!cuts.length){say('적용할 컷이 없습니다.',true);return;}
+  var d=viewData(),z=$('vZone').checked&&d.zone;
+  if(!confirm('컷 '+cuts.length+'개 모두의 시점을 '+viewText(d)+(z?', 구역 '+z.w+'×'+z.h+' m':'')+'로 바꿀까요?'))return;
+  commit(cuts.map(function(c){var n=Object.assign({},c,{tiltDeg:tilt,dirDeg:dir,rollDeg:roll,perspective:persp});if(z&&c.kind!=='Whole'){n.a=resized(c.a,z);n.b=resized(c.b,z);}return n;}));};
 
 // ---- list
 function sim(c){return c.kind==='Move'?c.holdASec+c.moveSec+c.holdBSec:c.holdSec;}
@@ -384,11 +447,11 @@ function thumb(c){var th=el('div','th'),L=layoutRect();
     s.style.left=pc((z.x-L.x)/L.w*100);s.style.bottom=pc((z.y-L.y)/L.h*100);s.style.width=pc(z.w/L.w*100);s.style.height=pc(z.h/L.h*100);th.appendChild(s);});
   return th;}
 var dragI=-1,focusId=null;
-function render(){var ol=$('list');ol.textContent='';var all=0,inc=0,n=0;
-  cuts.forEach(function(c,i){var v=sim(c)/c.speed,on=!skip[c.id];all+=v;if(on){inc+=v;n++;}
+function render(){var ol=$('list');ol.textContent='';
+  cuts.forEach(function(c,i){var v=sim(c)/c.speed,on=!skip[c.id];
     var li=el('li','cc'+(c.id===editId?' sel':'')+(on?'':' off'));li.tabIndex=0;li.draggable=true;li.dataset.id=c.id;
     li.setAttribute('aria-label',(i+1)+'번 컷 '+c.name);
-    li.title=KN[c.kind]+' · '+hms(c.startSec)+'부터 '+dur(sim(c))+' · '+c.speed+'배 · 기울기 '+c.tiltDeg+'° · '+dirName(c.dirDeg)+(c.perspective?'':' · 원근 끔')+(c.vehicleDelta?' · '+(c.vehicleDelta>0?'+':'')+c.vehicleDelta+'대':'')+' → 영상 '+dur(v);
+    li.title=KN[c.kind]+' · '+hms(c.startSec)+'부터 '+dur(sim(c))+' · '+c.speed+'배 · 기울기 '+c.tiltDeg+'° · '+dirName(c.dirDeg)+(c.rollDeg?' · 회전 '+c.rollDeg+'°':'')+(c.perspective?'':' · 원근 끔')+(c.vehicleDelta?' · '+(c.vehicleDelta>0?'+':'')+c.vehicleDelta+'대':'')+' → 영상 '+dur(v);
     var th=thumb(c);th.appendChild(el('b','no',String(i+1)));th.appendChild(el('span','du',dur(v)));
     var lb=el('label','inc'),cb=el('input');cb.type='checkbox';cb.checked=on;cb.setAttribute('aria-label',(i+1)+'번 컷을 영상에 넣기');cb.onchange=function(){if(this.checked)delete skip[c.id];else skip[c.id]=1;render();};
     lb.appendChild(cb);th.appendChild(lb);li.appendChild(th);
@@ -408,10 +471,14 @@ function render(){var ol=$('list');ol.textContent='';var all=0,inc=0,n=0;
     ol.appendChild(li);});
   if(!loaded)ol.appendChild(el('li','empty','저장된 컷 리스트를 불러오지 못했거나 불러오는 중입니다.'));
   else if(!cuts.length)ol.appendChild(el('li','empty','아직 컷이 없습니다. 도면에 구역을 그리고 "리스트에 추가"를 누르거나, 장면 후보를 누르세요.'));
+  total();
+  if(focusId){Array.prototype.forEach.call(ol.children,function(li){if(li.dataset.id===focusId)li.focus();});focusId=null;}}
+// the cut being edited counts with the form's lengths, so the totals follow the inspector live
+function total(){var all=0,inc=0,n=0;
+  cuts.forEach(function(c){var v=c.id===editId?simSec()/speed:sim(c)/c.speed;all+=v;if(!skip[c.id]){inc+=v;n++;}});
   var t=$('total');t.textContent='';t.title='컷 '+cuts.length+'개 · 영상에 넣을 컷 '+n+'개'+(n<cuts.length?' · 전체 '+dur(all):'');
   t.appendChild(el('div','t4','영상 합계'));t.appendChild(el('div','t1',dur(inc)));t.appendChild(el('div','t4',n+'컷'+(n<cuts.length?' / '+cuts.length+'컷':'')));t.appendChild(el('div','t4','끌어서 순서 변경'));
-  $('run').textContent='영상 만들기 · '+n+'컷 · '+dur(inc);
-  if(focusId){Array.prototype.forEach.call(ol.children,function(li){if(li.dataset.id===focusId)li.focus();});focusId=null;}}
+  $('run').textContent='영상 만들기 · '+n+'컷 · '+dur(inc);}
 function moveTo(i,j){if(j<0||j>=cuts.length||i===j)return;var next=cuts.slice();focusId=cuts[i].id;next.splice(j,0,next.splice(i,1)[0]);commit(next);}
 function move(i,d){moveTo(i,i+d);}
 function del(i){var next=cuts.slice(),c=next.splice(i,1)[0];commit(next,function(){if(c.id===editId)cancelEdit();});}
@@ -482,7 +549,7 @@ function layerUi(){var box=$('layers');box.textContent='';
   dw.layers.forEach(function(n,i){add(n,true,function(v){layerOn[i]=v;});});}
 
 // ---- start
-setSpeed(10);setDir(0);setTilt(0);setKind('Hold');resize();render();
+setSpeed(10);setDir(0);setTilt(0);setRoll(0);setKind('Hold');resize();render();
 window.addEventListener('resize',resize);
 fetch('/jobs/'+enc(D.job)+'/drawing.json').then(function(r){return r.ok?r.json():r.text().then(function(t){throw new Error(t);});}).then(function(d){
   dw=d;layerOn=d.layers.map(function(){return true;});layerUi();fit(d.bounds);
