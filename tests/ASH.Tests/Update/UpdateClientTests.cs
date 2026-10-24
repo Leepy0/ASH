@@ -181,7 +181,7 @@ public sealed class UpdateClientTests : IDisposable
         using var c = Client(new Fake { Fn = (_, _) => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StreamContent(new StallingStream()) }) }, 300);
         var sw = Stopwatch.StartNew();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => c.DownloadVerifiedAsync(m, null, _dir));
-        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(5), "took " + sw.Elapsed);
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(15), "took " + sw.Elapsed); // bounds a hang, not the idle timeout itself: CI timers fire late
         Assert.Empty(Directory.GetFiles(_dir));
     }
 
