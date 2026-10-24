@@ -141,6 +141,8 @@ internal static partial class Routes
             return Results.Redirect($"/jobs/{id}");
         });
 
+        app.MapRerun();
+
         app.MapGet("/jobs/{id}/files/{name}", (string id, string name, JobStore js) =>
         {
             if (!JobStore.IsValidId(id) || js.Get(id) is not { } j) return Msg(404, "작업이 없습니다.");

@@ -330,13 +330,13 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
             case "detail": Detail(sb, j, v); break;
             case "input": InputTab(sb, j, v); break;
             case "files": FilesTab(sb, j, logTail); break;
-            default: Summary(sb, j, v, prices); break;
+            default: Summary(sb, j, v, prices, canCancel); break;
         }
         sb.Append("</div>");
         return Page($"ASH 작업 {j.Id}", sb.ToString(), j.Finished ? null : PollScript("/api/jobs/" + j.Id, new Dictionary<string, string> { [j.Id] = j.State }), nav: "analyses");
     }
 
-    static void Summary(StringBuilder sb, JobInfo j, JobView? v, IReadOnlyDictionary<string, PriceRow>? prices)
+    static void Summary(StringBuilder sb, JobInfo j, JobView? v, IReadOnlyDictionary<string, PriceRow>? prices, bool canRerun = false)
     {
         if (j.Decided == null || v?.Input == null)
         {
@@ -385,6 +385,7 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
                 $"<td>{F(g.MinStockRatio)}</td><td>{(vg == null ? "-" : F(vg.Jobs * vg.Count, "0"))}</td><td>{(vg == null ? "-" : F(vg.Distance * vg.Count / 1000, "0.0"))}</td><td>{(vg == null ? "-" : F(vg.DistPerJob, "0.#"))}</td>{verdict}</tr>");
         }
         sb.Append($"</tbody></table></div><div class=\"t4\">▲ 상한 초과(경고) · ▼ 10% 미만 · 세로선 = 가동률 상한 {Pct(v.UtilMax)} · 공급·거리 = 권장 대수 차량의 합</div></div>");
+        RerunPage.Box(sb, j, v, canRerun);
         if (v.VehicleGroups.Count > 0)
         {
             sb.Append("<div class=\"box\"><h2>차량</h2><div class=\"scroll\"><table class=\"sort\"><thead><tr>").Append(Th("그룹")).Append(Th("대수(대)")).Append(Th("평균 가동률(%)")).Append(Th("작업/대(회)"))

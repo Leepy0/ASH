@@ -47,6 +47,35 @@ public static class SearchStrategy
     /// <summary>InitStockMode Fixed: seeds do not change the result, so one replication.</summary>
     internal static bool FixedStock(ASH.Core.Input.Settings s) => string.Equals((s.InitStockMode ?? "").Trim(), "Fixed", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>Confirmation only (no search): runs exactly <paramref name="counts"/> (one per group, within Min..Max, else ArgumentException) at the
+    /// settings' replications and judges every group, like the "confirm" round of <see cref="Search"/> without the bump. Failures become warnings.</summary>
+    public static SearchResult Confirm(ProjectInput input, IRunExecutor exec, IReadOnlyDictionary<string, int> counts, CancellationToken ct = default)
+    {
+        foreach (var k in counts.Keys)
+            if (input.Groups.All(g => g.Group != k)) throw new ArgumentException("그룹이 없습니다: " + k);
+        var cur = new Dictionary<string, int>();
+        foreach (var g in input.Groups)
+        {
+            if (!counts.TryGetValue(g.Group, out var n)) throw new ArgumentException($"{g.Group}: 대수가 없습니다.");
+            if (n < g.MinCount || n > g.MaxCount) throw new ArgumentException($"{g.Group}: {n}대는 범위 {g.MinCount}~{g.MaxCount}대 밖입니다.");
+            cur[g.Group] = n;
+        }
+        var warnings = new List<string>();
+        int reps = Math.Max(1, input.Settings.Replications);
+        if (FixedStock(input.Settings) && reps > 1)
+        {
+            warnings.Add($"InitStockMode Fixed: 시드가 결과를 바꾸지 않으므로 반복 {reps}회 대신 1회로 실행");
+            reps = 1;
+        }
+        var seeds = Enumerable.Range(0, reps).Select(i => input.Settings.SeedBase + i).ToList();
+        var kpis = exec.ExecuteMany(seeds.Select(s => new RunScenario(s, new Dictionary<string, int>(cur))).ToList(), ct).SelectMany(x => x).ToList();
+        var v = input.Groups.ToDictionary(g => g.Group, g => Judge.Evaluate(kpis.Where(k => k.Group == g.Group), input.Settings));
+        foreach (var f in v.Where(x => !x.Value.Ok))
+            warnings.Add($"{f.Key}: {(f.Value.Rule == RuleCode.Utilization ? "확인 경고" : "확인 실패")} ({cur[f.Key]}대): {f.Value.Reason}");
+        var trace = new List<SearchStep> { new(new RunScenario(input.Settings.SeedBase, new Dictionary<string, int>(cur)), v, v.Values.All(x => x.Ok), "confirm", reps, seeds) };
+        return new SearchResult(cur, trace, new List<ImpactRow>(), warnings);
+    }
+
     /// <summary>Per cluster: baseline at Max (initial reps) → pass 1 binary search per group → later passes try only cur−1 per group until a
     /// pass changes nothing → "decided" at Settings.Replications → "minus1" tries cur−1 per group at full reps. Groups failing at baseline
     /// are skipped after pass 1. Then "confirm" over all groups (bumps failing groups, up to MaxConfirmRounds), then optional impact runs.
