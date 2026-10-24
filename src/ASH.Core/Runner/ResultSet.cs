@@ -13,7 +13,18 @@ public sealed record BlockResult(string Name, double Passes, double AvgWaitSec, 
 /// for the unload threshold left out), distance, jobs,
 /// the measured window, index within the group, repair seconds (MTBF/MTTR breakdowns). All after warmup, as the logic keeps them (AutoMod's own
 /// vehicle states mean nothing once the load rides along the whole job).</summary>
-public sealed record VehicleResult(string Name, string Group, double BusySec, double Distance, int Jobs, double WindowSec, int Index, double DownSec = 0);
+public sealed record VehicleResult(string Name, string Group, double BusySec, double Distance, int Jobs, double WindowSec, int Index, double DownSec = 0,
+    TimeSplit? Split = null);
+
+/// <summary>Where a vehicle's measured window went, in seconds after warmup (value7..11 of the vehicle row; null for models built before them).
+/// Busy = Loaded + Empty + Handling + BufferBusy + Repair, the busy time the utilization is made of; the rest of the window is BufferIdle + Idle.
+/// Handling = load, unload and Route.ExtraTime waits; BufferBusy / BufferIdle = the hold at a buffer for the unload threshold within / beyond
+/// Route.BufferWaitSec; Repair = breakdowns that held a job (one while standing idle is Idle). Empty = the rest of the busy time: empty runs, home.</summary>
+public sealed record TimeSplit(double Window, double Busy, double Loaded, double Handling, double BufferBusy, double BufferIdle, double Repair)
+{
+    public double Empty => Busy - Loaded - Handling - BufferBusy - Repair;
+    public double Idle => Window - Busy - BufferIdle;
+}
 
 /// <summary>matstat row (AutoMod tables, after warmup): lead time call -> pickup and call -> delivered (average, maximum), stock samples one per takt.</summary>
 public sealed record MaterialStat(string Name, string Group, double PickAvg, double PickMax, double DelivAvg, double DelivMax,

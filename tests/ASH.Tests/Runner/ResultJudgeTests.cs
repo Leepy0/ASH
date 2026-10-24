@@ -114,6 +114,21 @@ public class ResultJudgeTests
     }
 
     [Fact]
+    public void Parse_Reads_The_Time_Split_Of_A_Vehicle_Row_Only_When_It_Is_There()
+    {
+        const string H = "kind\tname\tgroup\tvalue1\nclock\tclock\t\t0\t5\n";
+        // busy 100 of 400: loaded 30, handling 20, buffer within the allowance 10 / beyond it 50, repair 5 -> empty 35, idle 250
+        var r = ResultParser.Parse(W(H + "vehicle\tT1\tG1\t100\t50\t3\t400\t1\t40\t30\t20\t10\t50\t5\n"));
+        var s = Assert.Single(r.Vehicles!).Split!;
+        Assert.Equal(new TimeSplit(400, 100, 30, 20, 10, 50, 5), s);
+        Assert.Equal(35, s.Empty); Assert.Equal(250, s.Idle);
+        Assert.Equal(s.Busy, s.Loaded + s.Empty + s.Handling + s.BufferBusy + s.Repair);
+        // models before the split write 0 0 in value7/value8 (or nothing): no split
+        Assert.Null(Assert.Single(ResultParser.Parse(W(H + "vehicle\tT1\tG1\t100\t50\t3\t400\t1\t40\t0\t0\n")).Vehicles!).Split);
+        Assert.Null(Assert.Single(ResultParser.Parse(W(H + "vehicle\tT1\tG1\t100\t50\t3\t400\t1\n")).Vehicles!).Split);
+    }
+
+    [Fact]
     public void ParseReport_Dash_Is_NaN_And_Block_Without_AvWait_Kept()
     {
         var p = W("Block Statistics\n=====\nB1 3 0 1.5 2 1 0 0.25 4.5\nB2 3 0 1.5 2 1 0 -- 4.5 --\n\n", ".report");

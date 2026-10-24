@@ -59,6 +59,9 @@ begin P_supply_{{M}} arriving procedure
 	set A_vid to A_veh A_index + {{VID_OFFSET}}
 	set A_tPick to ac
 	set A_hold to 0
+	set A_bw to 0
+	set A_ld to 0
+	set A_dn to 0
 	/* a vehicle that came over from elsewhere to take this load: AutoMod counts that run as retrieving; the share since its last pickup is this job's */
 	set V_x to (A_veh percent time retrieving) / 100 * ac
 	set A_ret to V_x - A_veh A_rLast
@@ -92,13 +95,19 @@ begin P_supply_{{M}} arriving procedure
 {{FINISH}}
 	/* home first, always: the next job starts from the standby CP */
 	travel to {{SYS}}:{{HOME}}
-{{FAIL_LEG}}
+{{FAIL_HOME}}
 {{FINISH_AT_HOME}}
 {{SPEC_SPEED}}
 	/* A_hold = time held at the buffer for the unload threshold: not busy (the load, unload and extra times set in the input stay busy) */
 	if A_tPick >= V_warmup then begin
 		inc V_vBusy(A_vid) by A_ret + A_fin - A_tPick - A_hold
 		inc V_vJobs(A_vid) by 1
+		/* where the busy time went: loaded legs, load/unload/extra waits, buffer hold within / beyond the allowance, repairs held */
+		inc V_vLoad(A_vid) by A_ld
+		inc V_vHand(A_vid) by {{HANDLE}}
+		inc V_vBufB(A_vid) by A_bw - A_hold
+		inc V_vBufX(A_vid) by A_hold
+		inc V_vRep(A_vid) by A_dn
 		set V_x to A_veh total distance traveled
 		inc V_vDist(A_vid) by V_x - A_veh A_dLast
 		inc V_mDist({{M}}) by V_x - A_veh A_dLast

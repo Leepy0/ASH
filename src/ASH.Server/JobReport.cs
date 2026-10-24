@@ -178,20 +178,23 @@ public static class JobReport
     {
         if (v.Vehicles.Count == 0) { Note(ws, "차량 결과가 없습니다(모델이 차량 통계를 쓰지 않았거나 확인 실행 결과가 없음)."); return; }
         int r = 1;
+        // where the time went, one column per part (seconds; the group's is the sum over its vehicles); empty for results without it
+        var parts = JobPages.Parts(new ASH.Core.Runner.TimeSplit(0, 0, 0, 0, 0, 0, 0)).Select(p => p.Name + "(초)").ToArray();
+        void Split(int c, ASH.Core.Runner.TimeSplit? s) { if (s != null) foreach (var p in JobPages.Parts(s)) Put(ws, r, c++, p.Sec, "0"); }
         Title(ws, r++, "그룹별 요약 (확인 실행 평균, 권장 대수만큼 움직인 차량)");
-        Header(ws, r++, "그룹", "대수(대)", "평균 가동률(%)", "작업/대(회)", "주행 거리/대(m)", "거리/작업(m)", "시간/작업(초)");
+        Header(ws, r++, new[] { "그룹", "대수(대)", "평균 가동률(%)", "작업/대(회)", "주행 거리/대(m)", "거리/작업(m)", "시간/작업(초)" }.Concat(parts).ToArray());
         foreach (var g in v.VehicleGroups)
         {
             Put(ws, r, 1, g.Group); Put(ws, r, 2, g.Count); Put(ws, r, 3, g.Util, Pct); Put(ws, r, 4, g.Jobs, "0.#"); Put(ws, r, 5, g.Distance, "0");
-            Put(ws, r, 6, g.DistPerJob, "0.#"); Put(ws, r, 7, g.BusyPerJob, "0.#");
+            Put(ws, r, 6, g.DistPerJob, "0.#"); Put(ws, r, 7, g.BusyPerJob, "0.#"); Split(8, g.Split);
             r++;
         }
         r++; Title(ws, r++, "차량별");
-        Header(ws, r++, "차량", "그룹", "가동률(%)", "작업 수(회)", "주행 거리(m)", "거리/작업(m)", "시간/작업(초)", "고장 시간(초)");
+        Header(ws, r++, new[] { "차량", "그룹", "가동률(%)", "작업 수(회)", "주행 거리(m)", "거리/작업(m)", "시간/작업(초)", "고장 시간(초)" }.Concat(parts).ToArray());
         foreach (var x in v.Vehicles)
         {
             Put(ws, r, 1, x.Name); Put(ws, r, 2, x.Group); Put(ws, r, 3, x.Util, Pct); Put(ws, r, 4, x.Jobs, "0.#"); Put(ws, r, 5, x.Distance, "0");
-            Put(ws, r, 6, x.DistPerJob, "0.#"); Put(ws, r, 7, x.BusyPerJob, "0.#"); Put(ws, r, 8, x.Down, "0");
+            Put(ws, r, 6, x.DistPerJob, "0.#"); Put(ws, r, 7, x.BusyPerJob, "0.#"); Put(ws, r, 8, x.Down, "0"); Split(9, x.Split);
             r++;
         }
         Widths(ws);

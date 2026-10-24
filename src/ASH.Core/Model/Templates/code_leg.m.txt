@@ -5,7 +5,7 @@
 	set A_mv0 to (A_veh percent time in motion) / 100 * ac
 	travel to {{SYS}}:{{TO}}
 	set V_inLeg({{SLOT}}) to 0
-	/* A_t0 lives on the load: a return leg and the next supply of the same material may overlap */
+{{LOADED}}	/* A_t0 lives on the load: a return leg and the next supply of the same material may overlap */
 	if ac - A_t0 > V_deadlockSec then inc V_deadlock by 1
 	/* wait = leg time minus time the vehicle was moving (AM has no per-vehicle blocked-time attribute); includes decel/accel at the stop */
 	set A_w to ac - A_t0 - ((A_veh percent time in motion) / 100 * ac - A_mv0)
