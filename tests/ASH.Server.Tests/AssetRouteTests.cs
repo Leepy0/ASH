@@ -7,7 +7,7 @@ namespace ASH.Server.Tests;
 
 public class AssetRouteTests
 {
-    const string Token = "test-admin-token-1234567890";
+    const string Token = "test!Admin12";
     const string Stl = "solid body\nfacet normal 0 0 1\n outer loop\n  vertex 0 0 0\n  vertex 1000 0 0\n  vertex 0 1000 500\n endloop\nendfacet\nendsolid body\n";
 
     static JobEnv Env(string? maxMb = null)

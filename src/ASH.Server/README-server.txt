@@ -17,11 +17,12 @@ ASH.Server - ASH 배포 서버 (최소판)
    - GitHub       새 릴리스 자동 가져오기(AGV_FOTA_GATEWAY 와 같은 방식). 기본값 그대로 두면 된다.
                     BaseUrl https://github.com/Leepy0/ASH 의 releases/latest/download/ASH.json 을 CheckIntervalMin(기본 60분)마다 확인.
                     Proxy 비우면 PC 설정, none 이면 직접 연결, 또는 http://proxy.corp:8080 (서비스는 사용자 프록시 설정을 안 씀).
-                    가져온 릴리스도 크기·SHA-256 을 확인한다(GitHub 에서 HTTPS 로 받은 것은 그대로 믿는다). 토큰은 필요 없다.
+                    가져온 릴리스도 크기·SHA-256 을 확인한다(GitHub 에서 HTTPS 로 받은 것은 그대로 믿는다). 관리자 암호는 필요 없다.
                     Dns 비우면 PC 의 DNS. 사내 DNS 가 github.com 을 못 찾으면 DNS 서버 IP 를 적는다(예: "8.8.8.8, 1.1.1.1").
                     GitHub 주소를 그 DNS 에서 먼저 찾고, 답이 없으면 PC 의 DNS 로 다시 찾는다(UDP 53).
                     UpdateServer true(기본) 면 서버 프로그램 자신도 새 버전으로 자동 교체한다(아래 "서버 자동 업데이트").
-   - Admin:Token  선택. 수동 업로드(publish-release.ps1)를 쓸 때만. 16자 이상의 길고 무작위인 문자열.
+   - Admin:Password  관리자 암호. 4~20자, 영문·숫자·특수문자 혼합 가능(공백·한글 안 됨). 비우면 기본값 ash!23.
+                    다른 사람이 닿는 서버는 반드시 바꾼다. 규칙에 맞지 않으면 관리자 기능이 꺼진다.
                     비워 두면 수동 업로드만 꺼지고 GitHub 가져오기는 동작한다.
    - Urls         기본 http://0.0.0.0:8082
    - Releases:Dir 배포 파일 보관 폴더(기본 %ProgramData%/ASH.Server/releases)
@@ -36,7 +37,7 @@ ASH.Server - ASH 배포 서버 (최소판)
                       요약(summary.tsv, 결과 화면, Excel 보고서), 올린 원본(upload.zip), 로그는 남는다. 한 시간마다 확인한다.
                     Enabled false 면 작업을 받지 않는다. WorkerEnabled false 면 받기만 하고 실행하지 않는다.
                     주의: 올린 모델의 로직(user_ext.m 등)이 서버에서 AutoMod 로 컴파일·실행된다. 사내망에서만 연다.
-                    작업 대기열은 http://서버:8082/admin/jobs, 결과는 홈(/)·분석(/analyses)에서 본다. 취소는 보낸 PC(같은 IP)나 관리자 토큰으로만 된다.
+                    작업 대기열은 http://서버:8082/admin/jobs, 결과는 홈(/)·분석(/analyses)에서 본다. 취소는 보낸 PC(같은 IP)나 관리자 암호로만 된다.
                     상세 탭의 실행 목록에서 "받기"를 누르면 그 실행의 모델(빌드 출력이 남아 있으면 <모델>.exe·.dir 포함)과
                       params.txt, run.bat 을 zip 으로 받는다. AutoMod 가 있는 PC 에서 풀고 run.bat 을 누르면 그 실행을 창으로 본다.
                       run.bat 의 AutoMod 폴더 기본값은 이 서버의 AmHome 이다.
@@ -48,9 +49,9 @@ ASH.Server - ASH 배포 서버 (최소판)
                     최초 1회 확인: 영상을 한 편 만들어 서비스 세션에서 AutoView 가 그리는지 본다. "AutoView가 MP4를 만들지 않았습니다" 로 실패하면
                       서비스를 로그온 가능한 계정으로 바꾸고 그 계정이 서버 PC 에 로그온해 두거나, 서비스 대신 작업 스케줄러에
                       "사용자가 로그온한 경우에만 실행" 으로 ASH.Server.exe 를 등록한다. 자세한 내용은 docs\server-install.md 5절 "영상 촬영".
-   를 확인한다. 환경 변수 Admin__Token 으로 토큰을 줄 수도 있다.
-   설치 뒤에는 Admin:Token 을 넣어 두면 브라우저 http://서버:8082/admin/settings 에서 위 값을 바꿀 수 있다(아래 "웹 설정").
-   설치 폴더 권한을 관리자로 제한한다(토큰을 넣었다면 토큰 보호):
+   를 확인한다. 환경 변수 Admin__Password 로 관리자 암호를 줄 수도 있다.
+   설치 뒤에는 Admin:Password(관리자 암호)로 브라우저 http://서버:8082/admin/settings 에서 위 값을 바꿀 수 있다(아래 "웹 설정").
+   설치 폴더 권한을 관리자로 제한한다(관리자 암호 보호):
      icacls "C:\Program Files\ASH.Server" /inheritance:r /grant:r "Administrators:(OI)(CI)F" "SYSTEM:(OI)(CI)F"
 3. 배포 폴더(Releases:Dir)를 먼저 만들고 권한을 잠근 다음에 서비스를 등록한다(순서 필수. 서비스가 먼저 만들면
    %ProgramData% 의 상속 권한이 붙어 로컬 사용자가 배포 파일을 바꿀 수 있다):
@@ -77,13 +78,13 @@ ASH.Server - ASH 배포 서버 (최소판)
    함정: 서버 PC 의 네트워크가 Public 으로 분류돼 있으면 위 규칙이 적용되지 않아 다른 PC 에서 접속이 안 된다
    (서버 자신에서는 열린다). Get-NetConnectionProfile 로 확인하고 Set-NetConnectionProfile ... -NetworkCategory Private 로 바꾼다.
    규칙에 Public 을 그냥 추가하지 말 것.
-   수동 업로드의 토큰은 평문 HTTP 로 전달된다. 신뢰할 수 있는 사내망에서만 업로드하거나, 앞단에 HTTPS 프록시를 둔다.
+   수동 업로드의 관리자 암호는 평문 HTTP 로 전달된다. 신뢰할 수 있는 사내망에서만 업로드하거나, 앞단에 HTTPS 프록시를 둔다.
 6. 브라우저로 http://서버:8082/admin/settings 를 열어 서버 상태를 확인한다. 시작 10초쯤 뒤 "마지막 확인 — 가져옴: x.y.z" 와
    현재 버전이 보이면 끝이다. "실패: …" 면 서버 PC 의 github.com 접속과 GitHub:Proxy 를 확인한다.
 7. 새 버전 배포: GitHub 에 정식 릴리스(ASH.json, ASH-Setup-x.y.z.exe 포함)를 만들면 서버가 60분 안에 가져간다.
    Directory.Build.props 의 <Version> 을 올려 main 에 push 하면 GitHub Actions 가 자동으로 만든다(docs\server-install.md).
    바로 반영하려면 sc stop ASH.Server && sc start ASH.Server.
-   서버가 GitHub 에 닿지 않을 때만 수동 업로드:  $env:ASH_ADMIN_TOKEN='<토큰>'; scripts\publish-release.ps1 -Server http://서버:8082
+   서버가 GitHub 에 닿지 않을 때만 수동 업로드:  $env:ASH_ADMIN_TOKEN='<관리자 암호>'; scripts\publish-release.ps1 -Server http://서버:8082
    (수동 업로드도 서명 없이 받지만 PC 가 github.com 과 대조하므로 GitHub 릴리스와 다른 파일은 설치되지 않는다.)
 
 로그
@@ -113,12 +114,12 @@ ASH.Server - ASH 배포 서버 (최소판)
 - /films/{id}/files/all.zip  그 영상의 컷 파일 전부(zip)
 
 웹 설정 (/admin/settings, 상단 메뉴 "설정")
-- Admin:Token(16자 이상)이 있어야 열린다. 처음에 토큰을 한 번 입력하면 브라우저에 HttpOnly·SameSite=Strict 쿠키(서버만 아는 무작위
-  세션 ID, 8시간, 서버를 다시 시작하면 로그아웃)가 남는다. 토큰 자체는 쿠키나 페이지에 들어가지 않는다. 다른 사이트에서 온 POST 는
+- Admin:Password가 규칙(4~20자)에 맞아야 열린다. 처음에 관리자 암호를 한 번 입력하면 브라우저에 HttpOnly·SameSite=Strict 쿠키(서버만 아는 무작위
+  세션 ID, 8시간, 서버를 다시 시작하면 로그아웃)가 남는다. 암호 자체는 쿠키나 페이지에 들어가지 않는다. 다른 사이트에서 온 POST 는
   Origin 검사로 거절한다. 스크립트는 X-ASH-Admin-Token 헤더로 같은 주소에 POST 해도 된다.
 - 바꿀 수 있는 값: Jobs(Enabled, WorkerEnabled, AmHome, Parallel, DialogButton, RunTimeoutMin, BuildTimeoutMin, JobTimeoutHours,
   KeepRunsDays, Dir), Film(FfmpegPath, AviewExe, CutTimeoutMin), GitHub(Enabled, BaseUrl, CheckIntervalMin, UpdateServer, Proxy, Dns), Urls, Releases:Dir, Update:AllowUnsigned.
-  Admin:Token, Update:PublicKeyPem, Logging 은 웹에서 바꾸지 않는다(파일을 직접 고친다).
+  Admin:Password, Update:PublicKeyPem, Logging 은 웹에서 바꾸지 않는다(파일을 직접 고친다).
 - 바로 적용(저장하면 다음 작업·다음 정리부터): Jobs:Enabled, AmHome, Parallel, DialogButton, RunTimeoutMin, BuildTimeoutMin,
   JobTimeoutHours, KeepRunsDays, Film:CutTimeoutMin, Film:FfmpegPath, Film:AviewExe.  재시작 필요: 나머지 전부(Jobs:WorkerEnabled, Jobs:Dir, GitHub:*, Urls, Releases:Dir, Update:AllowUnsigned).
 - 저장은 값을 검사(정수 범위, 켬/끔, 주소 형식)한 뒤 appsettings.json 을 임시 파일로 쓰고 바꿔 넣는다. 이전 파일은
@@ -129,7 +130,7 @@ ASH.Server - ASH 배포 서버 (최소판)
   서비스 계정이 설치 폴더에 쓸 수 없으면(LocalService) 저장이 실패하고 파일은 그대로다.
 
 분석 삭제 (관리자, /admin/analyses/<id>/delete)
-- 분석 페이지 맨 아래 "관리자: 분석 삭제…" 링크가 확인 페이지로 간다(로그인 필요, /admin/settings 와 같은 토큰). 분석 이름을 입력해야 지워진다.
+- 분석 페이지 맨 아래 "관리자: 분석 삭제…" 링크가 확인 페이지로 간다(로그인 필요, /admin/settings 와 같은 관리자 암호). 분석 이름을 입력해야 지워진다.
 - 분석의 작업은 남고 "분석에 넣지 않은 작업"이 된다(안·버전·선정 해제, 버전 메모 유지). 분석·안·컷 목록·이 분석의 영상 기록과 파일은 지워지며 되돌릴 수 없다.
 - 이 분석의 영상이 대기 중이거나 만드는 중이면 409 로 거절한다(먼저 취소). 작업이 없는 분석은 누구나 분석 페이지에서 지울 수 있다.
 

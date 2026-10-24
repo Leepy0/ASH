@@ -126,7 +126,7 @@ public class CatalogTests
     [Fact]
     public async Task Admin_Types_Needs_Login_And_Saves_With_Header_Token()
     {
-        const string Token = "test-admin-token-1234567890";
+        const string Token = "test!Admin12";
         using var env = new JobEnv(worker: false, adminToken: Token);
         var store = env.Factory.Services.GetRequiredService<CatalogStore>();
         var get = await env.Http.GetAsync("/admin/types");

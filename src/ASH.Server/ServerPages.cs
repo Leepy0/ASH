@@ -59,7 +59,7 @@ public static class ServerPages
         sb.Append("<dt>무결성 확인</dt><dd>").Append(s.Key == null
             ? (s.AllowUnsigned ? "없음 — PC가 github.com 릴리스와 대조해 확인" : "<b class=\"bad\">서명 키 없음 — 업로드 거절(Update:AllowUnsigned=false)</b>")
             : H(s.Key.KeyId)).Append("</dd>");
-        sb.Append("<dt>수동 업로드</dt><dd>").Append(s.UploadsEnabled ? "가능" : "꺼짐 <span class=\"muted\">(Admin:Token 미설정 또는 짧음, GitHub 가져오기만 사용)</span>").Append("</dd>");
+        sb.Append("<dt>수동 업로드</dt><dd>").Append(s.UploadsEnabled ? "가능" : "꺼짐 <span class=\"muted\">(Admin:Password가 규칙에 맞지 않음, GitHub 가져오기만 사용)</span>").Append("</dd>");
         // the clock behind every time on this page: if it differs from the wall clock the PC's own date and time is wrong
         sb.Append("<dt>서버 시각(서울)</dt><dd>").Append(H(SeoulTime.NowText)).Append(" <span class=\"muted\">· PC 표준 시간대 ").Append(H(TimeZoneInfo.Local.Id)).Append("</span></dd>");
         sb.Append("</dl></section></div></section>");
@@ -75,14 +75,14 @@ public static class ServerPages
         var sb = new StringBuilder($"<h1>{H(title)}</h1>");
         if (!uploadsEnabled)
         {
-            sb.Append("<div class=\"msg warn\">웹 설정이 꺼져 있습니다. 서버 PC의 appsettings.json에 <code>Admin:Token</code>(16자 이상의 무작위 문자열)을 적고 서비스를 다시 시작하면 쓸 수 있습니다.</div>");
+            sb.Append("<div class=\"msg warn\">웹 설정이 꺼져 있습니다. 서버 PC의 appsettings.json에 <code>Admin:Password</code>(4~20자, 영문·숫자·특수문자, 공백·한글 없음)를 바르게 적고 서비스를 다시 시작하면 쓸 수 있습니다.</div>");
             return Page("ASH 서버 설정", sb.ToString());
         }
         if (error != null) sb.Append($"<div class=\"msg bad\">{H(error)}</div>");
         sb.Append("<section class=\"box\"><h2>관리자 확인</h2><form method=\"post\" action=\"/admin/login\">")
           .Append(back == null ? "" : $"<input type=\"hidden\" name=\"back\" value=\"{H(back)}\">")
-          .Append("<div class=\"field\"><label for=\"token\">관리자 토큰</label><div><input type=\"password\" id=\"token\" name=\"token\" autocomplete=\"current-password\" required>")
-          .Append("<div class=\"help\">appsettings.json의 Admin:Token 값입니다. 확인되면 이 브라우저는 8시간 동안 로그인 상태로 남습니다.</div></div></div>")
+          .Append("<div class=\"field\"><label for=\"token\">관리자 암호</label><div><input type=\"password\" id=\"token\" name=\"token\" autocomplete=\"current-password\" required>")
+          .Append("<div class=\"help\">appsettings.json의 Admin:Password 값입니다. 확인되면 이 브라우저는 8시간 동안 로그인 상태로 남습니다.</div></div></div>")
           .Append("<div class=\"actions\"><button class=\"primary\">확인</button></div></form></section>");
         return Page("ASH 서버 설정", sb.ToString());
     }
@@ -145,7 +145,7 @@ public static class ServerPages
             sb.Append("</section>");
         }
         sb.Append("<div class=\"actions\"><button class=\"primary\">저장</button><span class=\"muted\">저장할 때 이전 파일을 appsettings.json.날짜.bak으로 남깁니다. ")
-          .Append("Admin:Token, Update:PublicKeyPem, Logging은 웹에서 바꾸지 않습니다(서버 PC에서 파일을 직접 고침).</span></div></form>");
+          .Append("Admin:Password, Update:PublicKeyPem, Logging은 웹에서 바꾸지 않습니다(서버 PC에서 파일을 직접 고침).</span></div></form>");
 
         sb.Append("<section class=\"box\"><h2>서비스 다시 시작</h2>");
         if (v.RestartBlocked != null) sb.Append($"<p>여기서는 다시 시작할 수 없습니다: {H(v.RestartBlocked)}</p>");

@@ -7,7 +7,7 @@ namespace ASH.Server.Tests;
 /// <summary>The admin delete of an analysis (/admin/analyses/{id}/delete): jobs stay as unclassified, cuts and films go, a queued or running film stops it.</summary>
 public class AnalysisDeleteTests
 {
-    const string Token = "test-admin-token-1234567890", Ok = "http://localhost";
+    const string Token = "test!Admin12", Ok = "http://localhost";
 
     sealed record Fixture(string AnalysisId, string JobId, string FilmId, string FilmDir, string CutsFile);
 
@@ -59,7 +59,7 @@ public class AnalysisDeleteTests
         var page = await env.Http.GetAsync($"/admin/analyses/{f.AnalysisId}/delete");
         Assert.Equal(HttpStatusCode.Unauthorized, page.StatusCode);
         var html = await page.Content.ReadAsStringAsync();
-        Assert.Contains("관리자 토큰", html); Assert.Contains($"name=\"back\" value=\"/admin/analyses/{f.AnalysisId}/delete\"", html);
+        Assert.Contains("관리자 암호", html); Assert.Contains($"name=\"back\" value=\"/admin/analyses/{f.AnalysisId}/delete\"", html);
         Assert.Equal(HttpStatusCode.Unauthorized, (await Post(env, f.AnalysisId, "분석")).StatusCode);
         Assert.NotNull(Svc<AnalysisStore>(env).Get(f.AnalysisId));
 
@@ -110,7 +110,7 @@ public class AnalysisDeleteTests
     }
 
     [Fact]
-    public async Task Header_Token_Works_Like_The_Login_And_Without_A_Token_Setting_It_Is_Off()
+    public async Task Header_Token_Works_Like_The_Login_And_With_An_Invalid_Password_It_Is_Off()
     {
         using (var env = new JobEnv(worker: false, adminToken: Token))
         {
@@ -120,7 +120,7 @@ public class AnalysisDeleteTests
             Assert.True((int)(await env.Http.SendAsync(req)).StatusCode < 400);
             Assert.Null(Svc<AnalysisStore>(env).Get(f.AnalysisId));
         }
-        using (var env = new JobEnv(worker: false))
+        using (var env = new JobEnv(worker: false, adminToken: "abc")) // below the 4-character rule
         {
             var f = Make(env);
             Assert.Equal(HttpStatusCode.Forbidden, (await env.Http.GetAsync($"/admin/analyses/{f.AnalysisId}/delete")).StatusCode);

@@ -87,8 +87,8 @@ app.MapGet("/download/{file}", (string file, ReleaseStore s, RunnerStore r) =>
 
 app.MapPost("/api/admin/releases", async (HttpContext ctx, ReleaseStore s, CancellationToken ct) =>
 {
-    if (!s.UploadsEnabled) return Msg(403, $"업로드가 꺼져 있습니다(Admin:Token이 비어 있거나 {ReleaseStore.MinTokenLength}자 미만).");
-    if (!s.TokenMatches(ctx.Request.Headers[ReleaseStore.HeaderName])) return Msg(401, "토큰이 없거나 틀립니다.");
+    if (!s.UploadsEnabled) return Msg(403, $"업로드가 꺼져 있습니다(Admin:Password가 {ReleaseStore.MinPasswordLength}~{ReleaseStore.MaxPasswordLength}자 규칙에 맞지 않음).");
+    if (!s.TokenMatches(ctx.Request.Headers[ReleaseStore.HeaderName])) return Msg(401, "관리자 암호가 없거나 틀립니다.");
     if (!ctx.Request.HasFormContentType) return Msg(400, "multipart/form-data가 필요합니다.");
     // the 512 MB limit applies to this endpoint only (Kestrel default stays 30 MB elsewhere)
     if (ctx.Features.Get<IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } lim) lim.MaxRequestBodySize = UploadLimit;
@@ -147,8 +147,8 @@ app.MapPost("/admin/login", async (HttpContext ctx, ReleaseStore rs, AdminSessio
     var back = Back(form, "/admin/settings"); // an /admin page that asked for the login (e.g. the analysis delete page)
     if (!rs.TokenMatches(token))
     {
-        await Task.Delay(1000); // slows guessing; the token is 16+ random characters anyway
-        return Html(ServerPages.Login(true, "토큰이 틀립니다.", back == "/admin/settings" ? null : back), 401);
+        await Task.Delay(1000); // slows guessing: a 4-character password is short
+        return Html(ServerPages.Login(true, "관리자 암호가 틀립니다.", back == "/admin/settings" ? null : back), 401);
     }
     ctx.Response.Cookies.Append(AdminSessions.CookieName, sessions.Create(), new CookieOptions
     { HttpOnly = true, SameSite = SameSiteMode.Strict, Secure = ctx.Request.IsHttps, Path = "/admin", MaxAge = AdminSessions.Lifetime });

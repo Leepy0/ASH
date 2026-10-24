@@ -15,7 +15,7 @@ public sealed class SettingsEnv : IDisposable
         {
           // a comment people may have written
           "Urls": "http://0.0.0.0:8082",
-          "Admin": { "Token": "secret-in-file-1234567890" },
+          "Admin": { "Password": "secret!in!file" },
           "Jobs": { "Parallel": 2, "AmHome": "C:\\AutoMod\\12_6", },
           "Custom": { "Keep": [1, 2, 3], "Name": "그대로" }
         }
@@ -34,7 +34,7 @@ public sealed class SettingsEnv : IDisposable
             b.UseSetting("Releases:Dir", Path.Combine(Dir, "releases"));
             b.UseSetting("Jobs:Dir", Path.Combine(Dir, "jobs"));
             b.UseSetting("Jobs:WorkerEnabled", "false");
-            b.UseSetting("Admin:Token", token);
+            b.UseSetting("Admin:Password", token);
             b.UseSetting("Update:PublicKeyPem", "");
             b.UseSetting("GitHub:Enabled", "false");
             b.ConfigureTestServices(s => s.AddSingleton(new AppSettingsFile(File)));
@@ -85,7 +85,7 @@ public class SettingsTests
         var r = await e.Http.GetAsync("/admin/settings");
         Assert.Equal(HttpStatusCode.Unauthorized, r.StatusCode);
         var page = await r.Content.ReadAsStringAsync();
-        Assert.Contains("관리자 토큰", page);
+        Assert.Contains("관리자 암호", page);
         Assert.DoesNotContain("Jobs:Parallel", page);
 
         await e.Login();
@@ -93,14 +93,14 @@ public class SettingsTests
         Assert.Contains("Jobs:Parallel", page);
         Assert.Contains("동시 실행 수", page);
         Assert.DoesNotContain(SettingsEnv.Token, page);
-        Assert.DoesNotContain("secret-in-file", page); // Admin:Token from the file is not shown either
+        Assert.DoesNotContain("secret!in!file", page); // Admin:Password from the file is not shown either
     }
 
     [Fact]
     public async Task Login_cookie_is_HttpOnly_and_SameSite_Strict_and_wrong_token_is_401()
     {
         using var e = new SettingsEnv();
-        Assert.Equal(HttpStatusCode.Unauthorized, (await e.Post("/admin/login", SettingsEnv.Form(("token", "wrong-token-123456789")))).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await e.Post("/admin/login", SettingsEnv.Form(("token", "wrong!Token12")))).StatusCode);
         using var raw = e.Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
         var req = new HttpRequestMessage(HttpMethod.Post, "/admin/login") { Content = SettingsEnv.Form(("token", SettingsEnv.Token)) };
         req.Headers.Add("Origin", "http://localhost");
@@ -118,7 +118,7 @@ public class SettingsTests
     {
         using var e = new SettingsEnv();
         await e.Login();
-        var r = await e.Post("/admin/settings", SettingsEnv.Form(("Jobs:Parallel", "4"), ("Jobs:WorkerEnabled", "false"), ("Jobs:RunTimeoutMin", "30"), ("Admin:Token", "attacker-token-123456")));
+        var r = await e.Post("/admin/settings", SettingsEnv.Form(("Jobs:Parallel", "4"), ("Jobs:WorkerEnabled", "false"), ("Jobs:RunTimeoutMin", "30"), ("Admin:Password", "attacker!pw")));
         Assert.Equal(HttpStatusCode.OK, r.StatusCode);
         var page = await r.Content.ReadAsStringAsync();
         Assert.Contains("저장했습니다(2개)", page);       // RunTimeoutMin = default and missing: not written
@@ -130,7 +130,7 @@ public class SettingsTests
         Assert.False(json["Jobs"]!["WorkerEnabled"]!.GetValue<bool>());
         Assert.Null(json["Jobs"]!["RunTimeoutMin"]);
         Assert.Equal(@"C:\AutoMod\12_6", json["Jobs"]!["AmHome"]!.GetValue<string>());
-        Assert.Equal("secret-in-file-1234567890", json["Admin"]!["Token"]!.GetValue<string>()); // never editable from the web
+        Assert.Equal("secret!in!file", json["Admin"]!["Password"]!.GetValue<string>()); // never editable from the web
         Assert.Equal("그대로", json["Custom"]!["Name"]!.GetValue<string>());
         Assert.Equal(3, json["Custom"]!["Keep"]!.AsArray().Count);
         Assert.Equal("http://0.0.0.0:8082", json["Urls"]!.GetValue<string>());
@@ -166,7 +166,7 @@ public class SettingsTests
         using var e = new SettingsEnv();
         var body = SettingsEnv.Form(("Jobs:Parallel", "5"));
         Assert.Equal(HttpStatusCode.Unauthorized, (await e.Post("/admin/settings", body)).StatusCode);
-        Assert.Equal(HttpStatusCode.Unauthorized, (await e.Post("/admin/settings", body, token: "wrong-token-123456789")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await e.Post("/admin/settings", body, token: "wrong!Token12")).StatusCode);
         await e.Login();
         Assert.Equal(HttpStatusCode.Forbidden, (await e.Post("/admin/settings", body, origin: "http://evil.example")).StatusCode);
         Assert.Equal(HttpStatusCode.Forbidden, (await e.Post("/admin/settings", body, origin: null)).StatusCode); // no Origin, no Referer
@@ -191,7 +191,7 @@ public class SettingsTests
     {
         using var e = new SettingsEnv();
         Assert.Equal(HttpStatusCode.Unauthorized, (await e.Post("/admin/restart")).StatusCode);
-        Assert.Equal(HttpStatusCode.Unauthorized, (await e.Post("/admin/restart", token: "wrong-token-123456789")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await e.Post("/admin/restart", token: "wrong!Token12")).StatusCode);
         await e.Login();
         Assert.Equal(HttpStatusCode.Forbidden, (await e.Post("/admin/restart", origin: "http://evil.example")).StatusCode);
         var r = await e.Post("/admin/restart", SettingsEnv.Form(("confirm", "1")));
@@ -201,15 +201,15 @@ public class SettingsTests
     }
 
     [Fact]
-    public async Task Without_admin_token_settings_and_restart_are_off()
+    public async Task With_an_invalid_admin_password_settings_and_restart_are_off()
     {
-        using var e = new SettingsEnv(token: "");
+        using var e = new SettingsEnv(token: "abc"); // 3 characters: below the rule
         var r = await e.Http.GetAsync("/admin/settings");
         Assert.Equal(HttpStatusCode.Forbidden, r.StatusCode);
-        Assert.Contains("Admin:Token", await r.Content.ReadAsStringAsync());
-        Assert.Equal(HttpStatusCode.Forbidden, (await e.Post("/admin/login", SettingsEnv.Form(("token", "")))).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await e.Post("/admin/settings", SettingsEnv.Form(("Jobs:Parallel", "5")), token: "")).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await e.Post("/admin/restart", token: "")).StatusCode);
+        Assert.Contains("Admin:Password", await r.Content.ReadAsStringAsync());
+        Assert.Equal(HttpStatusCode.Forbidden, (await e.Post("/admin/login", SettingsEnv.Form(("token", "abc")))).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await e.Post("/admin/settings", SettingsEnv.Form(("Jobs:Parallel", "5")), token: "abc")).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await e.Post("/admin/restart", token: "abc")).StatusCode);
         Assert.Equal(SettingsEnv.Original, File.ReadAllText(e.File));
     }
 
