@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using ASH.Core.Analysis;
+using ASH.Core.Film;
 using static ASH.Server.JobPages;
 
 namespace ASH.Server;
@@ -26,7 +27,38 @@ public static class CutEditorPage
         return (pts.Min(p => p.X), pts.Min(p => p.Y), pts.Max(p => p.X), pts.Max(p => p.Y));
     }
 
-    public static string Render(AnalysisInfo a, IReadOnlyList<JobInfo> all, JobStore js, string? jobId)
+    /// <summary>Prefix of the ?add= value that asks for a new cut on a bottleneck block (the 결론 tab's "＋ 컷").</summary>
+    public const string AddBlock = "block:";
+
+    /// <summary>A new Hold cut on block <paramref name="block"/> of the job's layout: a 16:9 zone centred on it, at least 32 × 18 m (as scene candidates) or twice the block;
+    /// the time of the scene finder's bottleneck candidate whose CP lies in the block (scenes.json), else 10 minutes from the warm-up end; speed so the video is about 30 s, tilt 30°.
+    /// Null with the reason when the block is not in the layout.</summary>
+    public static CutSpec? BlockCut(JobStore js, JobInfo j, string block, out string? error)
+    {
+        var v = JobView.For(js, j);
+        var b = v.Layout?.Blocks.FirstOrDefault(x => x.Name == block);
+        if (b == null) { error = $"병목 블록 '{block}'을 이 버전의 레이아웃에서 찾지 못했습니다."; return null; }
+        error = null;
+        double x0 = Math.Min(b.Rect.Min.X, b.Rect.Max.X), x1 = Math.Max(b.Rect.Min.X, b.Rect.Max.X), y0 = Math.Min(b.Rect.Min.Y, b.Rect.Max.Y), y1 = Math.Max(b.Rect.Min.Y, b.Rect.Max.Y);
+        double w = Math.Max(32, 2 * (x1 - x0)), h = Math.Max(18, 2 * (y1 - y0));
+        if (w * 9 > h * 16) h = w * 9 / 16; else w = h * 16 / 9;
+        static double R2(double d) => Math.Round(d, 2);
+        double start = v.Input?.Settings.WarmupSec ?? 0, len = 600;
+        if (Scenes(js, j).FirstOrDefault(c => c.Kind == SceneKind.Bottleneck && c.CenterX >= x0 && c.CenterX <= x1 && c.CenterY >= y0 && c.CenterY <= y1) is { } sc)
+            (start, len) = (Math.Floor(sc.StartSec), Math.Max(60, Math.Round(sc.EndSec - sc.StartSec)));
+        var name = (block + " 정체") is var n && n.Length > 60 ? n[..60] : n;
+        return new CutSpec("c" + Guid.NewGuid().ToString("N")[..8], name, CutKind.Hold, Math.Max(0, start), len, new Rect(R2((x0 + x1 - w) / 2), R2((y0 + y1 - h) / 2), R2(w), R2(h)), null, 0, 0, 0,
+            Math.Clamp(Math.Round(len / 30), 1, 600), 30, 0, true, true);
+    }
+
+    /// <summary>The conclusion run's scene candidates; none when scenes.json is missing, unreadable or a note ({"none"}/{"error"}).</summary>
+    static IReadOnlyList<SceneCandidate> Scenes(JobStore js, JobInfo j)
+    {
+        try { return JsonSerializer.Deserialize<List<SceneCandidate>>(File.ReadAllText(Path.Combine(js.JobDir(j.Id), FilmWorker.ScenesFile(0))), CutStore.Json) ?? new(); }
+        catch (Exception e) when (e is IOException or JsonException or UnauthorizedAccessException) { return Array.Empty<SceneCandidate>(); }
+    }
+
+    public static string Render(AnalysisInfo a, IReadOnlyList<JobInfo> all, JobStore js, string? jobId, string? add = null)
     {
         var jobs = all.Where(j => j.AnalysisId == a.Id).OrderBy(j => a.Plans.FindIndex(p => p.Id == j.PlanId)).ThenBy(j => j.Version).ToList();
         var title = "ASH 영상 만들기 " + a.Name;
@@ -62,16 +94,19 @@ public static class CutEditorPage
                     "같은 좌표의 컷이 그 버전에서는 다른 곳을 찍습니다(자동 보정 없음). ZWCAD에서 Origin을 맞춰 다시 보내거나 그 버전은 따로 찍으세요.</div>");
         }
 
+        // ?add=block:<name> (병목 지도 "＋ 컷"): the cut is only put in the form; the user adds it with "리스트에 추가", so a reload or a list not yet read never saves anything
+        string? addError = null;
+        var pending = add != null && add.StartsWith(AddBlock, StringComparison.Ordinal) ? BlockCut(js, baseJob, add[AddBlock.Length..], out addError) : null;
         var data = new
         {
-            analysisId = a.Id, job = baseJob.Id,
+            analysisId = a.Id, job = baseJob.Id, pending, addError,
             warmup = settings?.WarmupSec ?? 0, simLength = settings?.SimLengthSec ?? 0,
             baseTotal = baseJob.Decided?.Values.Sum(),
             // export films the selected versions (as the layout warning compares); without any, the base
             versions = (jobs.Any(j => j.Selected) ? jobs.Where(j => j.Selected) : new[] { baseJob })
                 .Select(j => new { id = j.Id, label = Label(a, j), decided = j.Decided ?? new Dictionary<string, int>() }),
         };
-        sb.Append("<script type=\"application/json\" id=\"cut-data\">").Append(JsonSerializer.Serialize(data)).Append("</script>"); // the default encoder escapes < and >
+        sb.Append("<script type=\"application/json\" id=\"cut-data\">").Append(JsonSerializer.Serialize(data, CutStore.Json)).Append("</script>"); // the default encoder escapes < and >
         var start = settings == null ? "0:00:00" : TimeSpan.FromSeconds(Math.Round(settings.WarmupSec)).ToString(@"h\:mm\:ss", CultureInfo.InvariantCulture);
         sb.Append(Body.Replace("{START}", start));
         return Page(title, sb.ToString(), Script, nav: "films", fill: true);
@@ -128,6 +163,8 @@ public static class CutEditorPage
 .fold>summary span{margin-left:auto;font-size:13px;color:var(--sub2);text-align:right}
 .dirs{display:inline-flex}.dirs button{padding:0 9px}
 .ce-btns{display:flex;gap:8px;margin-top:10px}.ce-btns button{flex:1}
+.ce-pv{border-top:1px solid var(--line);margin-top:10px;padding-top:8px;text-align:center}.ce-pv .btn{width:100%}
+.ce-pv img{display:block;width:100%;border-radius:8px;background:#000;margin-top:6px}.ce-pv .stale img{opacity:.45}.ce-pv figure{margin:0}
 .ce-exp{padding:0 16px;flex:0 0 auto;max-height:65%;overflow:auto} /* the export summary stays in view; the inspector scrolls */
 .ce-exp>details>summary{list-style:none;display:block;text-align:center;padding:12px 0;margin:0;color:var(--ink)}
 .ce-exp>details>summary::-webkit-details-marker{display:none}.ce-exp>details[open]>summary{border-bottom:1px solid var(--line)}
@@ -196,6 +233,8 @@ ol.cl{list-style:none;margin:0;padding:0;display:flex;gap:12px}
    </details>
    <div class="ce-btns"><button type="button" class="btn pri" id="save">리스트에 추가</button><button type="button" class="btn" id="cancel" hidden>편집 취소</button></div>
    <div class="st" id="msg" role="status"></div><div><button type="button" class="btn" id="reload" hidden>컷 리스트 다시 불러오기</button></div>
+   <div class="ce-pv" id="pvBox" hidden><button type="button" class="btn" id="pvBtn" title="이 컷의 첫 장면을 AutoView로 1장 그립니다(저장 전 값 그대로). 작업 대기열에서 차례가 오면 모델을 한 번 돌리므로 몇 분 걸릴 수 있습니다.">미리보기</button>
+    <div class="st" id="pvMsg" role="status"></div><figure id="pvFig" hidden><img id="pvImg" alt="AutoView 미리보기"><figcaption class="t4" id="pvCap"></figcaption></figure></div>
   </section>
   <section class="box ce-exp" aria-label="내보내기">
    <details id="expBox"><summary><span class="t4">내보내기</span><b id="expSum"></b><span class="t4" id="expOut"></span> ›</summary><div>
@@ -237,7 +276,7 @@ var stage=$('stage'),tilter=$('tilter'),bg=$('bg'),fg=$('fg');
 var W=0,H=0,dpr=1,view={cx:0,cy:0,s:10},dw=null,layerOn=[],show={paths:true,cps:true,texts:true};
 var zones={A:null,B:null},mode='A',kind='Hold',tilt=0,dir=0,roll=0,persp=true,preview=true,speed=10;
 var order=['video','speed','sim'],lockSpeed=false,vid=0; // simulation length, speed, video length: the least recently edited one (order[0]) is recomputed
-var cuts=[],loaded=false,editId=null,skip={},drag=null,pollT=null; // loaded: never save over a list we have not read
+var cuts=[],loaded=false,editId=null,skip={},drag=null,pollT=null,hint=''; // loaded: never save over a list we have not read; hint: why the form holds a new cut
 var KN={Hold:'구역 고정',Move:'A→B 이동',Whole:'전체'},COL={A:'#d9822b',B:'#7a4fbf'};
 
 function hms(s){s=Math.max(0,Math.round(+s||0));var h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;return h+':'+(m<10?'0':'')+m+':'+(x<10?'0':'')+x;}
@@ -292,6 +331,7 @@ function applyView(){
   var vd=Math.round(num('vd')); // the folded settings stay readable on their summary rows
   $('advSum').textContent='기울기 '+tilt+'° · '+dirName(dir)+(roll?' · 회전 '+roll+'°':'')+(persp?'':' · 원근 끔')+($('cap').checked?'':' · 자막 끔');
   $('vdSum').textContent=vd?'결론 '+(vd>0?'+':'')+vd+'대':D.baseTotal?'결론 '+D.baseTotal+'대':'결론 대수';
+  pvStale();
 }
 function setPreview(on){preview=on;applyView();}
 function setTilt(v){tilt=Math.max(0,Math.min(70,Math.round(+v||0)));$('tilt').value=tilt;$('tiltN').value=tilt;applyView();calc();}
@@ -379,6 +419,7 @@ function simSec(){return kind==='Move'?num('holdA')+num('moveS')+num('holdB'):nu
 function calc(){var s=simSec(),z=zones.A,b=zones.B,st=parseT($('start').value);
   vid=s/speed;if(document.activeElement!==$('vlen'))$('vlen').value=dur(vid);total();
   $('calc').textContent='시뮬레이션 '+dur(s)+(z?' · A '+z.w.toFixed(1)+'×'+z.h.toFixed(1)+' m':' · 구역 A 없음')+(kind==='Move'&&b?' · B '+b.w.toFixed(1)+'×'+b.h.toFixed(1)+' m':'');
+  pvStale();
   $('startEnd').textContent=isNaN(st)?'시:분:초로 적어 주세요':'~ '+hms(st+s)+(D.warmup?' · 워밍업 '+hms(D.warmup):'')+(D.simLength&&st+s>D.simLength?' · 시뮬레이션 끝('+hms(D.simLength)+')을 넘음':'');}
 function rect(z){return z&&{x:r2(z.x),y:r2(z.y),w:r2(z.w),h:r2(z.h)};}
 function newId(){return 'c'+Math.random().toString(16).slice(2,10);}
@@ -402,12 +443,13 @@ function commit(next,ok){
 $('save').onclick=function(){var c=fromForm();if(!c)return;var next=cuts.slice(),i=next.findIndex(function(x){return x.id===c.id;});
   if(i>=0)next[i]=c;else next.push(c);commit(next,function(){cancelEdit();$('name').value='';});};
 $('cancel').onclick=function(){cancelEdit();say('');};
-function cancelEdit(){editId=null;$('formTitle').textContent='새 컷';$('save').textContent='리스트에 추가';$('cancel').hidden=true;render();}
-function edit(i){var c=cuts[i];editId=c.id;order=['video','speed','sim'];$('formTitle').textContent=(i+1)+'번 컷 수정';$('name').value=c.name;$('start').value=hms(c.startSec);
+function cancelEdit(){editId=null;hint='';$('formTitle').textContent='새 컷';$('save').textContent='리스트에 추가';$('cancel').hidden=true;render();loadPv();}
+function fill(c){order=['video','speed','sim'];$('name').value=c.name;$('start').value=hms(c.startSec);
   zones.A=rect(c.a);zones.B=c.b?rect(c.b):null;setKind(c.kind,true);
   if(c.kind!=='Move')$('dur').value=c.holdSec;else{$('holdA').value=c.holdASec;$('moveS').value=c.moveSec;$('holdB').value=c.holdBSec;}
-  setSpeed(c.speed);setTilt(c.tiltDeg);setDir(c.dirDeg);setRoll(c.rollDeg||0);persp=!!c.perspective;$('persp').checked=persp;$('cap').checked=!!c.caption;$('vd').value=c.vehicleDelta||0;applyView();
-  $('save').textContent='수정 저장';$('cancel').hidden=false;setPreview(true);render();calc();say('');
+  setSpeed(c.speed);setTilt(c.tiltDeg);setDir(c.dirDeg);setRoll(c.rollDeg||0);persp=!!c.perspective;$('persp').checked=persp;$('cap').checked=!!c.caption;$('vd').value=c.vehicleDelta||0;applyView();}
+function edit(i){var c=cuts[i];editId=c.id;hint='';fill(c);$('formTitle').textContent=(i+1)+'번 컷 수정';
+  $('save').textContent='수정 저장';$('cancel').hidden=false;setPreview(true);render();calc();say('');loadPv();
   if(window.innerWidth<=1000)$('form').scrollIntoView({block:'start'});}
 
 // ---- view copy / paste: {tilt, dir, roll, perspective, zone?} as JSON text; kept in this browser too, since the clipboard API needs https
@@ -541,6 +583,24 @@ $('run').onclick=function(){var m=$('runMsg');function out(t,bad){m.textContent=
     if(!r.ok){out(t||('HTTP '+r.status),true);return;}
     location.href='/films/'+enc(JSON.parse(t).id);});}).catch(function(){out('서버에 연결할 수 없습니다.',true);});};
 
+// ---- preview: one AutoView frame of the selected cut (as the form has it), made between jobs; the page polls its state
+var pv=null,pvT=null;
+function pvApi(){return api+'/'+enc(editId)+'/preview';}
+function camKey(k,st,a,b,t,d,r,p,v){return JSON.stringify([k,st,a&&rect(a),k==='Move'&&b?rect(b):null,t,d,r||0,!!p,v||0]);}
+function pvStale(){var f=$('pvFig');if(!pv||!pv.cut||f.hidden)return;var c=pv.cut,
+  old=camKey(c.kind,c.startSec,c.a,c.b,c.tiltDeg,c.dirDeg,c.rollDeg,c.perspective,c.vehicleDelta)!==camKey(kind,parseT($('start').value),zones.A,zones.B,tilt,dir,roll,persp,Math.round(num('vd')));
+  f.classList.toggle('stale',old);$('pvCap').textContent='시뮬레이션 '+hms(pv.atSec)+' · '+new Date(pv.finishedUtc).toLocaleTimeString('ko-KR')+' 만듦'+(old?' · 컷이 바뀌어 예전 그림입니다(다시 누르세요)':'');}
+function pvShow(x,bad){clearTimeout(pvT);pv=x&&typeof x==='object'?x:null;var m=$('pvMsg'),busy=pv&&(pv.state==='queued'||pv.state==='running');
+  m.className='st'+(bad||pv&&pv.state==='failed'?' bad':'');$('pvBtn').disabled=!!busy;
+  m.textContent=typeof x==='string'?x:!pv?'':pv.state==='queued'?'대기 중'+(pv.ahead?' · 앞에 '+pv.ahead+'건':'')+(pv.busy?' ('+pv.busy+')':''):pv.state==='running'?'만드는 중… '+(pv.phase||''):pv.state==='failed'?'미리보기 실패: '+(pv.error||''):'';
+  $('pvFig').hidden=!(pv&&pv.image);if(pv&&pv.image){$('pvImg').src=pv.image;pvStale();}
+  if(busy)pvT=setTimeout(loadPv,3000);}
+function loadPv(){clearTimeout(pvT);$('pvBox').hidden=!editId;if(!pv||!pv.cut||pv.cut.id!==editId)pvShow(null);if(!editId)return;var id=editId; // another cut: never show the last cut's frame
+  fetch(pvApi()).then(function(r){return r.ok?r.json():null;}).then(function(x){if(id===editId)pvShow(x);}).catch(function(){});}
+$('pvBtn').onclick=function(){var c=fromForm();if(!c)return;pvShow('요청하는 중…');
+  fetch(pvApi()+'?job='+enc(D.job),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(c)}).then(function(r){return r.text().then(function(t){
+    if(!r.ok){pvShow(t||('HTTP '+r.status),true);return;}pvShow(JSON.parse(t));});}).catch(function(){pvShow('서버에 연결할 수 없습니다.',true);});};
+
 // ---- layers
 function layerUi(){var box=$('layers');box.textContent='';
   function add(text,on,f){var l=el('label'),cb=el('input');cb.type='checkbox';cb.checked=on;cb.onchange=function(){f(this.checked);drawBg();};l.appendChild(cb);l.appendChild(document.createTextNode(text));box.appendChild(l);}
@@ -555,14 +615,18 @@ fetch('/jobs/'+enc(D.job)+'/drawing.json').then(function(r){return r.ok?r.json()
   dw=d;layerOn=d.layers.map(function(){return true;});layerUi();fit(d.bounds);
   var note=d.drawingError||(!d.segs.length?'도면(DXF) 없음 · AGV 경로만 표시':'')+(d.truncated?' 선이 많아 일부만 표시':'');
   if(note){$('hudNote').textContent=note;$('hudNote').hidden=false;}
+  if(D.pending){var z=D.pending.a;fit([z.x-z.w,z.y-z.h,z.x+2*z.w,z.y+2*z.h]);}
   drawAll();calc();render(); // thumbnails need the layout extent
 }).catch(function(e){$('hudNote').textContent='도면을 불러오지 못했습니다: '+(e.message||'');$('hudNote').hidden=false;});
 function setLoaded(on){loaded=on;$('save').disabled=!on;document.body.classList.toggle('noload',!on);$('reload').hidden=on;}
 function loadCuts(){setLoaded(false);$('reload').hidden=true;say('컷 리스트를 불러오는 중…');
   fetch(api).then(function(r){return r.text().then(function(t){if(!r.ok)throw new Error(t||('HTTP '+r.status));return JSON.parse(t);});})
-  .then(function(x){if(!Array.isArray(x))throw new Error('형식이 다릅니다');cuts=x;setLoaded(true);render();say('');})
+  .then(function(x){if(!Array.isArray(x))throw new Error('형식이 다릅니다');cuts=x;setLoaded(true);render();say(hint);})
   .catch(function(e){say('컷 리스트를 불러오지 못했습니다'+(e&&e.message&&!(e instanceof TypeError)?': '+e.message:'(서버 연결 실패)')+'. 불러오기 전에는 저장하지 않습니다.',true);$('reload').hidden=false;});}
 $('reload').onclick=loadCuts;
+// 병목 지도 "＋ 컷": the server's cut goes into the form as a new cut; nothing is saved until "리스트에 추가" (which waits for the list like every save)
+if(D.pending){fill(D.pending);$('formTitle').textContent='새 컷 · 병목 지도에서';hint='병목 위치로 새 컷을 채웠습니다. 확인하고 "리스트에 추가"를 누르세요.';}
+else if(D.addError)hint=D.addError;
 loadCuts();
 loadScenes();
 })();

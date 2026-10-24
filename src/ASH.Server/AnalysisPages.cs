@@ -189,7 +189,7 @@ public static class AnalysisPages
 .rk{width:220px;flex:none;display:flex;flex-direction:column}.rk ol{list-style:none;margin:0;padding:0}
 .rk li{display:flex;align-items:center;gap:8px;min-height:36px;border-bottom:1px solid var(--line)}.rk li span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rk li i{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-style:normal;font-size:12px;font-weight:700;background:var(--gray-b);color:var(--sub2);flex:none}
-.rk li:first-child i{background:var(--red-b);color:var(--red)}.rk li b{font-variant-numeric:tabular-nums}
+.rk li:first-child i{background:var(--red-b);color:var(--red)}.rk li b{font-variant-numeric:tabular-nums}.rk li .btn{min-height:28px;padding:0 8px;font-size:13px;flex:none}
 .rk .end{margin-top:auto;text-decoration:none;text-align:center;padding-top:10px;border-top:1px solid var(--line);font-weight:600}
 .vr{display:flex;align-items:center;gap:10px;flex-wrap:wrap;min-height:44px;border-top:1px solid var(--line);padding:6px 0}.vr:first-of-type{border-top:0}.vr .vn{text-decoration:none;font-weight:700;font-size:16px;min-width:34px}.vr .sp{flex:1}
 .fgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px}.fgrid .box{margin-top:0}.fgrid video,.fgrid img{width:100%;border-radius:10px;background:#000;display:block}
@@ -427,7 +427,8 @@ public static class AnalysisPages
             $"<span class=\"segc\"><a href=\"{Url("wait", null)}\"{(occ ? "" : " class=\"on\"")}>평균 대기</a><a href=\"{Url("occ", null)}\"{(occ ? " class=\"on\"" : "")}>점유율</a></span></div>");
         if (v.Layout == null) sb.Append("<div class=\"empty\">레이아웃을 읽지 못했습니다.</div>");
         else BottleneckMap(sb, v, occ ? b => b.Utilization : b => b.AvgWaitSec, occ ? x => F(x * 100, "0") + "%" : x => F(x, x < 10 ? "0.#" : "0") + "초",
-            q["map"] == "all", Url(null, "zoom"), Url(null, "all"), $"/jobs/{H(cur.Id)}?tab=detail");
+            q["map"] == "all", Url(null, "zoom"), Url(null, "all"), $"/jobs/{H(cur.Id)}?tab=detail",
+            b => $"/analyses/{H(a.Id)}/cuts?job={H(cur.Id)}&amp;add={H(Uri.EscapeDataString(CutEditorPage.AddBlock + b))}");
         sb.Append("</section></div>");
     }
 
@@ -449,8 +450,10 @@ public static class AnalysisPages
         "fit();addEventListener('resize',fit);})();</script>";
 
     /// <summary>Paths, blocks shaded by the value, the top 5 blocks as numbered markers; zoomed to the hot blocks (minimap + 전체 toggle) unless
-    /// <paramref name="whole"/>. The SVG fills its box (sized by the window), so a large drawing never makes the page larger. Beside it the ranked list.</summary>
-    internal static void BottleneckMap(StringBuilder sb, JobView v, Func<BlockView, double> value, Func<double, string> label, bool whole, string zoomHref, string allHref, string impactHref)
+    /// <paramref name="whole"/>. The SVG fills its box (sized by the window), so a large drawing never makes the page larger. Beside it the ranked list.
+    /// <paramref name="cutHref"/> (block name -> cut editor link, HTML-encoded) makes each marker a link and adds "＋ 컷" to each ranked block.</summary>
+    internal static void BottleneckMap(StringBuilder sb, JobView v, Func<BlockView, double> value, Func<double, string> label, bool whole, string zoomHref, string allHref, string impactHref,
+        Func<string, string>? cutHref = null)
     {
         var l = v.Layout!;
         sb.Append("<div class=\"mw\"><div class=\"mv\">");
@@ -500,10 +503,12 @@ public static class AnalysisPages
             if (!rects.TryGetValue(b.Name, out var rr)) continue;
             var r = R(rr); string cx = X((r.X0 + r.X1) / 2), cy = Y((r.Y0 + r.Y1) / 2);
             var text = $"{H(b.Name)} · {H(label(vals[b.Name]))}"; // H() would turn "·" into &#183;
+            if (cutHref != null) sb.Append($"<a href=\"{cutHref(b.Name)}\" aria-label=\"{H(b.Name)} 컷 만들기\">");
             sb.Append($"<g class=\"mk\" data-x=\"{cx}\" data-y=\"{cy}\" transform=\"translate({cx} {cy}) scale({F(k0, "0.######")})\"><title>{i + 1}. {text}</title>" +
                 $"<circle r=\"20\" fill=\"{col[i]}\" fill-opacity=\"0.25\"/><circle r=\"11\" fill=\"{col[i]}\"/>" +
                 $"<text y=\"4\" text-anchor=\"middle\" font-size=\"12\" font-weight=\"700\" fill=\"{(i < 2 ? "#fff" : "#1d1d1f")}\">{i + 1}</text>" +
                 (i == 0 ? $"<text x=\"18\" y=\"26\" font-size=\"13\" font-weight=\"600\" fill=\"#d70015\" stroke=\"#fff\" stroke-width=\"3\" paint-order=\"stroke\">{text}</text>" : "") + "</g>");
+            if (cutHref != null) sb.Append("</a>");
         }
         sb.Append("</svg>");
         if (zoomed)
@@ -518,7 +523,8 @@ public static class AnalysisPages
         else
         {
             sb.Append("<ol>");
-            for (int i = 0; i < ranked.Count; i++) sb.Append($"<li><i>{i + 1}</i><span title=\"{H(ranked[i].Name)}\">{H(ranked[i].Name)}</span><b>{H(label(vals[ranked[i].Name]))}</b></li>");
+            for (int i = 0; i < ranked.Count; i++) sb.Append($"<li><i>{i + 1}</i><span title=\"{H(ranked[i].Name)}\">{H(ranked[i].Name)}</span><b>{H(label(vals[ranked[i].Name]))}</b>" +
+                (cutHref != null && rects.ContainsKey(ranked[i].Name) ? $"<a class=\"btn\" href=\"{cutHref(ranked[i].Name)}\" title=\"이 블록을 찍는 새 컷을 영상 만들기에서 엽니다\" aria-label=\"{H(ranked[i].Name)} 컷 만들기\">＋ 컷</a>" : "") + "</li>");
             sb.Append("</ol>");
         }
         sb.Append($"<a class=\"end\" href=\"{impactHref}\">영향표 전체 ›</a></div></div>").Append(FitScript);
