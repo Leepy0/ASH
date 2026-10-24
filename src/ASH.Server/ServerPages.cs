@@ -21,11 +21,11 @@ public static class ServerPages
 .cards.cmp{grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.cards.cmp .card{padding:10px 12px}.cards.cmp .big{font-size:22px}
 .st{gap:10px;align-items:start}.tag[hidden]{display:none}.st .box{padding:12px 16px}.st h2{font-size:15px;margin:0 0 8px}.st dl.kv{font-size:13px;gap:4px 12px}.st details summary{font-size:13px}
 .sec{font-size:13px;font-weight:600;color:var(--sub2);margin:18px 4px 6px}
-.sgrp{background:#fff;border:1px solid var(--line);border-radius:12px;max-width:820px}
+.sgrp{background:#fff;border:1px solid var(--line);border-radius:12px}.scols{display:grid;grid-template-columns:repeat(auto-fit,minmax(680px,1fr));gap:4px 18px;align-items:start}.scols>div>.sec:first-child{margin-top:8px}
 .srow{display:flex;align-items:center;gap:12px;min-height:46px;padding:6px 14px;border-top:1px solid var(--line)}.sgrp>.srow:first-child{border-top:0}
-.srow label{flex:1;min-width:0;display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:14px}
-.srow .ctl{display:flex;align-items:center;gap:8px;justify-content:flex-end;flex:0 1 460px;min-width:0}
-.srow .ctl input[type=text]{max-width:none;text-align:right}.srow .ctl input[type=number]{width:96px;text-align:right}
+.srow label{flex:1;min-width:170px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:14px}
+.srow .ctl{display:flex;align-items:center;gap:8px;justify-content:flex-end;flex:0 1 380px;min-width:0}
+.srow .ctl input[type=text]{max-width:none}.srow .ctl input[type=number]{width:96px;text-align:right}
 .srow .unit{color:var(--sub2);font-size:13px;white-space:nowrap}
 .srow.chg{background:#fffbea}.srow-m{min-height:0;padding:0 14px 8px;border-top:0}.srow-m .msg{margin:4px 0;flex:1}
 .info{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;border:1px solid var(--sub2);color:var(--sub2);font-size:12px;font-weight:600;cursor:help;line-height:1}
@@ -211,10 +211,11 @@ public static class ServerPages
             }
         }
 
-        sb.Append("<form method=\"post\" action=\"/admin/settings\" id=\"sf\">");
+        // sections side by side on a wide screen instead of one narrow column
+        sb.Append("<form method=\"post\" action=\"/admin/settings\" id=\"sf\"><div class=\"scols\">");
         foreach (var section in ServerSettings.All.GroupBy(d => ServerSettings.Section(d.Key)))
         {
-            sb.Append($"<div class=\"sec\">{H(section.Key)}</div><div class=\"sgrp\">");
+            sb.Append($"<div><div class=\"sec\">{H(section.Key)}</div><div class=\"sgrp\">");
             foreach (var d in section)
             {
                 var value = v.Submitted?.Invoke(d.Key) ?? AppSettingsFile.Get(v.File, d.Key) ?? d.Default;
@@ -224,9 +225,9 @@ public static class ServerPages
                 if (err != null) sb.Append($"<div class=\"srow srow-m\"><div class=\"msg bad\" role=\"alert\">{H(err)}</div></div>");
                 else if (ServerSettings.Warning(d, value.Trim()) is { } w) sb.Append($"<div class=\"srow srow-m\"><div class=\"msg warn\">{H(w)}</div></div>");
             }
-            sb.Append("</div>");
+            sb.Append("</div></div>");
         }
-        sb.Append("<div class=\"sbar\"><span>변경 <b id=\"nchg\">0</b>개</span><span class=\"tag rs\" id=\"nrs\" hidden>재시작 0</span>")
+        sb.Append("</div><div class=\"sbar\"><span>변경 <b id=\"nchg\">0</b>개</span><span class=\"tag rs\" id=\"nrs\" hidden>재시작 0</span>")
           .Append($"<span class=\"sp\" title=\"저장할 때 이전 파일을 appsettings.json.날짜.bak으로 남깁니다. Admin:Password, Update:PublicKeyPem, Logging은 웹에서 바꾸지 않습니다(서버 PC에서 파일을 직접 고침).\">{H(v.FilePath)}</span>")
           .Append("<button type=\"reset\" class=\"btn\">되돌리기</button><button class=\"primary\">저장</button></div></form>");
 

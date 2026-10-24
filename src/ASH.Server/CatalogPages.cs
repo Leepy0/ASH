@@ -24,7 +24,7 @@ public static class CatalogPages
 .trow .pr{font-variant-numeric:tabular-nums;color:var(--sub2);font-size:13px;white-space:nowrap}
 .trow.on{background:var(--blue-b);border-left-color:var(--blue)}.trow.on b{color:var(--blue-d)}
 .dh{display:flex;align-items:center;gap:8px;margin-bottom:2px}.dh .sp{flex:1}
-.md .sgrp{max-width:none}.md .srow .ctl{flex-basis:340px}.md .srow .ctl input.n{width:120px}
+.md .sgrp{max-width:none}.gcols{display:grid;grid-template-columns:repeat(auto-fit,minmax(460px,1fr));gap:0 16px;align-items:start}.md .srow .ctl{flex-basis:340px}.md .srow .ctl input.n{width:120px}
 .imp>summary{list-style:none;margin:0}.imp>summary::-webkit-details-marker{display:none}
 .imp-p{position:absolute;right:0;top:42px;width:min(780px,92vw);background:#fff;border:1px solid var(--line2);border-radius:14px;box-shadow:0 12px 40px rgba(0,0,0,.22);padding:18px;z-index:20}
 .imp-p h3{margin:0 0 4px}.imp-p textarea{width:100%;max-width:none;font-family:Consolas,monospace;white-space:pre;margin-top:10px}
@@ -116,9 +116,9 @@ public static class CatalogPages
 
     static void Group(StringBuilder sb, string title, Action body)
     {
-        sb.Append($"<div class=\"sec\">{title}</div><div class=\"sgrp\">");
+        sb.Append($"<div><div class=\"sec\">{title}</div><div class=\"sgrp\">");
         body();
-        sb.Append("</div>");
+        sb.Append("</div></div>");
     }
 
     static void Detail(StringBuilder sb, IReadOnlyDictionary<string, PriceRow> prices, CatalogType e)
@@ -129,7 +129,7 @@ public static class CatalogPages
         sb.Append("<form method=\"post\" action=\"/admin/types\"><div class=\"dh\">")
           .Append($"<div class=\"t2\">{(isNew ? "새 타입" : H(e.Name))}</div><span class=\"sp\"></span>")
           .Append(isNew ? "" : $"<a class=\"btn\" href=\"/admin/types?clone={Uri.EscapeDataString(e.Name)}\">복제</a>")
-          .Append("<button type=\"submit\" class=\"primary\">저장</button></div>");
+          .Append("<button type=\"submit\" class=\"primary\">저장</button></div><div class=\"gcols\">");
         Group(sb, "기본", () =>
         {
             Row(sb, "name", "이름", H(e.Name), tip: "AutoMod 타입 이름. 영문·숫자·_만. 이름을 바꿔 저장하면 새 타입이 만들어집니다.", wide: true);
@@ -167,6 +167,6 @@ public static class CatalogPages
             Row(sb, "mttr", "MTTR", N(ed.MTTR), "초");
         });
         Group(sb, "투자비", () => Row(sb, "unitPrice", "단가", ep == null ? "" : ep.UnitPrice.ToString("0.##", CultureInfo.InvariantCulture), "원", "비우면 그대로"));
-        sb.Append("</form>");
+        sb.Append("</div></form>");
     }
 }
