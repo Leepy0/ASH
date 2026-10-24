@@ -28,7 +28,7 @@ public class HomePageTests
         fs.Add(new FilmInfo { Request = new("20261023-000000-aaaa", "x", ["c1"], [id], 640, 480, 10, "joined", false, null, 0, null), AnalysisName = "라인 증설",
             State = JobState.Running, StartedUtc = DateTime.UtcNow.AddMinutes(-2), CreatedUtc = DateTime.UtcNow, Done = 1, Items = { new FilmItem(), new FilmItem() } });
         var html = await env.Http.GetStringAsync("/");
-        Assert.Contains("라인 증설 › 영상", html); Assert.Contains("href=\"/films/20261023-000000-aaaa\"", html); Assert.Contains("컷 1 / 2", html); Assert.DoesNotContain("실행 중인 작업 없음", html);
+        Assert.Contains("라인 증설</a><div class=\"t4\">영상</div>", html); Assert.Contains("href=\"/films/20261023-000000-aaaa\"", html); Assert.Contains("컷 1 / 2", html); Assert.DoesNotContain("실행 중인 작업 없음", html);
         Assert.Contains("fetch('/api/home", html);
         var api = JsonDocument.Parse(await env.Http.GetStringAsync("/api/home?me=0")).RootElement;
         Assert.Equal("running", api.GetProperty("watch").GetProperty("20261023-000000-aaaa").GetString()); Assert.Equal("50%", api.GetProperty("fields").GetProperty("running.progress").GetString());
@@ -55,11 +55,11 @@ public class HomePageTests
         var id = await env.SendFiled("라인 증설", "A안");
         await JobEnv.Until(() => env.Store.Get(id) is { State: JobState.Running } x ? x : null);
         var html = await env.Http.GetStringAsync("/");
-        foreach (var s in new[] { "라인 증설 › A안 v1", "data-field=\"running.phase\"", "data-bar=\"running.bar\"", "<h2>진행 중</h2>", "내 것만", "href=\"/analyses/unclassified\"" }) Assert.Contains(s, html);
+        foreach (var s in new[] { "라인 증설</a><div class=\"t4\">A안 v1</div>", "data-field=\"running.phase\"", "data-bar=\"running.bar\"", "data-field=\"running.left\"", ">진행<", ">내 것<" }) Assert.Contains(s, html);
         Assert.DoesNotContain("http-equiv", html);
         env.Runner.Gate.Set(); await env.WaitFinished(id);
         var done = await env.Http.GetStringAsync("/");
-        Assert.Contains("실행 중인 작업 없음", done); Assert.Contains("<h2>완료</h2>", done); Assert.Contains("A안 v1 2대", done);
+        Assert.Contains("실행 중인 작업 없음", done); Assert.Contains("A안 v1 · ", done); Assert.Contains("2<small>대</small>", done); Assert.Contains("최대 가동률", done); Assert.Contains("/cuts?job=" + id, done);
     }
 
     [Fact] public async Task Home_Watch_Carries_The_Queued_Job()
@@ -97,9 +97,9 @@ public class HomePageTests
         using var env = new JobEnv(); await env.WaitFinished(await env.SendFiled("남의 분석", "A안", submitter: "other"));
         env.Store.Update(env.Store.All()[0].Id, j => j.Ip = "10.9.9.9"); // 테스트 클라이언트 IP가 아님
         var html = await env.Http.GetStringAsync("/");
-        Assert.Contains("남의 분석", html); Assert.Contains("class=\"chip sel\">전체", html);
+        Assert.Contains("남의 분석", html); Assert.Contains("class=\"on\" aria-current=\"true\">전체", html);
         var forced = await env.Http.GetStringAsync("/?me=1");
-        Assert.Contains("남의 분석", forced); Assert.Contains("class=\"chip sel\">전체", forced);
+        Assert.Contains("남의 분석", forced); Assert.Contains("class=\"on\" aria-current=\"true\">전체", forced);
     }
 
     [Fact] public async Task Home_Toggle_Click_Handler_Comes_After_The_Links()

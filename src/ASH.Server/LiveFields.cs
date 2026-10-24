@@ -53,6 +53,9 @@ public static class LiveFields
         return Make(k, new() { [f.Id] = f.State });
     }
 
+    /// <summary>The home film card's line under the bar, shared by the page and the poll.</summary>
+    internal static string FilmNote(FilmCard m) => m.State == JobState.Queued ? "대기 · 다른 작업 뒤 순서" : m.Eta == "-" ? "제작 중" : $"제작 중 · {m.Eta} 끝";
+
     public static Live OfHome(HomeView v)
     {
         var f = new Dictionary<string, string> { ["queued.count"] = v.QueuedCount.ToString(CultureInfo.InvariantCulture) };
@@ -63,9 +66,16 @@ public static class LiveFields
             f["running.runs"] = $"{r.RunsDone}{(r.ExpectedRuns is { } e ? "/" + e : "")}회";
             f["running.progress"] = r.Progress is { } p ? Pct(p) + "%" : "-"; f["running.bar"] = Pct(r.Progress);
             f["running.eta"] = r.Eta ?? "-"; f["running.avg"] = r.AvgRun ?? "-"; f["running.film"] = r.Film ?? ""; f["running.note"] = r.Note;
+            f["running.sep"] = r.Phase != null ? " · " : ""; f["running.left"] = r.Left ?? "";
             w[r.JobId] = r.State;
         }
         foreach (var q in v.Queued) w[q.JobId] = JobState.Queued;
+        foreach (var m in v.Films)
+        {
+            var p = "film." + m.FilmId;
+            f[p + ".done"] = $"{m.Done} / {m.Total}"; f[p + ".bar"] = m.Total == 0 ? "0" : Math.Round(100.0 * m.Done / m.Total).ToString("0", CultureInfo.InvariantCulture);
+            f[p + ".note"] = FilmNote(m); w[m.FilmId] = m.State;
+        }
         foreach (var c in v.InProgress.Concat(v.Finished).SelectMany(a => a.Chips))
         {
             f[$"chip.{c.JobId}.text"] = ChipText(c); w[c.JobId] = c.State;
