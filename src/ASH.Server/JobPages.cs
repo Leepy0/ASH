@@ -736,8 +736,7 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
         sb.Append(Link("report.xlsx", "Excel 보고서(요약, 대수별 가동률, 실행 목록, 영향표, block, 입력)"));
         sb.Append(Link("summary.tsv", "실행별·그룹별 결과"));
         sb.Append(Link("impact.tsv", "영향표"));
-        if (j.RunsPurgedUtc is { } purged) sb.Append($"<div class=\"row muted\"><div class=\"t\"><div>runs.zip</div><small>실행 원본은 보관 기간이 지나 {H(SeoulTime.Text(purged))}에 정리되었습니다</small></div></div>");
-        else sb.Append(Link("runs.zip", "모든 실행 폴더(결과·보고서·메시지)"));
+        sb.Append(Link("runs.zip", j.RunsPurgedUtc is { } purged ? $"모든 실행 폴더(결과·보고서·메시지), {SeoulTime.Text(purged)}에 압축 보관" : "모든 실행 폴더(결과·보고서·메시지)"));
         sb.Append(Link("upload.zip", "올린 원본"));
         sb.Append(Link("job.log", "작업 로그 전체"));
         sb.Append("</div></div>");

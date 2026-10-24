@@ -358,7 +358,7 @@ AutoMod 12.6이 있는 PC 필요(T16-2, T16-4), T16-5는 AutoMod가 없는 PC와
 | M2 `AGVRESULTUP`("결과 올리기") → Y → 브라우저에 "내 PC에서 실행한 결과" 작업이 바로 "완료"로 보이고 권장 대수·block 지도가 나옴. 서버 대기열은 늘지 않음 | | | |
 | M3 ash-run을 안 돌린 폴더에서 `AGVRESULTUP` → "올릴 결과가 없습니다: runs/summary.tsv, runs/search.tsv" | | | |
 | M4 결과 화면의 "Excel 보고서 받기" → report.xlsx를 Excel로 열면 시트 6개(요약, 대수별 가동률, 실행 목록, 영향표, block, 입력), 가동률이 % 숫자 | | | |
-| M5 Jobs:KeepRunsDays를 1로 두고 하루 뒤 → runs.zip 링크가 "정리되었습니다"로 바뀌고 결론 탭과 Excel 보고서는 그대로 | | | |
+| M5 Jobs:KeepRunsDays를 1로 두고 하루 뒤 → runs.zip 링크 설명에 "압축 보관"이 붙고 받아 열면 실행 폴더가 들어 있으며, 결론 탭과 Excel 보고서는 그대로 | | | |
 | M6 큰 모델(.arc 수백 MB)로 `AGVSEND` → ZWCAD 메모리가 크게 늘지 않고 전송 완료 | | | |
 
 ## 공급 로직 재구성 (0.13.0)

@@ -25,7 +25,7 @@ public static class ServerPages
 .srow{display:flex;align-items:center;gap:12px;min-height:46px;padding:6px 14px;border-top:1px solid var(--line)}.sgrp>.srow:first-child{border-top:0}
 .srow label{flex:1;min-width:170px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:14px}
 .srow .ctl{display:flex;align-items:center;gap:8px;justify-content:flex-end;flex:0 1 380px;min-width:0}
-.srow .ctl input[type=text]{max-width:none}.srow .ctl input[type=number]{width:96px;text-align:right}
+.srow .ctl input[type=text]{max-width:none}.srow .ctl input[type=number]{width:96px;text-align:right}.srow .ctl .pick{flex:none;white-space:nowrap}
 .srow .unit{color:var(--sub2);font-size:13px;white-space:nowrap}
 .srow.chg{background:#fffbea}.srow-m{min-height:0;padding:0 14px 8px;border-top:0}.srow-m .msg{margin:4px 0;flex:1}
 .info{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;border:1px solid var(--sub2);color:var(--sub2);font-size:12px;font-weight:600;cursor:help;line-height:1}
@@ -164,6 +164,7 @@ public static class ServerPages
                 break;
             default:
                 sb.Append($"<input type=\"text\" id=\"{id}\" name=\"{H(d.Key)}\" value=\"{H(value)}\" data-orig=\"{H(value)}\" data-rs=\"{rs}\" spellcheck=\"false\">");
+                if (d.Pick != null) sb.Append($"<button type=\"button\" class=\"btn pick\" data-pick=\"{d.Pick}\" data-for=\"{id}\" data-title=\"{H(label)}\">찾아보기…</button>");
                 break;
         }
         sb.Append("</div></div>");
@@ -241,7 +242,7 @@ public static class ServerPages
                   .Append("<br><label><input type=\"checkbox\" name=\"confirm\" value=\"1\" required> 실행 중인 작업을 중단하고 다시 시작합니다</label></div>");
             sb.Append("<div class=\"actions\"><button class=\"primary\">서비스 다시 시작</button></div></form>");
         }
-        sb.Append("</section></div>");
-        return Page("ASH 서버 설정", sb.ToString(), SettingsScript, "admin");
+        sb.Append("</section>").Append(FsPicker.Html).Append("</div>");
+        return Page("ASH 서버 설정", sb.ToString(), SettingsScript + FsPicker.Script, "admin");
     }
 }

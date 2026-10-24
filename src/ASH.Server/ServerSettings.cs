@@ -13,8 +13,9 @@ public enum SettingKind { Bool, Int, Text }
 /// <summary>
 /// One appsettings.json value the settings page edits. Live = the code reads IConfiguration again on every use and appsettings.json reloads on change,
 /// so a save applies to the next job/check; otherwise the value is read once at start and needs a service restart.
+/// Pick = "dir" or "file": the page offers a server-side folder/file browser (/admin/fs) next to the input.
 /// </summary>
-public sealed record SettingDef(string Key, string Label, string Help, SettingKind Kind, string Default, bool Live, int Min = 0, int Max = 0, Func<string, string?>? Check = null);
+public sealed record SettingDef(string Key, string Label, string Help, SettingKind Kind, string Default, bool Live, int Min = 0, int Max = 0, Func<string, string?>? Check = null, string? Pick = null);
 
 /// <summary>Every key the server code reads, except Admin:Password and Update:PublicKeyPem (security: never editable from the web) and Logging (framework).</summary>
 public static class ServerSettings
@@ -44,16 +45,16 @@ public static class ServerSettings
     [
         new("Jobs:Enabled", "작업 받기", "끄면 ZWCAD의 \"서버로 보내기\"를 거절합니다.", SettingKind.Bool, "true", true),
         new("Jobs:WorkerEnabled", "작업 실행", "끄면 받기만 하고 실행하지 않습니다.", SettingKind.Bool, "true", false),
-        new("Jobs:AmHome", "AutoMod 폴더", "bin 아래에 빌드 exe(am264.exe)가 있는 AutoMod 설치 폴더.", SettingKind.Text, @"C:\AutoMod\12_6", true, Check: PathCheck),
+        new("Jobs:AmHome", "AutoMod 폴더", "bin 아래에 빌드 exe(am264.exe)가 있는 AutoMod 설치 폴더.", SettingKind.Text, @"C:\AutoMod\12_6", true, Check: PathCheck, Pick: "dir"),
         new("Jobs:Parallel", "동시 실행 수", "한 번에 돌리는 모델 실행 수. 코어 수와 AutoMod 라이선스에 맞춥니다.", SettingKind.Int, "2", true, 1, 32),
         new("Jobs:DialogButton", "대화상자 버튼", "체험판처럼 실행 때 뜨는 대화상자에서 누를 버튼(예: Student Version). 정식판은 비웁니다.", SettingKind.Text, "", true),
         new("Jobs:RunTimeoutMin", "실행 시간 제한(분)", "모델 실행 하나의 제한.", SettingKind.Int, "30", true, 1, 1440),
         new("Jobs:BuildTimeoutMin", "빌드 시간 제한(분)", "AutoMod 빌드의 제한.", SettingKind.Int, "10", true, 1, 600),
         new("Jobs:JobTimeoutHours", "작업 시간 제한(시간)", "넘으면 끊고 다음 작업으로 넘어갑니다. 다음 작업부터 적용.", SettingKind.Int, "24", true, 1, 168),
-        new("Jobs:KeepRunsDays", "실행 원본 보관(일)", "끝난 작업의 실행 폴더·빌드 출력을 이 일수 뒤 지웁니다. 0 = 지우지 않음.", SettingKind.Int, "30", true, 0, 3650),
-        new("Jobs:Dir", "작업 폴더", "올린 작업과 결과를 두는 폴더.", SettingKind.Text, "%ProgramData%/ASH.Server/jobs", false, Check: PathCheck),
-        new("Film:FfmpegPath", "ffmpeg", "영상 후처리(자막·이어 붙이기)에 쓰는 ffmpeg. 기본 ffmpeg = PATH에서 찾음. AutoView도 PATH의 ffmpeg로 MP4를 만듭니다.", SettingKind.Text, "ffmpeg", true, Check: PathCheck),
-        new("Film:AviewExe", "AutoView 실행 파일", "비우면 AutoMod 폴더의 bin 안에서 찾습니다: aview64.exe(12.6 이상), 없으면 aview.exe(12.4).", SettingKind.Text, "", true, Check: PathCheck),
+        new("Jobs:KeepRunsDays", "실행 원본 압축(일)", "끝난 작업의 실행 폴더를 이 일수 뒤 작업 폴더의 runs.zip 하나로 압축해 보관하고 원본 폴더와 빌드 출력은 지웁니다(runs.zip 받기와 결과 화면은 그대로). 0 = 그대로 둠.", SettingKind.Int, "30", true, 0, 3650),
+        new("Jobs:Dir", "작업 폴더", "올린 작업과 결과를 두는 폴더.", SettingKind.Text, "%ProgramData%/ASH.Server/jobs", false, Check: PathCheck, Pick: "dir"),
+        new("Film:FfmpegPath", "ffmpeg", "영상 후처리(자막·이어 붙이기)에 쓰는 ffmpeg. 기본 ffmpeg = PATH에서 찾음. AutoView도 PATH의 ffmpeg로 MP4를 만듭니다.", SettingKind.Text, "ffmpeg", true, Check: PathCheck, Pick: "file"),
+        new("Film:AviewExe", "AutoView 실행 파일", "비우면 AutoMod 폴더의 bin 안에서 찾습니다: aview64.exe(12.6 이상), 없으면 aview.exe(12.4).", SettingKind.Text, "", true, Check: PathCheck, Pick: "file"),
         new("Film:CutTimeoutMin", "컷 시간 제한(분)", "컷 하나의 AutoView 실행 제한. 넘으면 그 컷만 실패하고 다음 컷으로 넘어갑니다.", SettingKind.Int, "20", true, 1, 600),
         new("Film:CalibrationTimeoutMin", "보정 시간 제한(분)", "영상마다 처음 하는 화면 배율 보정(AutoView 1프레임 렌더) 한 번의 제한. 넘으면 추정값으로 계속하고 영상 페이지에 경고와 진단을 남깁니다.", SettingKind.Int, "3", true, 1, 60),
         new("Film:DialogTitles", "AutoView 대화상자 제목", "촬영 중 자동으로 OK(확인)를 누를 AutoView 창 제목(제목의 일부, 쉼표로 구분). 취소는 누르지 않습니다. 시간 초과 진단의 \"창\" 항목에 나온 제목을 더합니다. 제목에 Error가 든 창은 누르지 않습니다. 너무 짧은 글자는 AutoView 본 창까지 닫을 수 있습니다.", SettingKind.Text, string.Join(",", ASH.Core.Film.AutoViewRenderer.DefaultDialogTitles), true,
@@ -65,7 +66,7 @@ public static class ServerSettings
         new("GitHub:Proxy", "프록시", "비우면 PC 설정, none = 직접 연결, 또는 http://프록시:포트.", SettingKind.Text, "", false, Check: ProxyCheck),
         new("GitHub:Dns", "DNS 서버", "비우면 PC의 DNS. 예: 8.8.8.8, 1.1.1.1", SettingKind.Text, "", false, Check: v => Try(() => DnsLookup.ParseServers(v))),
         new("Urls", "서버 주소·포트", "예: http://0.0.0.0:8082. 포트를 바꾸면 방화벽 규칙도 바꿉니다.", SettingKind.Text, "http://0.0.0.0:8082", false, Check: UrlsCheck),
-        new("Releases:Dir", "배포 파일 폴더", "릴리스 보관 폴더. 바꾸면 폴더 권한을 다시 잠급니다.", SettingKind.Text, "%ProgramData%/ASH.Server/releases", false, Check: PathCheck),
+        new("Releases:Dir", "배포 파일 폴더", "릴리스 보관 폴더. 바꾸면 폴더 권한을 다시 잠급니다.", SettingKind.Text, "%ProgramData%/ASH.Server/releases", false, Check: PathCheck, Pick: "dir"),
         new("Update:AllowUnsigned", "서명 없는 릴리스 받기", "키 없는 빌드(기본)는 켜 둡니다. 끄면 서명 없는 릴리스를 모두 거절합니다.", SettingKind.Bool, "true", false),
     ];
 

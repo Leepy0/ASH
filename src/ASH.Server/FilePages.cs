@@ -36,7 +36,7 @@ internal static class FilePages
           .Append($"<input name=\"material\" value=\"{H(f.Material)}\" placeholder=\"자재 코드\" aria-label=\"자재 코드\"> ")
           .Append($"<span class=\"t3\">기간</span> <input type=\"date\" name=\"from\" value=\"{H(Day(f.FromUtc, 0))}\" aria-label=\"시작일\"> <span class=\"t4\">~</span> <input type=\"date\" name=\"to\" value=\"{H(Day(f.ToUtc, -1))}\" aria-label=\"끝일\"> ")
           .Append(FileRoutes.TagFilterHtml(f, an))
-          .Append("<button class=\"btn pri\" type=\"submit\">거르기</button></form>");
+          .Append("<button class=\"btn pri\" type=\"submit\"><span aria-hidden=\"true\">🔍</span> 검색</button></form>");
         if (all.Count == 0) return JobPages.Page("보관함", sb.Append("<div class=\"empty\">조건에 맞는 작업이 없습니다.</div>").ToString(), null, "files");
         sb.Append("<div class=\"box tbl\"><table class=\"sort\"><thead><tr>").Append(JobPages.Th("분석·안")).Append(JobPages.Th("날짜")).Append(JobPages.Th("보낸이")).Append(JobPages.Th("모델"))
           .Append("<th>파일</th><th>이어서</th></tr></thead><tbody>");
