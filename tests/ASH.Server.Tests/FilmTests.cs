@@ -191,13 +191,15 @@ public class FilmTests
         var dir = env.Factory.Services.GetRequiredService<FilmStore>().FilmDir(f.Id);
         File.Delete(Path.Combine(dir, "thumb.jpg")); File.Delete(Path.Combine(dir, f.Items[0].Name)); // parts gone after joining
         var tab = await env.Http.GetStringAsync($"/analyses/{aid}?tab=films");
-        Assert.Contains("thumb-none", tab); Assert.DoesNotContain("thumb.jpg", tab);
+        Assert.DoesNotContain("thumb.jpg", tab); Assert.DoesNotContain("poster=", tab); // the player without a poster
+        Assert.Contains("<video", tab);
         Assert.Contains("이어 붙인 영상에만", tab); Assert.Contains("all.zip", tab);
         Assert.DoesNotContain($"<li><a href=\"/films/{f.Id}/files/", tab);
         Assert.Contains("/files/" + Uri.EscapeDataString(f.Joined!), tab);
         File.Delete(Path.Combine(dir, f.Joined!));
         tab = await env.Http.GetStringAsync($"/analyses/{aid}?tab=films");
         Assert.DoesNotContain("all.zip", tab); Assert.DoesNotContain("<video", tab);
+        Assert.Contains("<div class=\"thumb-none\"></div>", tab); // no player and no thumbnail: the grey placeholder
     }
 
     [Fact] public void FilmEta_Is_Now_Plus_Remaining_Pace_In_Seoul_Time()

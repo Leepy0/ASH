@@ -141,6 +141,6 @@ public class FileRoutesTests
             var onlyQ = await env.Http.GetStringAsync(path + (path.Contains('?') ? "&" : "?") + "corp=q");
             Assert.Contains("라인B", onlyQ); Assert.DoesNotContain("라인A", onlyQ);
         }
-        Assert.Contains($"href=\"/jobs/{id}/files/continue.zip\"", await env.Http.GetStringAsync("/analyses/" + a.Id));
+        Assert.Contains($"href=\"/jobs/{id}/files/continue.zip\"", await env.Http.GetStringAsync("/analyses/" + a.Id + "?tab=status"));
     }
 }

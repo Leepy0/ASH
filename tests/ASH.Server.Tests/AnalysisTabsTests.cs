@@ -15,7 +15,7 @@ public class AnalysisTabsTests
         env.Store.Update(id, j => { j.Partial = new() { ["G1"] = 2 }; j.Phase = "확정 G1"; });
         var aid = env.Factory.Services.GetRequiredService<AnalysisStore>().All().Single().Id;
         var html = await env.Http.GetStringAsync("/analyses/" + aid);
-        foreach (var s in new[] { "class=\"tabs\"", "?tab=status\" class=\"on\"", "?tab=conclusion", "?tab=compare", "?tab=films", "G1 2", "data-field=\"partial.text\"", "fetch('/api/analyses/" + aid + "/status", "관리자: 분석 삭제" }) Assert.Contains(s, html);
+        foreach (var s in new[] { "class=\"segc\" aria-label=\"보기\"", "?tab=status\" class=\"on\"", "?tab=conclusion", "?tab=compare", "?tab=films", "G1 2", "data-field=\"partial.text\"", "fetch('/api/analyses/" + aid + "/status", "관리자: 분석 삭제" }) Assert.Contains(s, html);
         var api = JsonDocument.Parse(await env.Http.GetStringAsync($"/api/analyses/{aid}/status")).RootElement;
         Assert.Equal("G1 2", api.GetProperty("fields").GetProperty("partial.text").GetString());
         env.Runner.Gate.Set(); await env.WaitFinished(id);
