@@ -42,7 +42,8 @@ public static class ResultParser
                 case "material": mats.Add(new MaterialResult(c[1], c[2], V(0), V(1), (int)V(2), V(3), V(4), V(5))); break;
                 case "group": groups.Add(new GroupResult(c[1], (int)V(0))); break;
                 case "block": blocks.Add(new BlockResult(c[1], V(0), V(1), V(2), V(3))); break;
-                case "vehicle": vehicles.Add(new VehicleResult(c[1], c[2], V(0), V(1), (int)V(2), V(3), (int)V(4), V(5))); break;
+                case "vehicle": vehicles.Add(new VehicleResult(c[1], c[2], V(0), V(1), (int)V(2), V(3), (int)V(4), V(5),
+                    vals.Length >= 11 ? new TimeSplit(V(3), V(0), V(6), V(7), V(8), V(9), V(10)) : null)); break;
                 case "matstat": mstats.Add(new MaterialStat(c[1], c[2], V(0), V(1), V(2), V(3), V(4), V(5), V(6), V(7))); break;
                 case "deadlock": dead = (int)V(0); break;
                 case "clock": sim = V(1); clock = true; break;

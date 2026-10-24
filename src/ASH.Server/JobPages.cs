@@ -284,6 +284,11 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
 .curves{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px}.curves svg{width:100%;height:auto;border-radius:10px}
 .files{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:8px}.files .row{font-size:14px}.files .row .t>div{font-family:Consolas,monospace;font-size:14px}
 .jt td{padding:11px 10px}
+/* time split bar: busy parts strong, not busy pale */
+.sbar{position:relative;display:inline-block;width:150px;height:10px;vertical-align:middle}.sbar>span{display:flex;height:10px;border-radius:5px;overflow:hidden;background:#e5e5ea}.sbar i{display:block;height:10px}
+.sbar b{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--ink);opacity:.55}
+.u-ld{background:#0055b3}.u-em{background:#5fa8ff}.u-hd{background:#5856d6}.u-bb{background:#a9a8f0}.u-rp{background:var(--red)}.u-bx{background:#f2c27f}.u-id{background:#d1d1d6}
+.lg i{display:inline-block;width:10px;height:10px;border-radius:2px;margin:0 4px 0 10px;vertical-align:-1px}
 ";
 
     /// <summary>State tag with its symbol in the text (for tables that no script touches).</summary>
@@ -424,7 +429,7 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
         // units sit in the headers, so the cells are plain numbers (and JobReport uses the same headers); the vehicle numbers are sums over the group's vehicles
         var byGroup = v.VehicleGroups.ToDictionary(x => x.Group, StringComparer.Ordinal);
         sb.Append("<div class=\"box\"><h2>그룹별 권장 대수와 부하율</h2><div class=\"scroll\"><table class=\"sort gt\"><thead><tr>").Append(Th("그룹")).Append(Th("AGV 타입")).Append(Th("권장(대)")).Append(Th("범위(대)"))
-          .Append(Th("가동률(%, 확인 실행 평균)")).Append(Th("최소 재고/안전재고(배)")).Append(Th("공급 횟수(회)")).Append(Th("총 이동 거리(km)")).Append(Th("공급당 이동 거리(m)"))
+          .Append(Th("가동률(%, 확인 실행 평균)")).Append("<th>시간 내역</th>").Append(Th("최소 재고/안전재고(배)")).Append(Th("공급 횟수(회)")).Append(Th("총 이동 거리(km)")).Append(Th("공급당 이동 거리(m)"))
           .Append(Th("판정")).Append("</tr></thead><tbody>");
         // problems first: judgement failed or over the limit, then the rest in the given order
         foreach (var g in v.Groups.OrderBy(g => !g.AllOk ? 0 : Over(g, v.UtilMax) ? 1 : 2))
@@ -437,9 +442,11 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
             var verdict = !g.AllOk ? $"<td class=\"bad\">▲ 실패: {H(g.Reason)}</td>" : over ? "<td class=\"wn\">⚠ 경고: 가동률 초과</td>" : "<td class=\"ok\">✓ 통과</td>";
             sb.Append($"<tr{(!g.AllOk ? " class=\"over\"" : over ? " class=\"ow\"" : under ? " class=\"under\"" : "")}><td>{H(g.Group)}</td><td>{H(g.Type)}</td><td><b>{(g.Decided?.ToString(CultureInfo.InvariantCulture) ?? "-")}</b></td><td>{g.Min}~{g.Max}</td>" +
                 $"<td><span class=\"bar{bc}\"><i style=\"width:{F(w * 100, "0.#")}%\"></i><b style=\"left:{F(Math.Min(1, v.UtilMax) * 100, "0.#")}%\"></b></span> {P(g.Util)}{sym}</td>" +
-                $"<td>{F(g.MinStockRatio)}</td><td>{(vg == null ? "-" : F(vg.Jobs * vg.Count, "0"))}</td><td>{(vg == null ? "-" : F(vg.Distance * vg.Count / 1000, "0.0"))}</td><td>{(vg == null ? "-" : F(vg.DistPerJob, "0.#"))}</td>{verdict}</tr>");
+                $"<td>{SplitBar(vg?.Split, v.UtilMax)}</td><td>{F(g.MinStockRatio)}</td><td>{(vg == null ? "-" : F(vg.Jobs * vg.Count, "0"))}</td><td>{(vg == null ? "-" : F(vg.Distance * vg.Count / 1000, "0.0"))}</td><td>{(vg == null ? "-" : F(vg.DistPerJob, "0.#"))}</td>{verdict}</tr>");
         }
-        sb.Append($"</tbody></table></div><div class=\"t4\">▲ 상한 초과(경고) · ▼ 10% 미만 · 세로선 = 가동률 상한 {Pct(v.UtilMax)} · 공급·거리 = 권장 대수 차량의 합</div></div>");
+        sb.Append($"</tbody></table></div><div class=\"t4\">▲ 상한 초과(경고) · ▼ 10% 미만 · 세로선 = 가동률 상한 {Pct(v.UtilMax)} · 공급·거리·시간 내역 = 권장 대수 차량의 합</div>");
+        if (byGroup.Values.Any(x => x.Split != null)) sb.Append(SplitLegend(v.UtilMax));
+        sb.Append("</div>");
         RerunPage.Box(sb, j, v, canRerun);
         if (v.VehicleGroups.Count > 0)
         {
@@ -532,6 +539,28 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
 
     /// <summary>Over the utilization limit: the mean, or any confirm run (a warning, not a failure).</summary>
     internal static bool Over(GroupView g, double utilMax) => g.UtilOver || !double.IsNaN(g.Util) && g.Util > utilMax;
+
+    /// <summary>The parts of a time split in bar order (busy first, so the busy ones end at the utilization): name, CSS class, seconds.</summary>
+    internal static (string Name, string Cls, double Sec)[] Parts(ASH.Core.Runner.TimeSplit s) => new[]
+    {
+        ("적재 주행", "u-ld", s.Loaded), ("공차 주행", "u-em", s.Empty), ("상하차", "u-hd", s.Handling), ("버퍼 대기(허용)", "u-bb", s.BufferBusy), ("고장", "u-rp", s.Repair),
+        ("버퍼 대기(허용 초과)", "u-bx", s.BufferIdle), ("유휴", "u-id", s.Idle),
+    };
+
+    /// <summary>Stacked bar of where the time went, the utilization limit as a tick; "-" for results without a split. Hover: seconds and share per part.</summary>
+    internal static string SplitBar(ASH.Core.Runner.TimeSplit? s, double utilMax)
+    {
+        if (s == null || !(s.Window > 0)) return "-";
+        var sb = new StringBuilder($"<span class=\"sbar\" title=\"가동 {P(s.Busy / s.Window)}%\"><span>");
+        foreach (var (name, cls, sec) in Parts(s))
+            if (sec > 0) sb.Append($"<i class=\"{cls}\" style=\"width:{F(sec / s.Window * 100, "0.##")}%\" title=\"{name} {F(sec, "0")}초 · {P(sec / s.Window)}%\"></i>");
+        return sb.Append($"</span><b style=\"left:{F(Math.Min(1, utilMax) * 100, "0.#")}%\"></b></span>").ToString();
+    }
+
+    /// <summary>Legend of <see cref="SplitBar"/>.</summary>
+    internal static string SplitLegend(double utilMax) =>
+        "<div class=\"t4 lg\">시간 내역: " + string.Concat(Parts(new ASH.Core.Runner.TimeSplit(0, 0, 0, 0, 0, 0, 0)).Select(p => $"<i class=\"{p.Cls}\"></i>{p.Name}")) +
+        $" · 적재 주행~고장 = 가동 · 세로선 = 가동률 상한 {Pct(utilMax)}</div>";
 
     /// <summary>At most five groups worth a look: judgement failed first, then over the limit, then the busiest.</summary>
     internal static List<GroupView> Notable(JobView v) =>
@@ -695,13 +724,15 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
         }
         if (v.Vehicles.Count > 0)
         {
-            bool down = v.Vehicles.Any(x => x.Down > 0);
-            sb.Append("<div class=\"box\"><div class=\"box-head\"><h2>차량별</h2><span class=\"t4\">권장 대수만큼 움직인 차량의 확인 실행 평균</span></div><div class=\"scroll\"><table><tr><th>차량</th><th>그룹</th><th>가동률(%)</th><th>작업 수(회)</th><th>주행 거리(m)</th><th>거리/작업(m)</th><th>시간/작업(초)</th>" +
+            bool down = v.Vehicles.Any(x => x.Down > 0), split = v.Vehicles.Any(x => x.Split != null);
+            sb.Append("<div class=\"box\"><div class=\"box-head\"><h2>차량별</h2><span class=\"t4\">권장 대수만큼 움직인 차량의 확인 실행 평균</span></div><div class=\"scroll\"><table><tr><th>차량</th><th>그룹</th><th>가동률(%)</th>" +
+                (split ? "<th>시간 내역</th>" : "") + "<th>작업 수(회)</th><th>주행 거리(m)</th><th>거리/작업(m)</th><th>시간/작업(초)</th>" +
                 (down ? "<th>고장 시간(초)</th>" : "") + "</tr>");
             foreach (var x in v.Vehicles)
-                sb.Append($"<tr><td>{H(x.Name)}</td><td>{H(x.Group)}</td><td class=\"num\">{P(x.Util)}</td><td class=\"num\">{F(x.Jobs, "0.#")}</td><td class=\"num\">{F(x.Distance, "0")}</td>" +
+                sb.Append($"<tr><td>{H(x.Name)}</td><td>{H(x.Group)}</td><td class=\"num\">{P(x.Util)}</td>" + (split ? $"<td>{SplitBar(x.Split, v.UtilMax)}</td>" : "") +
+                    $"<td class=\"num\">{F(x.Jobs, "0.#")}</td><td class=\"num\">{F(x.Distance, "0")}</td>" +
                     $"<td class=\"num\">{F(x.DistPerJob, "0.#")}</td><td class=\"num\">{F(x.BusyPerJob, "0.#")}</td>" + (down ? $"<td class=\"num\">{F(x.Down, "0")}</td>" : "") + "</tr>");
-            sb.Append("</table></div></div>");
+            sb.Append("</table></div>" + (split ? SplitLegend(v.UtilMax) : "") + "</div>");
         }
         if (v.Materials.Count > 0) MaterialTable(sb, v);
         // one row per run and group; every group's count of the run is a column, so the list sorts by any of them

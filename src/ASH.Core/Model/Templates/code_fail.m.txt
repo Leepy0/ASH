@@ -8,7 +8,7 @@
 		set V_vNextFail(A_vid) to A_rep + rn RS_fail e {{MTBF}}
 		if A_rep > ac then begin
 			set A_veh color to red
-			wait for A_rep - ac sec
+{{DOWN}}			wait for A_rep - ac sec
 			set A_veh color to inherit
 		end
 	end

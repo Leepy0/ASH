@@ -101,23 +101,27 @@ public static class LogicGenerator
             var t = input.AgvTypes.FirstOrDefault(x => x.Type == g.Type) ?? throw new ArgumentException($"그룹 '{g.Group}'의 Type '{g.Type}'이(가) AGV_Types에 없습니다.");
             // breakdowns of this group's vehicles: checked at the end of every leg, and at boarding for the time the vehicle stood idle
             bool fails = t.MTBF > 0 && t.MTTR > 0;
-            string Fail(string start) => fails ? Fill(Res("code_fail.m.txt"), ("START", start), ("MTBF", N(t.MTBF)), ("MTTR", N(t.MTTR))).TrimEnd('\n') : "";
+            // held: the repair holds a job inside its busy time (A_dn); after the Finish CP it does not
+            string Fail(string start, bool held = true) => fails ? Fill(Res("code_fail.m.txt"), ("START", start), ("MTBF", N(t.MTBF)), ("MTTR", N(t.MTTR)),
+                ("DOWN", held ? "\t\t\tinc A_dn by A_rep - ac\n" : "")).TrimEnd('\n') : "";
             // empty runs (to the pickup, after the unload, home) at SpeedEmpty; "specification" is the loaded line of the AGVS vehicle
             bool speeds = t.SpeedEmpty > 0 && t.SpeedEmpty != t.SpeedLoaded;
             string emptySpeed = speeds ? $"\tset A_veh defined velocity to {N(t.SpeedEmpty * unitsPerMeter)}" : "";
             string loadedSpeed = speeds ? "\tset A_veh defined velocity to specification" : "";
             // leg slot = mi for supply legs, mi + nm for return legs (a return can overlap the next supply of the same material)
-            string Leg(string to, int slot) => Fill(Res("code_leg.m.txt"), ("M", mi.ToString()), ("SLOT", slot.ToString()), ("SYS", sys),
-                ("TO", Cp(layout, to)), ("NAME", Lit(m.Material)), ("FAIL", Fail("ac")));
+            // loaded: the leg carries the supply or the empty container (A_ld = the job's loaded driving time)
+            string Leg(string to, int slot, bool loaded = false) => Fill(Res("code_leg.m.txt"), ("M", mi.ToString()), ("SLOT", slot.ToString()), ("SYS", sys),
+                ("TO", Cp(layout, to)), ("NAME", Lit(m.Material)), ("FAIL", Fail("ac")), ("LOADED", loaded ? "\tinc A_ld by ac - A_t0\n" : ""));
             var legs = new StringBuilder();
             if (!string.IsNullOrEmpty(r.BufferCP))
             {
-                legs.Append(Leg(r.BufferCP!, mi));
+                legs.Append(Leg(r.BufferCP!, mi, true));
                 // waiting at the buffer for the stock to drop to the unload threshold: up to Route.BufferWaitSec of it is busy, only the excess is left out
                 var hold = r.BufferWaitSec > 0 ? $"\tset A_hold to ac - A_hold - {N(r.BufferWaitSec)}\n\tif A_hold < 0 then set A_hold to 0\n" : "\tset A_hold to ac - A_hold\n";
-                legs.Append($"\tset A_hold to ac\n\twhile V_stock({mi}) > V_unload({mi}) do begin\n\t\twait for 5 sec\n\tend\n{hold}");
+                // A_bw = the whole wait, A_hold = the part left out of busy time
+                legs.Append($"\tset A_bw to ac\n\tset A_hold to ac\n\twhile V_stock({mi}) > V_unload({mi}) do begin\n\t\twait for 5 sec\n\tend\n{hold}\tset A_bw to ac - A_bw\n");
             }
-            legs.Append(Leg(r.SupplyToCP, mi));
+            legs.Append(Leg(r.SupplyToCP, mi, true));
             var ret = new StringBuilder();
             // Route.ExtraTime: once per supply cycle with the vehicle held; at the return pickup when there is one (before its load time), else after the unload
             var extra = r.ExtraTime > 0 ? $"\twait for {N(r.ExtraTime)} sec\n" : "";
@@ -126,7 +130,7 @@ public static class LogicGenerator
             {
                 // empty container: picked up at ReturnFrom (LoadTime), set down at ReturnTo (UnloadTime)
                 if (returnPick) ret.Append(Leg(r.ReturnFromCP!, mi + nm)).Append(extra).Append(Show).Append($"\twait for {N(t.LoadTime)} sec\n").Append(loadedSpeed + "\n");
-                if (!string.IsNullOrEmpty(r.ReturnToCP)) ret.Append(Leg(r.ReturnToCP!, mi + nm)).Append($"\twait for {N(t.UnloadTime)} sec\n").Append(Hide).Append(emptySpeed + "\n");
+                if (!string.IsNullOrEmpty(r.ReturnToCP)) ret.Append(Leg(r.ReturnToCP!, mi + nm, true)).Append($"\twait for {N(t.UnloadTime)} sec\n").Append(Hide).Append(emptySpeed + "\n");
             }
             if (!returnPick) ret.Insert(0, extra);
             // without a return pickup the empty container rides on from the unload CP to ReturnTo: still loaded until there
@@ -140,6 +144,9 @@ public static class LogicGenerator
             int vidOffset = input.Groups.TakeWhile(x => x.Group != g.Group).Sum(x => x.MaxCount);
             // the supply load shows as the material's own picture, the container goes back as its empty picture
             var emptyType = m.EmptyReturn && ret.Length > 0 ? $"\tset load type to L_m{mi}e" : "";
+            // the fixed waits of one job: supply load + unload, the extra time, the empty container's load + unload
+            double handle = t.LoadTime + t.UnloadTime + Math.Max(0, r.ExtraTime) + (returnPick ? t.LoadTime : 0)
+                + (m.EmptyReturn && !string.IsNullOrEmpty(r.ReturnToCP) ? t.UnloadTime : 0);
             matLogic.Append(Fill(Res("code_material.m.txt"), ("M", mi.ToString()), ("NAME", Lit(m.Material)), ("SYS", sys),
                 ("SET_TYPE", $"\tset load type to L_m{mi}"), ("EMPTY_TYPE", emptyType),
                 ("G", GroupIndex(input, m.Group).ToString()),
@@ -147,6 +154,7 @@ public static class LogicGenerator
                 ("SUPPLY_LEGS", legs.ToString().TrimEnd('\n')), ("RETURN_LEGS", ret.ToString().TrimEnd('\n')),
                 ("FINISH", finish.TrimEnd('\n')), ("FINISH_AT_HOME", finishAtHome), ("HOME", home), ("VID_OFFSET", vidOffset.ToString()),
                 ("CAPACITY", Math.Max(1, t.Capacity).ToString()), ("FAIL_IDLE", Fail("V_vNextFail(A_vid)")), ("FAIL_LEG", Fail("ac")),
+                ("FAIL_HOME", Fail("ac", string.IsNullOrEmpty(g.FinishCP))), ("HANDLE", N(handle)),
                 ("EMPTY_SPEED", emptySpeed), ("LOADED_SPEED", loadedSpeed), ("AFTER_UNLOAD_SPEED", carriesOn ? "" : emptySpeed),
                 ("AFTER_UNLOAD_HIDE", carriesOn ? "" : Hide.TrimEnd('\n')), ("SPEC_SPEED", loadedSpeed)));
             create.Append($"\tcreate 1 load of type L_ctl to P_consume_{mi}\n");
@@ -162,7 +170,8 @@ public static class LogicGenerator
             foreach (var slot in new[] { mi, mi + nm })
                 snap.Append($"\tif V_inLeg({slot}) = 1 and ac - V_legStart({slot}) > V_deadlockSec then inc V_deadlock by 1\n");
         }
-        // per vehicle (every one up to MaxCount; the judge counts the active ones): busy s, distance, jobs, window s, index in group, repair s
+        // per vehicle (every one up to MaxCount; the judge counts the active ones): busy s, distance, jobs, window s, index in group, repair s,
+        // then where the time went (value7..11): loaded driving, load/unload/extra waits, buffer hold busy / not busy, repairs that held a job
         int vid = 0;
         var failInit = new StringBuilder();
         foreach (var g in input.Groups)
@@ -172,7 +181,8 @@ public static class LogicGenerator
             {
                 vid++;
                 snap.Append($"\tset V_x to V_simLen - V_warmup\n");
-                snap.Append($"\tprint \"vehicle\\t{Lit(g.Type)}{k}\\t{Lit(g.Group)}\\t\" V_vBusy({vid}) \"\\t\" V_vDist({vid}) \"\\t\" V_vJobs({vid}) \"\\t\" V_x \"\\t{k}\\t\" V_vDown({vid}) \"\\t0\\t0\" to V_out\n");
+                snap.Append($"\tprint \"vehicle\\t{Lit(g.Type)}{k}\\t{Lit(g.Group)}\\t\" V_vBusy({vid}) \"\\t\" V_vDist({vid}) \"\\t\" V_vJobs({vid}) \"\\t\" V_x \"\\t{k}\\t\" V_vDown({vid}) " +
+                            $"\"\\t\" V_vLoad({vid}) \"\\t\" V_vHand({vid}) \"\\t\" V_vBufB({vid}) \"\\t\" V_vBufX({vid}) \"\\t\" V_vRep({vid}) to V_out\n");
                 if (gt != null && gt.MTBF > 0 && gt.MTTR > 0) failInit.Append($"\tset V_vNextFail({vid}) to rn RS_fail e {N(gt.MTBF)}\n");
             }
         }
@@ -269,11 +279,12 @@ public static class LogicGenerator
             m.Vars.Add(new(v, "Real", ms));
         // leg slots: 1..nm supply legs, nm+1..2nm return legs
         m.Vars.Add(new("V_inLeg", "Integer", 2 * nm)); m.Vars.Add(new("V_legStart", "Real", 2 * nm));
-        foreach (var a in new[] { "A_tCall", "A_tPick", "A_ret", "A_fin", "A_rLast", "A_dLast", "A_rep", "A_hold" }) m.Atts.Add(new(a, "Real"));
+        foreach (var a in new[] { "A_tCall", "A_tPick", "A_ret", "A_fin", "A_rLast", "A_dLast", "A_rep", "A_hold", "A_bw", "A_ld", "A_dn" }) m.Atts.Add(new(a, "Real"));
         foreach (var a in new[] { "A_vid", "A_qty" }) m.Atts.Add(new(a, "Integer"));
         int vs = Math.Max(2, input.Groups.Sum(g => g.MaxCount));
         m.Vars.Add(new("V_vBusy", "Real", vs)); m.Vars.Add(new("V_vDist", "Real", vs)); m.Vars.Add(new("V_vJobs", "Integer", vs));
         m.Vars.Add(new("V_vNextFail", "Real", vs)); m.Vars.Add(new("V_vDown", "Real", vs));
+        foreach (var v in new[] { "V_vLoad", "V_vHand", "V_vBufB", "V_vBufX", "V_vRep" }) m.Vars.Add(new(v, "Real", vs));
         // the seed is arbitrary: replications differ by the samples the logic skips at start (see the class summary)
         if (input.AgvTypes.Any(t => t.MTBF > 0 && t.MTTR > 0)) m.RnStreams.Add(new("RS_fail", 12345));
         for (int i = 1; i <= nm; i++) m.Tables.AddRange(new[] { $"T_pick_{i}", $"T_deliv_{i}", $"T_stock_{i}" });
