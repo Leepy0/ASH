@@ -74,7 +74,7 @@ public sealed class FakeFilm : IFilmAutoMod, IFilmRenderer
         return outPath;
     }
 
-    public void Thumbnail(string mp4, string outJpg, double atSec, CancellationToken ct = default)
+    public void Thumbnail(string mp4, string outJpg, double atSec, CancellationToken ct = default, int width = 320)
     {
         lock (Thumbnails) Thumbnails.Add((mp4, outJpg, atSec));
         File.WriteAllText(outJpg, "jpg");
@@ -590,7 +590,7 @@ public class FilmTests
     }
 
     /// <summary>A wall box around the 10 m loop, a cross inside it and a long line out to the east (the drawing is bigger than the layout).</summary>
-    static void Drawing(string proj)
+    internal static void Drawing(string proj)
     {
         var sb = new StringBuilder("0\nSECTION\n2\nENTITIES\n");
         void Line(double x1, double y1, double x2, double y2, string layer) =>

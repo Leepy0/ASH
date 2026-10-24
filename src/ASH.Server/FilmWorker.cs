@@ -54,7 +54,12 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
     TimeSpan CalTimeout => TimeSpan.FromMinutes(Math.Max(0.01, cfg.GetValue("Film:CalibrationTimeoutMin", 3.0)));
     AutoModJobRunner Jr => new(cfg);
 
-    public const string FilmBusy = "영상 촬영 중", ScenesBusy = "장면 후보 찾기 중";
+    public const string FilmBusy = "영상 촬영 중", ScenesBusy = "장면 후보 찾기 중", PreviewBusy = "컷 미리보기 중";
+    /// <summary>Preview frame size: big enough to judge the framing (and the roll), quick to render.</summary>
+    public const int PreviewWidth = 1280, PreviewHeight = 720;
+
+    /// <summary>Cut previews, made here between jobs like films.</summary>
+    public PreviewStore Previews { get; } = new(jobs.Dir, logger);
     /// <summary>Most cut × version items in one film: a film holds the job queue until it is done.</summary>
     public const int MaxItems = 60;
 
@@ -91,6 +96,12 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
             _scenesDone[j.Id] = text;
             _busy = ScenesBusy;
             try { SceneRequest(j, req, text); } finally { _busy = null; }
+            return true;
+        }
+        if (Previews.TakeNext() is { } p)
+        {
+            _busy = PreviewBusy;
+            try { RunPreview(p, stop); } finally { _busy = null; }
             return true;
         }
         var f = films.TakeNext();
@@ -361,52 +372,8 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
             else ok.Add(c);
         if (ok.Count == 0) return true;
 
-        Phase($"모델 준비 (대수 {string.Join(", ", counts.Select(kv => kv.Key + " " + kv.Value))}, 시드 {seed})");
-        var proj = jobs.ProjectDir(j.Id);
-        if (Directory.Exists(work)) Directory.Delete(work, true);
-        Copy(proj, work, j.Model);
-        var arc = Path.Combine(work, j.Model + ".arc");
-        var amoPath = Path.Combine(arc, "model.amo");
-        var units = Regex.Match(File.ReadAllText(amoPath), @"^UNITS (\S+)", RegexOptions.Multiline) is { Success: true } um ? um.Groups[1].Value : "Meters";
-        var layout = ArcLayout.Load(arc).Layout;
-        var pts = layout.Paths.SelectMany(p => p.Segments).SelectMany(s => new[] { s.Start, s.End }).Concat(layout.Cps.Select(c => c.Position))
-            .Select(p => (p.X, p.Y)).ToList();
-        var dxf = Path.Combine(work, "drawing.dxf"); var frame = Path.Combine(work, ModelFrame.FileName);
-        if (File.Exists(dxf) && File.Exists(frame))
-            try
-            {
-                DxfDrawing d;
-                using (var rd = new StreamReader(dxf, Encoding.UTF8)) d = DxfLite.ToModel(DxfLite.Read(rd), ModelFrame.Read(frame));
-                var segs = d.Segs.Where(s => new[] { s.X1, s.Y1, s.X2, s.Y2 }.All(double.IsFinite)).ToList();
-                StaticDrawing.AddTo(arc, d with { Segs = segs }, units, null);
-                pts.AddRange(segs.SelectMany(s => new[] { (s.X1, s.Y1), (s.X2, s.Y2) }));
-                say($"{label}: 도면 선 {segs.Count}개");
-            }
-            catch (Exception e) when (e is IOException or FormatException or InvalidDataException or ArgumentException) { say($"{label}: 경고: 도면 없이 찍습니다({e.Message})"); }
-        else say($"{label}: drawing.dxf가 없어 도면 없이 찍습니다(예전 작업).");
-        if (pts.Count == 0) pts.Add((0, 0));
-        double x0 = pts.Min(p => p.X), x1 = pts.Max(p => p.X), y0 = pts.Min(p => p.Y), y1 = pts.Max(p => p.Y);
-        // calibration mark (guide 10.4): a rectangle half the scene's size at its centre, inside the scene so it does not move F0
-        double cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, lw = Math.Max((x1 - x0) / 2, 1), lh = Math.Max((y1 - y0) / 2, 1);
-        var mark = new[] { (-1, -1, 1, -1), (1, -1, 1, 1), (1, 1, -1, 1), (-1, 1, -1, -1) }
-            .Select(q => new DxfSeg(cx + q.Item1 * lw / 2, cy + q.Item2 * lh / 2, cx + q.Item3 * lw / 2, cy + q.Item4 * lh / 2, "cal")).ToList();
-        StaticDrawing.AddTo(arc, new DxfDrawing(mark, Array.Empty<DxfText>(), new[] { "cal" }), units, null, CalSystem);
         double from = Math.Max(0, Math.Floor(ok.Min(c => c.StartSec)) - 2), to = Math.Min(simLen, Math.Ceiling(ok.Max(c => c.StartSec + c.SimSeconds)) + 2);
-        File.WriteAllText(amoPath, ModelAmoWriter.WithRecording(File.ReadAllText(amoPath), simLen, from, to), new UTF8Encoding(false));
-
-        Phase("빌드");
-        ModelBuilder.PrepareBuildDir(work, j.Model);
-        var b = am.Build(work, j.Model);
-        if (!b.Success) throw new InvalidOperationException("빌드 실패: " + FirstLine(b.MakeErrText + "\n" + b.Am2ErrText));
-        stop.ThrowIfCancellationRequested();
-        Phase("모델 실행(기록)");
-        var o = am.Run(new RunRequest(work, j.Model, input, new RunScenario(seed, counts), Jr.RunTimeout, Jr.DialogButton, RunsDir: Path.Combine(work, "runs"), AmHome: Jr.AmHome));
-        if (!o.Success) throw new InvalidOperationException("모델 실행 실패: " + o.Error);
-        stop.ThrowIfCancellationRequested();
-
-        Phase("화면 배율 보정");
-        var f0 = Calibrate(work, j.Model, (cx, cy, lw, lh, Math.Sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0) + 2.5 * 2.5)), from + 1, r.Width, r.Height,
-            s => say($"{label}: {s}"), w => films.Update(f.Id, x => x.Warnings.Add($"{label}: {w}")), stop);
+        var (f0, o) = PrepareModel(j, input, counts, seed, from, to, work, r.Width, r.Height, Phase, s => say($"{label}: {s}"), w => films.Update(f.Id, x => x.Warnings.Add($"{label}: {w}")), stop);
         var kpi = Kpi(j, input, counts, o);
         say($"{label}: 자막 수치 {kpi}");
         var failed = false;
@@ -435,6 +402,108 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
         }
         if (failed) say($"{label}: 실패한 컷이 있어 작업 폴더를 남깁니다(기록·영상 원본은 지움): {work}");
         return !failed;
+    }
+
+    /// <summary>A film model in <paramref name="work"/> (a copy of the job's project): the drawing, the ash_cal calibration mark, the recording window
+    /// <paramref name="from"/>..<paramref name="to"/>, build, one run at <paramref name="counts"/>, then F0. Throws when the build or the run fails.</summary>
+    (double F0, RunOutcome Run) PrepareModel(JobInfo j, ProjectInput input, Dictionary<string, int> counts, int seed, double from, double to, string work, int width, int height,
+        Action<string> Phase, Action<string> say, Action<string> warn, CancellationToken stop)
+    {
+        double simLen = input.Settings.SimLengthSec;
+        Phase($"모델 준비 (대수 {string.Join(", ", counts.Select(kv => kv.Key + " " + kv.Value))}, 시드 {seed})");
+        var proj = jobs.ProjectDir(j.Id);
+        if (Directory.Exists(work)) Directory.Delete(work, true);
+        Copy(proj, work, j.Model);
+        var arc = Path.Combine(work, j.Model + ".arc");
+        var amoPath = Path.Combine(arc, "model.amo");
+        var units = Regex.Match(File.ReadAllText(amoPath), @"^UNITS (\S+)", RegexOptions.Multiline) is { Success: true } um ? um.Groups[1].Value : "Meters";
+        var layout = ArcLayout.Load(arc).Layout;
+        var pts = layout.Paths.SelectMany(p => p.Segments).SelectMany(s => new[] { s.Start, s.End }).Concat(layout.Cps.Select(c => c.Position))
+            .Select(p => (p.X, p.Y)).ToList();
+        var dxf = Path.Combine(work, "drawing.dxf"); var frame = Path.Combine(work, ModelFrame.FileName);
+        if (File.Exists(dxf) && File.Exists(frame))
+            try
+            {
+                DxfDrawing d;
+                using (var rd = new StreamReader(dxf, Encoding.UTF8)) d = DxfLite.ToModel(DxfLite.Read(rd), ModelFrame.Read(frame));
+                var segs = d.Segs.Where(s => new[] { s.X1, s.Y1, s.X2, s.Y2 }.All(double.IsFinite)).ToList();
+                StaticDrawing.AddTo(arc, d with { Segs = segs }, units, null);
+                pts.AddRange(segs.SelectMany(s => new[] { (s.X1, s.Y1), (s.X2, s.Y2) }));
+                say($"도면 선 {segs.Count}개");
+            }
+            catch (Exception e) when (e is IOException or FormatException or InvalidDataException or ArgumentException) { say($"경고: 도면 없이 찍습니다({e.Message})"); }
+        else say($"drawing.dxf가 없어 도면 없이 찍습니다(예전 작업).");
+        if (pts.Count == 0) pts.Add((0, 0));
+        double x0 = pts.Min(p => p.X), x1 = pts.Max(p => p.X), y0 = pts.Min(p => p.Y), y1 = pts.Max(p => p.Y);
+        // calibration mark (guide 10.4): a rectangle half the scene's size at its centre, inside the scene so it does not move F0
+        double cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, lw = Math.Max((x1 - x0) / 2, 1), lh = Math.Max((y1 - y0) / 2, 1);
+        var mark = new[] { (-1, -1, 1, -1), (1, -1, 1, 1), (1, 1, -1, 1), (-1, 1, -1, -1) }
+            .Select(q => new DxfSeg(cx + q.Item1 * lw / 2, cy + q.Item2 * lh / 2, cx + q.Item3 * lw / 2, cy + q.Item4 * lh / 2, "cal")).ToList();
+        StaticDrawing.AddTo(arc, new DxfDrawing(mark, Array.Empty<DxfText>(), new[] { "cal" }), units, null, CalSystem);
+        File.WriteAllText(amoPath, ModelAmoWriter.WithRecording(File.ReadAllText(amoPath), simLen, from, to), new UTF8Encoding(false));
+
+        Phase("빌드");
+        ModelBuilder.PrepareBuildDir(work, j.Model);
+        var b = am.Build(work, j.Model);
+        if (!b.Success) throw new InvalidOperationException("빌드 실패: " + FirstLine(b.MakeErrText + "\n" + b.Am2ErrText));
+        stop.ThrowIfCancellationRequested();
+        Phase("모델 실행(기록)");
+        var o = am.Run(new RunRequest(work, j.Model, input, new RunScenario(seed, counts), Jr.RunTimeout, Jr.DialogButton, RunsDir: Path.Combine(work, "runs"), AmHome: Jr.AmHome));
+        if (!o.Success) throw new InvalidOperationException("모델 실행 실패: " + o.Error);
+        stop.ThrowIfCancellationRequested();
+
+        Phase("화면 배율 보정");
+        var f0 = Calibrate(work, j.Model, (cx, cy, lw, lh, Math.Sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0) + 2.5 * 2.5)), from + 1, width, height, say, warn, stop);
+        return (f0, o);
+    }
+
+    // ---------------- previews ----------------
+
+    void RunPreview(PreviewInfo p, CancellationToken stop)
+    {
+        string? error = null;
+        try { MakePreview(p, stop); }
+        catch (OperationCanceledException) { error = "서버가 멈추어 중단되었습니다."; }
+        catch (AutoViewHungException) { error = Hung; }
+        catch (Exception e) { error = e.Message; logger.LogWarning("컷 미리보기 실패 {Analysis}/{Cut}: {Error}", p.AnalysisId, p.Cut.Id, e.Message); }
+        Previews.Update(p.AnalysisId, p.Cut.Id, x => { x.State = error == null ? JobState.Done : JobState.Failed; x.Error = error; x.Phase = null; x.FinishedUtc = DateTime.UtcNow; });
+    }
+
+    /// <summary>One frame of the cut at <see cref="PreviewInfo.AtSec"/> with its camera (a Move cut: its A view), on a film model of the version at the cut's counts
+    /// that records only a few seconds around that time. The model (and its F0) stays in previews\work and is reused while the version, counts and window are the same,
+    /// so trying other camera angles at the same time only costs the AutoView run.</summary>
+    void MakePreview(PreviewInfo p, CancellationToken stop)
+    {
+        _timeouts = 0;
+        void Phase(string s) => Previews.Update(p.AnalysisId, p.Cut.Id, x => x.Phase = s);
+        var j = jobs.Get(p.JobId) ?? throw new InvalidOperationException("작업이 없습니다: " + p.JobId);
+        if (j.Decided == null) throw new InvalidOperationException("결론 대수가 없는 작업입니다.");
+        var input = SearchJob.ReadInput(jobs.ProjectDir(j.Id), TextWriter.Null, new List<string>(), out var err) ?? throw new InvalidOperationException("입력을 읽지 못했습니다: " + err);
+        double simLen = input.Settings.SimLengthSec, t = p.AtSec;
+        if (t + 1 > simLen) throw new InvalidOperationException($"시뮬레이션 길이({simLen:0}초)를 넘는 시각입니다.");
+        var counts = Counts(input, j.Decided, new FilmRequest("", p.AnalysisId, Array.Empty<string>(), Array.Empty<string>(), PreviewWidth, PreviewHeight, 15, "each", false, null, 0, null), p.Cut);
+        var seed = input.Settings.SeedBase;
+        double from = Math.Max(0, Math.Floor(t) - 2), to = Math.Min(simLen, Math.Ceiling(t) + 3);
+        var work = Path.Combine(Previews.Dir(p.AnalysisId), "work");
+        var keyFile = Path.Combine(work, "preview.key");
+        var key = string.Join("|", j.Id, string.Join(";", counts.Select(kv => kv.Key + "=" + kv.Value)), seed, from.ToString(C), to.ToString(C));
+        double f0;
+        var kept = File.Exists(keyFile) ? File.ReadAllLines(keyFile) : Array.Empty<string>();
+        if (kept.Length == 2 && kept[0] == key && double.TryParse(kept[1], NumberStyles.Float, C, out var k0)) f0 = k0;
+        else
+        {
+            if (File.Exists(keyFile)) File.Delete(keyFile);
+            f0 = PrepareModel(j, input, counts, seed, from, to, work, PreviewWidth, PreviewHeight, Phase, s => logger.LogInformation("미리보기 {Cut}: {Text}", p.Cut.Id, s), _ => { }, stop).F0;
+            File.WriteAllLines(keyFile, new[] { key, f0.ToString("R", C) });
+        }
+        Phase("AutoView 그리기");
+        var c = p.Cut;
+        var shot = c with { Kind = c.Kind == CutKind.Move ? CutKind.Hold : c.Kind, B = null, StartSec = t, HoldSec = 1, HoldASec = 0, MoveSec = 0, HoldBSec = 0, Speed = 1 };
+        var res = Render(work, j.Model, CameraScript.Build(shot, f0, PreviewWidth, PreviewHeight, 15, Quality, Path.Combine(work, "preview"), new[] { CalOff }), CutTimeout, stop);
+        if (!res.Ok) { File.Delete(keyFile); throw new InvalidOperationException(res.Error); } // the next try builds the model again
+        var jpg = Previews.ImagePath(p.AnalysisId, c.Id);
+        renderer.Thumbnail(res.Mp4!, jpg + ".tmp.jpg", 0, stop, PreviewWidth);
+        File.Move(jpg + ".tmp.jpg", jpg, true);
     }
 
     /// <summary>thumb.jpg from the first cut that was made (1 s in); a failure (no ffmpeg) only means a grey frame on the page.</summary>

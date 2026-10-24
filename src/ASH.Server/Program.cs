@@ -205,6 +205,7 @@ app.MapCatalog();
 app.MapAssets();
 app.MapFiles();
 app.MapFilms();
+app.MapPreview();
 app.MapAdminFs();
 
 app.Run();

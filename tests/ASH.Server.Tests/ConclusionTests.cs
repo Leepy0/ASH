@@ -121,7 +121,7 @@ public class ConclusionTests
         double VbWidth(string page) => double.Parse(Regex.Match(page, "<svg class=\"bm\" viewBox=\"[^ ]+ [^ ]+ ([^ ]+) ").Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
         Assert.DoesNotContain("width=", Regex.Match(html, "<svg class=\"bm\"[^>]*>").Value);
         Assert.True(VbWidth(html) < 8); Assert.Contains("<svg class=\"mm\"", html); Assert.Contains("&amp;map=all\">전체</a>", html);
-        Assert.Contains("B_x1 · 12초", html); Assert.Contains("<li><i>1</i><span title=\"B_x1\">B_x1</span><b>12초</b></li>", html);
+        Assert.Contains("B_x1 · 12초", html); Assert.Contains("<li><i>1</i><span title=\"B_x1\">B_x1</span><b>12초</b><a class=\"btn\"", html);
         var all = await env.Http.GetStringAsync($"/analyses/{aid}?tab=conclusion&map=all");
         Assert.True(VbWidth(all) > 11); Assert.DoesNotContain("<svg class=\"mm\"", all);
     }
