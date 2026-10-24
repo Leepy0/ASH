@@ -201,6 +201,7 @@ app.MapGet("/jobs", () => Results.Redirect("/admin/jobs", permanent: true));
 
 app.MapJobs();
 app.MapAnalysis();
+app.MapReport();
 app.MapCatalog();
 app.MapAssets();
 app.MapFiles();
