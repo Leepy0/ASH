@@ -37,6 +37,9 @@ public sealed class LiveFilmRenderer(IConfiguration cfg) : IFilmRenderer
     public string Finish(IReadOnlyList<string> mp4s, IReadOnlyList<string> captions, string outPath, bool join, CancellationToken ct = default) =>
         new AutoViewRenderer(ResolveAviewExe(cfg) ?? "", AmHome(cfg), Ffmpeg(cfg)).Finish(mp4s, captions, outPath, join, ct);
 
+    public void Thumbnail(string mp4, string outJpg, double atSec, CancellationToken ct = default) =>
+        new AutoViewRenderer(ResolveAviewExe(cfg) ?? "", AmHome(cfg), Ffmpeg(cfg)).Thumbnail(mp4, outJpg, atSec, ct);
+
     public (double W, double H)? MarkSize(string mp4With, string mp4Without, int width, int height, CancellationToken ct = default) =>
         new AutoViewRenderer(ResolveAviewExe(cfg) ?? "", AmHome(cfg), Ffmpeg(cfg)).MarkSize(mp4With, mp4Without, width, height, ct);
 }

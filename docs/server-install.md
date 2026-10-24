@@ -60,7 +60,7 @@
    New-NetFirewallRule -DisplayName "ASH.Server" -Direction Inbound -Protocol TCP -LocalPort 8082 -Action Allow -Profile Domain,Private
    ```
    **함정:** 서버 PC의 네트워크가 도메인에 연결되지 않으면 윈도우가 그 NIC를 **Public**으로 분류하기도 한다. 그러면 위 규칙은 적용되지 않아 다른 PC에서 접속이 안 된다(서버 PC 자신에서는 열린다). `Get-NetConnectionProfile`로 `NetworkCategory`를 확인하고, Public이면 NIC를 Private로 바꾼다(`Set-NetConnectionProfile -InterfaceAlias <이름> -NetworkCategory Private`). 규칙에 `-Profile Public`을 그냥 추가하지 말 것 — 카페·공유기 같은 신뢰할 수 없는 네트워크에도 포트가 열린다. 꼭 필요하면 `-RemoteAddress 10.0.0.0/8`처럼 사내 대역으로 제한한다.
-6. 다른 PC의 브라우저로 `http://<서버>:8082/` 를 열어 상태 페이지를 확인한다. 서비스 시작 직후에는 "게시된 버전이 없습니다."가 정상이고, 10초쯤 뒤 새로 고치면 "마지막 확인 … 가져옴: x.y.z"와 현재 버전이 보인다. "실패: …"가 보이면 서버 PC에서 github.com 접속과 `GitHub:Proxy`를 확인한다. "무결성 확인: 없음 — PC가 github.com 릴리스와 대조해 확인"이 보이는 것이 정상이다.
+6. 다른 PC의 브라우저로 `http://<서버>:8082/admin/settings` 를 열어 서버 상태를 확인한다. 서비스 시작 직후에는 "게시된 버전이 없습니다."가 정상이고, 10초쯤 뒤 설정(`/admin/settings`)을 새로 고치면 "마지막 확인 … 가져옴: x.y.z"와 현재 버전이 보인다. "실패: …"가 보이면 서버 PC에서 github.com 접속과 `GitHub:Proxy`를 확인한다. "무결성 확인: 없음 — PC가 github.com 릴리스와 대조해 확인"이 보이는 것이 정상이다.
 
 수동 업로드의 토큰은 평문 HTTP로 전달된다. 수동 업로드는 신뢰할 수 있는 사내망에서만 하거나 앞단에 HTTPS 프록시를 둔다.
 
@@ -110,7 +110,7 @@ gh release create v<버전> dist\ASH-Setup-<버전>.exe dist\ASH.json dist\ASH.S
 - 서명은 하지 않는다(선택 기능, 아래 "선택: 서명 키 사용"). `-AllowUnsigned`/`-RequireSignature`는 이제 의미 없는 옵션으로, 경고만 낸다. `update-key.pub`가 있는데 `ASH_SIGNING_KEY`가 없으면 빌드가 중단된다.
 - 빌드는 항상 처음부터 다시 컴파일하고(`--no-incremental`) `dotnet test ASH.sln`(서버 테스트 포함)을 통과해야 패키징한다.
 - `-MinSupported <버전>`(없으면 `ASH_MIN_SUPPORTED`, 그것도 없으면 `0.0.0`)은 그 버전 **미만** PC에 "최소 지원 미만" 안내를 띄운다. 기본값은 "아무도 미만이 아님"이다 — 이번 버전으로 자동 설정하지 않는다. 이번 버전보다 높게는 줄 수 없다(서버도 거절).
-- 게시 뒤 상태 페이지(`http://<서버>:8082/`)에서 버전, "무결성 확인" 줄, "마지막 확인" 결과를 확인한다.
+- 게시 뒤 설정 페이지(`http://<서버>:8082/admin/settings`)에서 버전, "무결성 확인" 줄, "마지막 확인" 결과를 확인한다.
 
 ### 되돌리기(롤백)의 뜻
 
@@ -157,7 +157,12 @@ SYSTEM으로 실행해도 로그온한 대화형 사용자가 있고 그 사용�
 
 ## 5. 서버 운영
 
-홈(`http://<서버>:8082/`)은 위에서부터 지금 실행 중인 작업·대기 건수·배포 버전·서버 버전 카드, 최근 작업 5건(전체는 `/jobs`), 배포(현재 버전, 설치 파일 받기, Runner, 이전 버전), 서버 상태(자동 업데이트, GitHub 가져오기, 무결성 확인, 수동 업로드, 서버 시각) 순서다. 상단 메뉴는 홈 · 작업 · 설정.
+상단 메뉴는 홈 · 분석 · 설정이다.
+
+- **홈**(`http://<서버>:8082/`): 내 것만 | 전체 전환, 실행 중·대기 작업, 분석별 현황. 열어 둔 채로 10초마다 갱신하고(대기→실행 전환은 자동 새로 고침, 60초마다 전체를 다시 읽음) 서버와 끊기면 "연결 끊김"을 띄운다.
+- **분석**(`/analyses/{id}`): 탭 현황 · 결론 · 비교 · 영상(`?tab=status|conclusion|compare|films`). 영상 탭에서 완성 영상을 보고 `all.zip`으로 컷 파일을 한 번에 받는다.
+- **설정**(`/admin/settings`): 서버 상태(자동 업데이트, GitHub 가져오기, 무결성 확인, 수동 업로드, 서버 시각)와 배포(현재 버전, 설치 파일, Runner, 이전 버전)도 여기 있다. 전체 작업 대기열은 `/admin/jobs`(옛 `/jobs`는 301).
+- JSON: `/api/home`, `/api/analyses/{id}/status`, `/api/films/{id}`.
 
 ### 웹 설정과 서비스 재시작 (`/admin/settings`)
 
@@ -194,9 +199,9 @@ SYSTEM으로 실행해도 로그온한 대화형 사용자가 있고 그 사용�
 4. 서비스를 다시 시작하고 60초 안에 `http://127.0.0.1:<포트>/healthz/version`이 새 버전을 돌려주면 끝. 이전 exe는 `ASH.Server.exe.old`로 남는다.
 5. 응답이 없으면 이전 exe로 **자동 되돌리고**(실패한 exe는 `ASH.Server.exe.bad`) 다시 시작한다. 그 버전은 `update\skip-auto.txt`에 적혀 다시 시도하지 않는다. 더 높은 버전을 릴리스하면 다시 시도한다.
 
-결과는 상태 페이지의 "서버 프로그램 … 자동 업데이트"와 "지난 업데이트" 줄, `update\apply.log`, 이벤트 로그에 남는다.
+결과는 설정 페이지의 "서버 프로그램 … 자동 업데이트"와 "지난 업데이트" 줄, `update\apply.log`, 이벤트 로그에 남는다.
 
-자동 교체는 이 조건에서만 한다(아니면 상태 페이지에 이유가 나온다): `ASH.Server.exe --install`로 등록한 Windows 서비스로 실행 중, 배포용 단일 exe(zip의 것), `GitHub:Enabled`와 `GitHub:UpdateServer`가 true.
+자동 교체는 이 조건에서만 한다(아니면 설정 페이지에 이유가 나온다): `ASH.Server.exe --install`로 등록한 Windows 서비스로 실행 중, 배포용 단일 exe(zip의 것), `GitHub:Enabled`와 `GitHub:UpdateServer`가 true.
 
 ### Runner(ash-run) 배포
 
@@ -204,7 +209,7 @@ SYSTEM으로 실행해도 로그온한 대화형 사용자가 있고 그 사용�
 
 1. GitHub 확인 때마다 최신 릴리스의 `ASH.Runner.json`을 읽는다. 서버에 있는 Runner보다 높으면 `ASH-Runner-<버전>-win-x64.zip`을 받아, 크기·SHA-256을 확인한 뒤 `Releases:Dir\runner\`에 둔다(최신 2개만 보관).
 2. 분석 PC의 `ash-run`은 작업을 시작하기 전에 `/api/ash/runner`(매니페스트)를 읽고 **github.com의 `https://github.com/Leepy0/ASH/releases/download/v<버전>/ASH.Runner.json`과 바이트 단위로 대조**한 뒤(같을 때만), 새 버전이면 `/download/ASH-Runner-<버전>-win-x64.zip`을 받아 스스로 교체한다(README의 "ash-run" 절). 서버가 Runner를 못 가져와도 지금 Runner는 계속 쓸 수 있고, 분석 PC가 github.com에 접속할 수 없거나 내용이 다르면 `update skipped: ...` 한 줄을 내고 지금 버전으로 계속한다.
-3. 서버 상태 페이지의 "Runner(ash-run)" 줄에 보관 중인 버전과 마지막 확인 결과가 나온다.
+3. 서버 설정 페이지의 "Runner(ash-run)" 줄에 보관 중인 버전과 마지막 확인 결과가 나온다.
 4. 분석 PC에는 서버 주소가 필요하다: 설치 프로그램의 `/server:` 로 넣었다면 그 설정을 읽고, 아니면 `ash-run --update --server http://<서버>:8082` 또는 환경 변수 `ASH_SERVER`.
 5. 릴리스에 `ASH.Runner.json`, `ASH-Runner-<버전>-win-x64.zip`이 있어야 한다(`build-release.ps1`이 만든다. `gh release create`에 같이 올린다).
 
@@ -216,7 +221,7 @@ rem ASH.Server.exe 만 교체한다(appsettings.json 과 Releases:Dir 의 배포
 sc start ASH.Server
 ```
 
-교체한 뒤(자동이든 수동이든) 상태 페이지에서 새 버전이 보이는지 확인한다(서명 키를 다시 쓰는 경우에는 **서명 키 ID가 교체 전과 같은지**도 본다. 다르면 새 exe가 다른 `update-key.pub`로 빌드된 것이니 되돌린다). 손으로 되돌릴 때는 서비스를 멈추고 `ASH.Server.exe.old`를 `ASH.Server.exe`로 바꾼 뒤 시작한다.
+교체한 뒤(자동이든 수동이든) 설정 페이지에서 새 버전이 보이는지 확인한다(서명 키를 다시 쓰는 경우에는 **서명 키 ID가 교체 전과 같은지**도 본다. 다르면 새 exe가 다른 `update-key.pub`로 빌드된 것이니 되돌린다). 손으로 되돌릴 때는 서비스를 멈추고 `ASH.Server.exe.old`를 `ASH.Server.exe`로 바꾼 뒤 시작한다.
 
 ### 에셋: 차량 그림 (0.22.0)
 
@@ -269,7 +274,7 @@ sc start ASH.Server
 ### 백업과 복원
 
 - 백업 대상: **`Releases:Dir` 폴더 전체**(`current\`, `files\`, `history\`)와 **`appsettings.json`**(토큰·설정). 서버 exe는 zip에서 다시 얻을 수 있으니 필수가 아니다. 서명 키를 쓰는 경우 개인키는 서버에 없다(2절 "선택: 서명 키 사용").
-- 복원: 서비스를 멈추고 두 가지를 제자리에 복사한 뒤(`Releases:Dir`는 3절의 권한을 다시 확인) `sc start ASH.Server`. 상태 페이지에서 현재 버전·이전 버전 목록을 확인한다.
+- 복원: 서비스를 멈추고 두 가지를 제자리에 복사한 뒤(`Releases:Dir`는 3절의 권한을 다시 확인) `sc start ASH.Server`. 설정 페이지에서 현재 버전·이전 버전 목록을 확인한다.
 
 ### `files\` 정리
 
@@ -282,16 +287,16 @@ sc start ASH.Server
 | `AGVUPDATE`에 "업데이트 중단(github.com에 접속할 수 없어 배포 정보를 대조하지 못했습니다)" | 사용자 PC가 github.com에 HTTPS로 접속하지 못함(방화벽·프록시·DNS). 브라우저로 `https://github.com/Leepy0/ASH/releases`가 열리는지 보고, release-assets.githubusercontent.com / objects.githubusercontent.com도 허용한다. PC의 프록시 설정(로그인 계정 자격 증명)을 쓰므로 그 계정으로 확인한다. |
 | "서버의 ASH.json이(가) github.com v…과 다릅니다" | 서버에 GitHub 릴리스와 다른 파일이 게시됨(수동 업로드 등). 서버가 GitHub 릴리스로 다시 받게 하거나(서비스 재시작) 새 버전을 릴리스한다. 이 상태에서는 설치되지 않는다. |
 | 업로드가 400 "minSupported(…)가 version(…)보다 높습니다" | `-MinSupported`/`ASH_MIN_SUPPORTED`가 이번 버전보다 높음. |
-| 상태 페이지 "지난 업데이트: x.y.z이(가) 60초 안에 응답하지 않아 … 자동 되돌림" | 새 서버 exe가 서비스로 뜨지 않음. `update\apply.log`와 이벤트 로그를 보고, 고친 판을 더 높은 버전으로 릴리스한다(같은 버전은 다시 시도하지 않음). |
-| 상태 페이지 "지난 업데이트: x.y.z 파일 교체 실패" | 설치 폴더에 쓸 수 없음(LocalService 계정, 백신 잠금 등). `update\apply.log` 확인. 원인을 고친 뒤 더 높은 버전으로 릴리스하거나 수동 교체한다. |
-| 상태 페이지 "마지막 확인 — 실패: …" (이름 확인 오류, "No such host is known" 등) | 서버 PC의 DNS가 github.com을 찾지 못함. `nslookup github.com 8.8.8.8`처럼 쓸 수 있는 DNS를 찾아 `GitHub:Dns`에 적고 서비스를 재시작한다. |
-| 상태 페이지 "Runner(ash-run) … 거절" | 받은 zip이 `ASH.Runner.json`의 크기·SHA-256과 다름. 릴리스를 다시 만들어 새 버전으로 낸다. |
+| 설정 페이지 "지난 업데이트: x.y.z이(가) 60초 안에 응답하지 않아 … 자동 되돌림" | 새 서버 exe가 서비스로 뜨지 않음. `update\apply.log`와 이벤트 로그를 보고, 고친 판을 더 높은 버전으로 릴리스한다(같은 버전은 다시 시도하지 않음). |
+| 설정 페이지 "지난 업데이트: x.y.z 파일 교체 실패" | 설치 폴더에 쓸 수 없음(LocalService 계정, 백신 잠금 등). `update\apply.log` 확인. 원인을 고친 뒤 더 높은 버전으로 릴리스하거나 수동 교체한다. |
+| 설정 페이지 "마지막 확인 — 실패: …" (이름 확인 오류, "No such host is known" 등) | 서버 PC의 DNS가 github.com을 찾지 못함. `nslookup github.com 8.8.8.8`처럼 쓸 수 있는 DNS를 찾아 `GitHub:Dns`에 적고 서비스를 재시작한다. |
+| 설정 페이지 "Runner(ash-run) … 거절" | 받은 zip이 `ASH.Runner.json`의 크기·SHA-256과 다름. 릴리스를 다시 만들어 새 버전으로 낸다. |
 | 분석 PC에서 `update skipped: …` | 서버 주소 없음/응답 없음, github.com 접속 불가 또는 서버의 `ASH.Runner.json`이 github.com과 다름, 폴더에 쓸 수 없음 등. 문장 그대로 원인이 나온다. 작업은 지금 버전으로 계속된다. `ash-run --update --server <주소>`로 원인을 다시 확인한다. |
-| 상태 페이지 "마지막 확인 — 실패: …" | 서버 PC에서 github.com에 닿지 않음. 브라우저로 `https://github.com/Leepy0/ASH/releases/latest/download/ASH.json`이 받아지는지 보고, 콘솔에서는 되는데 서비스에서만 실패하면 `GitHub:Proxy`를 적는다. 이벤트 로그에 같은 내용이 남는다. |
-| 상태 페이지 "마지막 확인 — GitHub에 ASH.json이(가) 있는 릴리스가 없습니다" | 최신 정식 릴리스에 `ASH.json`이 빠졌거나 초안·시험판만 있음. |
+| 설정 페이지 "마지막 확인 — 실패: …" | 서버 PC에서 github.com에 닿지 않음. 브라우저로 `https://github.com/Leepy0/ASH/releases/latest/download/ASH.json`이 받아지는지 보고, 콘솔에서는 되는데 서비스에서만 실패하면 `GitHub:Proxy`를 적는다. 이벤트 로그에 같은 내용이 남는다. |
+| 설정 페이지 "마지막 확인 — GitHub에 ASH.json이(가) 있는 릴리스가 없습니다" | 최신 정식 릴리스에 `ASH.json`이 빠졌거나 초안·시험판만 있음. |
 | 업로드가 403 "업로드가 꺼져 있습니다" | `Admin:Token`이 비었거나 16자 미만. 서비스 재시작 필요. |
 | 업로드가 401 | 토큰이 다름(`$env:ASH_ADMIN_TOKEN` 확인). |
-| (서명 키를 다시 쓸 때만) 경고 "서명 키 미설정", 업로드 400 "서명 키 없음"/서명 거절, `build-release.ps1` 중단, "업데이트 확인 실패(서명 확인 실패)", 상태 페이지 "거절: 서명이 맞지 않습니다" | `update-key.pub`와 `ASH_SIGNING_KEY`(개인키)가 짝이 맞는지, 서버·플러그인·ash-run이 그 공개키로 빌드된 판인지 확인한다. 키 교체 중이면 4절. |
+| (서명 키를 다시 쓸 때만) 경고 "서명 키 미설정", 업로드 400 "서명 키 없음"/서명 거절, `build-release.ps1` 중단, "업데이트 확인 실패(서명 확인 실패)", 설정 페이지 "거절: 서명이 맞지 않습니다" | `update-key.pub`와 `ASH_SIGNING_KEY`(개인키)가 짝이 맞는지, 서버·플러그인·ash-run이 그 공개키로 빌드된 판인지 확인한다. 키 교체 중이면 4절. |
 | 영상 컷이 "AutoView가 동영상(MP4/AVI)을 만들지 않았습니다"로 실패 | 서버 PATH에 ffmpeg가 없거나 AutoView가 서비스 세션에서 그리지 못함, 또는 이전 AutoView(12.4)가 다른 방식으로 만듦. 오류 끝의 `진단:`(5절 "영상 촬영"의 "진단 읽는 법")에서 AutoView 버전·창·파일·ffmpeg를 본다. |
 | 영상이 "시간 제한…"이나 "화면 배율 보정 실패, 추정값 사용"으로 끝남 | AutoView가 대화상자에 걸렸을 가능성이 크다. `진단:`의 `창 "제목"`을 `Film:DialogTitles`에 더하고 다시 찍는다. |
 | 다른 PC에서 접속이 안 되고 서버 PC 자신에서는 됨 | 방화벽 규칙이 Public 프로필 NIC에 적용되지 않음. 1절 5번의 함정 참고. |

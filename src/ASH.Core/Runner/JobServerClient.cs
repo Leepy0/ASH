@@ -41,6 +41,9 @@ public sealed class AnalysisSummary
 {
     [DataMember(Name = "id")] public string Id { get; set; } = "";
     [DataMember(Name = "name")] public string Name { get; set; } = "";
+    [DataMember(Name = "corp")] public string Corp { get; set; } = "";
+    [DataMember(Name = "productLine")] public string ProductLine { get; set; } = "";
+    [DataMember(Name = "line")] public string Line { get; set; } = "";
     [DataMember(Name = "plans")] public List<PlanSummary> Plans { get; set; } = new List<PlanSummary>();
 }
 
@@ -55,7 +58,8 @@ public sealed class PlanSummary
 /// <summary>The form fields of a submission (the package file goes beside them). <c>Plan</c> is the drawing's name; the analysis fields are optional: ids win over names,
 /// none at all leaves the job unclassified.</summary>
 public sealed record JobSubmission(string Project, string Plan, string Model, string Submitter, string Impact = "1",
-    string? AnalysisId = null, string? PlanId = null, string? AnalysisName = null, string? PlanName = null, string? VersionNote = null);
+    string? AnalysisId = null, string? PlanId = null, string? AnalysisName = null, string? PlanName = null, string? VersionNote = null,
+    string? Corp = null, string? ProductLine = null, string? Line = null);
 
 /// <summary>The server answered with a status other than 200; <see cref="Body"/> is its text/plain reason (Korean).</summary>
 public sealed class JobServerException : Exception
@@ -104,6 +108,7 @@ public sealed class JobServerClient : IDisposable
         form.Add(new StringContent(job.Project, Encoding.UTF8), "project"); form.Add(new StringContent(job.Plan, Encoding.UTF8), "plan");
         form.Add(new StringContent(job.Model, Encoding.UTF8), "model"); form.Add(new StringContent(job.Submitter, Encoding.UTF8), "submitter"); form.Add(new StringContent(job.Impact, Encoding.UTF8), "impact");
         Field("analysisId", job.AnalysisId); Field("planId", job.PlanId); Field("analysisName", job.AnalysisName); Field("planName", job.PlanName); Field("versionNote", job.VersionNote);
+        Field("corp", job.Corp); Field("productLine", job.ProductLine); Field("line", job.Line);
         // A seekable file keeps the multipart length known, so on net48 HttpClientHandler sends it with Content-Length and no buffering; a non-seekable stream or a
         // buffered content here would copy the whole package into the ZWCAD process (see Submit_streams_a_big_package_without_buffering_it).
         using var fs = new FileStream(zipPath, FileMode.Open, FileAccess.Read, FileShare.Read);
@@ -128,7 +133,12 @@ public sealed class JobServerClient : IDisposable
     public static CatalogTypes ParseCatalog(string json) => Parse<CatalogTypes>(json);
 
     /// <exception cref="InvalidDataException">Not the expected JSON.</exception>
-    public static IReadOnlyList<AnalysisSummary> ParseAnalyses(string json) => Parse<List<AnalysisSummary>>(json);
+    public static IReadOnlyList<AnalysisSummary> ParseAnalyses(string json)
+    {
+        var l = Parse<List<AnalysisSummary>>(json);
+        foreach (var a in l) { a.Corp ??= ""; a.ProductLine ??= ""; a.Line ??= ""; } // the serializer skips initializers for absent keys (0.19 servers)
+        return l;
+    }
 
     /// <exception cref="InvalidDataException">Not the expected JSON, or no id.</exception>
     public static JobReceipt ParseReceipt(string json)

@@ -11,25 +11,30 @@ public sealed record SearchProgress(string Phase, IReadOnlyDictionary<string, in
 
 public static class SearchEstimate
 {
-    /// <summary>Model runs the search is expected to take, following SearchStrategy.Search per cluster b with k_b groups:
-    /// initReps × (baseline 1 + binary search ⌈log2(Max−Min+1)⌉ per group + one later cur−1 pass k_b)
-    /// + k_b−1 stale speculative first midpoints (batch executor, initReps 1, k_b ≥ 2: SearchJob always uses ParallelExecutor)
-    /// + decided (reps − initReps; the first initReps seeds are cached) + minus1 k_b × reps (all cached when reps = 1);
-    /// then confirm reps and impact k × reps. Not a hard bound (extra later passes, confirm bumps): Raise lifts it once reached.</summary>
+    /// <summary>Model runs SearchStrategy.Search starts, counting only runs not already in its cache. Per cluster b, with m_b = its groups whose
+    /// range R = Max−Min+1 is above 1 (a group with R = 1 is never probed below Max):
+    /// baseline initReps (first cluster only: a later cluster's baseline is the previous cluster's decided counts)
+    /// + initReps × Σ⌈log2 R⌉ (pass-1 binary search, at most)
+    /// + initReps × (m_b − 1) (first later cur−1 pass, at most: the last group's cur−1 was its final binary-search probe)
+    /// + (m_b − 1) when initReps is 1 (stale speculative first midpoints, at most and outcome-dependent: SearchJob always uses the batch ParallelExecutor)
+    /// + (reps − initReps) (decided: its first initReps seeds are the last search run)
+    /// + m_b × (reps − initReps) (minus1, at most: its configs ran at initReps seeds in the last pass);
+    /// confirm round 0 is the last decided state (cached); impact k × reps (at most: groups at Max are skipped, a +1 config may be cached).
+    /// An estimate, not a bound: extra later passes, minus1 successes and confirm bumps add runs; Raise lifts it once reached.</summary>
     public static int Expected(ProjectInput input, GroupClusters clusters, int initialReps, bool impact)
     {
         int reps = Math.Max(1, input.Settings.Replications), initReps = Math.Max(1, initialReps);
-        if (string.Equals((input.Settings.InitStockMode ?? "").Trim(), "Fixed", StringComparison.OrdinalIgnoreCase)) reps = initReps = 1;
+        if (SearchStrategy.FixedStock(input.Settings)) reps = initReps = 1;
         var byName = input.Groups.ToDictionary(g => g.Group);
         static int Log2Ceil(int r) { int n = 0; while ((1 << n) < r) n++; return n; }
-        int total = 0;
+        int total = initReps, extra = Math.Max(0, reps - initReps);
         foreach (var cluster in clusters.Clusters)
         {
-            int k = cluster.Count;
-            int search = cluster.Sum(g => Log2Ceil(byName[g].MaxCount - byName[g].MinCount + 1));
-            total += initReps * (1 + search + k) + (initReps == 1 && k >= 2 ? k - 1 : 0) + (reps - initReps) + (reps > 1 ? k * reps : 0);
+            var ranges = cluster.Select(g => byName[g].MaxCount - byName[g].MinCount + 1).ToList();
+            int m = ranges.Count(r => r > 1), later = Math.Max(0, m - 1);
+            total += initReps * (ranges.Sum(Log2Ceil) + later) + (initReps == 1 ? later : 0) + extra + m * extra;
         }
-        return total + reps + (impact ? input.Groups.Count * reps : 0);
+        return total + (impact ? input.Groups.Count * reps : 0);
     }
 
     /// <summary>Keeps the shown total ahead of the runs done once the estimate is reached.</summary>

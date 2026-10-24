@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO.Compression;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -21,6 +22,7 @@ public sealed class FakeFilm : IFilmAutoMod, IFilmRenderer
     /// <summary>The time limit each render got, in the order of <see cref="Scripts"/>.</summary>
     public readonly List<TimeSpan> Timeouts = new();
     public readonly List<(IReadOnlyList<string> Mp4s, IReadOnlyList<string> Captions, string Out, bool Join)> Finishes = new();
+    public readonly List<(string Mp4, string Jpg, double At)> Thumbnails = new();
     public (double W, double H)? Mark = (640, 360);
     public bool WriteEvents = true;
     /// <summary>Every render hits the time limit at once (a hung AutoView).</summary>
@@ -72,6 +74,12 @@ public sealed class FakeFilm : IFilmAutoMod, IFilmRenderer
         return outPath;
     }
 
+    public void Thumbnail(string mp4, string outJpg, double atSec, CancellationToken ct = default)
+    {
+        lock (Thumbnails) Thumbnails.Add((mp4, outJpg, atSec));
+        File.WriteAllText(outJpg, "jpg");
+    }
+
     public (double W, double H)? MarkSize(string mp4With, string mp4Without, int width, int height, CancellationToken ct = default) => Mark;
 }
 
@@ -82,24 +90,10 @@ public class FilmTests
     static CutSpec Hold(string id, string name = "입구", double start = 7200) => new(id, name, CutKind.Hold, start, 600, new Rect(1, 2, 30, 18), null, 0, 0, 0, 10, 30, 0, true, true);
     static CutSpec Move(string id) => new(id, "L001 → U001", CutKind.Move, 9000, 0, new Rect(0, 0, 10, 10), new Rect(20, 5, 12, 8), 120, 60, 90, 20, 45, 90, false, true);
 
-    static async Task<T> Until<T>(Func<T?> get, int seconds = 60) where T : class
-    {
-        var sw = Stopwatch.StartNew();
-        while (sw.Elapsed < TimeSpan.FromSeconds(seconds)) { if (get() is { } v) return v; await Task.Delay(100); }
-        throw new TimeoutException("기다린 상태가 오지 않았습니다");
-    }
+    static Task<T> Until<T>(Func<T?> get, int seconds = 60) where T : class => JobEnv.Until(get, seconds);
 
     /// <summary>Sends a job filed under analysis/plan and waits until the fake search finished it.</summary>
-    static async Task<string> Send(JobEnv env, string analysis, string plan, Action<string>? addFiles = null)
-    {
-        var form = new MultipartFormDataContent
-        {
-            { new StringContent("Line A"), "project" }, { new StringContent("m"), "model" }, { new StringContent("tester"), "submitter" },
-            { new StringContent(analysis), "analysisName" }, { new StringContent(plan), "planName" },
-            { new ByteArrayContent(await File.ReadAllBytesAsync(JobEnv.MakePackage(env.Dir, addFiles: addFiles))), "package", "package.zip" },
-        };
-        return JsonDocument.Parse(await (await env.Http.PostAsync("/api/jobs", form)).Content.ReadAsStringAsync()).RootElement.GetProperty("id").GetString()!;
-    }
+    static async Task<string> Send(JobEnv env, string analysis, string plan, Action<string>? addFiles = null) => await env.SendFiled(analysis, plan, addFiles: addFiles);
 
     static async Task<string> Done(JobEnv env, string analysis, string plan)
     {
@@ -169,8 +163,60 @@ public class FilmTests
         Assert.Contains("이어 붙인 영상", page); Assert.Contains("<video", page); Assert.DoesNotContain("http-equiv=\"refresh\"", page);
         var file = await env.Http.GetAsync($"/films/{f.Id}/files/{Uri.EscapeDataString(f.Joined!)}");
         Assert.Equal(HttpStatusCode.OK, file.StatusCode); Assert.Equal("video/mp4", file.Content.Headers.ContentType!.MediaType);
-        Assert.Contains(f.Id, await env.Http.GetStringAsync("/analyses/" + aid));
+        Assert.Contains(f.Id, await env.Http.GetStringAsync("/analyses/" + aid + "?tab=films"));
         Assert.Contains("이 버전의 영상", await env.Http.GetStringAsync("/jobs/" + j2));
+    }
+
+    [Fact] public async Task Films_Tab_Shows_Thumbnail_Player_And_All_Zip()
+    {
+        using var env = new JobEnv(); var j1 = await Done(env, "라인 증설", "A안"); var (st, aid) = Analysis(env);
+        env.Factory.Services.GetRequiredService<CutStore>().Save(aid, new[] { Hold("c1"), Hold("c2", "출구") });
+        var f = await Film(env, aid, Body(new[] { "c1", "c2" }, new[] { j1 }));
+        Assert.Single(env.Film.Thumbnails); Assert.True(File.Exists(Path.Combine(env.Factory.Services.GetRequiredService<FilmStore>().FilmDir(f.Id), "thumb.jpg")));
+        var tab = await env.Http.GetStringAsync($"/analyses/{aid}?tab=films");
+        foreach (var s in new[] { "새 영상 만들기", "컷 리스트 2개", $"/films/{f.Id}/files/thumb.jpg", "<video", $"/films/{f.Id}/files/all.zip", $"href=\"/films/{f.Id}\"" }) Assert.Contains(s, tab);
+        var zip = await env.Http.GetAsync($"/films/{f.Id}/files/all.zip");
+        Assert.Equal("application/zip", zip.Content.Headers.ContentType!.MediaType);
+        using var z = new ZipArchive(await zip.Content.ReadAsStreamAsync());
+        Assert.Equal(3, z.Entries.Count); // 컷 2 + 이어 붙인 1
+        Assert.All(z.Entries, e => Assert.EndsWith(".mp4", e.FullName));
+        Assert.Equal(f.Items.Select(i => i.Name).Append(f.Joined!).Order(), z.Entries.Select(e => e.FullName).Order());
+        Assert.Equal(HttpStatusCode.OK, (await env.Http.GetAsync($"/films/{f.Id}/files/thumb.jpg")).StatusCode);
+    }
+    [Fact] public async Task Films_Tab_Without_Cut_Files_Or_Thumb()
+    {
+        using var env = new JobEnv(); var j1 = await Done(env, "라인 증설", "A안"); var (st, aid) = Analysis(env);
+        env.Factory.Services.GetRequiredService<CutStore>().Save(aid, new[] { Hold("c1") });
+        var f = await Film(env, aid, Body(new[] { "c1" }, new[] { j1 }));
+        var dir = env.Factory.Services.GetRequiredService<FilmStore>().FilmDir(f.Id);
+        File.Delete(Path.Combine(dir, "thumb.jpg")); File.Delete(Path.Combine(dir, f.Items[0].Name)); // parts gone after joining
+        var tab = await env.Http.GetStringAsync($"/analyses/{aid}?tab=films");
+        Assert.Contains("thumb-none", tab); Assert.DoesNotContain("thumb.jpg", tab);
+        Assert.Contains("이어 붙인 영상에만", tab); Assert.Contains("all.zip", tab);
+        Assert.DoesNotContain($"<li><a href=\"/films/{f.Id}/files/", tab);
+        Assert.Contains("/files/" + Uri.EscapeDataString(f.Joined!), tab);
+        File.Delete(Path.Combine(dir, f.Joined!));
+        tab = await env.Http.GetStringAsync($"/analyses/{aid}?tab=films");
+        Assert.DoesNotContain("all.zip", tab); Assert.DoesNotContain("<video", tab);
+    }
+
+    [Fact] public void FilmEta_Is_Now_Plus_Remaining_Pace_In_Seoul_Time()
+    {
+        var now = new DateTime(2026, 1, 1, 3, 0, 0, DateTimeKind.Utc);
+        var f = new FilmInfo { StartedUtc = now.AddMinutes(-10), Done = 1, Items = { new FilmItem(), new FilmItem() } };
+        Assert.Equal("12:10", LiveFields.FilmEta(f, now)); // 03:10 UTC = 12:10 Seoul
+        f.Done = 0; Assert.Equal("-", LiveFields.FilmEta(f, now));
+    }
+
+    [Fact] public async Task Films_Tab_Polls_While_Filming()
+    {
+        using var env = new JobEnv(); var j1 = await Done(env, "라인 증설", "A안"); var (st, aid) = Analysis(env);
+        env.Factory.Services.GetRequiredService<CutStore>().Save(aid, new[] { Hold("c1") }); env.Film.BlockOn = "time 7200";
+        var res = await Post(env, aid, Body(new[] { "c1" }, new[] { j1 })); var fid = JsonDocument.Parse(await res.Content.ReadAsStringAsync()).RootElement.GetProperty("id").GetString()!;
+        var fs = env.Factory.Services.GetRequiredService<FilmStore>(); await JobEnv.Until(() => fs.Get(fid) is { State: "running" } x ? x : null);
+        var tab = await env.Http.GetStringAsync($"/analyses/{aid}?tab=films");
+        Assert.Contains($"data-bar=\"film.{fid}.bar\"", tab); Assert.Contains("fetch('/api/analyses/", tab); Assert.Contains("취소", tab);
+        await env.Http.SendAsync(new HttpRequestMessage(HttpMethod.Post, $"/films/{fid}/cancel") { Headers = { { "Origin", Ok } } });
     }
 
     [Fact]
@@ -241,8 +287,11 @@ public class FilmTests
         Assert.False(fs.Get(id)!.Finished);
 
         Assert.Contains("촬영 취소", await env.Http.GetStringAsync("/films/" + id));
+        Assert.Contains("fetch('/api/films/" + id, await env.Http.GetStringAsync("/films/" + id));
+        Assert.True(JsonDocument.Parse(await env.Http.GetStringAsync("/api/films/" + id)).RootElement.GetProperty("active").GetBoolean());
         await env.Http.SendAsync(Cancel(id));
         var f = await Until(() => fs.Get(id) is { Finished: true } x ? x : null, 30);
+        Assert.DoesNotContain("fetch(", await env.Http.GetStringAsync("/films/" + id));
         Assert.Equal(JobState.Cancelled, f.State);
         Assert.True(f.Items[0].Ok);                       // made before the cancel: kept
         Assert.True(File.Exists(Path.Combine(fs.FilmDir(id), f.Items[0].Name)));

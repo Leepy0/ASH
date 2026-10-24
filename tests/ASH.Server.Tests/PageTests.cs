@@ -9,7 +9,7 @@ public class PageTests
     {
         var html = JobPages.Page("t", "<p>b</p>", "<script>1</script>");
         Assert.DoesNotContain("http-equiv", html);
-        Assert.Contains("href=\"/analyses\"", html); Assert.Contains("href=\"/admin/settings\"", html);
+        Assert.Contains("href=\"/analyses\"", html); Assert.Contains("href=\"/files\"", html); Assert.Contains("href=\"/admin/settings\"", html);
         Assert.DoesNotContain("href=\"/jobs\"", html);
         Assert.Contains("--navy:#1f3a5f", html); Assert.Contains(".grid2", html);
         Assert.Contains("max-width:1600px", html);

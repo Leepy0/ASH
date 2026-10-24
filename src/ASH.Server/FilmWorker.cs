@@ -430,11 +430,20 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
             }
             if (res.Mp4!.EndsWith(".avi", StringComparison.OrdinalIgnoreCase)) say($"{label}: AutoView가 AVI를 만들었습니다(이전 AutoView 방식, 확인되지 않은 경로): ffmpeg로 MP4로 바꿉니다.");
             var caption = r.Caption && c.Caption ? $"{a?.Name ?? f.AnalysisName} · {label} · {c.Name}\n{Hms(c.StartSec)} · {kpi}" : "";
-            try { renderer.Finish(new[] { res.Mp4! }, new[] { caption }, Path.Combine(films.FilmDir(f.Id), item.Name), false, stop); SetItem(f, j.Id, c.Id, true, null); say($"{label}: {item.Name}"); }
+            try { renderer.Finish(new[] { res.Mp4! }, new[] { caption }, Path.Combine(films.FilmDir(f.Id), item.Name), false, stop); SetItem(f, j.Id, c.Id, true, null); say($"{label}: {item.Name}"); Thumb(f, item.Name, say, stop); }
             catch (Exception e) when (e is InvalidOperationException or IOException) { failed = true; SetItem(f, j.Id, c.Id, false, e.Message); }
         }
         if (failed) say($"{label}: 실패한 컷이 있어 작업 폴더를 남깁니다(기록·영상 원본은 지움): {work}");
         return !failed;
+    }
+
+    /// <summary>thumb.jpg from the first cut that was made (1 s in); a failure (no ffmpeg) only means a grey frame on the page.</summary>
+    void Thumb(FilmInfo f, string mp4Name, Action<string> say, CancellationToken stop)
+    {
+        var dir = films.FilmDir(f.Id); var thumb = Path.Combine(dir, "thumb.jpg");
+        if (File.Exists(thumb)) return;
+        try { renderer.Thumbnail(Path.Combine(dir, mp4Name), thumb, 1.0, stop); }
+        catch (Exception e) when (e is InvalidOperationException or IOException or System.ComponentModel.Win32Exception) { say("썸네일을 만들지 못했습니다: " + e.Message); }
     }
 
     void SetItem(FilmInfo f, string jobId, string cutId, bool ok, string? error) => films.Update(f.Id, x =>

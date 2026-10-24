@@ -10,17 +10,27 @@ internal static partial class Routes
     /// <summary>Analyses (a study groups plans (안); a send is filed as the next version of a plan), their cut editor and films.</summary>
     public static void MapAnalysis(this WebApplication app)
     {
+        app.MapGet("/api/home", (HttpContext ctx, int? me, JobStore js, AnalysisStore st, FilmStore fs, FilmWorker fw, IConfiguration cfg) =>
+        {
+            var films = fs.All();
+            var v = HomeView.Build(st.All(), js.All(), films, films.FirstOrDefault(f => f.State == JobState.Running), Queue(js, fw), WorkerOn(cfg),
+                JobProgress.Parallel(cfg), ClientIp(ctx), me is { } m ? m == 1 : null, DateTime.UtcNow, FileRoutes.FileQuery.From(ctx.Request.Query));
+            var l = LiveFields.OfHome(v);
+            return Results.Json(new { v.Running, v.WorkerOn, v.QueuedCount, v.Queued, v.Me, v.InProgress, v.Finished, v.Unclassified, active = l.Active, fields = l.Fields, watch = l.Watch });
+        });
+
         app.MapGet("/api/analyses", (AnalysisStore st, JobStore js) =>
         {
             var jobs = js.All();
-            return Results.Json(st.All().Select(a => new { a.Id, a.Name, a.Note, Plans = a.Plans.Select(p => new { p.Id, p.Name, NextVersion = NextVersion(jobs, a.Id, p.Id) }) }));
+            return Results.Json(st.All().Select(a => new { a.Id, a.Name, a.Note, a.Corp, a.ProductLine, a.Line, Plans = a.Plans.Select(p => new { p.Id, p.Name, NextVersion = NextVersion(jobs, a.Id, p.Id) }) }));
         });
 
         app.MapPost("/api/analyses", async (HttpContext ctx, AnalysisStore st) =>
         {
             if (CrossSiteBrowser(ctx)) return Msg(403, "다른 사이트에서 보낸 요청은 받지 않습니다.");
             if (await NameNote(ctx) is not { } v) return Msg(400, NameNoteError);
-            try { return Results.Json(new { st.CreateAnalysis(v.Name, v.Note).Id }); }
+            if (Tags(await ctx.Request.ReadFormAsync()) is not { } t) return Msg(400, TagError);
+            try { return Results.Json(new { st.CreateAnalysis(v.Name, v.Note, t.Corp, t.ProductLine, t.Line).Id }); }
             catch (ArgumentException e) { return Msg(400, e.Message); }
         });
 
@@ -36,7 +46,8 @@ internal static partial class Routes
         {
             if (!SameOrigin(ctx)) return Msg(403, CrossSite);
             if (await NameNote(ctx) is not { } v) return Msg(400, NameNoteError);
-            try { return Results.Redirect("/analyses/" + st.CreateAnalysis(v.Name, v.Note).Id); }
+            if (Tags(await ctx.Request.ReadFormAsync()) is not { } t) return Msg(400, TagError);
+            try { return Results.Redirect("/analyses/" + st.CreateAnalysis(v.Name, v.Note, t.Corp, t.ProductLine, t.Line).Id); }
             catch (ArgumentException e) { return Msg(400, e.Message); }
         });
 
@@ -125,10 +136,32 @@ internal static partial class Routes
             return Results.Redirect(Back(f, "/jobs/" + id));
         });
 
-        app.MapGet("/analyses", (AnalysisStore st, JobStore js) => Html(AnalysisPages.Index(st.All(), js.All())));
+        app.MapGet("/analyses", (HttpContext ctx, string? q, JobStore js, AnalysisStore st, FilmStore fs, FilmWorker fw, IConfiguration cfg) =>
+        {
+            var tags = FileRoutes.FileQuery.From(ctx.Request.Query);
+            var v = HomeView.Build(st.All(), js.All(), fs.All(), null, Queue(js, fw), WorkerOn(cfg), JobProgress.Parallel(cfg), ClientIp(ctx), false, DateTime.UtcNow, tags);
+            return Html(HomePages.Analyses(v.InProgress.Concat(v.Finished).ToList(), q?.Trim() ?? "", v.Unclassified, FileRoutes.TagFilterHtml(tags, st)));
+        });
         app.MapGet("/analyses/unclassified", (AnalysisStore st, JobStore js) => Html(AnalysisPages.Unclassified(js.All(), st.All())));
-        app.MapGet("/analyses/{id}", (string id, AnalysisStore st, JobStore js, FilmStore fs, CatalogStore cs) =>
-            st.Get(id) is { } a ? Html(AnalysisPages.Detail(a, js.All(), js, fs.All(), cs.Prices())) : Msg(404, "분석이 없습니다."));
+        static (AnalysisPageData D, Live L)? PageOf(string id, AnalysisStore st, JobStore js, FilmStore fs, FilmWorker fw, IConfiguration cfg, CutStore cs, CatalogStore cat)
+        {
+            if (st.Get(id) is not { } a) return null;
+            var jobs = js.All().Where(j => j.AnalysisId == id).ToList();
+            var q = Queue(js, fw);
+            var d = new AnalysisPageData(a, jobs, fs.All().Where(f => f.Request.AnalysisId == id).ToList(), js, q, JobProgress.Parallel(cfg), cs.Get(id).Count, fs, cat.Prices());
+            return (d, LiveFields.OfAnalysis(a, jobs, d.Films, q.Typical, d.Parallel, js));
+        }
+
+        app.MapGet("/analyses/{id}", (string id, string? tab, HttpContext ctx, AnalysisStore st, JobStore js, FilmStore fs, FilmWorker fw, IConfiguration cfg, CutStore cs, CatalogStore cat) =>
+            PageOf(id, st, js, fs, fw, cfg, cs, cat) is { } p
+                ? Html(AnalysisPages.Detail(p.D, tab ?? "status", ctx.Request.Query, (tab ?? "status") is "status" or "films" && p.L.Active ? JobPages.PollScript("/api/analyses/" + id + "/status", p.L.Watch) : null))
+                : Msg(404, "분석이 없습니다."));
+
+        app.MapGet("/api/analyses/{id}/status", (string id, AnalysisStore st, JobStore js, FilmStore fs, FilmWorker fw, IConfiguration cfg, CutStore cs, CatalogStore cat) =>
+            PageOf(id, st, js, fs, fw, cfg, cs, cat) is { } p
+                ? Results.Json(new { active = p.L.Active, fields = p.L.Fields, watch = p.L.Watch,
+                    analysis = new { plans = p.D.A.Plans.Count, versions = p.D.Jobs.Count, selected = p.D.Jobs.Count(j => j.Selected), films = p.D.Films.Count } })
+                : Msg(404, "분석이 없습니다."));
 
         // ---- cuts: an analysis' film cuts, edited in the browser and filmed by the server ----
         app.MapGet("/analyses/{id}/cuts", (string id, string? job, AnalysisStore st, JobStore js) =>
@@ -178,6 +211,13 @@ internal static partial class Routes
             return Results.Json(new { id = f.Id });
         });
 
+        app.MapGet("/api/films/{id}", (string id, FilmStore fs) =>
+        {
+            if (!JobStore.IsValidId(id) || fs.Get(id) is not { } f) return Msg(404, "영상이 없습니다.");
+            var l = LiveFields.OfFilm(f);
+            return Results.Json(new { f.Id, f.State, f.Phase, f.Done, total = f.Items.Count, active = l.Active, fields = l.Fields, watch = l.Watch });
+        });
+
         app.MapGet("/films/{id}", (string id, FilmStore fs) =>
         {
             if (!JobStore.IsValidId(id) || fs.Get(id) is not { } f) return Msg(404, "영상이 없습니다.");
@@ -207,6 +247,28 @@ internal static partial class Routes
         app.MapGet("/films/{id}/files/{name}", (string id, string name, FilmStore fs) =>
         {
             if (!JobStore.IsValidId(id) || fs.Get(id) is not { } f) return Msg(404, "영상이 없습니다.");
+            if (name == "thumb.jpg")
+            {
+                var jpg = Path.Combine(fs.FilmDir(id), name);
+                return File.Exists(jpg) ? Results.File(jpg, "image/jpeg") : Msg(404, "썸네일이 없습니다.");
+            }
+            if (name == "all.zip")
+            {
+                if (!f.Finished) return Msg(409, "영상이 끝난 뒤에 받을 수 있습니다.");
+                var dir = fs.FilmDir(id); var zipPath = Path.Combine(dir, "all.zip");
+                var names = f.Items.Where(i => i.Ok).Select(i => i.Name).Concat(f.JoinedOk && f.Joined != null ? new[] { f.Joined } : Array.Empty<string>()).Where(n => File.Exists(Path.Combine(dir, n))).Distinct().ToList();
+                if (names.Count == 0) return Msg(404, "받을 영상이 없습니다.");
+                // made on first request; a film that changed afterwards gets a fresh one
+                if (!File.Exists(zipPath) || File.GetLastWriteTimeUtc(zipPath) < File.GetLastWriteTimeUtc(Path.Combine(dir, "film.json")))
+                {
+                    var tmp = zipPath + ".tmp";
+                    if (File.Exists(tmp)) File.Delete(tmp);
+                    using (var z = System.IO.Compression.ZipFile.Open(tmp, System.IO.Compression.ZipArchiveMode.Create))
+                        foreach (var n in names) System.IO.Compression.ZipFileExtensions.CreateEntryFromFile(z, Path.Combine(dir, n), n, System.IO.Compression.CompressionLevel.NoCompression); // MP4 does not shrink
+                    File.Move(tmp, zipPath, true);
+                }
+                return Results.File(new FileStream(zipPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete), "application/zip", $"{ASH.Core.Analysis.AnalysisNames.SafeFileName(f.AnalysisName)}-{id}.zip");
+            }
             if (name != "film.log" && name != f.Joined && f.Items.All(i => i.Name != name)) return Msg(404, "그런 파일은 없습니다.");
             var path = Path.Combine(fs.FilmDir(id), name);
             if (!File.Exists(path)) return Msg(404, "파일이 아직 없거나 지워졌습니다.");

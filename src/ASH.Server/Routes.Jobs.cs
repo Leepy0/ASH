@@ -37,6 +37,7 @@ internal static partial class Routes
             var analysisId = Field("analysisId", 64); var planId = Field("planId", 64);
             var analysisName = form["analysisName"].ToString().Trim(); var planName = form["planName"].ToString().Trim(); var versionNote = form["versionNote"].ToString().Trim();
             if (analysisName.Length > NameMax || planName.Length > NameMax) return Msg(400, "분석·안 이름은 100자까지입니다.");
+            if (Tags(form) is not { } tags) return Msg(400, TagError);
             if (versionNote.Length > NoteMax) return Msg(400, "버전 메모는 200자까지입니다.");
             var classify = analysisId.Length + planId.Length + analysisName.Length + planName.Length > 0;
             if (classify && (analysisId.Length == 0 && analysisName.Length == 0 || planId.Length == 0 && planName.Length == 0))
@@ -77,7 +78,7 @@ internal static partial class Routes
                     lock (analysisGate)
                     {
                         var a = analysisId.Length > 0 ? analyses.Get(analysisId) ?? throw new ArgumentException("분석이 없습니다: " + analysisId)
-                            : analyses.All().FirstOrDefault(x => string.Equals(x.Name, analysisName, StringComparison.OrdinalIgnoreCase)) ?? analyses.CreateAnalysis(analysisName, "");
+                            : analyses.All().FirstOrDefault(x => string.Equals(x.Name, analysisName, StringComparison.OrdinalIgnoreCase)) ?? analyses.CreateAnalysis(analysisName, "", tags.Corp, tags.ProductLine, tags.Line);
                         var p = planId.Length > 0 ? a.Plans.FirstOrDefault(x => x.Id == planId) ?? throw new ArgumentException("안이 없습니다: " + planId)
                             : a.Plans.FirstOrDefault(x => string.Equals(x.Name, planName, StringComparison.OrdinalIgnoreCase)) ?? analyses.CreatePlan(a.Id, planName, "");
                         aid = a.Id; pid = p.Id;
@@ -101,18 +102,28 @@ internal static partial class Routes
             }
         });
 
-        app.MapGet("/api/jobs/{id}", (string id, JobStore js) =>
+        app.MapGet("/api/jobs/{id}", (string id, JobStore js, IConfiguration cfg) =>
         {
             if (!JobStore.IsValidId(id) || js.Get(id) is not { } j) return Msg(404, "작업이 없습니다.");
-            return Results.Json(new { j.Id, j.State, j.Phase, j.RunsDone, j.RunsFailed, j.Error, j.Decided, j.Warnings, j.CreatedUtc, j.StartedUtc, j.FinishedUtc });
+            var typical = js.QueueInfo().Typical;
+            var par = JobProgress.Parallel(cfg);
+            var eta = JobProgress.Eta(j, typical, par, DateTime.UtcNow);
+            var l = LiveFields.OfJob(j, typical, par);
+            return Results.Json(new
+            {
+                j.Id, j.State, j.Phase, j.RunsDone, j.RunsFailed, j.Error, j.Decided, j.Warnings, j.CreatedUtc, j.StartedUtc, j.FinishedUtc,
+                j.ExpectedRuns, progress = JobProgress.Ratio(j), partial = j.Partial,
+                eta = eta?.ToString("yyyy-MM-ddTHH:mm:ssZ"), avgRunSec = JobProgress.AvgRun(j)?.TotalSeconds,
+                active = l.Active, fields = l.Fields, watch = l.Watch,
+            });
         });
 
-        app.MapGet("/jobs/{id}", (string id, string? tab, HttpContext ctx, JobStore js, ReleaseStore rs, AnalysisStore analyses, FilmStore fs, FilmWorker fw, CatalogStore cs) =>
+        app.MapGet("/jobs/{id}", (string id, string? tab, HttpContext ctx, JobStore js, ReleaseStore rs, AnalysisStore analyses, FilmStore fs, FilmWorker fw, IConfiguration cfg, CatalogStore cs) =>
         {
             if (!JobStore.IsValidId(id) || js.Get(id) is not { } j) return Msg(404, "작업이 없습니다.");
             var view = j.State == JobState.Queued ? null : JobView.For(js, j);
             var t = tab is "detail" or "input" or "files" ? tab : "summary";
-            return Results.Content(JobPages.Job(j, view, t, t == "files" ? Tail(js.LogPath(id), 200) : "", Queue(js, fw, id), CanCancel(ctx, j, rs, null), analyses.All(), fs.All(), fw.Busy, cs.Prices()), "text/html; charset=utf-8");
+            return Results.Content(JobPages.Job(j, view, t, t == "files" ? Tail(js.LogPath(id), 200) : "", Queue(js, fw, id), CanCancel(ctx, j, rs, null), analyses.All(), fs.All(), fw.Busy, JobProgress.Parallel(cfg), cs.Prices()), "text/html; charset=utf-8");
         });
 
         app.MapPost("/jobs/{id}/cancel", async (string id, HttpContext ctx, JobStore js, JobWorker worker, ReleaseStore rs) =>

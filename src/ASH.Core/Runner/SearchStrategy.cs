@@ -44,13 +44,16 @@ public static class ImpactTsv
 
 public static class SearchStrategy
 {
+    /// <summary>InitStockMode Fixed: seeds do not change the result, so one replication.</summary>
+    internal static bool FixedStock(ASH.Core.Input.Settings s) => string.Equals((s.InitStockMode ?? "").Trim(), "Fixed", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>Per cluster: baseline at Max (initial reps) → pass 1 binary search per group → later passes try only cur−1 per group until a
     /// pass changes nothing → "decided" at Settings.Replications → "minus1" tries cur−1 per group at full reps. Groups failing at baseline
     /// are skipped after pass 1. Then "confirm" over all groups (bumps failing groups, up to MaxConfirmRounds), then optional impact runs.
     /// Run budget per cluster with k groups and range R = Max−Min+1 (initial reps 1, nothing cached): 1 + k·⌈log2 R⌉ + k per later pass
     /// + reps (decided) + k·reps (minus1, cached when reps = 1), plus confirm and impact (k·reps). With a batch executor, initial reps 1 and
     /// k ≥ 2, the first binary-search midpoints of all groups run as one batch; a group whose speculative scenario is stale (an earlier
-    /// group changed) re-runs sequentially, so results equal the sequential search. InitStockMode Fixed has no randomness: one replication.</summary>
+    /// group changed) re-runs sequentially, so results equal the sequential search. With InitStockMode Fixed reps is 1 (see FixedStock).</summary>
     public static SearchResult Search(ProjectInput input, IRunExecutor exec, GroupClusters clusters, SearchOptions opts, CancellationToken ct = default,
         Action<SearchProgress>? onProgress = null)
     {
@@ -60,7 +63,7 @@ public static class SearchStrategy
         var cur = input.Groups.ToDictionary(g => g.Group, g => g.MaxCount);
         var byName = input.Groups.ToDictionary(g => g.Group);
         int initReps = Math.Max(1, opts.InitialReplications), reps = Math.Max(1, input.Settings.Replications);
-        if (string.Equals((input.Settings.InitStockMode ?? "").Trim(), "Fixed", StringComparison.OrdinalIgnoreCase) && (initReps > 1 || reps > 1))
+        if (FixedStock(input.Settings) && (initReps > 1 || reps > 1))
         {
             warnings.Add($"InitStockMode Fixed: 시드가 결과를 바꾸지 않으므로 반복 {reps}회 대신 1회로 실행");
             initReps = reps = 1;
