@@ -64,6 +64,20 @@ public sealed class SettingsEnv : IDisposable
 
 public class SettingsTests
 {
+    [Fact] public async Task Admin_Jobs_Is_Gated_And_Old_Jobs_Url_Redirects()
+    {
+        using var e = new SettingsEnv();
+        var noRedirect = e.Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        var r = await noRedirect.GetAsync("/jobs");
+        Assert.Equal(HttpStatusCode.MovedPermanently, r.StatusCode); Assert.Equal("/admin/jobs", r.Headers.Location!.ToString());
+        Assert.Equal(HttpStatusCode.Unauthorized, (await e.Http.GetAsync("/admin/jobs")).StatusCode);
+        var req = new HttpRequestMessage(HttpMethod.Get, "/admin/jobs"); req.Headers.Add("X-ASH-Admin-Token", SettingsEnv.Token);
+        Assert.Contains("작업 대기열", await (await e.Http.SendAsync(req)).Content.ReadAsStringAsync());
+        var settings = new HttpRequestMessage(HttpMethod.Get, "/admin/settings"); settings.Headers.Add("X-ASH-Admin-Token", SettingsEnv.Token);
+        var page = await (await e.Http.SendAsync(settings)).Content.ReadAsStringAsync();
+        foreach (var s in new[] { "서버 현황", "배포", "서버 상태", "href=\"/admin/jobs\"" }) Assert.Contains(s, page);
+    }
+
     [Fact]
     public async Task Settings_page_asks_for_login_and_never_shows_the_token()
     {
@@ -212,11 +226,12 @@ public class SettingsTests
     }
 
     [Fact]
-    public async Task Home_page_links_jobs_settings_and_shows_sections()
+    public async Task Settings_page_links_nav_and_shows_status_sections()
     {
         using var e = new SettingsEnv();
-        var page = await e.Http.GetStringAsync("/");
-        foreach (var s in new[] { "href=\"/jobs\"", "href=\"/admin/settings\"", "최근 작업", "배포", "서버 상태", "지금 실행", "name=\"viewport\"" })
+        var req = new HttpRequestMessage(HttpMethod.Get, "/admin/settings"); req.Headers.Add("X-ASH-Admin-Token", SettingsEnv.Token);
+        var page = await (await e.Http.SendAsync(req)).Content.ReadAsStringAsync();
+        foreach (var s in new[] { "href=\"/analyses\"", "href=\"/admin/settings\"", "지금 실행", "name=\"viewport\"" })
             Assert.Contains(s, page);
     }
 

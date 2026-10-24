@@ -230,4 +230,25 @@ public class JobServerClientTests
         using var c = new JobServerClient(new Uri("http://srv:8082/"));
         Assert.Equal(expected, c.PageUri(new JobReceipt { Id = "x", Url = url })?.AbsoluteUri);
     }
+
+    [Fact] public void Analyses_without_tags_read_empty_and_with_tags_filled()
+    {
+        var l = JobServerClient.ParseAnalyses("[{\"id\":\"a\",\"name\":\"n\",\"plans\":[]},{\"id\":\"b\",\"name\":\"m\",\"corp\":\"P동\",\"productLine\":\"AGV\",\"line\":\"1층\",\"plans\":[]}]");
+        Assert.Equal("", l[0].Corp); Assert.Equal("", l[0].ProductLine); Assert.Equal("", l[0].Line);
+        Assert.Equal("P동", l[1].Corp); Assert.Equal("AGV", l[1].ProductLine); Assert.Equal("1층", l[1].Line);
+    }
+
+    [Fact] public async Task Submit_sends_the_tag_parts()
+    {
+        var zip = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(zip, "PK");
+            var f = new Fake { Reply = () => Json("{\"id\":\"j1\",\"url\":\"/jobs/j1\",\"ahead\":0}") };
+            using var c = new JobServerClient(new Uri("http://srv:8082"), f);
+            await c.SubmitAsync(zip, new JobSubmission("p", "pl", "M", "k", Corp: "법인X", ProductLine: "제품Y", Line: "라인Z"));
+            foreach (var part in new[] { "name=corp", "name=productLine", "name=line", "법인X", "제품Y", "라인Z" }) Assert.Contains(part, f.Body);
+        }
+        finally { File.Delete(zip); }
+    }
 }

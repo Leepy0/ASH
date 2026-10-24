@@ -22,13 +22,15 @@ public static class JobPackage
     public const long MaxEntryBytes = 512L * 1024 * 1024, MaxTotalBytes = 2L * 1024 * 1024 * 1024;
     public const int MaxEntries = 5000;
     public const long MaxDxfBytes = 100L * 1024 * 1024;
+    public const long MaxDwgBytes = 100L * 1024 * 1024; // MaxDxfBytes + MaxDwgBytes < ASH.Server UploadLimit(512 MB)
 
     /// <summary>The drawing as AGVSEND exports it into the project (drawing) folder: its own name, so a drawing.dxf of the user's is never touched.
     /// It travels as <see cref="DxfInPackage"/>.</summary>
     public const string LocalDxf = "ash.drawing.dxf", DxfInPackage = "drawing.dxf";
+    public const string DwgInPackage = "drawing.dwg", SettingsInPackage = "ash.settings.tsv";
 
     /// <summary>Sent when present, never required: the factory drawing and its coordinate frame, for the server's cut editor and videos (package names).</summary>
-    public static readonly IReadOnlyList<string> OptionalFiles = new[] { DxfInPackage, ModelFrame.FileName };
+    public static readonly IReadOnlyList<string> OptionalFiles = new[] { DxfInPackage, ModelFrame.FileName, DwgInPackage, SettingsInPackage };
 
     /// <summary>Paths (inside the package) that must be there for a model name.</summary>
     public static IReadOnlyList<string> Required(string model) =>
@@ -46,7 +48,7 @@ public static class JobPackage
     /// <summary>True when an unpacked package carries a local result (ash-run's runs folder) instead of asking the server to run.</summary>
     public static bool HasResults(string projectDir) => MissingResults(projectDir).Count == 0;
 
-    public static IReadOnlyList<PackageFile> Create(string projectDir, string model, string zipPath, bool includeResults = false)
+    public static IReadOnlyList<PackageFile> Create(string projectDir, string model, string zipPath, bool includeResults = false, string? dwgPath = null)
     {
         var missing = Missing(projectDir, model);
         if (missing.Count > 0) throw new InvalidOperationException("보낼 파일이 없습니다: " + string.Join(", ", missing));
@@ -55,10 +57,13 @@ public static class JobPackage
         foreach (var f in Directory.GetFiles(arc, "*", SearchOption.AllDirectories).OrderBy(x => x, StringComparer.OrdinalIgnoreCase))
             if (Path.GetFileName(f).IndexOf(".asy.bak", StringComparison.OrdinalIgnoreCase) < 0) // ExportRunner's backups (<x>.asy.bak.<time>) stay at home
                 files.Add((model + ".arc/" + f.Substring(arc.Length + 1).Replace(Path.DirectorySeparatorChar, '/'), f));
-        // ash.settings.tsv stays at home: the model is already baked into the .arc, and its AmHome is this PC's AutoMod, not the server's
+        // ash.settings.tsv: the server does not use it (its AmHome is this PC's); it only travels so continue.zip hands it back
+        var settings = Path.Combine(projectDir, SettingsInPackage);
+        if (File.Exists(settings)) files.Add((SettingsInPackage, settings));
         files.Add((CellDump.FileName, Path.Combine(projectDir, CellDump.FileName)));
         var dxf = Path.Combine(projectDir, LocalDxf);
         if (File.Exists(dxf) && new FileInfo(dxf).Length <= MaxDxfBytes) files.Add((DxfInPackage, dxf));
+        if (dwgPath != null && File.Exists(dwgPath) && new FileInfo(dwgPath).Length <= MaxDwgBytes) files.Add((DwgInPackage, dwgPath));
         var frame = Path.Combine(projectDir, ModelFrame.FileName);
         if (File.Exists(frame)) files.Add((ModelFrame.FileName, frame));
         if (includeResults)

@@ -77,9 +77,10 @@ public static class SearchJob
     }
 
     /// <summary>Runs the search and, once it got that far, writes runs\search.tsv (what was decided), which a local result upload carries to the server.</summary>
-    public static SearchJobResult Run(SearchJobOptions a, ProjectInput? input, TextWriter o, IProgress<RunOutcome>? progress = null, CancellationToken ct = default)
+    public static SearchJobResult Run(SearchJobOptions a, ProjectInput? input, TextWriter o, IProgress<RunOutcome>? progress = null, CancellationToken ct = default,
+        Action<SearchProgress>? onProgress = null)
     {
-        var r = RunSearch(a, input, o, progress, ct);
+        var r = RunSearch(a, input, o, progress, ct, onProgress);
         if (r.Search != null)
         {
             try { SearchSummaryFile.Write(Path.Combine(r.RunsDir, SearchSummaryFile.FileName), SearchSummaryFile.From(r, a.Debug)); }
@@ -88,7 +89,7 @@ public static class SearchJob
         return r;
     }
 
-    static SearchJobResult RunSearch(SearchJobOptions a, ProjectInput? input, TextWriter o, IProgress<RunOutcome>? progress, CancellationToken ct)
+    static SearchJobResult RunSearch(SearchJobOptions a, ProjectInput? input, TextWriter o, IProgress<RunOutcome>? progress, CancellationToken ct, Action<SearchProgress>? onProgress)
     {
         var sw = Stopwatch.StartNew();
         var warnings = new List<string>();
@@ -133,7 +134,10 @@ public static class SearchJob
         var mx = new ModelExecutor(new ExecutorOptions(a.ProjectDir, a.Model, a.Parallel, a.RunTimeout ?? TimeSpan.FromMinutes(30), a.DialogButton, a.AmHome,
             a.Debug, runsDir, Progress: progress), input);
         var exec = new ParallelExecutor(a.Parallel, mx.Run);
-        var res = SearchStrategy.Search(input, exec, clusters, new SearchOptions(a.InitialReps, a.Impact), ct);
+        var expected = SearchEstimate.Expected(input, clusters, a.InitialReps, a.Impact);
+        o.WriteLine("expected runs: " + expected);
+        onProgress?.Invoke(new SearchProgress("탐색 시작", new Dictionary<string, int>(), new Dictionary<string, int>(), clusters.Clusters.Sum(c => c.Count), expected));
+        var res = SearchStrategy.Search(input, exec, clusters, new SearchOptions(a.InitialReps, a.Impact, ExpectedRuns: expected), ct, onProgress);
         if (a.Impact) { Directory.CreateDirectory(runsDir); ImpactTsv.Write(Path.Combine(runsDir, "impact.tsv"), res.Impact); }
 
         // every baseline run failed: the model itself does not run, so no search result means anything

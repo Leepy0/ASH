@@ -18,10 +18,14 @@ public sealed class SendDialog : Form
     private readonly ComboBox _analysis = Combo(), _plan = Combo();
     // the server's NameMax/NoteMax: longer text is a 400, not a silent cut
     private readonly TextBox _analysisName = Box(100), _planName = Box(100), _note = Box(200);
+    private readonly ComboBox _corp = TagBox(), _productLine = TagBox(), _line = TagBox();
     private readonly Label _next = Theme.Caption("");
 
     public SendChoice Choice { get; private set; } = new SendChoice();
     public string Note { get; private set; } = "";
+    public string Corp { get; private set; } = "";
+    public string ProductLine { get; private set; } = "";
+    public string Line { get; private set; } = "";
 
     public SendDialog(string title, string info, string okText, IReadOnlyList<AnalysisSummary>? analyses, SendChoice initial)
     {
@@ -34,7 +38,7 @@ public sealed class SendDialog : Form
         MaximizeBox = MinimizeBox = false;
         ShowInTaskbar = false;
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(460, analyses == null ? 250 : 400);
+        ClientSize = new Size(460, analyses == null ? 250 : 510);
 
         var table = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, BackColor = Theme.Panel, Padding = new Padding(16, 4, 16, 8) };
         table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -47,6 +51,13 @@ public sealed class SendDialog : Form
             Add(Theme.Section("분석"));
             Add(_analysis);
             Add(_analysisName);
+            Add(Theme.Caption(AnalysisNames.NameRuleHelp));
+            Add(Theme.Caption("태그 (새 분석일 때만): 법인 / 제품군 / 라인"));
+            foreach (var (box, pick) in new[] { (_corp, (Func<AnalysisSummary, string>)(a => a.Corp)), (_productLine, a => a.ProductLine), (_line, a => a.Line) })
+            {
+                box.Items.AddRange(analyses.Select(pick).Where(v => v.Length > 0).Distinct().Cast<object>().ToArray());
+                Add(box);
+            }
             Add(Theme.Section("안"));
             Add(_plan);
             Add(_planName);
@@ -63,6 +74,10 @@ public sealed class SendDialog : Form
         _note.Multiline = true;
         _note.Height = 60;
         Add(_note);
+        var hint = new Label { Text = AnalysisNames.PlanNotePlaceholder, ForeColor = Theme.Muted, BackColor = SystemColors.Window, AutoSize = true, Cursor = Cursors.IBeam };
+        hint.Click += (o, e) => _note.Focus();
+        _note.Controls.Add(hint);
+        _note.TextChanged += (o, e) => hint.Visible = _note.Text.Length == 0;
 
         var ok = Flat(okText, Theme.Accent, Color.White);
         var cancel = Flat("취소", Theme.Panel, Theme.Text);
@@ -94,13 +109,14 @@ public sealed class SendDialog : Form
         _plan.Items.AddRange(plans.Select(p => (object)p.Name).Concat(new object[] { NewPlan }).ToArray());
         var pi = planId.Length == 0 ? -1 : plans.FindIndex(p => p.Id == planId);
         _plan.SelectedIndex = pi >= 0 ? pi : plans.Count;
-        if (pi < 0) _planName.Text = planName;
+        if (pi < 0) _planName.Text = planName.Length > 0 ? planName : AnalysisNames.NextPlanName(plans.Select(p => p.Name));
         Sync();
     }
 
     private void Sync()
     {
         _analysisName.Visible = SelectedAnalysis == null;
+        _corp.Enabled = _productLine.Enabled = _line.Enabled = SelectedAnalysis == null;
         _planName.Visible = SelectedPlan == null;
         _next.Text = "다음: v" + Math.Max(1, SelectedPlan?.NextVersion ?? 1);
     }
@@ -120,12 +136,14 @@ public sealed class SendDialog : Form
                 (an.Length == 0 ? _analysisName : _planName).Focus();
                 return;
             }
+            if (a == null) { Corp = _corp.Text.Trim(); ProductLine = _productLine.Text.Trim(); Line = _line.Text.Trim(); }
             Choice = new SendChoice { AnalysisId = a?.Id ?? "", PlanId = p?.Id ?? "", AnalysisName = an, PlanName = pn };
         }
         DialogResult = DialogResult.OK;
     }
 
     private static ComboBox Combo() => new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, Margin = new Padding(0, 2, 0, 0) };
+    private static ComboBox TagBox() => new ComboBox { DropDownStyle = ComboBoxStyle.DropDown, AutoCompleteMode = AutoCompleteMode.SuggestAppend, AutoCompleteSource = AutoCompleteSource.ListItems, FlatStyle = FlatStyle.Flat, Margin = new Padding(0, 2, 0, 0), MaxLength = 100 };
     private static TextBox Box(int max) => new TextBox { BorderStyle = BorderStyle.FixedSingle, Margin = new Padding(0, 4, 0, 0), MaxLength = max };
 
     private static Button Flat(string text, Color back, Color fore)
