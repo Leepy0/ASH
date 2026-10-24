@@ -282,6 +282,6 @@ public class CatalogTests
         Assert.DoesNotContain("단가 없음", priced);
         cat.SavePrices("Type,UnitPrice,Currency,Note\nT_OTHER,500,KRW,\n");
         Assert.Contains("단가 없음: " + type, await env.Http.GetStringAsync("/jobs/" + id));
-        Assert.Contains("<div class=\"sub\">투자비(원)</div><div class=\"big\">-</div>", await env.Http.GetStringAsync("/jobs/" + id)); // nothing the job uses is priced: "-", not "0"
+        Assert.Contains("<div class=\"t3\">투자비(원)</div><div class=\"t1\">-</div>", await env.Http.GetStringAsync("/jobs/" + id)); // nothing the job uses is priced: "-", not "0"
     }
 }
