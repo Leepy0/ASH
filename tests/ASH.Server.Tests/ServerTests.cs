@@ -144,7 +144,7 @@ public class ServerTests
     {
         using var e = new Env(token: token);
         Assert.Equal(HttpStatusCode.Forbidden, (await e.Upload(e.MakeRelease("0.2.0"), token.All(char.IsAscii) ? token : null)).StatusCode); // a header cannot carry Hangul
-        Assert.Contains("꺼져", await e.Admin("/admin/settings"));
+        Assert.Contains("꺼져", await e.Admin("/admin/settings?tab=server"));
     }
 
     [Fact]
@@ -207,14 +207,14 @@ public class ServerTests
         Assert.Equal(HttpStatusCode.OK, (await e.Upload(v1, query: "?force=1")).StatusCode);
         Assert.Equal(v1.Json, await e.Get("/api/ash/version"));
         Assert.True(File.Exists(Path.Combine(e.Dir, "history", "0.3.0", "ASH.json"))); // previous current kept
-        Assert.Contains("0.3.0", await e.Admin("/admin/settings"));
+        Assert.Contains("0.3.0", await e.Admin("/admin/settings?tab=server"));
     }
 
     [Fact]
     public async Task Settings_Page_Links_To_Type_Catalog()
     {
         using var e = new Env();
-        Assert.Contains("href=\"/admin/types\"", await e.Admin("/admin/settings"));
+        Assert.Contains("href=\"/admin/types\"", await e.Admin("/admin/settings?tab=server"));
     }
 
     [Fact]
@@ -296,8 +296,8 @@ public class ServerTests
         using var e = new Env();
         await e.Published(e.MakeRelease("0.2.0", published: "<script>alert(1)</script>"));
         await e.Published(e.MakeRelease("0.3.0"));
-        var page = await e.Admin("/admin/settings"); // 0.2.0 is in the history list
-        Assert.DoesNotContain("<script>", page);
+        var page = await e.Admin("/admin/settings?tab=server"); // 0.2.0 is in the history list
+        Assert.DoesNotContain("<script>alert(1)", page);
         Assert.Contains("&lt;script&gt;", page);
     }
 
@@ -324,7 +324,7 @@ public class ServerTests
         Assert.Contains("github.com", await resp.Content.ReadAsStringAsync());
         Assert.Equal(r.Json, await e.Get("/api/ash/version"));
         Assert.Equal(HttpStatusCode.NotFound, (await e.Http.GetAsync("/api/ash/version.sig")).StatusCode);
-        var page = await e.Admin("/admin/settings");
+        var page = await e.Admin("/admin/settings?tab=server");
         Assert.Contains("github.com 릴리스와 대조", page);
         Assert.Contains("0.2.0", page);
     }
@@ -337,7 +337,7 @@ public class ServerTests
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
         Assert.Contains("Update:AllowUnsigned=true", await resp.Content.ReadAsStringAsync());
         Assert.Equal(HttpStatusCode.NotFound, (await e.Http.GetAsync("/api/ash/version")).StatusCode);
-        var page = await e.Admin("/admin/settings");
+        var page = await e.Admin("/admin/settings?tab=server");
         Assert.Contains("업로드 거절", page);
         Assert.DoesNotContain("github.com 릴리스와 대조", page);
     }
@@ -358,7 +358,7 @@ public class ServerTests
     {
         using var e = new Env();
         await e.Published(e.MakeRelease("0.2.0"));
-        var page = await e.Admin("/admin/settings");
+        var page = await e.Admin("/admin/settings?tab=server");
         Assert.Contains(e.Store.Key!.KeyId, page);
         Assert.DoesNotContain("서명 키 없음", page);
         Assert.Contains("가능", page);
@@ -414,7 +414,7 @@ public class UnitTests
         var r = e.MakeRelease("0.2.0", published: "2026-10-21T00:57:15Z");
         await e.Published(r);
 
-        var html = await e.Admin("/admin/settings");
+        var html = await e.Admin("/admin/settings?tab=server");
 
         Assert.Contains("2026-10-21 09:57:15", html);           // published, converted from UTC to Seoul
         Assert.DoesNotContain("2026-10-21T00:57:15Z", html);

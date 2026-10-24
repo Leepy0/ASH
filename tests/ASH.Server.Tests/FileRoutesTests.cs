@@ -129,7 +129,10 @@ public class FileRoutesTests
         var a = an.CreateAnalysis("라인A", "", corp: "P"); var p = an.CreatePlan(a.Id, "안1", "");
         var b = an.CreateAnalysis("라인B", "", corp: "Q");
         env.Store.Update(id, j => { j.AnalysisId = a.Id; j.PlanId = p.Id; j.Version = 1; });
-        foreach (var path in new[] { "/?me=0", "/analyses" })
+        await env.WaitFinished(id); // home lanes list analyses with a result; /analyses lists every analysis
+        var home = await env.Http.GetStringAsync("/?me=0&corp=P");
+        Assert.Contains("name=\"corp\"", home); Assert.Contains("라인A", home); Assert.DoesNotContain("라인A", await env.Http.GetStringAsync("/?me=0&corp=q"));
+        foreach (var path in new[] { "/analyses" })
         {
             var all = await env.Http.GetStringAsync(path);
             Assert.Contains("name=\"corp\"", all); Assert.Contains("라인A", all); Assert.Contains("라인B", all);
@@ -138,6 +141,6 @@ public class FileRoutesTests
             var onlyQ = await env.Http.GetStringAsync(path + (path.Contains('?') ? "&" : "?") + "corp=q");
             Assert.Contains("라인B", onlyQ); Assert.DoesNotContain("라인A", onlyQ);
         }
-        Assert.Contains($"href=\"/jobs/{id}/files/continue.zip\"", await env.Http.GetStringAsync("/analyses/" + a.Id));
+        Assert.Contains($"href=\"/jobs/{id}/files/continue.zip\"", await env.Http.GetStringAsync("/analyses/" + a.Id + "?tab=status"));
     }
 }

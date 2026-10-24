@@ -168,6 +168,8 @@ SYSTEM으로 실행해도 로그온한 대화형 사용자가 있고 그 사용�
 
 `appsettings.json`의 값을 브라우저에서 바꾼다. `Admin:Password`가 규칙(4~20자, 영문·숫자·특수문자를 섞어 쓸 수 있고 공백·한글은 안 됨, 비우면 기본값 `ash!23`)에 맞지 않으면 페이지가 꺼져 있다.
 
+- **탭:** 작업 현황(실행·대기 카드, 최근 작업) · 기준 정보(`/admin/types`, 타입·투자비·에셋) · 서버 설정(`?tab=server`, 배포·서버 상태, 설정 저장, 서비스 다시 시작). 오른쪽 끝에 로그아웃.
+- **타입 일괄 입력:** 기준 정보 탭의 "엑셀 양식 받기"(`/admin/types/template.xlsx`, 지금 타입이 들어 있음)를 고치거나 줄을 더한 뒤, 머리글 줄까지 복사해 "엑셀에서 붙여넣기"에 붙여넣는다. 이름이 같으면 고치고 없으면 만든다. 머리글에 없는 열은 기존 값을 유지한다. 한 줄이라도 틀리면 아무것도 저장하지 않는다. 단가 칸이 비면 단가는 그대로다.
 - **로그인:** 관리자 암호를 한 번 입력하면 서버가 무작위 세션 ID를 만들어 `HttpOnly`, `SameSite=Strict`, `Path=/admin` 쿠키로 준다(8시간, 서버 메모리에만 있어 재시작하면 다시 로그인). 토큰 자체는 브라우저에 저장되지 않고 페이지에 다시 나오지 않는다. 틀리면 1초 늦게 거절한다.
 - **위조 방지:** 저장·재시작·로그인 POST는 `Origin`(없으면 `Referer`)이 이 서버 주소일 때만 받는다. 스크립트는 `X-ASH-Admin-Token` 헤더로 같은 주소에 POST할 수 있다(`/api/admin/releases`와 같은 토큰).
 - **바꿀 수 있는 값과 적용 시점:**
@@ -177,6 +179,8 @@ SYSTEM으로 실행해도 로그온한 대화형 사용자가 있고 그 사용�
 | `Jobs:Enabled`, `Jobs:AmHome`, `Jobs:Parallel`, `Jobs:DialogButton`, `Jobs:RunTimeoutMin`, `Jobs:BuildTimeoutMin`, `Jobs:JobTimeoutHours`, `Jobs:KeepRunsDays`, `Film:CutTimeoutMin`, `Film:CalibrationTimeoutMin`, `Film:DialogTitles` | `Jobs:WorkerEnabled`, `Jobs:Dir`, `Film:FfmpegPath`, `Film:AviewExe`, `GitHub:Enabled`, `GitHub:BaseUrl`, `GitHub:CheckIntervalMin`, `GitHub:UpdateServer`, `GitHub:Proxy`, `GitHub:Dns`, `Urls`, `Releases:Dir`, `Update:AllowUnsigned` |
 
   `Admin:Password`, `Update:PublicKeyPem`, `Logging`은 웹에서 바꾸지 않는다(서버 PC에서 파일을 직접 고친다).
+- **찾아보기:** 경로 설정(`Jobs:AmHome`, `Jobs:Dir`, `Film:FfmpegPath`, `Film:AviewExe`, `Releases:Dir`) 옆의 "찾아보기…"는 브라우저가 아니라 **서버 PC**의 드라이브·폴더(파일을 고르는 항목은 파일도)를 보여 주는 대화상자다. 폴더를 열어 "이 폴더 선택"(파일은 클릭)하면 입력칸이 채워지고, 저장은 따로 눌러야 한다. 목록은 이름만 읽는 관리자 전용 `GET /admin/fs?path=&files=1`(설정 화면과 같은 로그인)이 주며 파일 내용은 읽지 않는다. 열 수 없는 폴더는 안내만 나온다.
+- **실행 원본 압축:** `Jobs:KeepRunsDays`(기본 30일, 0 = 그대로 둠)가 지나면 끝난 작업의 `runs\<실행>` 폴더들을 작업 폴더의 `runs.zip` 하나로 묶어(임시 이름으로 쓰고 옮김, 읽어 검증한 뒤에야) 원본 폴더를 지운다. 빌드 출력(`<모델>.dir`, `.exe`)과 작업 슬롯은 다시 만들 수 있어 지운다. `runs.zip` 받기는 그 압축 파일을 그대로 주고, 결과 화면·Excel 보고서는 미리 저장한 `blocks.tsv`/`stats.tsv`로 그대로 열린다.
 - **저장:** 모든 값을 먼저 검사한다(정수 범위, 켬/끔, `Urls`·`GitHub:BaseUrl`·`GitHub:Proxy`·`GitHub:Dns` 형식). 하나라도 틀리면 아무것도 쓰지 않는다. 통과하면 파일을 다시 읽어 바뀐 키만 고치고(모르는 키는 그대로) 임시 파일로 쓴 뒤 `File.Replace`로 바꿔 넣으며, 이전 파일은 `appsettings.json.yyyyMMdd-HHmmss.bak`으로 남는다. 파일 안의 `//` 주석은 저장 때 없어진다(.bak에는 남음). `Jobs:AmHome`에 AutoMod 빌드 exe가 없으면 경고만 한다.
 - **재시작:** "서비스 다시 시작"은 자동 업데이트의 `update\apply-update.bat`을 파일 교체 없이(stage `-`) 실행해 `sc stop` → 이 프로세스가 끝나기를 기다림 → `sc start`를 한다(기록은 `update\apply.log`). 서비스는 자기 자신을 동기적으로 다시 시작할 수 없어서 분리된 배치가 한다. 실행 중인 작업이 있으면 확인란을 체크해야 하며 그 작업은 "서버가 다시 시작되어 중단되었습니다"로 실패 처리된다. 콘솔로 실행 중이거나 등록된 서비스의 exe가 다르면 버튼 대신 이유가 나온다.
 - 서비스 계정이 설치 폴더에 쓸 수 없으면(LocalService) 저장이 실패하고 파일은 바뀌지 않는다.

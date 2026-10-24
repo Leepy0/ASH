@@ -75,7 +75,10 @@ public class SettingsTests
         Assert.Contains("작업 대기열", await (await e.Http.SendAsync(req)).Content.ReadAsStringAsync());
         var settings = new HttpRequestMessage(HttpMethod.Get, "/admin/settings"); settings.Headers.Add("X-ASH-Admin-Token", SettingsEnv.Token);
         var page = await (await e.Http.SendAsync(settings)).Content.ReadAsStringAsync();
-        foreach (var s in new[] { "서버 현황", "배포", "서버 상태", "href=\"/admin/jobs\"" }) Assert.Contains(s, page);
+        foreach (var s in new[] { "작업 현황", "최근 작업", "href=\"/admin/jobs\"" }) Assert.Contains(s, page);
+        var server = new HttpRequestMessage(HttpMethod.Get, "/admin/settings?tab=server"); server.Headers.Add("X-ASH-Admin-Token", SettingsEnv.Token);
+        page = await (await e.Http.SendAsync(server)).Content.ReadAsStringAsync();
+        foreach (var s in new[] { "배포", "서버 상태" }) Assert.Contains(s, page);
     }
 
     [Fact]
@@ -89,7 +92,7 @@ public class SettingsTests
         Assert.DoesNotContain("Jobs:Parallel", page);
 
         await e.Login();
-        page = await e.Http.GetStringAsync("/admin/settings");
+        page = await e.Http.GetStringAsync("/admin/settings?tab=server");
         Assert.Contains("Jobs:Parallel", page);
         Assert.Contains("동시 실행 수", page);
         Assert.DoesNotContain(SettingsEnv.Token, page);
@@ -138,6 +141,31 @@ public class SettingsTests
         var backup = Assert.Single(Directory.GetFiles(e.Dir, "appsettings.json.*.bak"));
         Assert.Equal(SettingsEnv.Original, File.ReadAllText(backup));
         Assert.False(File.Exists(e.File + ".tmp"));
+    }
+
+    // a switch is a nameless checkbox plus ONE named hidden input that the page script keeps at true/false: the form never posts a bool twice
+    [Fact]
+    public async Task Bool_switch_posts_exactly_one_value_and_saves_on_and_off()
+    {
+        using var e = new SettingsEnv();
+        await e.Login();
+        var page = await e.Http.GetStringAsync("/admin/settings?tab=server");
+        foreach (var key in ServerSettings.All.Where(d => d.Kind == SettingKind.Bool).Select(d => d.Key))
+        {
+            Assert.Single(System.Text.RegularExpressions.Regex.Matches(page, $"name=\"{key}\""));
+            Assert.Matches($"<input type=\"hidden\" name=\"{key}\" value=\"(true|false)\"", page);
+        }
+        Assert.Matches("<input type=\"checkbox\" role=\"switch\" id=\"f-Jobs-Enabled\"", page); // no name: it never posts itself
+
+        JsonNode Json() => JsonNode.Parse(File.ReadAllText(e.File))!;
+        var off = await e.Post("/admin/settings", SettingsEnv.Form(("Jobs:Enabled", "false")));
+        Assert.Equal(HttpStatusCode.OK, off.StatusCode);
+        Assert.False(Json()["Jobs"]!["Enabled"]!.GetValue<bool>());
+        Assert.Contains("name=\"Jobs:Enabled\" value=\"false\"", await off.Content.ReadAsStringAsync()); // the switch comes back off
+        var on = await e.Post("/admin/settings", SettingsEnv.Form(("Jobs:Enabled", "true")));
+        Assert.Equal(HttpStatusCode.OK, on.StatusCode);
+        Assert.True(Json()["Jobs"]!["Enabled"]!.GetValue<bool>());
+        Assert.Contains("name=\"Jobs:Enabled\" value=\"true\"", await on.Content.ReadAsStringAsync());
     }
 
     [Theory]
@@ -197,7 +225,7 @@ public class SettingsTests
         var r = await e.Post("/admin/restart", SettingsEnv.Form(("confirm", "1")));
         Assert.Equal(HttpStatusCode.Conflict, r.StatusCode); // the test host is not the Windows service: nothing is restarted
         Assert.Contains("Windows 서비스로 실행 중이 아님", await r.Content.ReadAsStringAsync());
-        Assert.Contains("Windows 서비스로 실행 중이 아님", await e.Http.GetStringAsync("/admin/settings"));
+        Assert.Contains("Windows 서비스로 실행 중이 아님", await e.Http.GetStringAsync("/admin/settings?tab=server"));
     }
 
     [Fact]

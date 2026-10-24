@@ -159,8 +159,9 @@ internal static partial class Routes
             if (name == "runs.zip")
             {
                 if (!j.Finished) return Msg(409, "작업이 끝난 뒤에 받을 수 있습니다.");
-                if (j.RunsPurgedUtc is { } purged) return Msg(410, $"실행 원본은 보관 기간이 지나 {ASH.Core.SeoulTime.Text(purged)}에 정리되었습니다(Jobs:KeepRunsDays). summary.tsv와 upload.zip은 남아 있습니다.");
-                if (!Directory.Exists(runs)) return Msg(404, "실행 폴더가 없습니다.");
+                // after Jobs:KeepRunsDays JobRetention keeps the run folders only as this zip: serve it, never rebuild from the (then partial) folder
+                if (j.RunsPurgedUtc is { } purged && !File.Exists(path)) return Msg(410, $"실행 원본 보관 파일이 없습니다({ASH.Core.SeoulTime.Text(purged)}에 정리됨). summary.tsv와 upload.zip은 남아 있습니다.");
+                if (j.RunsPurgedUtc == null && !Directory.Exists(runs)) return Msg(404, "실행 폴더가 없습니다.");
                 if (!File.Exists(path))
                 {
                     var tmp = path + ".tmp";

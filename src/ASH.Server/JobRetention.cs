@@ -1,12 +1,14 @@
 using System.Globalization;
+using System.IO.Compression;
 
 namespace ASH.Server;
 
 /// <summary>
-/// Frees disk: Jobs:KeepRunsDays (default 30, 0 = keep forever) after a job finished, its raw run folders (runs\&lt;RunId&gt;\, AutoMod output), the build
-/// output (&lt;Model&gt;.dir, &lt;Model&gt;.exe), the work slots and runs.zip are deleted. What the result pages need stays: job.json, job.log, upload.zip, the
-/// model folder, runs\summary.tsv, impact.tsv, search.tsv, and the block numbers and vehicle/material statistics, which are saved to blocks.tsv and stats.tsv first. Checked hourly.
-/// Films (&lt;Jobs:Dir&gt;\films, FilmStore) and the scene files (scenes*.json) are never deleted.
+/// Frees disk: Jobs:KeepRunsDays (default 30, 0 = keep as is) after a job finished, its raw run folders (runs\&lt;RunId&gt;\, AutoMod output) are compressed into
+/// &lt;job&gt;\runs.zip (the same layout as the runs.zip download: the whole runs folder) and the originals are removed; the build output (&lt;Model&gt;.dir, &lt;Model&gt;.exe)
+/// and the work slots are regenerable and deleted. runs\summary.tsv, impact.tsv, search.tsv stay as files. What the result pages need stays too: job.json, job.log,
+/// upload.zip, the model folder and the block numbers and vehicle/material statistics, which are saved to blocks.tsv and stats.tsv first. Checked hourly.
+/// Films (&lt;Jobs:Dir&gt;\films, FilmStore) and the scene files (scenes*.json) are never touched. RunsPurgedUtc = when the folders were archived.
 /// </summary>
 public sealed class JobRetention(JobStore store, IConfiguration cfg, ILogger<JobRetention> log) : BackgroundService
 {
@@ -26,7 +28,7 @@ public sealed class JobRetention(JobStore store, IConfiguration cfg, ILogger<Job
         }
     }
 
-    /// <summary>Purges every finished job older than the limit; returns how many were purged.</summary>
+    /// <summary>Archives every finished job older than the limit; returns how many were archived.</summary>
     public int Sweep(DateTime nowUtc)
     {
         if (KeepDays == 0) return 0;
@@ -34,8 +36,8 @@ public sealed class JobRetention(JobStore store, IConfiguration cfg, ILogger<Job
         foreach (var j in store.All())
         {
             if (!j.Finished || j.RunsPurgedUtc != null || j.FinishedUtc is not { } f || nowUtc - f < TimeSpan.FromDays(KeepDays)) continue;
-            Purge(j);
-            n++;
+            try { Purge(j); n++; }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or InvalidDataException) { log.LogWarning("작업 {Id}: 압축 보관 실패, 원본을 그대로 둡니다: {Error}", j.Id, e.Message); }
         }
         return n;
     }
@@ -64,12 +66,25 @@ public sealed class JobRetention(JobStore store, IConfiguration cfg, ILogger<Job
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { log.LogWarning("지우지 못함 {Path}: {Error}", path, e.Message); }
         }
-        if (Directory.Exists(runs)) foreach (var d in Directory.GetDirectories(runs)) Del(d);
+        var runDirs = Directory.Exists(runs) ? Directory.GetDirectories(runs) : [];
+        if (runDirs.Length > 0)
+        {
+            // temp name, then move: a crash leaves no half-written runs.zip; originals go only after the zip reads back with every file
+            var zip = Path.Combine(store.JobDir(j.Id), "runs.zip");
+            var tmp = zip + ".tmp";
+            if (File.Exists(tmp)) File.Delete(tmp);
+            ZipFile.CreateFromDirectory(runs, tmp, CompressionLevel.Optimal, false);
+            int expect = Directory.EnumerateFiles(runs, "*", SearchOption.AllDirectories).Count();
+            using (var z = ZipFile.OpenRead(tmp)) if (z.Entries.Count(e => e.Name.Length > 0) != expect) throw new InvalidDataException("runs.zip 항목 수가 맞지 않습니다.");
+            File.Move(tmp, zip, true);
+            // marked before the delete: a crash while deleting leaves some folders behind (harmless), never a re-zip of a half-deleted runs folder
+            store.Update(j.Id, x => x.RunsPurgedUtc = DateTime.UtcNow);
+            foreach (var d in runDirs) Del(d);
+        }
+        else store.Update(j.Id, x => x.RunsPurgedUtc = DateTime.UtcNow);
         Del(Path.Combine(project, "work"));
         Del(Path.Combine(project, j.Model + ".dir"));
         Del(Path.Combine(project, j.Model + ".exe"));
-        Del(Path.Combine(store.JobDir(j.Id), "runs.zip"));
-        store.Update(j.Id, x => x.RunsPurgedUtc = DateTime.UtcNow);
-        log.LogInformation("작업 {Id}: 실행 원본 정리, {MB:0.#} MB", j.Id, freed / 1048576.0);
+        log.LogInformation("작업 {Id}: 실행 원본 압축 보관, 원본 {MB:0.#} MB 정리", j.Id, freed / 1048576.0);
     }
 }

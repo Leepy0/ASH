@@ -26,9 +26,9 @@ public static class ExcelTemplate
             new[] { "자재명", "공정명(메모)", "운반 그룹", "T/T(초)", "소요 원수", "용기당 자재 수량", "호출 임계(용기)", "호출 임계(자재)", "호출 임계 합계(용기, 자동)", "언로딩 임계(용기)", "언로딩 임계(자재)", "언로딩 임계 합계(용기, 자동)", "초기재고(- : 기본값)", "안전재고(- : 기본값)", "형태(목록에서 선택)", "적재물 길이(m, - : 기본값)", "적재물 폭(m, - : 기본값)", "적재물 높이(m, - : 기본값)" },
             new[] { "M001", "", "G_EX", "60", "1", "10", "4", "", "", "1", "", "", "", "", "Box", "", "", "" }), // Call 4 > Settings SafetyStock 2
         ("Routes",
-            new[] { "Material", "SupplyFromCP", "SupplyToCP", "BufferCP", "ReturnFromCP", "ReturnToCP", "ExtraTime" },
-            new[] { "자재명", "load CP", "unload CP", "buffer CP(선택)", "rtnload CP(선택)", "rtnunload CP(선택)", "추가 시간(초)" },
-            new[] { "M001", "CP_LOAD", "CP_UNLOAD", "", "", "", "0" }),
+            new[] { "Material", "SupplyFromCP", "SupplyToCP", "BufferCP", "ReturnFromCP", "ReturnToCP", "ExtraTime", "BufferWaitSec" },
+            new[] { "자재명", "load CP", "unload CP", "buffer CP(선택)", "rtnload CP(선택)", "rtnunload CP(선택)", "추가 시간(초)", "버퍼 대기 허용(초, 넘는 시간만 비가동)" },
+            new[] { "M001", "CP_LOAD", "CP_UNLOAD", "", "", "", "0", "0" }),
     };
 
     /// <summary>Columns picked from a drop-down: a fixed list ("a,b") or the names in another sheet's first column (sheet name). Re-applied on every update.</summary>
@@ -148,7 +148,7 @@ public static class ExcelTemplate
             {
                 var name = "M" + (i + 1).ToString("000");
                 var m = (string[])Ex("Materials").Clone(); m[0] = name; m[2] = loads[i].Group.Length > 0 ? loads[i].Group : (groups.Count > 0 ? groups[0] : m[2]); mats.Add(m);
-                routes.Add(new[] { name, loads[i].Name, At(unload, i), At(buffer, i), At(rl, i), At(ru, i), "0" });
+                routes.Add(new[] { name, loads[i].Name, At(unload, i), At(buffer, i), At(rl, i), At(ru, i), "0", "0" });
             }
             seed["Materials"] = mats; seed["Routes"] = routes;
         }

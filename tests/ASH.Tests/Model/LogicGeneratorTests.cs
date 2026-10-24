@@ -75,7 +75,7 @@ public class LogicGeneratorTests
         var t = LogicGenerator.Render(p, Layout);
         Assert.Contains("print \"group\\tG1\\tG1\\t\" V_active(1) \"", t);                     // requested active count, not Max - parked
         Assert.Contains("inc V_consumed(1) by V_need(1)", t);
-        Assert.Contains("V_stop(1) \"\\t\" V_consumed(1) \"\\t0\\t0\" to V_out", t);
+        Assert.Contains("V_stop(1) \"\\t\" V_consumed(1) \"\\t\" V_mDist(1) \"\\t\" V_mJobs(1) to V_out", t); // value7/8: the supply jobs' distance and count
         // supply legs of material 1 use slot 1, its return legs slot 1 + 2 = 3; durations come from the load's A_t0
         var supply = t.Substring(t.IndexOf("begin P_supply_1"), t.IndexOf("begin P_consume_2") - t.IndexOf("begin P_supply_1"));
         Assert.Equal(2, Regex.Matches(supply, @"set V_inLeg\(1\) to 1").Count);
@@ -87,6 +87,44 @@ public class LogicGeneratorTests
         Assert.Matches(@"travel to agv:U001[\s\S]*?wait for 10 sec[\s\S]*?travel to agv:L001[\s\S]*?wait for 10 sec[\s\S]*?travel to agv:S001[\s\S]*?send to die", ret);
         Assert.Contains("if V_inLeg(3) = 1 and ac - V_legStart(3) > V_deadlockSec", t);
         Assert.Contains("read V_tok, V_simLen, V_warmup, V_deadlockSec from V_fp", t);
+    }
+
+    [Fact]
+    public void Busy_Time_Leaves_Out_The_Buffer_Wait_For_The_Unload_Threshold()
+    {
+        var t = LogicGenerator.Render(Sample(), Layout); // routes L001 -> B001 (buffer) -> U001
+        var supply = t.Substring(t.IndexOf("begin P_supply_1"), t.IndexOf("begin P_consume_2") - t.IndexOf("begin P_supply_1"));
+        // reset per job, measured around the threshold wait only (after the buffer leg, before the unload leg), taken off the busy time
+        Assert.Matches(@"set A_tPick to ac\n\tset A_hold to 0\n", supply);
+        Assert.Matches(@"travel to agv:B001[\s\S]*?\tset A_hold to ac\n\twhile V_stock\(1\) > V_unload\(1\) do begin\n\t\twait for 5 sec\n\tend\n\tset A_hold to ac - A_hold\n[\s\S]*?travel to agv:U001", supply);
+        Assert.Contains("inc V_vBusy(A_vid) by A_ret + A_fin - A_tPick - A_hold", supply);
+        // the load and unload times set in the input stay busy: they are plain waits inside the busy span
+        Assert.Matches(@"set A_tPick to ac[\s\S]*?wait for 10 sec[\s\S]*?wait for 10 sec[\s\S]*?inc V_vBusy", supply);
+        // without a buffer there is no hold, the busy time is unchanged
+        var p = Sample(); for (int i = 0; i < p.Routes.Count; i++) p.Routes[i] = p.Routes[i] with { BufferCP = null };
+        var plain = LogicGenerator.Render(p, Layout);
+        Assert.DoesNotContain("set A_hold to ac", plain);
+        Assert.Contains("set A_hold to 0", plain);
+        // the material's supply jobs count and distance go with the vehicle's
+        Assert.Contains("inc V_mDist(1) by V_x - A_veh A_dLast\n\t\tinc V_mJobs(1) by 1", supply);
+    }
+
+    [Fact]
+    public void Busy_Time_Keeps_The_Buffer_Wait_Up_To_The_Route_Allowance()
+    {
+        // BufferWaitSec 0 (the default, and blank in the sheet) renders the dd13d3b logic checked above: the whole hold is left out
+        var p = Sample(); p.Routes[0] = p.Routes[0] with { BufferWaitSec = 0 };
+        Assert.Equal(LogicGenerator.Render(Sample(), Layout), LogicGenerator.Render(p, Layout));
+        Assert.Equal(InputSignature.Compute(Sample()), InputSignature.Compute(p)); // models built before the column keep their signature
+        p.Routes[0] = p.Routes[0] with { BufferWaitSec = 90 };
+        Assert.NotEqual(InputSignature.Compute(Sample()), InputSignature.Compute(p)); // the allowance is in the logic: a change needs a rebuild
+        var t = LogicGenerator.Render(p, Layout);
+        var supply = t.Substring(t.IndexOf("begin P_supply_1"), t.IndexOf("begin P_consume_2") - t.IndexOf("begin P_supply_1"));
+        // only the part of the hold over 90 s comes off the busy time
+        Assert.Contains("\twhile V_stock(1) > V_unload(1) do begin\n\t\twait for 5 sec\n\tend\n\tset A_hold to ac - A_hold - 90\n\tif A_hold < 0 then set A_hold to 0\n", supply);
+        Assert.Contains("inc V_vBusy(A_vid) by A_ret + A_fin - A_tPick - A_hold", supply);
+        Assert.Single(Regex.Matches(t, "A_hold - 90")); // per route: M2 keeps no allowance
+        Assert.Contains("\tset A_hold to ac - A_hold\n", t.Substring(t.IndexOf("begin P_supply_2")));
     }
 
     [Fact]

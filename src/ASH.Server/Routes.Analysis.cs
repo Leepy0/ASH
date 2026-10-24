@@ -136,12 +136,19 @@ internal static partial class Routes
             return Results.Redirect(Back(f, "/jobs/" + id));
         });
 
-        app.MapGet("/analyses", (HttpContext ctx, string? q, JobStore js, AnalysisStore st, FilmStore fs, FilmWorker fw, IConfiguration cfg) =>
+        // the left list of the analysis pages: ?me=1 only mine (default all), ?q= name or submitter, corp/productLine/line tags; row links keep these
+        static AnalysisListData ListOf(HttpContext ctx, JobStore js, AnalysisStore st, FilmStore fs, FilmWorker fw, IConfiguration cfg)
         {
-            var tags = FileRoutes.FileQuery.From(ctx.Request.Query);
-            var v = HomeView.Build(st.All(), js.All(), fs.All(), null, Queue(js, fw), WorkerOn(cfg), JobProgress.Parallel(cfg), ClientIp(ctx), false, DateTime.UtcNow, tags);
-            return Html(HomePages.Analyses(v.InProgress.Concat(v.Finished).ToList(), q?.Trim() ?? "", v.Unclassified, FileRoutes.TagFilterHtml(tags, st)));
-        });
+            var q = ctx.Request.Query;
+            var tags = FileRoutes.FileQuery.From(q);
+            var films = fs.All();
+            var v = HomeView.Build(st.All(), js.All(), films, null, Queue(js, fw), WorkerOn(cfg), JobProgress.Parallel(cfg), ClientIp(ctx), q["me"] == "1", DateTime.UtcNow, tags);
+            var keep = string.Join("&", new[] { "me", "q", "corp", "productLine", "line" }.Where(k => q[k].ToString().Trim().Length > 0).Select(k => k + "=" + Uri.EscapeDataString(q[k].ToString().Trim())));
+            return new(v.InProgress.Concat(v.Finished).ToList(), v.Me, q["q"].ToString().Trim(), FileRoutes.TagFilterHtml(tags, st), keep, v.Unclassified, films);
+        }
+
+        app.MapGet("/analyses", (HttpContext ctx, JobStore js, AnalysisStore st, FilmStore fs, FilmWorker fw, IConfiguration cfg) =>
+            Html(AnalysisPages.Index(ListOf(ctx, js, st, fs, fw, cfg))));
         app.MapGet("/analyses/unclassified", (AnalysisStore st, JobStore js) => Html(AnalysisPages.Unclassified(js.All(), st.All())));
         static (AnalysisPageData D, Live L)? PageOf(string id, AnalysisStore st, JobStore js, FilmStore fs, FilmWorker fw, IConfiguration cfg, CutStore cs, CatalogStore cat)
         {
@@ -154,7 +161,7 @@ internal static partial class Routes
 
         app.MapGet("/analyses/{id}", (string id, string? tab, HttpContext ctx, AnalysisStore st, JobStore js, FilmStore fs, FilmWorker fw, IConfiguration cfg, CutStore cs, CatalogStore cat) =>
             PageOf(id, st, js, fs, fw, cfg, cs, cat) is { } p
-                ? Html(AnalysisPages.Detail(p.D, tab ?? "status", ctx.Request.Query, (tab ?? "status") is "status" or "films" && p.L.Active ? JobPages.PollScript("/api/analyses/" + id + "/status", p.L.Watch) : null))
+                ? Html(AnalysisPages.Detail(p.D, tab, ctx.Request.Query, p.L.Active ? JobPages.PollScript("/api/analyses/" + id + "/status", p.L.Watch) : null, ListOf(ctx, js, st, fs, fw, cfg)))
                 : Msg(404, "분석이 없습니다."));
 
         app.MapGet("/api/analyses/{id}/status", (string id, AnalysisStore st, JobStore js, FilmStore fs, FilmWorker fw, IConfiguration cfg, CutStore cs, CatalogStore cat) =>

@@ -111,17 +111,17 @@ app.MapGet("/", (HttpContext ctx, string? me, JobStore js, AnalysisStore st, Fil
     var tags = FileRoutes.FileQuery.From(ctx.Request.Query);
     var films = fs.All();
     var v = HomeView.Build(st.All(), js.All(), films, films.FirstOrDefault(f => f.State == JobState.Running), Routes.Queue(js, fw), Routes.WorkerOn(cfg),
-        JobProgress.Parallel(cfg), Routes.ClientIp(ctx), me switch { "1" => true, "0" => false, _ => null }, DateTime.UtcNow, tags);
+        JobProgress.Parallel(cfg), Routes.ClientIp(ctx), me switch { "1" => true, "0" => false, _ => null }, DateTime.UtcNow, tags, js);
     var live = LiveFields.OfHome(v);
     return Routes.Html(HomePages.Home(v, FileRoutes.TagFilterHtml(tags, st), tags.TagQuery(), live.Active ? JobPages.PollScript("/api/home?me=" + (v.Me ? 1 : 0) + tags.TagQuery(), live.Watch) : null));
 });
 
-static string StatusHtml(HttpContext ctx)
+static ServerPages.StatusData StatusOf(HttpContext ctx)
 {
     var sp = ctx.RequestServices;
     var js = sp.GetRequiredService<JobStore>();
-    return ServerPages.Status(new(sp.GetRequiredService<ReleaseStore>(), sp.GetRequiredService<GitHubSync>(), sp.GetRequiredService<ServerUpdater>(),
-        sp.GetRequiredService<RunnerStore>(), js.All(), Queue(js, sp.GetRequiredService<FilmWorker>()), WorkerOn(sp.GetRequiredService<IConfiguration>())));
+    return new(sp.GetRequiredService<ReleaseStore>(), sp.GetRequiredService<GitHubSync>(), sp.GetRequiredService<ServerUpdater>(),
+        sp.GetRequiredService<RunnerStore>(), js.All(), Queue(js, sp.GetRequiredService<FilmWorker>()), WorkerOn(sp.GetRequiredService<IConfiguration>()));
 }
 
 // ---- admin pages: settings (appsettings.json) and service restart ----
@@ -133,7 +133,7 @@ app.MapGet("/admin/settings", (HttpContext ctx, ReleaseStore rs, AdminSessions s
 {
     ctx.Response.Headers.CacheControl = "no-store";
     if (!rs.UploadsEnabled || !(HeaderAdmin(ctx, rs) || CookieAdmin(ctx, sessions))) return Html(ServerPages.Login(rs.UploadsEnabled), rs.UploadsEnabled ? 401 : 403);
-    try { return Html(ServerPages.Settings(View(file, u, js), StatusHtml(ctx))); }
+    try { return Html(ServerPages.Settings(View(file, u, js), StatusOf(ctx), ctx.Request.Query["tab"].ToString())); }
     catch (Exception e) when (e is System.Text.Json.JsonException or InvalidDataException or IOException)
     { return Html(ServerPages.Message("서버 설정", $"<div class=\"msg bad\">appsettings.json을 읽을 수 없습니다: {WebUtility.HtmlEncode(e.Message)}</div>"), 500); }
 });
@@ -172,7 +172,7 @@ app.MapPost("/admin/settings", async (HttpContext ctx, ReleaseStore rs, AdminSes
     catch (Exception e) when (e is System.Text.Json.JsonException or InvalidDataException or IOException or UnauthorizedAccessException)
     { return Html(ServerPages.Message("서버 설정", $"<div class=\"msg bad\">appsettings.json을 저장하지 못했습니다(바뀐 것 없음): {WebUtility.HtmlEncode(e.Message)}</div><p><a href=\"/admin/settings\">돌아가기</a></p>"), 500); }
     if (saved.Changed.Count > 0) app.Logger.LogWarning("설정 저장(웹, {Ip}): {Keys}", ClientIp(ctx), string.Join(", ", saved.Changed.Select(d => d.Key)));
-    return Html(ServerPages.Settings(View(file, u, js, saved.Errors.Count > 0 ? form : null, saved), StatusHtml(ctx)), saved.Errors.Count > 0 ? 400 : 200);
+    return Html(ServerPages.Settings(View(file, u, js, saved.Errors.Count > 0 ? form : null, saved), StatusOf(ctx), "server"), saved.Errors.Count > 0 ? 400 : 200);
 });
 
 app.MapPost("/admin/restart", async (HttpContext ctx, ReleaseStore rs, AdminSessions sessions, ServerUpdater u, JobStore js) =>
@@ -204,6 +204,8 @@ app.MapAnalysis();
 app.MapCatalog();
 app.MapAssets();
 app.MapFiles();
+app.MapFilms();
+app.MapAdminFs();
 
 app.Run();
 return 0;

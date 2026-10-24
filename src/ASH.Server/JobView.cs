@@ -6,13 +6,15 @@ using ASH.Core.Runner;
 
 namespace ASH.Server;
 
-/// <summary>Per group at the recommended counts: mean over the confirm runs.</summary>
-public sealed record GroupView(string Group, string Type, int Min, int Max, int? Decided, double Util, double MinStockRatio, bool AllOk, string? Reason);
+/// <summary>Per group at the recommended counts: mean over the confirm runs. AllOk = no real failure (stockout, supply, deadlock, no result);
+/// a run over the utilization limit only is a warning (UtilOver), not a failure. Reason = the first real failure.</summary>
+public sealed record GroupView(string Group, string Type, int Min, int Max, int? Decided, double Util, double MinStockRatio, bool AllOk, string? Reason, bool UtilOver = false);
 
 /// <summary>Investment at the recommended counts; Unpriced = types without a unit price (left out of the sum).</summary>
 public sealed record InvestmentView(decimal Total, string Currency, IReadOnlyList<string> Unpriced, bool AnyPriced = true);
 
-/// <summary>Per count of one group (all runs where the group had that many active): mean, min and max utilization, and whether any of them failed.</summary>
+/// <summary>Per count of one group (all runs where the group had that many active): mean, min and max utilization, and how many of them failed
+/// (real failures; over the utilization limit only is a warning, visible against the limit line).</summary>
 public sealed record CountPoint(int Active, double Mean, double Lo, double Hi, int Runs, int Failed);
 
 /// <summary>Traffic block numbers at the recommended counts (mean over the confirm runs that have them).</summary>
@@ -29,10 +31,13 @@ public sealed record VehicleView(string Name, string Group, double Util, double 
 public sealed record GroupVehicleView(string Group, int Count, double Util, double Distance, double Jobs, double DistPerJob, double BusyPerJob);
 
 /// <summary>Per material: lead times (call -> load CP, call -> unload done) and stock statistics, plus supplies and stop time. Mean over the confirm runs,
-/// except the Max/Min columns (extreme over the runs). Safety is NaN when the input is unreadable.</summary>
+/// except the Max/Min columns (extreme over the runs). Safety is NaN when the input is unreadable. Trips = supply jobs and Distance = metres driven
+/// for them (pickup run to home, after warmup); NaN for models that do not write them.</summary>
 public sealed record MaterialView(string Name, string Group, double Supplies, double Expected, double StopSec, double PickAvg, double PickMax,
-    double DelivAvg, double DelivMax, double StockAvg, double StockStd, double StockMin, double StockMax, double Safety)
+    double DelivAvg, double DelivMax, double StockAvg, double StockStd, double StockMin, double StockMax, double Safety, double Trips = double.NaN, double Distance = double.NaN)
 {
+    public double DistPerTrip => Trips > 0 ? Distance / Trips : double.NaN;
+
     /// <summary>Warning only: the stock is likely to dip under the safety stock (mean - 2 sigma).</summary>
     public bool Warn => StockAvg - 2 * StockStd < Safety;
 }
@@ -59,6 +64,11 @@ public sealed class JobView
     public double UtilMax => Input?.Settings.UtilMax ?? 0.75;
     /// <summary>Deadlocks summed over the confirm runs (each run's count is model-wide, repeated per group row).</summary>
     public int Deadlocks { get; private set; }
+
+    /// <summary>A run that failed only on the utilization limit: shown as a warning. Judge checks utilization last, so its reason means every other rule
+    /// passed; summary rows from before that order could hide a supply shortfall, a deadlock is still caught by the column.</summary>
+    public static bool UtilOnly(SummaryRow r) => !r.Ok && r.Reason.StartsWith(Judge.UtilPrefix, StringComparison.Ordinal) && r.Deadlocks == 0;
+    static bool Failed(SummaryRow r) => !r.Ok && !UtilOnly(r);
 
     /// <summary>Active count per group of every run, from its summary rows (a group without a row ran at MinCount, as in ModelRunner.RunId).</summary>
     public IReadOnlyDictionary<string, Dictionary<string, int>> RunCounts() =>
@@ -116,15 +126,15 @@ public sealed class JobView
             {
                 var at = v.Rows.Where(r => r.Group == g.Group && confirm.Contains(r.RunId)).ToList();
                 int? decided = job.Decided != null && job.Decided.TryGetValue(g.Group, out var d) ? d : null;
-                var bad = at.FirstOrDefault(r => !r.Ok);
+                var bad = at.FirstOrDefault(Failed);
                 return new GroupView(g.Group, g.Type, g.MinCount, g.MaxCount, decided, Mean(at.Select(r => r.Utilization)),
-                    at.Count == 0 ? double.NaN : at.Min(r => r.MinStockRatio), at.Count > 0 && at.All(r => r.Ok), bad?.Reason);
+                    at.Count == 0 ? double.NaN : at.Min(r => r.MinStockRatio), at.Count > 0 && !at.Any(Failed), bad?.Reason, at.Any(UtilOnly));
             }).ToList();
             v.Curves = v.Input.Groups.ToDictionary(g => g.Group, g => (IReadOnlyList<CountPoint>)v.Rows.Where(r => r.Group == g.Group).GroupBy(r => r.Active).OrderBy(x => x.Key)
                 .Select(x =>
                 {
                     var u = x.Select(r => r.Utilization).Where(d => !double.IsNaN(d)).ToList();
-                    return new CountPoint(x.Key, u.Count == 0 ? double.NaN : u.Average(), u.Count == 0 ? double.NaN : u.Min(), u.Count == 0 ? double.NaN : u.Max(), x.Count(), x.Count(r => !r.Ok));
+                    return new CountPoint(x.Key, u.Count == 0 ? double.NaN : u.Average(), u.Count == 0 ? double.NaN : u.Min(), u.Count == 0 ? double.NaN : u.Max(), x.Count(), x.Count(Failed));
                 }).ToList());
         }
 
@@ -156,7 +166,12 @@ public sealed class JobView
 
         var savedStats = Path.Combine(store.JobDir(job.Id), JobRetention.StatsFile);
         if (sets.Count == 0 && File.Exists(savedStats)) ReadStats(v, savedStats);
-        else { v.Vehicles = VehicleViews(sets); v.Materials = MaterialViews(sets, v.Input); }
+        else
+        {
+            // AutoMod distances are in model units; the pages show metres
+            var perM = ASH.Core.Settings.UnitScale.ModelUnitsPerMeter(v.Input?.Settings.Units) ?? 1;
+            v.Vehicles = VehicleViews(sets, perM); v.Materials = MaterialViews(sets, v.Input, perM);
+        }
         v.VehicleGroups = v.Vehicles.GroupBy(x => x.Group).Select(g =>
         {
             var jobs = g.Sum(x => x.Jobs);
@@ -189,7 +204,7 @@ public sealed class JobView
 
     /// <summary>The model writes a row for every vehicle up to MaxCount: only those with Index &lt;= the run's active count of the group count.
     /// Downtime is value6 of the row, read defensively (older models do not write it).</summary>
-    static List<VehicleView> VehicleViews(List<ResultSet> sets)
+    static List<VehicleView> VehicleViews(List<ResultSet> sets, double perM)
     {
         var per = new List<(string Name, string Group, double Busy, double Window, double Dist, double Jobs, double Down)>();
         foreach (var rs in sets)
@@ -201,7 +216,7 @@ public sealed class JobView
             {
                 if (!active.TryGetValue(x.Group, out var n) || x.Index > n) continue;
                 var down = raw.TryGetValue((x.Name, x.Group), out var row) && row.Values.Length > 5 ? row.Values[5] : double.NaN;
-                per.Add((x.Name, x.Group, x.BusySec, x.WindowSec, x.Distance, x.Jobs, down));
+                per.Add((x.Name, x.Group, x.BusySec, x.WindowSec, x.Distance / perM, x.Jobs, down));
             }
         }
         return per.GroupBy(x => (x.Name, x.Group)).Select(g => new VehicleView(g.Key.Name, g.Key.Group,
@@ -209,17 +224,21 @@ public sealed class JobView
             Mean(g.Select(x => x.Down)))).ToList();
     }
 
-    static List<MaterialView> MaterialViews(List<ResultSet> sets, ProjectInput? input)
+    /// <summary>Value7/value8 of a material row are the supply jobs' distance and count; older models write 0 there, read as no data
+    /// (a material that was supplied has always driven some way).</summary>
+    static List<MaterialView> MaterialViews(List<ResultSet> sets, ProjectInput? input, double perM)
     {
         var stats = sets.SelectMany(rs => rs.MaterialStats ?? Array.Empty<MaterialStat>()).ToList();
         return stats.Select(m => m.Name).Distinct(StringComparer.Ordinal).Select(name =>
         {
             var st = stats.Where(m => m.Name == name).ToList();
             var ma = sets.SelectMany(rs => rs.Materials).Where(m => m.Name == name).ToList();
+            var jobs = sets.SelectMany(rs => rs.Rows).Where(r => r.Kind == "material" && r.Name == name && r.Values.Length > 7 && r.Values[7] > 0).ToList();
             var safety = input == null ? double.NaN : input.Materials.FirstOrDefault(m => m.Material == name)?.SafetyStock ?? input.Settings.SafetyStock;
             return new MaterialView(name, st[0].Group, Mean(ma.Select(m => (double)m.Supplies)), Mean(ma.Select(m => m.Expected)), Mean(ma.Select(m => m.StopTimeSec)),
                 Mean(st.Select(m => m.PickAvg)), Max(st.Select(m => m.PickMax)), Mean(st.Select(m => m.DelivAvg)), Max(st.Select(m => m.DelivMax)),
-                Mean(st.Select(m => m.StockAvg)), Mean(st.Select(m => m.StockStd)), Min(st.Select(m => m.StockMin)), Max(st.Select(m => m.StockMax)), safety);
+                Mean(st.Select(m => m.StockAvg)), Mean(st.Select(m => m.StockStd)), Min(st.Select(m => m.StockMin)), Max(st.Select(m => m.StockMax)), safety,
+                Mean(jobs.Select(r => r.Values[7])), Mean(jobs.Select(r => r.Values[6] / perM)));
         }).ToList();
     }
 
@@ -230,7 +249,7 @@ public sealed class JobView
         return new[] { "kind\tname\tgroup\tvalues" }
             .Concat(v.Vehicles.Select(x => string.Join("\t", "vehicle", x.Name, x.Group, R(x.Util), R(x.BusySec), R(x.Distance), R(x.Jobs), R(x.Down))))
             .Concat(v.Materials.Select(m => string.Join("\t", "material", m.Name, m.Group, R(m.Supplies), R(m.Expected), R(m.StopSec), R(m.PickAvg), R(m.PickMax),
-                R(m.DelivAvg), R(m.DelivMax), R(m.StockAvg), R(m.StockStd), R(m.StockMin), R(m.StockMax), R(m.Safety)))).ToArray();
+                R(m.DelivAvg), R(m.DelivMax), R(m.StockAvg), R(m.StockStd), R(m.StockMin), R(m.StockMax), R(m.Safety), R(m.Trips), R(m.Distance)))).ToArray();
     }
 
     static void ReadStats(JobView v, string path)
@@ -241,7 +260,8 @@ public sealed class JobView
         {
             if (t[0] == "vehicle" && t.Length >= 8) veh.Add(new VehicleView(t[1], t[2], D(t[3]), D(t[4]), D(t[5]), D(t[6]), D(t[7])));
             else if (t[0] == "material" && t.Length >= 15)
-                mat.Add(new MaterialView(t[1], t[2], D(t[3]), D(t[4]), D(t[5]), D(t[6]), D(t[7]), D(t[8]), D(t[9]), D(t[10]), D(t[11]), D(t[12]), D(t[13]), D(t[14])));
+                mat.Add(new MaterialView(t[1], t[2], D(t[3]), D(t[4]), D(t[5]), D(t[6]), D(t[7]), D(t[8]), D(t[9]), D(t[10]), D(t[11]), D(t[12]), D(t[13]), D(t[14]),
+                    t.Length > 16 ? D(t[15]) : double.NaN, t.Length > 16 ? D(t[16]) : double.NaN)); // stats.tsv from before the supply columns: no data
         }
         v.Vehicles = veh; v.Materials = mat;
     }

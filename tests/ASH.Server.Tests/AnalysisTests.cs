@@ -405,6 +405,39 @@ public class AnalysisPageTests
     }
 
     [Fact]
+    public async Task List_And_Detail_Share_One_Page()
+    {
+        using var env = new JobEnv();
+        var id = await env.SendFiled("라인 증설", "A안"); await env.WaitFinished(id);
+        var a = env.Factory.Services.GetRequiredService<AnalysisStore>().All().Single();
+        var list = await Get(env, "/analyses");
+        Assert.Contains("class=\"lp\"", list); Assert.Contains("분석을 고르세요", list); Assert.Contains("name=\"q\"", list); Assert.Contains("action=\"/analyses\"", list); // + opens the new-analysis form
+        Assert.Contains($"class=\"lr c-indigo\" href=\"/analyses/{a.Id}\"", list); Assert.Contains("새 결론", list); Assert.Contains("<em>2대</em>", list);
+        var detail = await Get(env, "/analyses/" + a.Id);
+        Assert.Contains($"class=\"lr c-indigo on\" href=\"/analyses/{a.Id}\"", detail); Assert.Contains("class=\"dp\"", detail);
+        var filtered = await Get(env, "/analyses?me=0&q=라인");
+        Assert.Contains($"href=\"/analyses/{a.Id}?me=0&amp;q=%EB%9D%BC%EC%9D%B8\"", filtered); // a row keeps the list's filter
+        Assert.Contains("href=\"/analyses?me=1&amp;q=%EB%9D%BC%EC%9D%B8\">내 것", filtered);
+    }
+
+    static AnalysisRow Row(params PlanChip[] chips) => new("a-1", "분석", false, true, 1, chips.Length, 0, 0, null, chips, Array.Empty<string>());
+    static PlanChip Chip(string state, int? total = null, double? progress = null) => new("p", "A안", "j1", 1, state, total, progress, false);
+
+    [Fact]
+    public void Stage_Follows_The_Work()
+    {
+        var film = new FilmInfo { Request = new("f1", "a-1", ["c1"], ["j1"], 1280, 720, 15, "joined", false, null, 0, null), State = JobState.Running };
+        Assert.Equal(("blue", "실행 중 68%"), AnalysisPages.Stage(Row(Chip(JobState.Running, progress: 0.68)), []));
+        Assert.Equal(("gray", "대기"), AnalysisPages.Stage(Row(Chip(JobState.Queued)), []));
+        Assert.Equal(("orange", "영상 만드는 중"), AnalysisPages.Stage(Row(Chip(JobState.Done, 4)), [film]));
+        film.State = JobState.Done;
+        Assert.Equal(("green", "보고서 준비"), AnalysisPages.Stage(Row(Chip(JobState.Done, 4)), [film]));
+        Assert.Equal(("indigo", "새 결론"), AnalysisPages.Stage(Row(Chip(JobState.Done, 4)), []));
+        Assert.Equal(("red", "⚠ 실패"), AnalysisPages.Stage(Row(Chip(JobState.Failed)), []));
+        Assert.Equal(("gray", "버전 없음"), AnalysisPages.Stage(Row(), []));
+    }
+
+    [Fact]
     public async Task Back_With_Control_Character_Falls_Back()
     {
         using var env = new JobEnv(worker: false);

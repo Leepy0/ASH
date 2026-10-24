@@ -65,6 +65,17 @@ public class CameraScriptTests
     }
 
     [Fact]
+    public void Roll_Changes_Only_The_Upvector_And_Zero_Keeps_The_Old_Script()
+    {
+        Assert.Equal(Build(Hold()), Build(Hold() with { RollDeg = 0 }));
+        var s = Build(Hold(a: new Rect(0, 0, 2, 2)) with { RollDeg = 90 });
+        Assert.Contains("view focus relative to world pos 1000000, 1000000, 0 camera relative to world pos 1000000, 1000000, 30480000 upvector 1, 0, 0 scale ", s);
+        var m = Lines(Build(Move() with { RollDeg = -30 })).Where(x => x.StartsWith("view focus")).ToArray();
+        Assert.Equal(2, m.Length);
+        Assert.All(m, x => Assert.DoesNotContain("upvector 0, 0, 1 ", x)); // tilted + rolled: the rolled screen-up, not +Z
+    }
+
+    [Fact]
     public void Script_Is_Culture_Invariant_And_Rejects_Bad_Input()
     {
         var old = CultureInfo.CurrentCulture;

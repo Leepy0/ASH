@@ -32,7 +32,7 @@ public sealed record MaterialInfo(string Material, string Station, string Group,
     double? LoadLength = null, double? LoadWidth = null, double? LoadHeight = null);
 
 public sealed record Route(string Material, string SupplyFromCP, string SupplyToCP, string? BufferCP,
-    string? ReturnFromCP, string? ReturnToCP, double ExtraTime, int Row = 0);
+    string? ReturnFromCP, string? ReturnToCP, double ExtraTime, int Row = 0, double BufferWaitSec = 0);
 
 public sealed record StationInfo(string Station, string CPName, double BufferCapacity, int Row = 0);
 

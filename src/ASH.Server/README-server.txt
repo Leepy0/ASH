@@ -33,8 +33,8 @@ ASH.Server - ASH 배포 서버 (최소판)
                     RunTimeoutMin 실행 하나의 시간 제한(기본 30분), BuildTimeoutMin 빌드 시간 제한(기본 10분),
                     JobTimeoutHours 작업 하나의 시간 제한(기본 24시간). 넘으면 끊고 다음 작업으로 넘어간다.
                     Dir 작업 폴더(기본 %ProgramData%/ASH.Server/jobs).
-                    KeepRunsDays 끝난 작업의 실행 원본(실행 폴더, 빌드 출력, runs.zip)을 이 일수 뒤 지운다(기본 30, 0 = 지우지 않음).
-                      요약(summary.tsv, 결과 화면, Excel 보고서), 올린 원본(upload.zip), 로그는 남는다. 한 시간마다 확인한다.
+                    KeepRunsDays 끝난 작업의 실행 폴더를 이 일수 뒤 작업 폴더의 runs.zip 하나로 압축해 보관하고 원본 폴더와 빌드 출력을 지운다(기본 30, 0 = 그대로 둠).
+                      runs.zip 받기, 요약(summary.tsv, 결과 화면, Excel 보고서), 올린 원본(upload.zip), 로그는 그대로다. 한 시간마다 확인한다.
                     Enabled false 면 작업을 받지 않는다. WorkerEnabled false 면 받기만 하고 실행하지 않는다.
                     주의: 올린 모델의 로직(user_ext.m 등)이 서버에서 AutoMod 로 컴파일·실행된다. 사내망에서만 연다.
                     작업 대기열은 http://서버:8082/admin/jobs, 결과는 홈(/)·분석(/analyses)에서 본다. 취소는 보낸 PC(같은 IP)나 관리자 암호로만 된다.
@@ -122,6 +122,7 @@ ASH.Server - ASH 배포 서버 (최소판)
   Admin:Password, Update:PublicKeyPem, Logging 은 웹에서 바꾸지 않는다(파일을 직접 고친다).
 - 바로 적용(저장하면 다음 작업·다음 정리부터): Jobs:Enabled, AmHome, Parallel, DialogButton, RunTimeoutMin, BuildTimeoutMin,
   JobTimeoutHours, KeepRunsDays, Film:CutTimeoutMin, Film:FfmpegPath, Film:AviewExe.  재시작 필요: 나머지 전부(Jobs:WorkerEnabled, Jobs:Dir, GitHub:*, Urls, Releases:Dir, Update:AllowUnsigned).
+- 경로 항목(AmHome, Dir, FfmpegPath, AviewExe, Releases:Dir) 옆의 "찾아보기…" 는 서버 PC 의 드라이브·폴더를 보여 주는 대화상자다(관리자 로그인 필요, 이름만 읽음).
 - 저장은 값을 검사(정수 범위, 켬/끔, 주소 형식)한 뒤 appsettings.json 을 임시 파일로 쓰고 바꿔 넣는다. 이전 파일은
   appsettings.json.yyyyMMdd-HHmmss.bak 으로 남는다. 모르는 키는 그대로 두지만 파일 안의 // 주석은 없어진다(.bak 에는 남음).
   AmHome 에 AutoMod 빌드 exe 가 없으면 경고만 하고 저장한다.

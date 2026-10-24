@@ -12,9 +12,12 @@ public sealed record Verdict(bool Ok, string Reason, RuleCode Rule = RuleCode.No
 
 public static class Judge
 {
+    /// <summary>Start of the reason of a utilization verdict (summary.tsv keeps the reason, not the rule).</summary>
+    public const string UtilPrefix = "가동률 초과";
+
     static string F(double d, string f) => d.ToString(f, CultureInfo.InvariantCulture);
 
-    /// <summary>Stop time first (any process stop means the stock ran out), then spec 8.2 order; replications are the same group's runs.
+    /// <summary>Stop time first (any process stop means the stock ran out), then supply and deadlock, utilization last; replications are the same group's runs.
     /// A minimum stock under the safety stock is only a note on an Ok verdict.
     /// (Named Evaluate: C# forbids a member named like its class.)</summary>
     public static Verdict Evaluate(IEnumerable<RunKpi> replications, Input.Settings s)
@@ -27,13 +30,14 @@ public static class Judge
         // dipping under the safety stock without a process stop is a warning only (user decision 2026-10-22): the stop rule above catches real shortages
         var stock = r.Average(x => x.MinStockRatio);
         string? stockNote = stock < 1 ? $"주의: 평균 최소재고가 안전재고의 {F(stock, "0.##")}배" : null;
-        var util = r.Average(x => x.Utilization);
-        if (util > s.UtilMax) return new Verdict(false, $"가동률 초과: {F(util, "P0")} > {F(s.UtilMax, "P0")}", RuleCode.Utilization);
         // production attainment, not deliveries: deliveries lag consumption while the initial stock is drawn down
         var con = r.Average(x => x.Consumed); var exp = r.Average(x => x.Expected);
         if (con < 0.95 * exp) return new Verdict(false, $"생산 미달: 소비 {F(con, "0.#")} < 이론 {F(exp, "0.#")}의 95%", RuleCode.Supply);
         var dead = r.Sum(x => x.Deadlocks);
         if (dead > 0) return new Verdict(false, $"교착 {dead}건", RuleCode.Deadlock);
+        // last, so a utilization verdict means every other rule passed: the pages show it as a warning, the search still adds vehicles for it
+        var util = r.Average(x => x.Utilization);
+        if (util > s.UtilMax) return new Verdict(false, $"{UtilPrefix}: {F(util, "P0")} > {F(s.UtilMax, "P0")}", RuleCode.Utilization);
         return new Verdict(true, string.Join("; ", new[] { stockNote }.Concat(r.Select(x => x.Note)).Where(n => !string.IsNullOrEmpty(n)).Distinct()), RuleCode.None);
     }
 }
