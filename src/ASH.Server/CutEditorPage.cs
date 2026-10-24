@@ -80,7 +80,7 @@ main{max-width:none;padding:12px 20px}[hidden]{display:none!important}
 .ce-top{display:flex;flex-wrap:wrap;align-items:center;gap:6px 18px;margin-bottom:10px}.ce-top h1{margin:0;font-size:20px}.ce-top .crumb{margin:0}
 .ce-top select{width:auto;max-width:260px}.ce-top .mini label{font-size:14px;color:#5f5e5a}
 .ce{display:grid;grid-template-columns:minmax(0,1fr) clamp(340px,24vw,430px);gap:12px;align-items:start}
-.ce-bottom{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr) minmax(0,1fr);gap:12px;margin-top:12px;align-items:start}
+.ce-bottom{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1fr);gap:12px;margin-top:12px;align-items:start}
 .pn{background:#fff;border:1px solid #d3d1c7;border-radius:10px;padding:12px 14px;min-width:0}.pn h2{font-size:15px;margin:0 0 8px}
 .stage{position:relative;height:70vh;min-height:320px;overflow:hidden;border:1px solid #d3d1c7;border-radius:8px;background:#fdfdfb;touch-action:none;perspective:1400px;cursor:crosshair;user-select:none}
 .stage.flat{perspective:none}
@@ -94,37 +94,37 @@ main{max-width:none;padding:12px 20px}[hidden]{display:none!important}
 .ce button:disabled,.ce-bottom button:disabled{opacity:.5;cursor:default}
 .ce button:focus-visible,.ce-bottom button:focus-visible,.ce input:focus-visible{outline:2px solid #185fa5;outline-offset:1px}
 .f{display:grid;gap:7px}
-.r{display:grid;grid-template-columns:6.2em minmax(0,1fr);align-items:center;gap:8px}.r>label,.r>.l{font-size:13px;color:#5f5e5a}
+.r{display:grid;grid-template-columns:6.2em minmax(0,1fr);align-items:center;gap:8px}.r>label,.r>.l{font-size:14px;color:#5f5e5a}
 .in{display:flex;gap:6px;align-items:center;min-width:0;flex-wrap:wrap}.in input[type=range]{flex:1 1 90px;min-width:0}
 .ce .in input[type=number]{width:5.2em;flex:0 0 auto}.ce .in input[type=text]{flex:1 1 7em;width:auto}
 .u{font-size:13px;color:#5f5e5a}.in label{display:flex;gap:4px;align-items:center;font-size:14px}
 .seg{display:flex;flex-wrap:wrap;gap:4px}.seg button{padding:4px 9px}
 .calc{font:13px Consolas,monospace;background:#f1efe8;border-radius:6px;padding:6px 8px}
-.ce fieldset{border:1px dashed #d3d1c7;border-radius:6px;padding:6px 8px;margin:0;display:grid;gap:6px;min-width:0}.ce legend{font-size:12px;color:#5f5e5a}
+.ce fieldset{border:1px dashed #d3d1c7;border-radius:6px;padding:6px 8px;margin:0;display:grid;gap:6px;min-width:0}.ce legend{font-size:13px;color:#5f5e5a}
 .st{font-size:13px;min-height:1.4em}.st.bad{color:#a32d2d}.st.ok{color:#3b6d11}
 ol.cl{list-style:none;margin:0;padding:0;display:grid;gap:6px}
 .it{display:grid;grid-template-columns:auto auto minmax(0,1fr) auto;gap:8px;align-items:center;border:1px solid #d3d1c7;border-radius:6px;padding:6px 8px}
-.it.sel{border-color:#185fa5;background:#e6f1fb}.it .t{font-weight:600;font-size:14px;overflow-wrap:anywhere}.it .d{font:12px Consolas,monospace;color:#5f5e5a;overflow-wrap:anywhere}
-.it .no{font:600 12px Consolas,monospace;color:#888780}.acts{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}.ce-bottom .acts button{padding:2px 7px;font-size:12px}
+.it.sel{border-color:#185fa5;background:#e6f1fb}.it .t{font-weight:600;font-size:14px;overflow-wrap:anywhere}.it .d{font:13px Consolas,monospace;color:#5f5e5a;overflow-wrap:anywhere}
+.it .no{font:600 13px Consolas,monospace;color:#5f5e5a}.acts{display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end}.ce-bottom .acts button{padding:4px 9px;font-size:13px;min-height:28px}
 .tot{display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;font:13px Consolas,monospace;border-top:1px solid #d3d1c7;padding-top:8px;margin-top:8px}
-.sc{display:grid;gap:6px}.ce-bottom .sc button{text-align:left;display:grid;gap:2px}.sc b{font-size:14px}.sc small{font:12px Consolas,monospace;color:#5f5e5a}
+.sc{display:grid;gap:6px}.ce-bottom .sc button{text-align:left;display:grid;gap:2px}.sc b{font-size:14px}.sc small{font:13px Consolas,monospace;color:#5f5e5a}
 .k-Stockout{border-left:4px solid #a32d2d!important}.k-DelaySpike,.k-Bottleneck{border-left:4px solid #ba7517!important}.k-Whole{border-left:4px solid #3b6d11!important}
 .layers{position:relative}.layers>summary{margin:0;list-style:none;border:1px solid #b4b2a9;border-radius:6px;padding:5px 10px;font-size:14px;color:#2c2c2a;background:#fff}
 .layers .pop{position:absolute;bottom:115%;right:0;z-index:5;background:#fff;border:1px solid #d3d1c7;border-radius:8px;padding:8px 10px;max-height:50vh;overflow:auto;min-width:220px;box-shadow:0 4px 14px rgba(0,0,0,.12)}
 .layers label,.vers label{display:flex;gap:6px;align-items:center;font-size:14px;white-space:nowrap}
 .ce-bottom .r select{width:100%}
-@media (min-width:1001px){#form{max-height:calc(70vh + 46px);overflow:auto}}
+.adv>summary{cursor:pointer;font-size:14px;color:#2c2c2a;padding:4px 0}.adv[open]>summary{margin-bottom:6px}.adv>.f{padding-left:4px}.cand{border-top:1px solid #d3d1c7;margin-top:10px;padding-top:6px}.cand>summary{font-weight:600}
 @media (max-width:1000px){.ce,.ce-bottom{grid-template-columns:minmax(0,1fr)}.stage{height:58vh}main{padding:10px 12px}}
 @media (max-width:640px){.it{grid-template-columns:auto auto minmax(0,1fr)}.it .acts{grid-column:1/-1}}
 </style>
 <div class="ce">
  <section class="pn" aria-label="도면">
   <div class="stage" id="stage">
-   <div class="hud"><span class="chip" id="hudTilt">기울기 0°</span><span class="chip" id="hudDir">방향 북</span><span class="chip" id="hudPersp">원근 켬</span><span class="chip" id="hudFlat" hidden>미리보기 끔(휠을 돌리면 다시 켜짐)</span><span class="chip warn" id="hudNote" hidden></span></div>
+   <div class="hud"><span class="chip" id="hudTilt">기울기 0°</span><span class="chip" id="hudDir">방향 북</span><span class="chip" id="hudPersp">원근 켬</span><span class="chip" id="hudFlat" hidden>미리보기 끔('평면 보기'를 누르면 다시 켜짐)</span><span class="chip warn" id="hudNote" hidden></span></div>
    <div class="tilter" id="tilter"><canvas id="bg"></canvas><canvas id="fg"></canvas></div>
   </div>
   <div class="tb" role="toolbar" aria-label="도면 도구">
-   <button type="button" id="mA" class="on" aria-pressed="true">A 그리기</button><button type="button" id="mB" aria-pressed="false">B 그리기</button><button type="button" id="mPan" aria-pressed="false">이동(손)</button>
+   <button type="button" id="mA" class="on" aria-pressed="true">A 그리기</button><button type="button" id="mB" aria-pressed="false" hidden>B 그리기</button><button type="button" id="mPan" aria-pressed="false">이동(손)</button>
    <span class="gap"></span>
    <button type="button" id="zIn" aria-label="확대">＋</button><button type="button" id="zOut" aria-label="축소">－</button><button type="button" id="zFit">맞춤</button><button type="button" id="flat">평면 보기</button>
    <details class="layers"><summary>레이어</summary><div class="pop" id="layers"></div></details>
@@ -142,30 +142,34 @@ ol.cl{list-style:none;margin:0;padding:0;display:grid;gap:6px}
    <div class="r"><label for="moveS">이동</label><div class="in"><input type="number" id="moveS" min="1" value="60"><span class="u">초</span></div></div>
    <div class="r"><label for="holdB">B에서</label><div class="in"><input type="number" id="holdB" min="1" value="120"><span class="u">초</span></div></div></fieldset>
   <div class="r"><label for="speedN">배속</label><div class="in"><input type="range" id="speed" min="0" max="1000" aria-label="배속 슬라이더"><input type="number" id="speedN" min="1" max="600" value="10"><span class="u">배</span></div></div>
+  <details class="adv" id="advForm"><summary>고급 <span class="u" id="advSum"></span></summary><div class="f">
   <div class="r"><label for="tiltN">기울기</label><div class="in"><input type="range" id="tilt" min="0" max="70" value="0" aria-label="기울기 슬라이더"><input type="number" id="tiltN" min="0" max="70" value="0"><span class="u">°</span></div></div>
   <div class="r"><label for="dirN">방향</label><div class="in"><span class="seg" id="dirs" role="group" aria-label="화면 위쪽 방향"><button type="button" data-d="0">북</button><button type="button" data-d="90">동</button><button type="button" data-d="180">남</button><button type="button" data-d="270">서</button></span><input type="number" id="dirN" min="0" max="359" value="0" aria-label="방향 각도"><span class="u">°</span></div></div>
   <div class="r"><span class="l">보기</span><div class="in"><label><input type="checkbox" id="persp" checked> 원근</label><label><input type="checkbox" id="cap" checked> 자막</label></div></div>
   <div class="r"><label for="vd">대수 변경</label><div class="in"><input type="number" id="vd" min="-20" max="20" value="0"><span class="u">대(0 = 결론 대수)</span></div></div>
+  </div></details>
   <div class="calc" id="calc" aria-live="polite"></div>
   <div class="tb" style="margin-top:0"><button type="button" class="primary" id="save">리스트에 추가</button><button type="button" id="cancel" hidden>편집 취소</button></div>
   <div class="st" id="msg" role="status"></div><div><button type="button" id="reload" hidden>컷 리스트 다시 불러오기</button></div>
-  <p class="help" style="margin:0">도면을 끌어 구역을 그리고, 그린 구역은 끌어서 옮기거나 모서리로 크기를 바꿉니다. 휠 = 기울기, Ctrl+휠 = 확대. 방향은 화면 위쪽이 가리키는 쪽(0° = 북, +Y).</p>
+  <p class="help" style="margin:0">도면을 끌어 구역을 그리고, 그린 구역은 끌어서 옮기거나 모서리로 크기를 바꿉니다. 휠 = 확대, 기울기는 고급에서. 방향은 화면 위쪽이 가리키는 쪽(0° = 북, +Y).</p>
  </section>
 </div>
 <div class="ce-bottom">
- <section class="pn" aria-label="컷 리스트"><h2>컷 리스트</h2><ol class="cl" id="list"></ol><div class="tot" id="total"></div></section>
- <section class="pn" aria-label="장면 후보"><h2>장면 후보</h2>
+ <section class="pn" aria-label="컷 리스트"><h2>컷 리스트</h2><ol class="cl" id="list"></ol><div class="tot" id="total"></div>
+ <details class="adv cand" open><summary>장면 후보에서 추가</summary>
   <div class="tb" style="margin:0 0 8px"><select id="sd" aria-label="후보를 찾은 대수" style="width:auto"><option value="0">결론 대수</option><option value="-1">결론 −1대</option><option value="-2">결론 −2대</option><option value="-3">결론 −3대</option></select><button type="button" id="sfind">이 대수로 찾기</button></div>
-  <div class="sc" id="scenes"></div><p class="help">누르면 그 시각·위치로 컷이 추가됩니다(구역 32×18 m, 영상 약 30초).</p></section>
+  <div class="sc" id="scenes"></div><p class="help">누르면 그 시각·위치로 컷이 추가됩니다(구역 32×18 m, 영상 약 30초).</p></details></section>
  <section class="pn f" aria-label="내보내기"><h2>내보내기</h2>
   <div class="r"><span class="l">버전</span><div class="vers" id="vers"></div></div>
   <div class="r"><label for="res">해상도</label><select id="res"><option value="1280x720">1280 × 720</option><option value="1920x1080" selected>1920 × 1080</option></select></div>
   <div class="r"><label for="fps">프레임</label><select id="fps"><option value="15">15 fps</option><option value="30" selected>30 fps</option></select></div>
   <div class="r"><label for="out">파일</label><select id="out"><option value="each+joined">컷마다 따로 + 이어 붙인 1개</option><option value="joined">이어 붙인 1개만</option><option value="each">컷마다 따로</option></select></div>
+  <details class="adv"><summary>고급(자막·대수·시드)</summary><div class="f">
   <div class="r"><span class="l">자막</span><div class="in"><label><input type="checkbox" id="capAll" checked> 컷 이름·시각·결론 수치</label></div></div>
   <div class="r"><label for="vdAll">대수 변경</label><div class="in"><input type="number" id="vdAll" min="-20" max="20" value="0" style="width:5.2em"><span class="u">대(모든 컷에 더함)</span></div></div>
   <div class="r"><span class="l">같은 대수</span><div><label class="in"><input type="checkbox" id="same"> 모든 버전 같은 대수(그룹별)</label><div class="in" id="sameBox" hidden></div></div></div>
   <div class="r"><label for="seed">시드</label><div class="in"><input type="number" id="seed" min="0" step="1" placeholder="비우면 기본" style="width:8em"><span class="u">기본 = 각 버전의 첫 시드(SeedBase), 모든 버전에 같은 값</span></div></div>
+  </div></details>
   <div><button type="button" class="primary" id="run">체크한 컷으로 영상 만들기</button></div>
   <div class="st" id="runMsg" role="status"></div></section>
 </div>
@@ -233,6 +237,8 @@ function applyView(){
   stage.classList.toggle('flat',!persp);
   $('hudTilt').textContent='기울기 '+tilt+'°';$('hudDir').textContent='방향 '+dirName(dir);$('hudPersp').textContent=persp?'원근 켬':'원근 끔';
   $('hudFlat').hidden=preview||!(tilt>0||dir!==0);
+  var vd=Math.round(num('vd')); // the folded settings stay readable on the summary line
+  $('advSum').textContent='· 기울기 '+tilt+'° · '+dirName(dir)+(persp?'':' · 원근 끔')+($('cap').checked?'':' · 자막 끔')+(vd?' · '+(vd>0?'+':'')+vd+'대':'');
 }
 function setPreview(on){preview=on;applyView();}
 function setTilt(v){tilt=Math.max(0,Math.min(70,Math.round(+v||0)));$('tilt').value=tilt;$('tiltN').value=tilt;applyView();calc();}
@@ -247,7 +253,7 @@ function layoutRect(){
 }
 function setKind(k,keep){kind=k;
   Array.prototype.forEach.call(document.querySelectorAll('[data-k]'),function(b){var on=b.dataset.k===k;b.classList.toggle('on',on);b.setAttribute('aria-pressed',on);});
-  $('holdSet').hidden=k==='Move';$('moveSet').hidden=k!=='Move';
+  $('holdSet').hidden=k==='Move';$('moveSet').hidden=k!=='Move';$('mB').hidden=k!=='Move'; // zone B only exists for a move
   if(k==='Whole'&&(!keep||!zones.A))zones.A=layoutRect(); // an edited Whole cut keeps its saved area
   if(k==='Move'&&!zones.B&&zones.A)zones.B={x:r2(zones.A.x+zones.A.w*1.3),y:zones.A.y,w:zones.A.w,h:zones.A.h};
   if(k!=='Move'&&mode==='B')setMode('A');
@@ -277,8 +283,7 @@ function endDrag(){if(drag&&drag.t==='size'){var z=zones[drag.k];if(!z||z.w*view
 stage.addEventListener('pointerup',endDrag);stage.addEventListener('pointercancel',endDrag);
 function zoom(f,p){p=p||{x:W/2,y:H/2};var X=mx(p.x),Y=my(p.y);view.s=Math.max(1e-4,Math.min(1e4,view.s*f));view.cx=X-(p.x-W/2)/view.s;view.cy=Y+(p.y-H/2)/view.s;drawAll();}
 stage.addEventListener('wheel',function(e){e.preventDefault();
-  if(e.ctrlKey){zoom(e.deltaY<0?1.25:0.8,preview&&(tilt>0||dir!==0)?null:local(e));return;}
-  setTilt(tilt+(e.deltaY>0?3:-3));setPreview(true);},{passive:false});
+  zoom(e.deltaY<0?1.25:0.8,preview&&(tilt>0||dir!==0)?null:local(e));},{passive:false});
 $('zIn').onclick=function(){zoom(1.25);};$('zOut').onclick=function(){zoom(0.8);};$('zFit').onclick=function(){if(dw){fit(dw.bounds);drawAll();}};
 $('flat').onclick=function(){setPreview(!preview);};
 $('mA').onclick=function(){setMode('A');};$('mB').onclick=function(){setMode('B');};$('mPan').onclick=function(){setMode('pan');};
@@ -289,7 +294,7 @@ Array.prototype.forEach.call($('dirs').children,function(b){b.onclick=function()
 $('dirN').onchange=function(){setDir(this.value);setPreview(true);};
 $('tilt').oninput=function(){setTilt(this.value);setPreview(true);};$('tiltN').onchange=function(){setTilt(this.value);setPreview(true);};
 $('speed').oninput=function(){setSpeed(Math.pow(600,this.value/1000));};$('speedN').onchange=function(){setSpeed(this.value);};
-$('persp').onchange=function(){persp=this.checked;applyView();};
+$('persp').onchange=function(){persp=this.checked;applyView();};$('cap').onchange=applyView;$('vd').oninput=applyView;
 ['dur','holdA','moveS','holdB','start'].forEach(function(id){$(id).oninput=calc;});
 function simSec(){return kind==='Move'?num('holdA')+num('moveS')+num('holdB'):num('dur');}
 function calc(){var s=simSec(),z=zones.A,b=zones.B,st=parseT($('start').value);
@@ -321,7 +326,7 @@ function cancelEdit(){editId=null;$('formTitle').textContent='새 컷';$('save')
 function edit(i){var c=cuts[i];editId=c.id;$('formTitle').textContent=(i+1)+'번 컷 수정';$('name').value=c.name;$('start').value=hms(c.startSec);
   zones.A=rect(c.a);zones.B=c.b?rect(c.b):null;setKind(c.kind,true);
   if(c.kind!=='Move')$('dur').value=c.holdSec;else{$('holdA').value=c.holdASec;$('moveS').value=c.moveSec;$('holdB').value=c.holdBSec;}
-  setSpeed(c.speed);setTilt(c.tiltDeg);setDir(c.dirDeg);persp=!!c.perspective;$('persp').checked=persp;$('cap').checked=!!c.caption;$('vd').value=c.vehicleDelta||0;
+  setSpeed(c.speed);setTilt(c.tiltDeg);setDir(c.dirDeg);persp=!!c.perspective;$('persp').checked=persp;$('cap').checked=!!c.caption;$('vd').value=c.vehicleDelta||0;applyView();
   $('save').textContent='수정 저장';$('cancel').hidden=false;setPreview(true);render();calc();say('');
   if(window.innerWidth<=1000)$('form').scrollIntoView({block:'start'});}
 
