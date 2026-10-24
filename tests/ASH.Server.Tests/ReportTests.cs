@@ -43,9 +43,10 @@ public class ReportTests
         Assert.Contains($"href=\"/analyses/{aid}/report\">✓ 보고서 받기", await env.Http.GetStringAsync($"/analyses/{aid}"));
     }
 
-    [Fact] public async Task Pptx_Opens_And_Has_A_Slide_Per_Section()
+    [Fact] public async Task Pptx_Opens_With_Sections_Charts_And_Appendix()
     {
         using var env = new JobEnv(); var (aid, jid) = await Make(env);
+        await env.WaitFinished(await env.SendFiled("라인 증설", "B안")); // a second plan: the 안별 비교 slide
         var res = await env.Http.GetAsync($"/analyses/{aid}/report.pptx?job={jid}");
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
         Assert.Equal("application/vnd.openxmlformats-officedocument.presentationml.presentation", res.Content.Headers.ContentType?.MediaType);
@@ -55,12 +56,29 @@ public class ReportTests
         var pp = doc.PresentationPart!;
         var slides = pp.Presentation.SlideIdList!.Elements<DocumentFormat.OpenXml.Presentation.SlideId>().Select(s => (SlidePart)pp.GetPartById(s.RelationshipId!)).ToList();
         string Text(SlidePart s) => string.Concat(s.Slide.Descendants<DocumentFormat.OpenXml.Drawing.Text>().Select(t => t.Text));
-        var titles = new[] { "라인 증설", "결론", "안별 결론", "그룹별 권장 대수", "자재별", "병목 지도", "영상" };
-        Assert.Equal(titles.Length, slides.Count);
-        for (int i = 0; i < titles.Length; i++) Assert.Contains(titles[i], Text(slides[i]));
-        Assert.Contains("권장 대수", Text(slides[1])); Assert.Contains("A안", Text(slides[2]));
-        Assert.Single(slides[6].ImageParts); // the film's thumbnail
-        Assert.Contains($"/films/{FilmId}", Text(slides[6]));
+        var texts = slides.Select(Text).ToList();
+
+        // cover (name + headline numbers), then the sections in order, the detail tables last
+        Assert.Contains("라인 증설", texts[0]); Assert.Contains("권장 대수", texts[0]); Assert.Contains("기준 버전  A안 v1", texts[0]);
+        int at = 0;
+        foreach (var label in new[] { "01 · 요약", "02 · 안별 비교", "· 그룹별 부하", "· 병목", "· 영상", "부록 · " })
+        {
+            at = texts.FindIndex(at, t => t.Contains(label));
+            Assert.True(at > 0, $"no slide '{label}' in order");
+        }
+        Assert.Contains("핵심 발견", texts[1]);
+        Assert.Contains($"2 / {slides.Count}", texts[1]); // footer: page n/N
+
+        // native charts with their data workbook: two on 안별 비교 (A안 and B안), one on 그룹별 부하
+        var compare = slides[texts.FindIndex(t => t.Contains("02 · 안별 비교"))];
+        Assert.Equal(2, compare.ChartParts.Count());
+        Assert.All(compare.ChartParts, c => Assert.Contains("B안", c.ChartSpace.InnerText));
+        Assert.Single(slides[texts.FindIndex(t => t.Contains("· 그룹별 부하"))].ChartParts);
+        Assert.All(slides.SelectMany(s => s.ChartParts), c => Assert.NotNull(c.EmbeddedPackagePart));
+
+        var film = slides[texts.FindIndex(t => t.Contains("· 영상"))];
+        Assert.Single(film.ImageParts); // the film's thumbnail
+        Assert.Contains(film.HyperlinkRelationships, h => h.Uri.ToString().EndsWith($"/films/{FilmId}", StringComparison.Ordinal));
     }
 
     [Fact] public async Task Unknown_Analysis_Is_404_And_No_Result_Says_So()
@@ -72,6 +90,4 @@ public class ReportTests
         Assert.Contains("결과가 나온 버전이 없습니다", await env.Http.GetStringAsync($"/analyses/{a.Id}/report"));
         Assert.Equal(HttpStatusCode.NotFound, (await env.Http.GetAsync($"/analyses/{a.Id}/report.pptx")).StatusCode);
     }
-
-    [Fact] public void Heat_Colour_Becomes_Hex() => Assert.Equal("E24B4A", ReportPptx.Hex(JobPages.Heat(1)));
 }

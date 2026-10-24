@@ -14,10 +14,14 @@ internal sealed record ReportTable(string[] Head, List<(string[] Cells, string C
 /// <summary>A finished film: its thumb.jpg on disk (null when missing) and the file a viewer opens (the joined film, else the first cut).</summary>
 internal sealed record ReportFilm(FilmInfo Film, string? Thumb, string Main);
 
+/// <summary>One bar of the PowerPoint's comparison: a plan's pick (or a version of the report's plan), its label and numbers.</summary>
+internal sealed record ReportPlan(string Label, JobInfo Job, AnalysisPages.Metrics M);
+
 /// <summary>Everything the report shows, worked out once for the HTML page and the PowerPoint: the version (?job=, else the analysis' pick),
-/// its numbers, the plans side by side, the group and material tables, the top-5 blocks by mean wait and the analysis' films.</summary>
+/// its numbers, the plans side by side, the group and material tables, the top-5 blocks by mean wait and the analysis' films.
+/// Compare = the plans' picks with results, or (fewer than two) the finished versions of the report's plan, ByPlan says which.</summary>
 internal sealed record ReportData(AnalysisInfo A, JobInfo Job, string Version, JobView View, List<ReportKpi> Kpis, ReportTable Plans, ReportTable Groups,
-    ReportTable Materials, List<BlockView> Top, List<ReportFilm> Films, IReadOnlyList<JobInfo> Done);
+    ReportTable Materials, List<BlockView> Top, List<ReportFilm> Films, IReadOnlyList<JobInfo> Done, List<ReportPlan> Compare, bool ByPlan);
 
 /// <summary>/analyses/{id}/report: the print-ready report (A4 landscape, a page per section, "PDF로 저장" = the browser's print), with the PowerPoint and Excel downloads.</summary>
 public static class ReportPages
@@ -54,11 +58,13 @@ public static class ReportPages
         // ---- 안별 결론: each plan's own pick, this version for its plan
         var priced = d.Prices is { Count: > 0 };
         var plans = new ReportTable(new[] { "안", "버전", "완료", "권장(대)", "최대 가동률(%)", "결품(초)" }.Concat(priced ? new[] { "투자비" } : Array.Empty<string>()).ToArray(), new());
+        var compare = new List<ReportPlan>();
         foreach (var p in a.Plans)
         {
             var pj = p.Id == cur.PlanId ? cur : AnalysisPages.Pick(d.Jobs.Where(j => j.PlanId == p.Id));
             var pm = pj == null ? null : pj.Id == cur.Id ? m : AnalysisPages.MetricsOf(d.Store, pj, d.Prices);
             if (pj == null || pm == null) { plans.Rows.Add((new[] { p.Name, "완료된 버전 없음", "", "-", "-", "-" }.Concat(priced ? new[] { "-" } : Array.Empty<string>()).ToArray(), "")); continue; }
+            compare.Add(new ReportPlan(p.Name, pj, pm));
             var ou = OverUtil(pm.Util, pm.View); var stop = !double.IsNaN(pm.Stop) && pm.Stop > 0;
             plans.Rows.Add((new[] { p.Name, $"v{pj.Version}{(pj.Selected ? " · 선정" : "")}", When(pj.FinishedUtc), pm.Total?.ToString(CultureInfo.InvariantCulture) ?? "-",
                     (ou ? "▲ " : "") + (double.IsNaN(pm.Util) ? "-" : F(pm.Util * 100, "0")), (stop ? "⚠ " : "") + (double.IsNaN(pm.Stop) ? "-" : F(pm.Stop, "0")) }
@@ -99,7 +105,11 @@ public static class ReportPages
         }
         // the same ranking as the bottleneck map's list (mean wait, positive only)
         var topBlocks = v.Blocks.Where(b => !double.IsNaN(b.AvgWaitSec) && b.AvgWaitSec > 0).OrderByDescending(b => b.AvgWaitSec).Take(5).ToList();
-        return new ReportData(a, cur, Version(a, cur), v, kpis, plans, groups, mats, topBlocks, films, done);
+        var byPlan = compare.Count >= 2;
+        if (!byPlan)
+            compare = done.Where(j => j.PlanId == cur.PlanId).Select(j => (j, jm: j.Id == cur.Id ? m : AnalysisPages.MetricsOf(d.Store, j, d.Prices)))
+                .Where(x => x.jm != null).Select(x => new ReportPlan($"v{x.j.Version}", x.j, x.jm!)).ToList();
+        return new ReportData(a, cur, Version(a, cur), v, kpis, plans, groups, mats, topBlocks, films, done, compare, byPlan);
     }
 
     // page-only CSS: the paper-width column on screen, A4 landscape when printed (no sidebar, a page per section, colours kept)
