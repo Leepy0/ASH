@@ -113,7 +113,8 @@ public static class LogicGenerator
             if (!string.IsNullOrEmpty(r.BufferCP))
             {
                 legs.Append(Leg(r.BufferCP!, mi));
-                legs.Append($"\twhile V_stock({mi}) > V_unload({mi}) do begin\n\t\twait for 5 sec\n\tend\n");
+                // waiting at the buffer for the stock to drop to the unload threshold has no set time in the input, so all of it is left out of busy time
+                legs.Append($"\tset A_hold to ac\n\twhile V_stock({mi}) > V_unload({mi}) do begin\n\t\twait for 5 sec\n\tend\n\tset A_hold to ac - A_hold\n");
             }
             legs.Append(Leg(r.SupplyToCP, mi));
             var ret = new StringBuilder();
@@ -155,7 +156,7 @@ public static class LogicGenerator
             snap.Append($"\tif V_samples({mi}) > 0 then set V_x to V_stockSum({mi}) / V_samples({mi})\n\telse set V_x to V_stock({mi})\n");
             snap.Append($"\tif V_samples({mi}) = 0 then set V_minStock({mi}) to V_stock({mi})\n");
             snap.Append($"\tset V_y to (V_simLen - V_warmup) / V_takt({mi}) * V_need({mi})\n");
-            snap.Append($"\tprint \"material\\t{m.Material}\\t{Lit(m.Group)}\\t\" V_minStock({mi}) \"\\t\" V_x \"\\t\" V_supplies({mi}) \"\\t\" V_y \"\\t\" V_stop({mi}) \"\\t\" V_consumed({mi}) \"\\t0\\t0\" to V_out\n");
+            snap.Append($"\tprint \"material\\t{m.Material}\\t{Lit(m.Group)}\\t\" V_minStock({mi}) \"\\t\" V_x \"\\t\" V_supplies({mi}) \"\\t\" V_y \"\\t\" V_stop({mi}) \"\\t\" V_consumed({mi}) \"\\t\" V_mDist({mi}) \"\\t\" V_mJobs({mi}) to V_out\n");
             // a leg still running at the end counts as stuck once it is over the limit
             foreach (var slot in new[] { mi, mi + nm })
                 snap.Append($"\tif V_inLeg({slot}) = 1 and ac - V_legStart({slot}) > V_deadlockSec then inc V_deadlock by 1\n");
@@ -261,13 +262,13 @@ public static class LogicGenerator
         foreach (var v in new[] { "V_simLen", "V_warmup", "V_x", "V_y" }) m.Vars.Add(new(v, "Real"));
         m.Vars.Add(new("V_deadlockSec", "Real", 0, "600"));
         foreach (var v in new[] { "V_active", "V_vehCount", "V_parked" }) m.Vars.Add(new(v, "Integer", gs));
-        foreach (var v in new[] { "V_pending", "V_samples", "V_supplies", "V_stopped" }) m.Vars.Add(new(v, "Integer", ms));
+        foreach (var v in new[] { "V_pending", "V_samples", "V_supplies", "V_stopped", "V_mJobs" }) m.Vars.Add(new(v, "Integer", ms));
         foreach (var v in new[] { "V_call", "V_unload", "V_stock", "V_safety", "V_takt", "V_perCycle", "V_perContainer", "V_need",
-                     "V_minStock", "V_stockSum", "V_stop", "V_stopSince", "V_consumed" })
+                     "V_minStock", "V_stockSum", "V_stop", "V_stopSince", "V_consumed", "V_mDist" })
             m.Vars.Add(new(v, "Real", ms));
         // leg slots: 1..nm supply legs, nm+1..2nm return legs
         m.Vars.Add(new("V_inLeg", "Integer", 2 * nm)); m.Vars.Add(new("V_legStart", "Real", 2 * nm));
-        foreach (var a in new[] { "A_tCall", "A_tPick", "A_ret", "A_fin", "A_rLast", "A_dLast", "A_rep" }) m.Atts.Add(new(a, "Real"));
+        foreach (var a in new[] { "A_tCall", "A_tPick", "A_ret", "A_fin", "A_rLast", "A_dLast", "A_rep", "A_hold" }) m.Atts.Add(new(a, "Real"));
         foreach (var a in new[] { "A_vid", "A_qty" }) m.Atts.Add(new(a, "Integer"));
         int vs = Math.Max(2, input.Groups.Sum(g => g.MaxCount));
         m.Vars.Add(new("V_vBusy", "Real", vs)); m.Vars.Add(new("V_vDist", "Real", vs)); m.Vars.Add(new("V_vJobs", "Integer", vs));

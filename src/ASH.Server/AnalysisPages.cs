@@ -172,7 +172,7 @@ public static class AnalysisPages
 .cg .col{display:flex;flex-direction:column;gap:14px;min-height:0}.cg .box{margin-top:0;display:flex;flex-direction:column;min-height:0}.cg .gbox{flex:1}
 .gl{flex:1;min-height:0;overflow:auto}
 .gr{display:grid;grid-template-columns:92px minmax(60px,1fr) 52px 66px;align-items:center;gap:10px;min-height:36px;padding:0 8px;border-bottom:1px solid var(--line);font-size:14px}
-.gr.g-over{--c:var(--red);background:var(--red-b);color:var(--red);border-radius:6px}.gr.g-under{--c:var(--gray);color:var(--sub2)}.gr.g-ok{--c:var(--blue)}
+.gr.g-fail{--c:var(--red);background:var(--red-b);color:var(--red);border-radius:6px}.gr.g-over{--c:var(--orange);background:var(--orange-b);color:var(--orange);border-radius:6px}.wn{color:var(--orange)}.gr.g-under{--c:var(--gray);color:var(--sub2)}.gr.g-ok{--c:var(--blue)}
 .gr .gn{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.gr .gb{position:relative;height:6px;border-radius:3px;background:var(--fill)}
 .gr .gb i{display:block;height:100%;border-radius:3px;background:var(--c)}.gr .gb b{position:absolute;top:-5px;bottom:-5px;width:2px;background:var(--ink);opacity:.55}
 .gr .gc{text-align:right;font-weight:700;font-size:17px}.gr .gc span,.pr .v b span{font-size:12px;font-weight:600}.gr .gu{text-align:right;font-size:13px;color:var(--c)}.gr.g-ok .gu{color:var(--sub2)}
@@ -311,15 +311,15 @@ public static class AnalysisPages
     /// <summary>Utilisation under this is "too much slack" (gray ▼).</summary>
     internal const double UnderUtil = 0.10;
 
-    /// <summary>"over" (red ▲: above UtilMax or judgement failed), "under" (gray ▼: below 10 %) or "ok" (blue).</summary>
+    /// <summary>"fail" (red ⚠: judgement failed), "over" (orange ▲ warning: above UtilMax), "under" (gray ▼: below 10 %) or "ok" (blue).</summary>
     internal static string GroupClass(GroupView g, double utilMax) =>
-        !g.AllOk || Over(g, utilMax) ? "over" : !double.IsNaN(g.Util) && g.Util < UnderUtil ? "under" : "ok";
+        !g.AllOk ? "fail" : Over(g, utilMax) ? "over" : !double.IsNaN(g.Util) && g.Util < UnderUtil ? "under" : "ok";
 
-    /// <summary>Groups with the problems first: over (busiest first), then under (idlest first), then the rest in input order.</summary>
+    /// <summary>Groups with the problems first: failed, over (busiest first), then under (idlest first), then the rest in input order.</summary>
     internal static List<GroupView> ProblemsFirst(IEnumerable<GroupView> groups, double utilMax) =>
         groups.Select((g, i) => (g, i, c: GroupClass(g, utilMax)))
-            .OrderBy(x => x.c == "over" ? 0 : x.c == "under" ? 1 : 2)
-            .ThenBy(x => x.c == "over" ? -x.g.Util : x.c == "under" ? x.g.Util : x.i)
+            .OrderBy(x => x.c == "fail" ? 0 : x.c == "over" ? 1 : x.c == "under" ? 2 : 3)
+            .ThenBy(x => x.c is "fail" or "over" ? -x.g.Util : x.c == "under" ? x.g.Util : x.i)
             .Select(x => x.g).ToList();
 
     /// <summary>"1.4억", "3,500만", or the plain amount (with the currency when it is not KRW).</summary>
@@ -368,8 +368,8 @@ public static class AnalysisPages
             diff is < 0 ? "green" : ""));
         var top = v.Groups.Where(g => !double.IsNaN(g.Util)).OrderByDescending(g => g.Util).FirstOrDefault();
         var over = top != null && Over(top, v.UtilMax);
-        sb.Append(Kpi("최대 가동률", top == null ? "-" : F(top.Util * 100, "0"), top == null ? "" : "%", over ? "red" : "ink",
-            top == null ? "" : over ? $"▲ 상한 {F(v.UtilMax * 100, "0")}% 초과 · {H(top.Group)}" : $"✓ 상한 {F(v.UtilMax * 100, "0")}% 이하 · {H(top.Group)}", over ? "red" : ""));
+        sb.Append(Kpi("최대 가동률", top == null ? "-" : F(top.Util * 100, "0"), top == null ? "" : "%", over ? "orange" : "ink",
+            top == null ? "" : over ? $"⚠ 경고: 상한 {F(v.UtilMax * 100, "0")}% 초과 · {H(top.Group)}" : $"✓ 상한 {F(v.UtilMax * 100, "0")}% 이하 · {H(top.Group)}", over ? "orange" : ""));
         var stop = m.Stop;
         sb.Append(double.IsNaN(stop) ? Kpi("결품", "-", "", "ink", "")
             : stop <= 0 ? Kpi("결품", "0", "초", "ink", "✓ 없음", "green") : Kpi("결품", F(stop, "0"), "초", "red", "⚠ 결품 있음", "red"));
@@ -391,14 +391,14 @@ public static class AnalysisPages
         foreach (var g in groups)
         {
             var c = GroupClass(g, v.UtilMax);
-            var sym = c == "over" ? (g.AllOk ? "▲ " : "⚠ ") : c == "under" ? "▼ " : "";
+            var sym = c == "fail" ? "⚠ " : c == "over" ? "▲ " : c == "under" ? "▼ " : "";
             var w = double.IsNaN(g.Util) ? 0 : Math.Clamp(g.Util, 0, 1);
-            var tip = $"{g.Group} · {g.Type} · 범위 {g.Min}~{g.Max}대" + (g.AllOk ? "" : " · 실패: " + g.Reason);
+            var tip = $"{g.Group} · {g.Type} · 범위 {g.Min}~{g.Max}대" + (c == "fail" ? " · 실패: " + g.Reason : c == "over" ? " · 경고: 가동률 초과" : "");
             sb.Append($"<div class=\"gr g-{c}\" title=\"{H(tip)}\"><span class=\"gn\">{H(g.Group)}</span><span class=\"gb\"><i style=\"width:{F(w * 100, "0.#")}%\"></i><b style=\"left:{tick}%\"></b></span>" +
                 $"<span class=\"gc\">{g.Decided?.ToString(CultureInfo.InvariantCulture) ?? "-"}<span>대</span></span><span class=\"gu\">{sym}{Pc0(g.Util)}</span></div>");
         }
-        int nOver = groups.Count(g => GroupClass(g, v.UtilMax) == "over"), nUnder = groups.Count(g => GroupClass(g, v.UtilMax) == "under");
-        sb.Append($"</div><div class=\"lg\"><span class=\"c-red\"><i></i>상한 {F(v.UtilMax * 100, "0")}% 초과 {nOver}</span><span class=\"c-blue\"><i></i>적정 {groups.Count - nOver - nUnder}</span>" +
+        int nFail = groups.Count(g => GroupClass(g, v.UtilMax) == "fail"), nOver = groups.Count(g => GroupClass(g, v.UtilMax) == "over"), nUnder = groups.Count(g => GroupClass(g, v.UtilMax) == "under");
+        sb.Append($"</div><div class=\"lg\">{(nFail > 0 ? $"<span class=\"c-red\"><i></i>실패 {nFail}</span>" : "")}<span class=\"c-orange\"><i></i>경고: 상한 {F(v.UtilMax * 100, "0")}% 초과 {nOver}</span><span class=\"c-blue\"><i></i>적정 {groups.Count - nFail - nOver - nUnder}</span>" +
             $"<span class=\"c-gray\"><i></i>10% 미만 {nUnder}</span></div></section>");
 
         // ---- 안별 결론
@@ -414,7 +414,7 @@ public static class AnalysisPages
             sb.Append($"<a class=\"pr{(pj.Id == cur.Id ? " on" : "")}\" href=\"?tab=conclusion&amp;job={H(pj.Id)}\"{(pj.Id == cur.Id ? " aria-current=\"true\"" : "")}>" +
                 $"<span class=\"pn\"><b>{H(p.Name)} v{pj.Version}{(pj.Selected ? " · 선정" : "")}</b><span>{Md(At(pj))}</span></span>" +
                 V(pm?.Total?.ToString(CultureInfo.InvariantCulture) ?? "-", "대", "권장", pj.Id == cur.Id ? "blue" : "") +
-                V(double.IsNaN(pu) ? "-" : F(pu * 100, "0"), "%", "가동률", pm != null && pu > pm.View.UtilMax ? "red" : "") +
+                V(double.IsNaN(pu) ? "-" : F(pu * 100, "0"), "%", "가동률", pm != null && pu > pm.View.UtilMax ? "orange" : "") +
                 V(double.IsNaN(ps) ? "-" : F(ps, "0"), "초", "결품", double.IsNaN(ps) ? "" : ps > 0 ? "red" : "green") +
                 (priced ? V(pm?.Investment is { AnyPriced: true } pi ? H(Money(pi.Total, pi.Currency)) : "-", "", "투자비") : "") + "</a>");
         }
@@ -554,7 +554,7 @@ public static class AnalysisPages
                 if (j.State == JobState.Failed) sb.Append($"<span class=\"state s-failed\">⚠ 실패</span><span class=\"bad\">{H((j.Error ?? "").Split('\n')[0].Trim())}</span>");
                 else if (!j.Finished || j.State == JobState.Cancelled) sb.Append(State(j));
                 else if (m?.Total is { } t)
-                    sb.Append($"<b>{t}대</b><span class=\"{(m.Util > m.View.UtilMax ? "bad" : "")}\">가동률 {Pc0(m.Util)}</span><span class=\"{(m.Stop > 0 ? "bad" : "")}\">결품 {(double.IsNaN(m.Stop) ? "-" : Num(m.Stop, "0"))}초</span>");
+                    sb.Append($"<b>{t}대</b><span class=\"{(m.Util > m.View.UtilMax ? "wn" : "")}\">{(m.Util > m.View.UtilMax ? "⚠ " : "")}가동률 {Pc0(m.Util)}</span><span class=\"{(m.Stop > 0 ? "bad" : "")}\">결품 {(double.IsNaN(m.Stop) ? "-" : Num(m.Stop, "0"))}초</span>");
                 sb.Append($"<span class=\"t4\">{H(When(j.CreatedUtc))} · {H(j.Submitter)}{(j.VersionNote.Length > 0 ? " · " + H(j.VersionNote) : "")}</span><span class=\"sp\"></span>");
                 sb.Append(FileRoutes.ContinueLink(j)).Append(SelectForm(j, back)).Append($"<a class=\"btn\" href=\"/jobs/{H(j.Id)}\">열기</a></div>");
             }

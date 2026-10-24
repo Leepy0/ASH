@@ -169,7 +169,7 @@ public static class SearchStrategy
             var bump = v.Where(x => !x.Value.Ok && cur[x.Key] < byName[x.Key].MaxCount).Select(x => x.Key).ToList();
             if (round >= opts.MaxConfirmRounds || bump.Count == 0)
             {
-                foreach (var f in v.Where(x => !x.Value.Ok)) warnings.Add($"{f.Key}: 확인 실패 ({cur[f.Key]}대): {f.Value.Reason}");
+                foreach (var f in v.Where(x => !x.Value.Ok)) warnings.Add($"{f.Key}: {(f.Value.Rule == RuleCode.Utilization ? "확인 경고" : "확인 실패")} ({cur[f.Key]}대): {f.Value.Reason}");
                 break;
             }
             foreach (var g in bump) cur[g]++;

@@ -99,7 +99,8 @@ public class ModelRunIntegrationTests
         Assert.Equal("kind\tname\tgroup\tvalue1\tvalue2\tvalue3\tvalue4\tvalue5\tvalue6\tvalue7\tvalue8", run.Tsv.Split('\n')[0].TrimEnd('\r'));
         var mats = run.Rows.Where(x => x[0] == "material").ToList();
         Assert.Equal(new[] { "M1", "M2" }, mats.Select(x => x[1]));
-        Assert.All(mats, x => { Assert.Equal(11, x.Length); Assert.True(V(x, 3) > 0, "supplies"); Assert.True(V(x, 4) > 0, "expected"); });
+        Assert.All(mats, x => { Assert.Equal(11, x.Length); Assert.True(V(x, 3) > 0, "supplies"); Assert.True(V(x, 4) > 0, "expected");
+            Assert.True(V(x, 7) > 0, "supply jobs' distance"); Assert.True(V(x, 8) > 0, "supply jobs"); });
         var blk = run.Rows.Single(x => x[0] == "block" && x[1] == "B_x1");
         Assert.True(V(blk, 1) > 0, "block passes"); // first real check of the 1x1 block template geometry
         Assert.Equal(3600, V(run.Rows.Single(x => x[0] == "clock"), 2), 3);
@@ -108,6 +109,12 @@ public class ModelRunIntegrationTests
         var veh = run.Rows.Where(x => x[0] == "vehicle").ToList();
         Assert.Equal(3, veh.Count);
         Assert.All(veh, x => { Assert.Equal(11, x.Length); Assert.Equal(0, V(x, 6)); }); // no MTBF: no repair time
+        // the sample's vehicle waits at the buffer B001 for the unload threshold (pickup -> delivered is mostly that hold), which is not busy time:
+        // a whole job's busy time stays under the pickup -> delivered span alone
+        var tug = veh.Single(x => x[1] == "Tug1"); var st = run.Rows.Single(x => x[0] == "matstat" && x[1] == "M1");
+        Assert.True(V(tug, 1) / V(tug, 3) < V(st, 3) - V(st, 1), $"busy/job {V(tug, 1) / V(tug, 3):0} s vs pickup->delivered {V(st, 3) - V(st, 1):0} s");
+        Assert.Equal(V(tug, 3), mats.Sum(x => V(x, 8)));                    // the materials' supply jobs are the vehicle's jobs
+        Assert.Equal(V(tug, 2), mats.Sum(x => V(x, 7)), 3);                 // and so is their distance
         Assert.DoesNotContain("ASH:", File.ReadAllText(Path.Combine(run.Result.RunDir, Model + ".message"))); // Debug=0: no logic prints
         Cleanup(run.Work); // kept on failure for inspection
     }

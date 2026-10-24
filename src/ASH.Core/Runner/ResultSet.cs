@@ -2,13 +2,15 @@ using System.Collections.Generic;
 
 namespace ASH.Core.Runner;
 
-/// <summary>Supplies = deliveries after warmup; Consumed = containers consumed after warmup (value6); Expected = theoretical consumption.</summary>
+/// <summary>Supplies = deliveries after warmup; Consumed = containers consumed after warmup (value6); Expected = theoretical consumption.
+/// The raw row also carries value7 = distance and value8 = count of the material's supply jobs (0 in models built before them).</summary>
 public sealed record MaterialResult(string Name, string Group, double MinStock, double AvgStock, int Supplies, double Expected, double StopTimeSec,
     double Consumed);
 public sealed record GroupResult(string Group, int ActiveCount);
 public sealed record BlockResult(string Name, double Passes, double AvgWaitSec, double MaxWaitSec, double Utilization);
 
-/// <summary>vehicle row: busy seconds (pickup run + job until the Finish CP / standby arrival, repairs during a job included), distance, jobs,
+/// <summary>vehicle row: busy seconds (pickup run + job until the Finish CP / standby arrival, repairs during a job included, the wait at a buffer
+/// for the unload threshold left out), distance, jobs,
 /// the measured window, index within the group, repair seconds (MTBF/MTTR breakdowns). All after warmup, as the logic keeps them (AutoMod's own
 /// vehicle states mean nothing once the load rides along the whole job).</summary>
 public sealed record VehicleResult(string Name, string Group, double BusySec, double Distance, int Jobs, double WindowSec, int Index, double DownSec = 0);
