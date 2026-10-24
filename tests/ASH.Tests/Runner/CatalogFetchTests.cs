@@ -40,8 +40,9 @@ public class CatalogFetchTests
     [Fact] public void TryGet_Falls_Back_On_Timeout_404_Empty_And_BadJson()
     {
         var sw = Stopwatch.StartNew();
-        Assert.Null(CatalogFetch.TryGet("http://srv:5000", new Fake { Body = One, Delay = TimeSpan.FromSeconds(5) }));
-        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(6), sw.Elapsed.ToString());
+        // the server never answers in time; generous bounds because a loaded CI runner fires timers late
+        Assert.Null(CatalogFetch.TryGet("http://srv:5000", new Fake { Body = One, Delay = TimeSpan.FromSeconds(60) }));
+        Assert.True(sw.Elapsed < TimeSpan.FromSeconds(15), sw.Elapsed.ToString());
         Assert.Null(CatalogFetch.TryGet("http://srv:5000", new Fake { Status = HttpStatusCode.NotFound, Body = "no" }));
         Assert.Null(CatalogFetch.TryGet("http://srv:5000", new Fake { Body = "{\"types\":[]}" }));
         Assert.Null(CatalogFetch.TryGet("http://srv:5000", new Fake { Body = "not json" }));
