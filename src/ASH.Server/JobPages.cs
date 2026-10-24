@@ -168,10 +168,65 @@ document.querySelectorAll('table.sort').forEach(function(t){
     {
         var side = new StringBuilder("<nav class=\"side\" aria-label=\"메뉴\"><a href=\"/\" class=\"logo\" aria-label=\"ASH 홈\">ASH</a>");
         foreach (var n in Nav) side.Append(NavLink(n.Key, n.Label, n.Href, nav));
-        side.Append(NavLink("admin", "관리", "/admin/settings", nav, "end")).Append("</nav>");
+        side.Append(Bell).Append(NavLink("admin", "관리", "/admin/settings", nav, "end")).Append("</nav>");
         return "<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" + H(title) + "</title>" +
-            "<style>" + Css + NavCss + "</style></head><body>" + side + "<main" + (fill ? " class=\"fillpage\"" : "") + ">" + body + "</main>" + script + "</body></html>";
+            "<style>" + Css + NavCss + NotifyCss + "</style></head><body>" + side + "<main" + (fill ? " class=\"fillpage\"" : "") + ">" + body + "</main>" + NotifyScript + script + "</body></html>";
     }
+
+    /// <summary>Sidebar bell above 관리: the only place that asks for notification permission (never on load). The script sets its state, label and tooltip.</summary>
+    const string Bell = "<button type=\"button\" id=\"bell\" class=\"bell\" aria-label=\"알림\" title=\"알림\"><i aria-hidden=\"true\"></i><span id=\"bell-t\">알림</span></button>";
+
+    const string NotifyCss = @".side .bell{all:unset;box-sizing:border-box;display:flex;align-items:center;gap:12px;height:40px;padding:0 6px;border-radius:8px;color:var(--ink);cursor:pointer;white-space:nowrap;font-size:14px;margin-top:auto}
+.side .bell+.end{margin-top:0}.side .bell:hover{background:#dedee2}.side .bell:focus-visible{outline:3px solid var(--blue);outline-offset:-1px}
+.side .bell span{opacity:0;transition:opacity .1s}.side:hover .bell span,.side:focus-within .bell span{opacity:1}
+.side .bell i{width:28px;height:28px;border-radius:7px;flex:none;background:#8e8e93 url(""data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='white'%3E%3Cpath d='M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z'/%3E%3C/svg%3E"") center/16px no-repeat}
+.side .bell[data-s=granted] i,.side .bell[data-s=insecure] i{background-color:var(--green)}.side .bell[data-s=denied] i{background-color:var(--red)}
+#toasts{position:fixed;top:12px;right:12px;z-index:100;display:flex;flex-direction:column;gap:8px;max-width:360px}
+#toasts a,#toasts div{display:block;background:var(--ink);color:#fff;padding:10px 14px;border-radius:10px;text-decoration:none;font-size:14px;box-shadow:0 4px 18px rgba(0,0,0,.25)}#toasts b{display:block}";
+
+    /// <summary>Every 30 s (and when the tab shows) asks /api/me/events for my jobs/films that ended since the last look and tells the user:
+    /// a Notification where the browser allows it (secure context + permission granted), else an in-page toast and a "(n)" in the title.
+    /// The last seen server time lives in localStorage so a reload repeats nothing; the first visit starts from now. Texts go in with textContent only. Texts go in with textContent only. No literal fetch( here: page tests use that to tell "nothing to poll".</summary>
+    internal const string NotifyScript = @"<div id=""toasts"" role=""status"" aria-live=""polite""></div><script>
+(function(){
+  var get=window.fetch, KEY='ash.notify.since', mem=null, unread=0, base=document.title, bell=document.getElementById('bell'), bt=document.getElementById('bell-t'), box=document.getElementById('toasts');
+  var native=('Notification' in window)&&window.isSecureContext;
+  function ls(v){ try{ if(v===undefined) return localStorage.getItem(KEY); localStorage.setItem(KEY,v); }catch(e){} return null; }
+  function perm(){ return native?Notification.permission:'insecure'; }
+  var TXT={'default':['알림 켜기','클릭하면 브라우저 알림을 허용할지 묻습니다. 내 작업·영상이 끝나거나 실패하면 다른 탭을 보고 있어도 알려 드립니다.'],
+    granted:['알림 켜짐 ✓','내 작업·영상이 끝나거나 실패하면 브라우저 알림으로 알려 드립니다(ASH 화면이 한 곳이라도 열려 있어야 합니다).'],
+    denied:['알림 차단됨','브라우저에서 차단되어 있습니다. 주소창 왼쪽 자물쇠(사이트 설정) → 알림 → 허용으로 바꾼 뒤 새로 읽어 주세요.'],
+    insecure:['화면 안 알림','이 주소(http)에서는 브라우저 알림을 쓸 수 없어, 열려 있는 ASH 화면 안에 알려 드립니다. https 또는 localhost 주소에서는 브라우저 알림을 쓸 수 있습니다.']};
+  function paint(){ var p=perm(), t=TXT[p]||TXT['default']; bell.setAttribute('data-s',p); bt.textContent=t[0]; bell.title=t[1]; bell.setAttribute('aria-label',t[0]+'. '+t[1]); }
+  function toast(e){
+    var el=document.createElement(e.href?'a':'div'), b=document.createElement('b');
+    if(e.href) el.href=e.href;
+    b.textContent=e.title; el.appendChild(b); if(e.body) el.appendChild(document.createTextNode(e.body));
+    box.appendChild(el); setTimeout(function(){ el.remove(); },10000);
+  }
+  function show(e){
+    if(native&&Notification.permission==='granted'){
+      var n=new Notification(e.title,{body:e.body,tag:e.tag});
+      n.onclick=function(){ window.focus(); n.close(); location.href=e.href; };
+      return;
+    }
+    toast(e);
+    if(document.hidden){ unread++; document.title='('+unread+') '+base; }
+  }
+  function tick(){
+    var s=ls()||mem;
+    get.call(window,'/api/me/events'+(s?'?since='+encodeURIComponent(s):''),{cache:'no-store'}).then(function(r){ if(!r.ok) throw 0; return r.json(); }).then(function(d){
+      mem=d.now; ls(d.now); (d.events||[]).forEach(show);
+    }).catch(function(){});
+  }
+  bell.addEventListener('click',function(){
+    if(native&&Notification.permission==='default'){ var r=Notification.requestPermission(); if(r&&r.then) r.then(paint); }
+    else toast({title:bt.textContent,body:bell.title});
+  });
+  document.addEventListener('visibilitychange',function(){ if(!document.hidden){ unread=0; document.title=base; tick(); } });
+  paint(); setInterval(tick,30000); tick();
+})();
+</script>";
 
 
     /// <summary>Polls <paramref name="url"/> every 10 s and sets the data-field/data-bar/data-state elements (textContent only); shows #reload-bar when a watched job/film ends.</summary>

@@ -206,6 +206,7 @@ app.MapAssets();
 app.MapFiles();
 app.MapFilms();
 app.MapAdminFs();
+app.MapNotify();
 
 app.Run();
 return 0;
