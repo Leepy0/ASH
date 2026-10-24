@@ -4,9 +4,69 @@ using InSettings = ASH.Core.Input.Settings;
 
 namespace ASH.Tests.Input;
 
+[Xunit.Collection("ExcelTemplateStatics")]
 public class ExcelRoundTripTests
 {
     static string Tmp() => Path.Combine(Path.GetTempPath(), "ash_" + Guid.NewGuid().ToString("N") + ".xlsx");
+
+    static readonly string[] TypeCols = { "Type", "Category", "SpeedLoaded", "SpeedLoadedCurve", "SpeedEmpty", "SpeedEmptyCurve", "Accel", "Decel", "Capacity", "LoadTime", "UnloadTime", "MTBF", "MTTR", "Length", "Width", "Color", "Kind", "Asset" };
+
+    [Fact]
+    public void Template_Has_Curve_Category_Asset_Columns_In_Order()
+    {
+        var path = Tmp();
+        try
+        {
+            ExcelTemplate.Write(path);
+            using var wb = new XLWorkbook(path);
+            var ws = wb.Worksheet("AGV_Types");
+            for (int c = 0; c < TypeCols.Length; c++) Assert.Equal(TypeCols[c], ws.Cell(1, c + 1).GetString());
+            Assert.Equal("", ws.Cell(1, TypeCols.Length + 1).GetString());
+            Assert.NotEqual("", ws.Cell(2, TypeCols.Length).GetString());
+            Assert.Equal("", ws.Cell(2, TypeCols.Length + 1).GetString());
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Read_Without_Curve_Columns_Gives_Null_Curve()
+    {
+        var path = Tmp();
+        try
+        {
+            ExcelTemplate.Write(path);
+            using (var wb = new XLWorkbook(path))
+            {
+                var ws = wb.Worksheet("AGV_Types");
+                foreach (var name in new[] { "Asset", "SpeedEmptyCurve", "SpeedLoadedCurve", "Category" })
+                    ws.Column(Array.IndexOf(TypeCols, name) + 1).Delete();
+                wb.Save();
+            }
+            var t = ExcelReader.Read(path).AgvTypes[0];
+            Assert.Null(t.SpeedLoadedCurve); Assert.Null(t.SpeedEmptyCurve);
+            Assert.Equal("", t.Category); Assert.Equal("", t.Asset);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Read_Curve_Dash_Or_Blank_Is_Null_And_Number_Is_Kept()
+    {
+        var path = Tmp();
+        try
+        {
+            ExcelTemplate.Write(path);
+            using (var wb = new XLWorkbook(path))
+            {
+                var ws = wb.Worksheet("AGV_Types");
+                ws.Cell(3, 4).Value = "-"; ws.Cell(3, 6).Value = "0.7";
+                wb.Save();
+            }
+            var t = ExcelReader.Read(path).AgvTypes[0];
+            Assert.Null(t.SpeedLoadedCurve); Assert.Equal(0.7, t.SpeedEmptyCurve);
+        }
+        finally { File.Delete(path); }
+    }
 
     [Fact]
     public void Template_Then_Read_RoundTrips_Defaults()

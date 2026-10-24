@@ -223,6 +223,10 @@ sc start ASH.Server
 
 교체한 뒤(자동이든 수동이든) 설정 페이지에서 새 버전이 보이는지 확인한다(서명 키를 다시 쓰는 경우에는 **서명 키 ID가 교체 전과 같은지**도 본다. 다르면 새 exe가 다른 `update-key.pub`로 빌드된 것이니 되돌린다). 손으로 되돌릴 때는 서비스를 멈추고 `ASH.Server.exe.old`를 `ASH.Server.exe`로 바꾼 뒤 시작한다.
 
+### 에셋: 차량 그림 (0.22.0)
+
+`/admin/types`의 에셋 절에서 타입마다 3D 파일(STL 또는 OBJ)을 올리면 서버가 부품별 상자로 단순화해 AutoMod `.cel`과 미리보기를 만든다. 올릴 수 있는 크기는 `Catalog:AssetMaxMb`(기본 50)다. STEP(`.stp`/`.step`)은 서버에 변환기가 없으니 CAD에서 STL로 내보내 올린다. 플러그인의 `AGVEXCEL`이 만드는 입력 파일에는 `AGV_Types`의 Asset 열 드롭다운용 숨김 `_lists` 시트가 생기며, Asset을 비우면 기본 차량 그림(Length×Width 상자)을 쓴다. 결과 화면 입력 탭의 AGV 타입 표에 타입별 에셋 이름이 보인다. 확인 항목은 `docs/plugin-manual-test.md`의 AS1~AS7.
+
 ### 영상 촬영 (ffmpeg·AutoView, 0.19.0)
 
 웹의 컷 편집기(`/analyses/{id}/cuts`)에서 내보낸 영상은 서버가 작업 사이에 만든다(컷마다 AutoView 한 번 → ffmpeg로 자막·이어 붙이기 → MP4 yuv420p faststart). 서버 PC에 아래가 필요하다. 없으면 영상만 실패하고 작업 실행은 영향이 없다.

@@ -6,6 +6,7 @@ using Xunit;
 
 namespace ASH.Tests.Input;
 
+[Xunit.Collection("ExcelTemplateStatics")]
 public class KindAndFormTests
 {
     static readonly string[] Cps = { "S", "L", "U" };
@@ -72,7 +73,7 @@ public class KindAndFormTests
             ExcelTemplate.Write(path);
             using (var wb = ExcelReader.Open(path))
             {
-                wb.Worksheet("AGV_Types").Column(14).Delete();  // Kind
+                wb.Worksheet("AGV_Types").Column(17).Delete();  // Kind
                 wb.Worksheet("Materials").Column(15).Delete();  // Form
                 wb.Save();
             }

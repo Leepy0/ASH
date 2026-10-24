@@ -8,6 +8,7 @@ using Xunit;
 
 namespace ASH.Tests.Input;
 
+[Xunit.Collection("ExcelTemplateStatics")]
 public class CellDumpTests
 {
     static string Tmp(string ext) => Path.Combine(Path.GetTempPath(), "dump-" + Guid.NewGuid().ToString("N") + ext);

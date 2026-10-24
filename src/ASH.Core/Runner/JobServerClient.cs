@@ -7,6 +7,7 @@ using System.Runtime.Serialization.Json;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using ASH.Core.Catalog;
 
 namespace ASH.Core.Runner;
 
@@ -94,6 +95,12 @@ public sealed class JobServerClient : IDisposable
         return ParseAnalyses(await ReadOk(r).ConfigureAwait(false));
     }
 
+    public async Task<CatalogTypes> GetCatalogTypesAsync(CancellationToken ct = default)
+    {
+        using var r = await _http.GetAsync(new Uri(_base, "api/catalog/types"), ct).ConfigureAwait(false);
+        return ParseCatalog(await ReadOk(r).ConfigureAwait(false));
+    }
+
     public async Task<JobReceipt> SubmitAsync(string zipPath, JobSubmission job, CancellationToken ct = default)
     {
         using var form = new MultipartFormDataContent();
@@ -121,6 +128,9 @@ public sealed class JobServerClient : IDisposable
 
     /// <exception cref="InvalidDataException">Not the expected JSON.</exception>
     public static QueueInfo ParseQueue(string json) => Parse<QueueInfo>(json);
+
+    /// <exception cref="InvalidDataException">Not the expected JSON.</exception>
+    public static CatalogTypes ParseCatalog(string json) => Parse<CatalogTypes>(json);
 
     /// <exception cref="InvalidDataException">Not the expected JSON.</exception>
     public static IReadOnlyList<AnalysisSummary> ParseAnalyses(string json)

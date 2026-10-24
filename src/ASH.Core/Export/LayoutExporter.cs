@@ -166,8 +166,11 @@ public static class LayoutExporter
                 t = Regex.Replace(t, @"^(\s*brakedist\s+[01] )\S+ Feet", "${1}" + brake + " " + o.Units);
                 t = Regex.Replace(t, @"^(\s*stopdist\s+[01] )\S+ Feet", "${1}" + stop + " " + o.Units);
                 // the Empty line (retrieving, parking) runs at SpeedEmpty instead of inheriting the loaded speed
-                if (emptySpeed) t = Regex.Replace(t, @"^(\s*(?:vel|crvvel|sprvel|rvel|rcrvvel|rsprvel|crabvel)\s+)1 0 Feet( Seconds)", "${1}0 " + N(g.SpeedEmpty * upm) + " " + o.Units + "${2}");
-                s.VehicleLines.Add(Regex.Replace(t, @"^(\s*(?:vel|crvvel|sprvel|rvel|rcrvvel|rsprvel|crabvel)\s+0 )3 Feet( Seconds)", "${1}" + speed + " " + o.Units + "${2}"));
+                if (emptySpeed) t = Regex.Replace(t, @"^(\s*(?:vel|sprvel|rvel|rsprvel|crabvel)\s+)1 0 Feet( Seconds)", "${1}0 " + N(g.SpeedEmpty * upm) + " " + o.Units + "${2}");
+                // arc lines (crvvel, rcrvvel) take the curve speed when set, else the straight rule above
+                if (g.SpeedEmptyCurve > 0 || emptySpeed) t = Regex.Replace(t, @"^(\s*(?:crvvel|rcrvvel)\s+)1 0 Feet( Seconds)", "${1}0 " + N((g.SpeedEmptyCurve > 0 ? g.SpeedEmptyCurve : g.SpeedEmpty) * upm) + " " + o.Units + "${2}");
+                t = Regex.Replace(t, @"^(\s*(?:crvvel|rcrvvel)\s+0 )3 Feet( Seconds)", "${1}" + N((g.SpeedCurve > 0 ? g.SpeedCurve : g.Speed) * upm) + " " + o.Units + "${2}");
+                s.VehicleLines.Add(Regex.Replace(t, @"^(\s*(?:vel|sprvel|rvel|rsprvel|crabvel)\s+0 )3 Feet( Seconds)", "${1}" + speed + " " + o.Units + "${2}"));
             }
         }
         return s;

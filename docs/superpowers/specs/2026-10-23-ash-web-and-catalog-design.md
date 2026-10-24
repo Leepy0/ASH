@@ -292,6 +292,109 @@ A·B·C·D는 파일이 거의 겹치지 않아 병렬로 간다. 겹치는 곳�
 
 ## 관문 결과
 
+### B-G1 곡선 속도 (2026-10-23)
+
+- **실행:** 데모 `agvdemo.arc`를 `base`·`slow` 두 벌로 복사. `slow`만 `agv.asy`의 `AGVSVEH … load Default` 블록에서 `crvvel`·`rcrvvel`을 `0 3` → `0 0.3 Feet Seconds`로 바꿈(`vel` 등 나머지 그대로, snap 8 h). 각각 `am264.exe -bq agvdemo` 후 `agvdemo.exe -w`. 두 `.message` 모두 "Simulation complete".
+- **수치(base → slow):** 호 구간 평균 통과 시간 path15 1.95 → 15.69 s(호 길이 4.71 ft ÷ 0.3 ft/s = 15.7 s), path20 4.02 → 36.95 s(11.0 ft ÷ 0.3 = 36.7 s). 직선 path12 18.56 → 20.04 s(혼잡 차이만). 처리량 `Tthroughput` 평균 127.75 → 72.38 /h, 배송 1025 → 581회, 배송 평균 시간 31.39 → 50.50 s.
+- **판정: 통과.** 차량 타입별 `crvvel`이 호 구간에서만 속도를 정확히 제한한다. → **Task 9A 실행, 9B 생략.**
+
+### C-G1 `.cel` 도형 필드 (2026-10-23, 정적 분석)
+
+**판정: 상자(310) 확정. 원기둥(320/350/360 계열)은 파일만 보고 해독(가설)했고 AM 편집기로는 확인하지 않음. 사용 기준으로는 미해독.** 같은 시각에 다른 관문 작업이 AutoMod를 돌리고 있어서 편집기 대조(브리프 Step 2)는 하지 않았다. 동시 실행은 서로 간섭한다. 근거 파일은 `C:\AutoMod\12_6\demos\graphics\cell\*.cel`(24개)이고, 아래 `파일:줄`은 이 폴더 기준이다.
+
+타입 빈도(24개 파일): 310 408, 700 230, 351 101, 320 62, 350 38, 7000 22, 10000 22, 321 11, 330 9, 331 3, 360 2, 361 2, 140 1, 125 1. 줄 수는 타입마다 고정이다: 310은 7개, 320/321/360/361은 5개, 350/351은 4개, 330/331/140은 1개.
+
+**공통 머리** `<타입> <플래그>`
+
+| 플래그 비트 | 뒤에 오는 것 | 근거 |
+|---|---|---|
+| 1 | 이름 줄 `face edge linestyle linewidth fill 이름` (fill 0 = 외곽선, 1 = 채움) | `cube.cel:13-14`, `VehicleGeometry.cs:19-21` |
+| 4 | 3줄: 위치 `x y z` / 회전 `0 rx ry rz`(도) / 배율 `sx sy sz` | `auto.cel:22-26` |
+| 16 | 부모 색을 씀 | `VehicleGeometry.cs:20` |
+| 2, 32 | 관절(kinematic) 블록. 700·7000·10000에만 나오고 해독하지 않았음. 생성할 때는 쓰지 않는다 | `agvk.cel:94-102` (`Lift_Joint`) |
+
+**그룹** 10000(파일 최상위, 이름 `*.cell`) → 7000(객체) → 700(그룹)은 머리와 플래그 줄 다음에 자식 수 1줄이 오고, 이어서 자식들이 나온다(`auto.cel:1-13`, `cube.cel:1-12`). 최상위가 700인 파일도 있다(`jet.cel:1`).
+
+**310 상자(사각뿔대): 확정.** 크기 줄 `bottom-y bottom-x top-y top-x height top-dx top-dy`
+
+| 필드 | 뜻 | 근거 |
+|---|---|---|
+| 1, 2 | 아랫면 y 길이, x 길이(y가 먼저, 전체 길이) | `VehicleGeometry.cs:19-21,46`. AutoMod 12.6 화면에서 확인했고 0.10.x부터 배포 중 |
+| 3, 4 | 윗면 y 길이, x 길이(아랫면과 다르면 사각뿔대, 0이면 쐐기) | `auto.cel` rear3(`... 1.6668 0.0379 0.0000 ...`). `VehicleGeometry` Base1이 다른 윗면으로 그려짐 |
+| 5 | 높이(+z) | `cube.cel:14`(`1 1 1 1 1 0 0` = 단위 정육면체) |
+| 6, 7 | 윗면 중심의 수평 이동. 408개 중 28개만 0이 아니며, 축 순서는 확인하지 않음 | `frkagvk.cel:105`, `truck.cel:39`, `jet.cel:492` |
+| 원점 | 아랫면 중심 | `VehicleGeometry.cs:69`("x, y = centre, z0 = bottom") |
+
+생성할 때는 6, 7번 필드를 항상 `0 0`으로 둔다. 그러면 축 순서는 결과에 영향이 없다.
+
+**원기둥·원뿔 계열: 해독(가설), 편집기에서 확인하지 않음.** 모두 원점은 아랫면 중심이고, 축은 로컬 +z다.
+
+| 타입 | 필드 | 근거 |
+|---|---|---|
+| 320 / 321 | `r_bottom r_top height top-dx top-dy`(원뿔대). r이 같으면 원기둥 | `auto.cel:397-402` 바퀴 `1.1365 1.1365 0.7576`, `rx 90`으로 축을 눕힘. 반지름 0.35 m, 폭 0.23 m(피트로 볼 때 승용차 바퀴 크기). `man.cel` lower `0.1 0.2 1.0`(가늘어지는 다리). `r2d2k.cel:203-208` Geye 4번 필드 0.03. `man3.cel:236-241` neck(z 5.30, 높이 0.4)의 윗끝이 머리(z 6.09, r 0.45) 아래와 맞닿음 → 원점이 아랫면 |
+| 350 / 351 | `radius length ? ?`(3, 4번 필드는 데모에서 항상 0) | `jet.cel:13-18` 동체 `10 120`, `ry 90` → x 0~120. `jet.cel:22-27` 꼬리 원뿔(360)이 x 162에서 −x로 43 → 119~162이고, 굵은 끝 r 10이 동체 끝과 맞물림 → 원점이 아랫면(가운데 기준이면 어긋남). `jet.cel:562-567` 바퀴 `2.5 1.5` `rx 90`, `train2.cel:85-90` 관 `1.5 20` |
+| 360 / 361 | 320과 같은 5필드(원뿔대 + 윗면 이동) | `jet.cel:22-27` rearcone `3 10 43 -3.37 0`. 윗면 이동 −3.37이 꼬리 높이 z 3.27을 동체 축으로 되돌림. `zx165mm.cel:667` arm `80 65 700` |
+| 330 / 331 | `radius` 1개. 331은 반구(돔 +z)일 가능성이 높음 | `man3.cel:242-253` uphead와 lowerhead(`rx 180`)가 같은 점, 같은 r 0.45 → 반구 두 개로 머리 하나. 330도 돔일 가능성(`jet.cel:34-39` 기수, `ry -90`)이 있으나 미확인 |
+
+해독하지 못한 것: 끝자리 0과 1 짝(320/321, 330/331, 350/351, 360/361)의 차이(뚜껑 유무나 분할 수로 추정), 320과 360의 차이, 350의 3·4번 필드. 반지름이 지름이 아니라는 판단은 바퀴 크기가 그럴듯하다는 데만 기대고 있다.
+
+**영향.** 이번 릴리스(0.22.0)는 C.4대로 상자(310)만 쓴다. 이 결과로 C-G2(입력 형식)·C-G3(모델에 넣기)와 에셋 생성 Task 4~12는 모두 진행한다. `.cel` 생성기는 `10000 21` → `7000 21`(자식 1) → `700 17`(자식 n) → `310 5`(이름, 위치·회전·배율, 크기 줄 `by bx by bx h 0 0`) 구조로 만든다. 원기둥은 다음 릴리스에서 편집기 대조를 거친 뒤 `BoxSimplifier`에 원기둥 판별을 추가할 수 있다. 확인할 일: `cyl.cel`(기준 상자 1×1×1, `320 5` `0.5 0.5 2 0 0`, `350 5` `0.5 2 0 0`)을 AM 편집기에서 열어 반지름과 지름, 원점, 축을 확인한다. 구현 뒤에도 편집기 대조는 하지 않았다(0.22.0은 상자만). 상자의 눈 확인은 수동 시험 AS7이 맡는다.
+
+### C-G2 3D 입력 형식(STEP 가능 여부) (2026-10-23)
+
+**판정: STL(ASCII·binary)과 OBJ(`v`/`f`)만 받는다. STEP은 사용자가 CAD에서 STL로 내보내 올린다.** 이유: 이 PC에 오프라인으로 쓸 수 있는 STEP 테셀레이션 커널이 없다. 아무것도 설치하지 않고 목록만 확인했다.
+
+| 확인한 곳 | 결과 |
+|---|---|
+| `third_party\` | 없음 |
+| `lib\` | `zwcad`(ZWCAD .NET API)만. CAD 안에서만 돌고 서버에서 명령줄로 자동화할 수 없다 |
+| `%USERPROFILE%\.nuget\packages`(212개) | step·opencascade·occt·assimp·xbim·ifc·gltf·mesh 계열 없음. `zwcad.netapi`만 걸림 |
+| Program Files(x86 포함) | OpenCASCADE·FreeCAD·Assimp·MeshLab 같은 CAD/메시 도구 없음 |
+| Python 3.12 | `cadquery`·`OCP`·`pythonocc`·`gmsh`·`trimesh` 없음 |
+| .NET SDK | 9.0.300, 10.0.402. STEP 기능 없음 |
+| `C:\AutoMod\12_6\bin` | HOOPS Exchange(`A3DLIBS.dll`·`hoops*.dll`, `*step30.dll` 변환기)가 있다. 그러나 AutoMod 라이선스에 묶인 SDK이고 헤더·라이선스 키가 없다. 명령줄 실행 파일(`amodviewer64.exe` 등)도 GUI 전용이라 자동화 지점이 없다(서버 설계 3장) |
+
+순수 .NET STEP 파서(IxMilia.Step 등)는 엔티티만 읽고 B-rep 테셀레이션이 없어 상자화에 쓸 수 없다. 설치도 하지 않았다.
+
+구현 뒤에도 결론은 같다. 업로드는 STL·OBJ만 받고 도움말에 STEP→STL 내보내기를 안내한다. 사람이 해 볼 일: 수동 시험 AS2(STL로 만든 에셋의 `AGVMODEL` 빌드), 카탈로그 쪽 CT1~CT3.
+
+**영향.** Task 4는 STL/OBJ만 구현한다. 업로드 화면 도움말에 "STEP은 CAD에서 STL로 내보내 올리세요"를 넣는다. 관문이 뒤집히면(오프라인 커널을 들여오면) Task 4 뒤에 `MeshReader.Read`의 확장자 분기 하나로 "STEP → 삼각형" 리더를 더한다. 건너뛰는 작업은 없다.
+
+### C-G3 생성 `.cel` 상자를 모델에 넣기 (2026-10-23)
+
+**판정: 인라인 세그먼트로 빌드·실행 통과. 독립 `.cel` 파일 참조 문법은 없음 → "인라인만"으로 확정. 그림 눈 확인과 편집기 "그래픽 가져오기"는 하지 않음(화면 제어 권한 거부).**
+
+**한 것(Step 1, 인라인).** `agvs_vehseg.txt`를 복사해 `Geom1` 자식을 손으로 쓴 `310 5` 상자 5개로 바꾸고 자식 수 줄을 6(상자 5 + `Lift_Joint`)으로 고쳤다. 단위는 피트, 바닥은 z = −2.5다.
+
+| 상자 | 색 | 위치 x y z | 크기 `by bx ty tx h` |
+|---|---|---|---|
+| GBody | 9 진회색 | 0 0 −2.3 | 4.5 3 4.5 3 1.8 |
+| GTower | 1 빨강, **중심에서 벗어남** | 0.9 1.2 −0.5 | 1.0 0.8 1.0 0.8 1.2 |
+| GWheelA | 0 검정 | 1.55 1.5 −2.5 | 0.6 0.2 0.6 0.2 0.4 |
+| GWheelB | 4 파랑 | −1.55 −1.5 −2.5 | 0.6 0.2 0.6 0.2 0.4 |
+| GLamp | 2 초록, 윗면이 좁은 뿔대 | 0 −2.3 −1.4 | 0.1 0.5 0.05 0.3 0.2 |
+
+`Lift_Joint` 위치는 차체 윗면(z −0.5), `Top` 판은 0.01 ft로 줄였다. 끝에 `CONTAINER name OnBoard`(`trz 2` = 차체 높이 2 ft)를 붙였다. 이 텍스트를 `ExportOptions.VehicleOverrides["G1"] = new VehicleTemplateOverride(VehSegText: …)`로 넣었다. 하네스는 `ModelRunIntegrationTests.BuildAndRun`(정사각 루프, `LogicGeneratorTests.Sample()`)이고, 임시 테스트로 불렀다. 임시 테스트는 커밋하지 않았다. 파일은 `%TEMP%\gateC\g3\`에 있다.
+
+**근거.**
+- 빌드(`am264 -bq`, `AmBuilder`) 성공. `am2err.dat`·`ashrun.dir\make.err`는 0바이트다. `am2out.dat`에는 "Compiling ashrun took 1.388 seconds."가 있다. 닫은 대화상자는 `Entity Limit Status`뿐이다.
+- 실행(`ashrun.exe -w`, "Student Version") 성공. `.message`에는 "3600.00: Simulation complete."가 있다. `result.tsv`는 정상이다: M1 공급 5, M2 공급 4, Tug1 가동, deadlock 0, clock 3600.
+- 생성된 `ashrun.arc\agv.asy`의 `AGVVEHSEG name Seg_G1`에 상자 5개가 그대로 있고, `CONTAINER … trz 2`도 들어 있다. AM은 템플릿과 다른 상자 수(5)와 중심에서 벗어난 상자를 거부하지 않았다.
+
+**Step 2(독립 `.cel`).**
+- `%TEMP%\gateC\g3\box_agv.cel`을 만들었다. 같은 상자를 바닥 z = 0 기준으로 `10000 21` / `7000 21` / `700 17` 머리 아래에 넣었다(`cube.cel` 구조).
+- AM 편집기 "그래픽 가져오기"로 열어 보지는 않았다. 화면 제어 권한 요청이 거부되었다.
+- 매뉴얼(`automod manual.pdf`, `amvol1and2.pdf` "Graphics templates and cell files with movement systems", p.62–67)에는 셀 파일을 Graphics Templates 대화상자로 가져와 붙인다는 설명만 있다. `.asy`에서 파일 경로로 참조하는 문법은 나오지 않는다.
+- 데모 `.asy` 전체에도 `.cel`·`.gtx`·`.dtr` 경로 참조가 없다. 가져온 셀은 `Tunnel.cell`(`Carousel/carousel.arc/proc.asy:1152`)처럼 이름만 남고 도형은 인라인으로 저장된다.
+
+**영향.**
+- 통과. Task 6(`VehSeg`)과 Task 11은 계획대로 진행한다. 생성기는 상자를 `Geom1` 자식으로 인라인하고, 자식 수 = 상자 수 + 1(`Lift_Joint`)로 쓰고, `CONTAINER trz`를 차체 높이로 둔다.
+- 독립 `.cel` 파일은 미리보기·내려받기용 부산물로만 쓴다.
+- 남은 확인: AM 편집기에서 차량 그림(색·중심에서 벗어난 위치·뿔대)과 적재물 높이를 눈으로 보고, `box_agv.cel`을 가져와 같은 모양인지 본다.
+- 구현 뒤(0.22.0 준비): 서버 업로드 → `.cel` → `AGVMODEL` 인라인 연결은 자동 테스트로 확인했다. 실제 STL 1건으로 만든 에셋을 이 PC에서 `AGVMODEL`로 빌드·실행하는 확인과 눈 확인은 하지 않았고, 수동 시험 `docs/plugin-manual-test.md` AS2·AS7에 남겼다.
+
+### A·D
+
 - A: 관문 없음, 0.21.0
 
 - D: 관문 없음. input.xlsx는 셀 스냅샷에서 되살림, ash.settings.tsv는 0.21 패키지부터 동봉

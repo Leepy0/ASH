@@ -12,10 +12,10 @@ public static class ExcelTemplate
     {
         ("Settings", new[] { "Key", "Value", "Description" }, new[] { "키", "값", "설명 (연녹색 칸은 입력 불필요)" }, new string[0]),
         ("AGV_Types",
-            new[] { "Type", "SpeedLoaded", "SpeedEmpty", "Accel", "Decel", "Capacity", "LoadTime", "UnloadTime", "MTBF", "MTTR", "Length", "Width", "Color", "Kind" },
-            new[] { "타입명", "적재 속도(m/s)", "공차 속도(m/s)", "가속(m/s²)", "감속(m/s²)", "용기 수", "로딩(초)", "언로딩(초)", "MTBF(초, 0=없음)", "MTTR(초)", "길이(m)", "폭(m)", "색상", "형상(목록에서 선택)" },
+            new[] { "Type", "Category", "SpeedLoaded", "SpeedLoadedCurve", "SpeedEmpty", "SpeedEmptyCurve", "Accel", "Decel", "Capacity", "LoadTime", "UnloadTime", "MTBF", "MTTR", "Length", "Width", "Color", "Kind", "Asset" },
+            new[] { "타입명", "분류(메모)", "적재 속도(m/s)", "적재 곡선 속도(m/s, 빈칸=직선)", "공차 속도(m/s)", "공차 곡선 속도(m/s, 빈칸=직선)", "가속(m/s²)", "감속(m/s²)", "용기 수", "로딩(초)", "언로딩(초)", "MTBF(초, 0=없음)", "MTTR(초)", "길이(m)", "폭(m)", "색상", "형상(목록에서 선택)", "에셋(C에서 채움)" },
             // the example keeps neutral values: SpeedEmpty = SpeedLoaded, one container per trip, no breakdowns
-            new[] { "T_EX", "1.0", "1.0", "0.3", "0.3", "1", "20", "20", "0", "0", "1.2", "0.8", "Blue", "Standard" }),
+            new[] { "T_EX", "", "1.0", "", "1.0", "", "0.3", "0.3", "1", "20", "20", "0", "0", "1.2", "0.8", "Blue", "Standard", "" }),
         ("AGV_Groups",
             new[] { "Group", "Type", "MinCount", "MaxCount", "StandbyCPs", "Dispatch", "FinishCP" },
             new[] { "그룹명", "AGV 타입", "최소 대수", "최대 대수", "대기 CP", "Nearest / FIFO", "작업 완료 CP" },
@@ -105,9 +105,12 @@ public static class ExcelTemplate
     /// Numbers stay at the example's values: the drawing knows nothing about takt times or speeds.</summary>
     const string SeedType = "T_AGV";
 
-    internal static Dictionary<string, List<string[]>> Seed(ASH.Core.Layout.Layout l)
+    internal static Dictionary<string, List<string[]>> Seed(ASH.Core.Layout.Layout? layout, IReadOnlyList<ASH.Core.Catalog.CatalogType>? catalog = null)
     {
+        var l = layout ?? new ASH.Core.Layout.Layout();
         var seed = new Dictionary<string, List<string[]>>();
+        bool cat = catalog != null && catalog.Count > 0;
+        string typeName = cat ? catalog![0].Name : SeedType;
         var groups = new List<string>();
         foreach (var c in l.Cps) if (c.Group.Length > 0 && !groups.Contains(c.Group)) groups.Add(c.Group);
         string[] Ex(string sheet) { foreach (var x in Sheets) if (x.Sheet == sheet) return x.Example; return new string[0]; }
@@ -120,13 +123,19 @@ public static class ExcelTemplate
         if (groups.Count > 0)
         {
             // one type for every group: a type is shared until the user adds another
-            var t = (string[])Ex("AGV_Types").Clone(); t[0] = SeedType;
+            var t = (string[])Ex("AGV_Types").Clone(); t[0] = typeName;
             var gs = new List<string[]>();
             foreach (var g in groups)
             {
-                var r = (string[])Ex("AGV_Groups").Clone(); r[0] = g; r[1] = SeedType; r[4] = string.Join(",", Names("standby", g)); gs.Add(r);
+                var r = (string[])Ex("AGV_Groups").Clone(); r[0] = g; r[1] = typeName; r[4] = string.Join(",", Names("standby", g)); gs.Add(r);
             }
             seed["AGV_Types"] = new List<string[]> { t }; seed["AGV_Groups"] = gs;
+        }
+        if (cat)
+        {
+            seed["AGV_Types"] = catalog!.Select(ASH.Core.Catalog.CatalogType.ToTemplateRow).ToList();
+            // no drawing group: the example group must point at a type that exists
+            if (groups.Count == 0) { var g = (string[])Ex("AGV_Groups").Clone(); g[1] = catalog![0].Name; seed["AGV_Groups"] = new List<string[]> { g }; }
         }
         var loads = new List<LayoutCpRef>();
         foreach (var c in l.Cps) if (c.Type == "load") loads.Add(new LayoutCpRef(c.Name, c.Group));
@@ -156,9 +165,9 @@ public static class ExcelTemplate
     public static void Write(string path) => Write(path, null);
 
     /// <summary>The template; with a layout, its CP names and groups fill the rows that would otherwise hold the example.</summary>
-    public static void Write(string path, ASH.Core.Layout.Layout? layout)
+    public static void Write(string path, ASH.Core.Layout.Layout? layout, IReadOnlyList<ASH.Core.Catalog.CatalogType>? catalog = null)
     {
-        var seed = layout == null ? new Dictionary<string, List<string[]>>() : Seed(layout);
+        var seed = layout == null && (catalog == null || catalog.Count == 0) ? new Dictionary<string, List<string[]>>() : Seed(layout, catalog);
         FontFreeGraphicEngine.Install(); // before the workbook: it creates the default (font parsing) engine right away
         using var wb = new XLWorkbook();
         foreach (var (sheet, cols, desc, example) in Sheets)
@@ -206,19 +215,19 @@ public static class ExcelTemplate
     /// <summary>Brings an existing input up to date without touching what is typed in it: missing sheets, columns and Settings keys are added, obsolete
     /// columns deleted, the description row refreshed, and with a layout the drawing's new groups, their new standby CPs and new load CPs (each as a material
     /// with its route) are appended. Existing rows are matched by group name and by SupplyFromCP, never overwritten. Returns one line per change.</summary>
-    public static List<string> Update(string path, ASH.Core.Layout.Layout? layout)
+    public static List<string> Update(string path, ASH.Core.Layout.Layout? layout, IReadOnlyList<ASH.Core.Catalog.CatalogType>? catalog = null)
     {
         using var wb = ExcelReader.Open(path);
-        var changes = Update(wb, layout);
+        var changes = Update(wb, layout, null, catalog);
         Save(wb, path);
         return changes;
     }
 
     /// <summary>Update on a workbook in memory, not saved. <paramref name="log"/> gets every change in order, for a file only Excel can write (see ExcelEdit).</summary>
-    public static List<string> Update(XLWorkbook wb, ASH.Core.Layout.Layout? layout, List<ExcelEdit>? log = null)
+    public static List<string> Update(XLWorkbook wb, ASH.Core.Layout.Layout? layout, List<ExcelEdit>? log = null, IReadOnlyList<ASH.Core.Catalog.CatalogType>? catalog = null)
     {
         var changes = new List<string>();
-        var seed = layout == null ? new Dictionary<string, List<string[]>>() : Seed(layout);
+        var seed = layout == null && (catalog == null || catalog.Count == 0) ? new Dictionary<string, List<string[]>>() : Seed(layout, catalog);
         foreach (var (sheet, cols, desc, _) in Sheets)
         {
             if (!wb.TryGetWorksheet(sheet, out var ws))
@@ -258,6 +267,13 @@ public static class ExcelTemplate
         foreach (var (k, v, d) in SettingsDefaults)
             if (!keys.Contains(k)) { Append(set, ColsOf("Settings"), new[] { k, v, d }, log); changes.Add($"Settings: {k} = {v} 추가"); }
 
+        if (catalog != null && catalog.Count > 0)
+        {
+            var tws = wb.Worksheet("AGV_Types");
+            var have = new HashSet<string>(Values(tws, "Type"), StringComparer.OrdinalIgnoreCase);
+            foreach (var t in catalog)
+                if (have.Add(t.Name)) { Append(tws, ColsOf("AGV_Types"), ASH.Core.Catalog.CatalogType.ToTemplateRow(t), log); changes.Add($"AGV_Types: 타입 {t.Name} 추가(카탈로그)"); }
+        }
         if (seed.TryGetValue("AGV_Groups", out var sg))
         {
             var tws = wb.Worksheet("AGV_Types");
@@ -382,11 +398,18 @@ public static class ExcelTemplate
         }
     }
 
+    /// <summary>The comma list of the Asset drop-down (asset names; empty = no drop-down; Excel caps a list at 255 chars). Set by the plugin from the catalog before Write/Update.</summary>
+    public static string AssetListFormula { get; set; } = "";
+
+    const string AssetMsg = "카탈로그에 없는 에셋 이름입니다. 그대로 쓰려면 예";
+
     static void ApplyLists(XLWorkbook wb, List<ExcelEdit>? log = null)
     {
-        foreach (var (sheet, col, source) in Lists)
+        var all = AssetListFormula.Length == 0 ? Lists : Lists.Concat(new[] { ("AGV_Types", "Asset", AssetListFormula) }).ToArray();
+        foreach (var (sheet, col, source) in all)
         {
             if (!wb.TryGetWorksheet(sheet, out var ws) || !Columns(ws).TryGetValue(col, out var c)) continue;
+            bool isAsset = sheet == "AGV_Types" && col == "Asset";
             var v = ws.Range(3, c, LastListRow, c).CreateDataValidation();
             if (wb.TryGetWorksheet(source, out var src))
             {
@@ -394,14 +417,26 @@ public static class ExcelTemplate
                 v.ErrorMessage = $"{source} 시트의 이름 중에서 고르세요.";
                 log?.Add(new ListEdit(sheet, c, 3, LastListRow, $"={source}!$A$3:$A${LastListRow}", col, v.ErrorMessage));
             }
+            else if (isAsset && source.Length > 253) // Excel caps an inline list at 255 chars: names go to a hidden sheet
+            {
+                var names = source.Split(',');
+                bool had = wb.TryGetWorksheet("_lists", out var ls);
+                if (!had) { ls = wb.AddWorksheet("_lists"); log?.Add(new AddSheetEdit("_lists", true)); }
+                else for (int i = names.Length + 1; i <= ls.LastRowUsed()?.RowNumber(); i++) { ls.Cell(i, 1).Clear(); log?.Add(new CellEdit("_lists", i, 1, "")); } // stale rows
+                for (int i = 0; i < names.Length; i++) Set(ls, i + 1, 1, names[i], log);
+                ls.Visibility = XLWorksheetVisibility.Hidden;
+                v.List(ls.Range(1, 1, names.Length, 1), true);
+                v.ErrorMessage = AssetMsg;
+                log?.Add(new ListEdit(sheet, c, 3, LastListRow, $"=_lists!$A$1:$A${names.Length}", col, v.ErrorMessage, true));
+            }
             else
             {
                 v.List("\"" + source + "\"", true);
-                v.ErrorMessage = source.Replace(",", " / ") + " 중에서 고르세요.";
-                log?.Add(new ListEdit(sheet, c, 3, LastListRow, source, col, v.ErrorMessage));
+                v.ErrorMessage = isAsset ? AssetMsg : source.Replace(",", " / ") + " 중에서 고르세요.";
+                log?.Add(new ListEdit(sheet, c, 3, LastListRow, source, col, v.ErrorMessage, isAsset));
             }
             v.IgnoreBlanks = true;
-            v.ErrorStyle = XLErrorStyle.Stop;
+            v.ErrorStyle = isAsset ? XLErrorStyle.Warning : XLErrorStyle.Stop;
             v.ErrorTitle = col;
             v.ShowErrorMessage = true;
         }
@@ -441,7 +476,7 @@ public static class ExcelTemplate
 /// <summary>One change <see cref="ExcelTemplate.Update(XLWorkbook, ASH.Core.Layout.Layout?, List{ExcelEdit}?)"/> made, in order, so that Excel itself can
 /// repeat it on a file only Excel can write (company document encryption). Columns and rows are 1-based, as they were when the edit was made.</summary>
 public abstract record ExcelEdit(string Sheet);
-public sealed record AddSheetEdit(string Sheet) : ExcelEdit(Sheet);
+public sealed record AddSheetEdit(string Sheet, bool Hidden = false) : ExcelEdit(Sheet);
 public sealed record DeleteColumnEdit(string Sheet, int Col) : ExcelEdit(Sheet);
 public sealed record CellEdit(string Sheet, int Row, int Col, string Value) : ExcelEdit(Sheet);
 /// <summary>One R1C1 formula over rows FirstRow..LastRow of a column.</summary>
@@ -449,4 +484,4 @@ public sealed record FormulaEdit(string Sheet, int Col, int FirstRow, int LastRo
 /// <summary>A background colour (RGB, 0xRRGGBB) over rows FirstRow..LastRow of a column: the cells that need no input.</summary>
 public sealed record FillEdit(string Sheet, int Col, int FirstRow, int LastRow, int Rgb) : ExcelEdit(Sheet);
 /// <summary>A drop-down over rows FirstRow..LastRow: Formula is a sheet range ("=AGV_Types!$A$3:$A$1000") or a comma list ("Box,Pallet").</summary>
-public sealed record ListEdit(string Sheet, int Col, int FirstRow, int LastRow, string Formula, string Title, string Message) : ExcelEdit(Sheet);
+public sealed record ListEdit(string Sheet, int Col, int FirstRow, int LastRow, string Formula, string Title, string Message, bool Warn = false) : ExcelEdit(Sheet);

@@ -8,21 +8,21 @@ namespace ASH.Server;
 
 /// <summary>The analysis pages: the list (/analyses), one analysis with its plans' versions and the compare table of the selected ones
 /// (/analyses/{id}), the jobs not filed anywhere (/analyses/unclassified), and the "where is this job filed" header of a job page.</summary>
-public sealed record AnalysisPageData(AnalysisInfo A, IReadOnlyList<JobInfo> Jobs, IReadOnlyList<FilmInfo> Films, JobStore Store, (int Ahead, DateTime? Start, TimeSpan? Typical) Queue, int Parallel, int CutCount, FilmStore? Fs = null);
+public sealed record AnalysisPageData(AnalysisInfo A, IReadOnlyList<JobInfo> Jobs, IReadOnlyList<FilmInfo> Films, JobStore Store, (int Ahead, DateTime? Start, TimeSpan? Typical) Queue, int Parallel, int CutCount, FilmStore? Fs = null, IReadOnlyDictionary<string, PriceRow>? Prices = null);
 
 public static class AnalysisPages
 {
     /// <summary>Result numbers of a finished job, taken from its JobView (the same ones the 결론 tab shows). Util = the busiest group, Stop = all materials.</summary>
-    internal sealed record Metrics(int? Total, double Util, double Stop, JobView View);
+    internal sealed record Metrics(int? Total, double Util, double Stop, JobView View, InvestmentView? Investment = null);
 
-    internal static Metrics? MetricsOf(JobStore js, JobInfo j)
+    internal static Metrics? MetricsOf(JobStore js, JobInfo j, IReadOnlyDictionary<string, PriceRow>? prices = null)
     {
         if (j.State != JobState.Done || j.Decided == null) return null;
         var v = JobView.For(js, j);
         if (v.Input == null) return null;
         var utils = v.Groups.Select(g => g.Util).Where(u => !double.IsNaN(u)).ToList();
         var stops = v.Materials.Select(m => m.StopSec).Where(s => !double.IsNaN(s)).ToList();
-        return new Metrics(j.Decided.Values.Sum(), utils.Count == 0 ? double.NaN : utils.Max(), stops.Count == 0 ? double.NaN : stops.Sum(), v);
+        return new Metrics(j.Decided.Values.Sum(), utils.Count == 0 ? double.NaN : utils.Max(), stops.Count == 0 ? double.NaN : stops.Sum(), v, prices == null ? null : InvestmentOf(v.Input, j.Decided, prices));
     }
 
     static string Num(double d, string fmt = "0.#") => F(d, fmt);
@@ -377,7 +377,7 @@ public static class AnalysisPages
             sb.Append($"<a href=\"{Url(ids.Contains(j.Id) ? ids.Where(x => x != j.Id) : ids.Append(j.Id))}\" class=\"chip{(ids.Contains(j.Id) ? " sel" : "")}\">{H(PlanName(j))} v{j.Version}{(j.Selected ? " · 선정" : "")}</a>");
         sb.Append("</p>");
         if (ids.Count < 2) { sb.Append("<p class=\"muted\">버전을 2개 이상 고르세요.</p></section>"); return; }
-        var cols = ids.Select(id => new CompareColumn(byId[id], PlanName(byId[id]), MetricsOf(d.Store, byId[id]))).ToList();
+        var cols = ids.Select(id => new CompareColumn(byId[id], PlanName(byId[id]), MetricsOf(d.Store, byId[id], d.Prices))).ToList();
         var groups = cols.Where(c => c.M != null).SelectMany(c => c.M!.View.Groups.Select(g => g.Group)).Distinct(StringComparer.Ordinal).ToList();
         var baseM = cols[0].M;
         var many = groups.Count > ManyGroups;
@@ -417,7 +417,9 @@ public static class AnalysisPages
         Row("결품 합계(초)", m => m.Stop, m => double.IsNaN(m.Stop) ? "-" : Num(m.Stop, "0"));
         Row("교착(회)", m => m.View.Deadlocks, m => m.View.Deadlocks.ToString(CultureInfo.InvariantCulture));
         Row("최대 병목(block·초)", m => Worst(m)?.AvgWaitSec, m => Worst(m) is { } w ? $"{w.Name}·{Num(w.AvgWaitSec)}" : "-");
-        // plan B inserts the 투자비(원) row here (Row(...), smaller is better)
+        if (d.Prices is { Count: > 0 })
+            Row("투자비(원)", m => m.Investment is { AnyPriced: true } i ? (double)i.Total : null,
+                m => Cost(m.Investment) + (m.Investment is { Unpriced.Count: > 0 } x ? $" (단가 없음: {string.Join(", ", x.Unpriced)})" : ""));
         foreach (var g in many ? new List<string>() : groups) // many groups: per-group numbers live in the heat grid below
         {
             GroupView? G(Metrics m) => m.View.Groups.FirstOrDefault(x => x.Group == g);

@@ -8,6 +8,7 @@ using Xunit;
 
 namespace ASH.Tests.Input;
 
+[Xunit.Collection("ExcelTemplateStatics")]
 public class ExcelTemplateSeedTests
 {
     static LayoutCp Cp(string name, string type, string group) => new LayoutCp { Name = name, Type = type, Group = group };
@@ -184,6 +185,62 @@ public class ExcelTemplateSeedTests
             ExcelTemplate.Update(path, Drawing());
             using (var wb = ExcelReader.Open(path)) AssertAutoFill(wb);
             Assert.Equal(new[] { "A", "B" }, ExcelReader.Read(path).Groups.Select(g => g.Group));
+        }
+        finally { File.Delete(path); }
+    }
+
+    static ASH.Core.Catalog.CatalogType Cat(string name, double speed) => new ASH.Core.Catalog.CatalogType
+    { Name = name, Defaults = new ASH.Core.Catalog.CatalogDefaults { SpeedLoadedStraight = speed, SpeedEmptyStraight = speed, Accel = 0.5, Decel = 0.5, Capacity = 1 } };
+
+    [Fact]
+    public void Write_Fills_Types_From_Catalog_And_Groups_Use_First()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "seed-" + System.Guid.NewGuid().ToString("N") + ".xlsx");
+        try
+        {
+            ExcelTemplate.Write(path, Drawing(), new[] { Cat("T_A", 1), Cat("T_B", 2) });
+            var p = ExcelReader.Read(path);
+            Assert.Equal(new[] { "T_A", "T_B" }, p.AgvTypes.Select(t => t.Type));
+            Assert.All(p.Groups, g => Assert.Equal("T_A", g.Type));
+            ExcelTemplate.Write(path, Drawing());
+            Assert.Equal("T_AGV", Assert.Single(ExcelReader.Read(path).AgvTypes).Type);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Write_Without_Layout_But_With_Catalog_Points_Example_Group_At_First_Type()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "seed-" + System.Guid.NewGuid().ToString("N") + ".xlsx");
+        try
+        {
+            ExcelTemplate.Write(path, null, new[] { Cat("T_A", 1), Cat("T_B", 2) });
+            var p = ExcelReader.Read(path);
+            Assert.Equal(new[] { "T_A", "T_B" }, p.AgvTypes.Select(t => t.Type));
+            Assert.Equal("T_A", Assert.Single(p.Groups).Type);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Update_Keeps_User_Values_And_Appends_Missing_Types()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "seed-" + System.Guid.NewGuid().ToString("N") + ".xlsx");
+        try
+        {
+            ExcelTemplate.Write(path, Drawing(), new[] { Cat("T_A", 1) });
+            using (var wb = ExcelReader.Open(path))
+            {
+                var ws = wb.Worksheet("AGV_Types");
+                int col = Enumerable.Range(1, 30).First(c => ws.Cell(1, c).GetString() == "SpeedLoaded");
+                ws.Cell(3, col).Value = 9.9; wb.Save();
+            }
+            var changes = ExcelTemplate.Update(path, Drawing(), new[] { Cat("T_A", 1.0), Cat("T_B", 2) });
+            var p = ExcelReader.Read(path);
+            Assert.Equal(new[] { "T_A", "T_B" }, p.AgvTypes.Select(t => t.Type));
+            Assert.Equal(9.9, p.AgvTypes[0].SpeedLoaded);
+            Assert.Single(changes, c => c.Contains("T_B 추가"));
+            Assert.DoesNotContain(changes, c => c.Contains("T_A"));
         }
         finally { File.Delete(path); }
     }

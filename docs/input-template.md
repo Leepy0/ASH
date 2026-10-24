@@ -26,7 +26,7 @@
 
 | 시트 | 열 (단위) |
 |---|---|
-| AGV_Types | Type, SpeedLoaded(m/s), SpeedEmpty(m/s), Accel(m/s²), Decel(m/s²), Capacity(용기 수), LoadTime(초), UnloadTime(초), MTBF(초, 0=없음), MTTR(초), Length(m), Width(m), Color, Kind(목록: Standard / Conveyor / Ant / Magnet) |
+| AGV_Types | Type, Category(분류 메모), SpeedLoaded(m/s), SpeedLoadedCurve(m/s, 빈칸=직선), SpeedEmpty(m/s), SpeedEmptyCurve(m/s, 빈칸=직선), Accel(m/s²), Decel(m/s²), Capacity(용기 수), LoadTime(초), UnloadTime(초), MTBF(초, 0=없음), MTTR(초), Length(m), Width(m), Color, Kind(목록: Standard / Conveyor / Ant / Magnet), Asset(에셋 이름, 비워 둔다) |
 | AGV_Groups | Group, Type(AGV_Types 목록에서 선택, 여러 그룹이 같은 타입을 써도 된다), MinCount(≥1), MaxCount(≥MinCount), StandbyCPs(쉼표 구분), Dispatch(Nearest / FIFO), FinishCP(선택) |
 | Materials | Material, Station(공정명, 메모), Group(운반 그룹, AGV_Groups 목록), TaktTime(초, >0), UnitsPerCycle(소요 원수), UnitsPerContainer(용기당 자재 수량, ≥1), CallThreshold(호출 임계, 용기) + CallThresholdQty(호출 임계, 자재) → CallThresholdTotal(합계, 자동), UnloadThreshold(언로딩 임계, 용기) + UnloadThresholdQty(언로딩 임계, 자재) → UnloadThresholdTotal(합계, 자동), InitStock / SafetyStock(용기, `-` 또는 빈칸 = Settings 기본값), Form(목록: Box / Pallet / Trolley), LoadLength / LoadWidth / LoadHeight(m, `-` 또는 빈칸 = 형태별 기본값) |
 | Routes | Material, SupplyFromCP, SupplyToCP, BufferCP(선택), ReturnFromCP(선택), ReturnToCP(선택), ExtraTime(초) |
@@ -82,6 +82,7 @@ Stations·Ext 시트는 양식에서 뺐다(모델에 아무 영향이 없었다
 
 - AGV_Types의 Accel / Decel(m/s²)은 모델의 차량 가속·감속으로 들어간다. 양식 기본값은 0.3이고, 0이면 AutoMod 기본값을 쓴다. 예전 양식은 0이므로 고쳐야 반영된다.
 - Materials의 Form: Box, Pallet, Trolley. 비우면 Box.
+- AGV_Types의 SpeedLoadedCurve / SpeedEmptyCurve(m/s)는 곡선 구간 속도이다. 비우거나 `-`이면 직선 속도와 같다. Category는 분류용 메모이고 계산에 쓰이지 않으며, Asset은 에셋 이름만 담는 열로 지금은 비워 둔다.
 - AGV_Types의 Kind: Standard(표준, 모두 적재), Conveyor(벨트 C/V 상차형: Box, Pallet), Ant(대차 리프팅: Trolley), Magnet(전자석 견인: Trolley). 비우면 Standard.
 - 자재의 Form을 그 그룹의 AGV Kind가 싣지 못하면 경고한다. 알 수 없는 값은 오류이다.
 - Kind는 AutoMod의 차량 그림도 고른다. 차량은 AGV_Types의 Length(진행 방향)와 Width(가로)로 크기가 정해진 상자들로 만들어지며, 그림 전체를 늘리지 않는다. 바퀴·롤러·리프트판 같은 부품은 차량이 커져도 같은 크기이고 롤러는 개수만 늘어난다. 범퍼 감지 구역과 적재 연결부는 데모 그림 그대로이다.

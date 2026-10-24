@@ -13,6 +13,11 @@ public static class JobPages
     internal static string H(string? t) => WebUtility.HtmlEncode(t ?? "");
     internal static string F(double d, string fmt = "0.##") => double.IsNaN(d) || double.IsInfinity(d) ? "-" : d.ToString(fmt, CultureInfo.InvariantCulture);
     static string Pct(double d) => double.IsNaN(d) ? "-" : P(d) + "%";
+    internal static string Won(decimal d) => d.ToString("N0", CultureInfo.InvariantCulture);
+    /// <summary>Investment for the pages: null (shown as "-") when the price table is empty, so Summary and Compare follow one rule.</summary>
+    internal static InvestmentView? InvestmentOf(ASH.Core.Input.ProjectInput input, IReadOnlyDictionary<string, int> decided, IReadOnlyDictionary<string, PriceRow> prices) =>
+        prices.Count == 0 ? null : JobView.Investment(input, decided, prices);
+    internal static string Cost(InvestmentView? inv) => inv is not { AnyPriced: true } ? "-" : Won(inv.Total);
     /// <summary>Percent without the sign, for table cells whose header carries "(%)".</summary>
     internal static string P(double d) => double.IsNaN(d) ? "-" : (d * 100).ToString("0.0", CultureInfo.InvariantCulture);
     internal static string When(DateTime? utc) => utc is { } t ? SeoulTime.Text(t) : "-";
@@ -157,7 +162,7 @@ document.querySelectorAll('table.sort').forEach(function(t){
     }
 
     public static string Job(JobInfo j, JobView? v, string tab, string logTail, (int Ahead, DateTime? Start, TimeSpan? Typical) q, bool canCancel, IReadOnlyList<ASH.Core.Analysis.AnalysisInfo>? analyses = null,
-        IReadOnlyList<FilmInfo>? films = null, string? busy = null, int parallel = 1)
+        IReadOnlyList<FilmInfo>? films = null, string? busy = null, int parallel = 1, IReadOnlyDictionary<string, PriceRow>? prices = null)
     {
         var sb = new StringBuilder(PollSlots);
         if (analyses != null) AnalysisPages.JobHeader(sb, j, analyses);
@@ -201,13 +206,13 @@ document.querySelectorAll('table.sort').forEach(function(t){
             case "detail": Detail(sb, j, v); break;
             case "input": InputTab(sb, j, v); break;
             case "files": FilesTab(sb, j, logTail); break;
-            default: Summary(sb, j, v); break;
+            default: Summary(sb, j, v, prices); break;
         }
         sb.Append("</div>");
         return Page($"ASH 작업 {j.Id}", sb.ToString(), j.Finished ? null : PollScript("/api/jobs/" + j.Id, new Dictionary<string, string> { [j.Id] = j.State }));
     }
 
-    static void Summary(StringBuilder sb, JobInfo j, JobView? v)
+    static void Summary(StringBuilder sb, JobInfo j, JobView? v, IReadOnlyDictionary<string, PriceRow>? prices)
     {
         if (j.Decided == null || v?.Input == null)
         {
@@ -221,6 +226,11 @@ document.querySelectorAll('table.sort').forEach(function(t){
         sb.Append($"<div class=\"card\"><div class=\"sub\">권장 AGV 총 대수</div><div class=\"big\">{total}대</div><div class=\"sub\">시험 범위 {min}~{max}대</div></div>");
         sb.Append($"<div class=\"card\"><div class=\"sub\">확인 실행 판정</div><div class=\"big {(allOk ? "ok" : "bad")}\">{(allOk ? "통과" : "실패")}</div><div class=\"sub\">재고 · 가동률 상한 {Pct(v.UtilMax)} · 공급 · 교착</div></div>");
         sb.Append($"<div class=\"card\"><div class=\"sub\">모델 실행</div><div class=\"big\">{j.RunsDone}회</div><div class=\"sub\">실패 {j.RunsFailed}회 · 경고 {j.Warnings.Count}건 · {Dur(j.Duration)}</div></div>");
+        if (prices != null)
+        {
+            var inv = InvestmentOf(v.Input, j.Decided, prices);
+            sb.Append($"<div class=\"card\"><div class=\"sub\">투자비(원)</div><div class=\"big\">{Cost(inv)}</div><div class=\"sub\">{(inv is { Unpriced.Count: > 0 } ? "단가 없음: " + H(string.Join(", ", inv.Unpriced)) : "&nbsp;")}</div></div>");
+        }
         sb.Append("</div>");
 
         sb.Append($"<p><a href=\"/jobs/{H(j.Id)}/files/report.xlsx\">Excel 보고서 받기</a></p>");
@@ -555,6 +565,7 @@ document.querySelectorAll('table.sort').forEach(function(t){
             sb.Append($"<tr><th>시뮬레이션 / 워밍업</th><td>{F(s.SimLengthSec / 3600)}시간 / {F(s.WarmupSec / 3600)}시간</td></tr>");
             sb.Append($"<tr><th>가동률 상한 / 안전재고</th><td>{Pct(s.UtilMax)} / {F(s.SafetyStock)}용기</td></tr>");
             sb.Append($"<tr><th>영향표</th><td>{(j.Impact ? "켬" : "끔")}</td></tr>");
+            sb.Append($"<tr><th>곡선 속도</th><td>{H(ASH.Core.Model.CurveSpeed.Note)}</td></tr>");
         }
         else if (v?.InputError != null) sb.Append($"<tr><th>입력</th><td class=\"bad\">{H(v.InputError)}</td></tr>");
         sb.Append("</table>");
@@ -565,6 +576,14 @@ document.querySelectorAll('table.sort').forEach(function(t){
         {
             sb.Append("<h2>그룹</h2><table><tr><th>그룹</th><th>타입</th><th>최소(대)</th><th>최대(대)</th><th>대기 CP</th></tr>");
             foreach (var g in v.Input.Groups) sb.Append($"<tr><td>{H(g.Group)}</td><td>{H(g.Type)}</td><td class=\"num\">{g.MinCount}</td><td class=\"num\">{g.MaxCount}</td><td>{H(string.Join(", ", g.StandbyCPs))}</td></tr>");
+            sb.Append("</table><h2>AGV 타입</h2><table><tr><th>타입</th><th>에셋</th></tr>");
+            foreach (var t in v.Input.AgvTypes) sb.Append($"<tr><td>{H(t.Type)}</td><td>{H(string.IsNullOrWhiteSpace(t.Asset) ? "기본 그림" : t.Asset)}</td></tr>");
+            var curved = v.Input.AgvTypes.Where(t => t.SpeedLoadedCurve > 0 || t.SpeedEmptyCurve > 0).ToList();
+            if (curved.Count > 0)
+            {
+                sb.Append("</table><h2>곡선 속도</h2><table><tr><th>타입</th><th>적재 곡선(m/s)</th><th>공차 곡선(m/s)</th></tr>");
+                foreach (var t in curved) sb.Append($"<tr><td>{H(t.Type)}</td><td class=\"num\">{(t.SpeedLoadedCurve > 0 ? F(t.SpeedLoadedCurve!.Value) : "직선과 같음")}</td><td class=\"num\">{(t.SpeedEmptyCurve > 0 ? F(t.SpeedEmptyCurve!.Value) : "직선과 같음")}</td></tr>");
+            }
             sb.Append("</table><h2>자재</h2><table><tr><th>자재</th><th>그룹</th><th>형태</th><th>T/T(초)</th><th>용기당 수량(개)</th><th>호출 임계(용기)</th></tr>");
             foreach (var m in v.Input.Materials) sb.Append($"<tr><td>{H(m.Material)}</td><td>{H(m.Group)}</td><td>{H(m.Form.Length == 0 ? "Box" : m.Form)}</td><td class=\"num\">{F(m.TaktTime)}</td><td class=\"num\">{F(m.UnitsPerContainer)}</td><td class=\"num\">{F(m.CallThreshold)}</td></tr>");
             sb.Append("</table>");

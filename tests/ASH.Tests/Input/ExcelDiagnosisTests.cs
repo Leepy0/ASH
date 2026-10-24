@@ -8,6 +8,7 @@ using Xunit;
 
 namespace ASH.Tests.Input;
 
+[Xunit.Collection("ExcelTemplateStatics")]
 public class ExcelDiagnosisTests
 {
     static string Tmp() => Path.Combine(Path.GetTempPath(), "diag-" + Guid.NewGuid().ToString("N") + ".xlsx");

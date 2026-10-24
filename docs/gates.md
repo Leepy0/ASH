@@ -20,6 +20,9 @@
 | 3 엔티티 제한 200 | 2026-10-20 | **체험판 제약** (사용자 확인) | 이 PC는 체험판. 서버의 정식 라이선스에는 해당 없음 | 모델 분할 불필요 |
 | 4 Process block 문법 | 2026-10-20 | **데모에서 추출** | `BLOCK name B_intersection 4 cap 1` 다음 줄에 `dis N picpos begx … endx … scx … scy … scz …`(표시 N개) + `UserDef template Feet` 그래픽 블록. 출처 `demos\amoddemos\demos\Vehicles\vehicles.arc\vehicles~.asy:342`, `gswa\examp14_1\…\examp141~.asy:126` | 모듈 C가 `BLOCK name <NAME> <표시수> cap <CAP>` + `dis` 줄로 생성 |
 | 5 원호 angle 부호 | 2026-10-20 | **해결** | 데모 path16 끝점 계산: 음수 = 시계 방향 | Core 테스트로 고정됨 |
+| C-G1 `.cel` 도형 필드 | 2026-10-23 | **상자 확정, 원기둥은 정적 해독만(편집기 미확인)** | 310 = `by bx ty tx h dx dy`, 원점 아랫면 중심(`cube.cel:14`, `VehicleGeometry.cs:19-21`). 320/360 = `r_bot r_top h dx dy`, 350 = `r len 0 0`, 축 +z·원점 아랫면(`jet.cel:13-27`, `man3.cel:236-253`). 상세는 `specs/2026-10-23-ash-web-and-catalog-design.md` "관문 결과" | 0.22.0은 상자만. 원기둥은 다음 릴리스에서 편집기 대조 뒤 `BoxSimplifier`에 추가 가능 |
+| C-G2 3D 입력 형식 | 2026-10-23 | **STL·OBJ만** | 오프라인 STEP 테셀레이션 커널 없음: `third_party` 없음, NuGet 캐시 212개에 step/occt/assimp 계열 없음, Python·Program Files에도 없음. AM의 HOOPS Exchange(`A3DLIBS.dll`)는 라이선스에 묶이고 자동화 지점 없음 | Task 4는 STL/OBJ만. STEP은 사용자가 CAD에서 STL로 내보냄(업로드 도움말에 안내) |
+| C-G3 `.cel` 상자를 모델에 넣기 | 2026-10-23 | **인라인 통과, 파일 참조 없음** | 손으로 쓴 `310` 상자 5개(색·크기 다름, 1개는 중심에서 벗어남, 1개는 뿔대)를 `VehSegText`로 `Geom1`에 인라인 → `am264 -bq` 빌드 성공(`am2err.dat` 0바이트), `-w` 실행 "Simulation complete", `result.tsv` 정상. 매뉴얼·데모에 `.asy`의 셀 파일 경로 참조 문법 없음(가져온 셀도 인라인 저장). 그림 눈 확인과 편집기 가져오기는 하지 않음(화면 권한 거부) | Task 6·11은 그대로. 독립 `.cel`은 미리보기·내려받기용 |
 
 ## 관문 4 보충: 차량이 block을 claim하는 방법
 
@@ -52,3 +55,21 @@ User's Guide(`amvol1and2.pdf`, Path Mover Systems, p.526) 확인. Path Mover 시
 - `ALTERNATE NONE ignore ResumeSpeedWhenClaimed` — 토큰 없음 = approaching block / trailing edge; ResumeSpeedWhenClaimed = 재가속 옵션; `ignore`는 Runtime Warning Messages=Off로 추정.
 
 **사용자가 원하는 "CP 목적지 이동 시 경로상 block 선점" = `OldBlockClaim`.** 모듈 C는 `AGVSDEF … ALTERNATE NONE ignore OldBlockClaim ResumeSpeedWhenClaimed`로 생성한다(OldBlockRelease는 trailing edge가 더 안전하므로 넣지 않음). 토큰 의미는 추정이므로 2차 시작 때 AM 편집기에서 옵션을 바꿔 저장한 파일과 대조해 확정한다.
+
+## 관문 B-G1 곡선 속도 (2026-10-23)
+
+질문: 차량 타입 줄 `crvvel`/`rcrvvel`(`agvs_veh.txt` 11행)이 호(arc) 구간에서 실제로 속도를 제한하는가.
+
+- 바꾼 줄: `%TEMP%\gateB\slow\agvdemo.arc\agv.asy`의 `load Default` 블록 `crvvel 0 3 Feet Seconds`, `rcrvvel 0 3 Feet Seconds` → `0 0.3`. `base`는 원본. 둘 다 snap 8 h.
+- 실행: 각 폴더에서 `am264.exe -bq agvdemo`("Entity Limit Status" OK 클릭) → `agvdemo.exe -w`(이번에는 Authorization 창이 뜨지 않음). `.message` 둘 다 "Simulation complete".
+
+| 항목 | base (crvvel 3) | slow (crvvel 0.3) |
+|---|---|---|
+| path15 호(4.71 ft) 평균 시간 | 1.95 s | 15.69 s |
+| path20 호(11.0 ft) 평균 시간 | 4.02 s | 36.95 s |
+| path12 직선 평균 시간 | 18.56 s | 20.04 s |
+| Tthroughput 평균(/h) | 127.75 | 72.38 |
+| 배송 횟수 / 평균 시간 | 1025 / 31.39 s | 581 / 50.50 s |
+| Delivering 비율 | 0.223 | 0.204 |
+
+판정: **통과.** 호 통과 시간이 호 길이 ÷ 0.3 ft/s와 맞고 직선은 그대로다. Task 9A(차량 타입의 곡선 속도를 `agvs_veh.txt`에 반영) 실행.

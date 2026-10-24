@@ -9,6 +9,9 @@ namespace ASH.Server;
 /// <summary>Per group at the recommended counts: mean over the confirm runs.</summary>
 public sealed record GroupView(string Group, string Type, int Min, int Max, int? Decided, double Util, double MinStockRatio, bool AllOk, string? Reason);
 
+/// <summary>Investment at the recommended counts; Unpriced = types without a unit price (left out of the sum).</summary>
+public sealed record InvestmentView(decimal Total, string Currency, IReadOnlyList<string> Unpriced, bool AnyPriced = true);
+
 /// <summary>Per count of one group (all runs where the group had that many active): mean, min and max utilization, and whether any of them failed.</summary>
 public sealed record CountPoint(int Active, double Mean, double Lo, double Hi, int Runs, int Failed);
 
@@ -69,6 +72,20 @@ public sealed class JobView
         if (rows.Count == 0) return null;
         var s = new RunScenario(rows[0].Seed, rows.GroupBy(r => r.Group).ToDictionary(g => g.Key, g => g.First().Active, StringComparer.Ordinal), runId.Contains("_dbg"), runId.EndsWith("_ev", StringComparison.Ordinal));
         return ModelRunner.RunId(Input, s) == runId ? s : null;
+    }
+
+    // The catalog only accepts KRW rows, so summing unit prices across types is safe.
+    /// <summary>Sum of decided count x unit price of the group's type; types without a price are listed, not counted. Hidden types still count.</summary>
+    public static InvestmentView Investment(ProjectInput input, IReadOnlyDictionary<string, int> decided, IReadOnlyDictionary<string, PriceRow> prices)
+    {
+        decimal total = 0; var unpriced = new List<string>(); var any = false;
+        foreach (var g in input.Groups)
+        {
+            if (!prices.TryGetValue(g.Type, out var p)) { if (!unpriced.Contains(g.Type)) unpriced.Add(g.Type); continue; }
+            any = true;
+            total += (decided.TryGetValue(g.Group, out var n) ? n : 0) * p.UnitPrice;
+        }
+        return new InvestmentView(total, prices.Values.FirstOrDefault()?.Currency ?? "KRW", unpriced, any);
     }
 
     public static JobView For(JobStore store, JobInfo job)

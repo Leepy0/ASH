@@ -274,6 +274,20 @@ public class LayoutExporterTests
                 .Where(x => x.StartsWith("accel\t0 ") || x.StartsWith("decel\t0 ")).ToArray());
     [Fact] public void Zero_Accel_Keeps_The_Template_Value() =>
         Assert.Contains(Lines(G), x => x.Trim() == "accel\t0 1 Feet Seconds Seconds");
+    [Fact] public void Exporter_Writes_Curve_Speeds_On_crvvel_Lines_Only()
+    {
+        var lines = Lines(new ExportOptions(Groups: new[]{ new VehicleGroupSpec("G1","Tug",1,1.0,2,1, SpeedEmpty: 1.5, SpeedCurve: 0.5, SpeedEmptyCurve: 0.7) })).Select(x => x.Trim()).ToList();
+        foreach (var l in new[]{ "vel	0 1 Meters Seconds", "sprvel	0 1 Meters Seconds", "crvvel	0 0.5 Meters Seconds", "rcrvvel	0 0.5 Meters Seconds",
+                                 "vel	0 1.5 Meters Seconds", "rvel	0 1.5 Meters Seconds", "crvvel	0 0.7 Meters Seconds", "rcrvvel	0 0.7 Meters Seconds" })
+            Assert.Contains(l, lines);
+        // no curve speeds: crvvel = vel; a loaded curve speed alone leaves the Empty line inheriting
+        var plain = Lines(new ExportOptions(Groups: new[]{ new VehicleGroupSpec("G1","Tug",1,1.0,2,1, SpeedCurve: 0.5) })).Select(x => x.Trim()).ToList();
+        Assert.Contains("crvvel	0 0.5 Meters Seconds", plain);
+        Assert.Contains("crvvel	1 0 Feet Seconds", plain);
+        var none = Lines(new ExportOptions(Groups: new[]{ new VehicleGroupSpec("G1","Tug",1,1.0,2,1) })).Select(x => x.Trim()).ToList();
+        Assert.Contains("crvvel	0 1 Meters Seconds", none);
+        Assert.Contains("rcrvvel	0 1 Meters Seconds", none);
+    }
     [Fact] public void Brake_Distance_Is_Stopping_Distance_Plus_Gap_And_Empty_Line_Gets_SpeedEmpty()
     {
         // v = max(1.0, 1.5) m/s, decel 0.25: 1.5^2 / 0.5 = 4.5 m, + 0.5 m gap

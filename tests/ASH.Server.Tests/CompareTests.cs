@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using ASH.Core.Catalog;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -19,6 +20,23 @@ public class CompareTests
         var maps = await env.Http.GetStringAsync($"/analyses/{aid}?tab=compare&maps=1");
         Assert.Equal(3, Regex.Matches(maps, "<svg").Count); // chart 1 + maps 2
         Assert.Contains("버전을 2개 이상 고르세요", await env.Http.GetStringAsync($"/analyses/{aid}?tab=compare&jobs={a.Id}"));
+    }
+
+    [Fact] public async Task Compare_Tab_Has_An_Investment_Row_Only_With_Prices()
+    {
+        var (env, aid, ids) = await Three(new[] { 10.0, 10.0 });
+        using var _ = env;
+        var url = $"/analyses/{aid}?tab=compare&jobs={ids[0]},{ids[1]}";
+        Assert.DoesNotContain("투자비(원)", await env.Http.GetStringAsync(url));
+        var job = env.Store.Get(ids[0])!;
+        var type = ASH.Server.JobView.For(env.Store, job).Input!.Groups[0].Type;
+        var cat = env.Factory.Services.GetRequiredService<CatalogStore>();
+        cat.Save(new CatalogType { Name = type, Label = type, Category = "AGV", Kind = "Standard", Defaults = new CatalogDefaults { SpeedLoadedStraight = 1.5, Capacity = 1 } }, "me"); // prices only for catalog types
+        cat.SavePrices($"Type,UnitPrice,Currency,Note\n{type},500,KRW,\n");
+        var html = await env.Http.GetStringAsync(url);
+        var row = html[html.IndexOf("<th>투자비(원)</th>", StringComparison.Ordinal)..]; row = row[..row.IndexOf("</tr>", StringComparison.Ordinal)];
+        Assert.Contains((job.Decided!.Values.Sum() * 500m).ToString("N0", System.Globalization.CultureInfo.InvariantCulture), row);
+        Assert.Contains("<small>0</small>", row); // same counts, same cost
     }
 
     static async Task<(JobEnv env, string aid, string[] ids)> Three(double[] waits, double[]? ks = null)

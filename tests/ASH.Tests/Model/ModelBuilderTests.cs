@@ -244,6 +244,18 @@ public class ServerAssemblyTests
     }
 
     [Fact]
+    public void Signature_Changes_With_Curve_Speed_Only_When_Set()
+    {
+        var a = LogicGeneratorTests.Sample(); var b = LogicGeneratorTests.Sample();
+        Assert.Equal(InputSignature.Compute(a), InputSignature.Compute(b));
+        b.AgvTypes[0] = b.AgvTypes[0] with { SpeedLoadedCurve = 0, SpeedEmptyCurve = 0 };   // 0 = same as straight: same model
+        Assert.Equal(InputSignature.Compute(a), InputSignature.Compute(b));
+        b.AgvTypes[0] = b.AgvTypes[0] with { SpeedLoadedCurve = 0.5 };
+        Assert.NotEqual(InputSignature.Compute(a), InputSignature.Compute(b));
+        Assert.Equal(0.5, ModelBuilder.VehicleGroups(b).First(g => b.Groups.First(x => x.Group == g.Group).Type == b.AgvTypes[0].Type).SpeedCurve);
+    }
+
+    [Fact]
     public void Vehicle_Override_Without_Start_Line_Gets_Start_Inserted()
     {
         var s = ASH.Core.Export.LayoutExporter.ToAgvs(Loop(), Opt(new VehicleTemplateOverride(VehicleBlockText: "AGVSVEH\n\tload Default \n")));

@@ -38,7 +38,7 @@ internal static class ExcelCom
     {
         foreach (var e in edits)
         {
-            if (e is AddSheetEdit) { dynamic last = wb.Worksheets[wb.Worksheets.Count]; dynamic ws = wb.Worksheets.Add(Type.Missing, last); ws.Name = e.Sheet; continue; }
+            if (e is AddSheetEdit ase) { dynamic last = wb.Worksheets[wb.Worksheets.Count]; dynamic ws = wb.Worksheets.Add(Type.Missing, last); ws.Name = e.Sheet; if (ase.Hidden) ws.Visible = 0; continue; }
             dynamic sheet = wb.Worksheets[e.Sheet];
             switch (e)
             {
@@ -54,7 +54,7 @@ internal static class ExcelCom
                 case ListEdit l:
                     dynamic v = sheet.Range[sheet.Cells[l.FirstRow, l.Col], sheet.Cells[l.LastRow, l.Col]].Validation;
                     v.Delete();
-                    v.Add(3, 1, 1, l.Formula); // xlValidateList, xlValidAlertStop, xlBetween
+                    v.Add(3, l.Warn ? 2 : 1, 1, l.Formula); // xlValidateList, xlValidAlertWarning/Stop, xlBetween
                     v.IgnoreBlank = true; v.InCellDropdown = true; v.ShowError = true; v.ErrorTitle = l.Title; v.ErrorMessage = l.Message;
                     break;
             }

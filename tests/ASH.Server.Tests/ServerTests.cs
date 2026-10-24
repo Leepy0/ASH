@@ -200,6 +200,13 @@ public class ServerTests
     }
 
     [Fact]
+    public async Task Settings_Page_Links_To_Type_Catalog()
+    {
+        using var e = new Env();
+        Assert.Contains("href=\"/admin/types\"", await e.Admin("/admin/settings"));
+    }
+
+    [Fact]
     public async Task Same_file_name_with_other_content_is_409()
     {
         using var e = new Env();

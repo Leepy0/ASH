@@ -143,22 +143,22 @@ internal static partial class Routes
             return Html(HomePages.Analyses(v.InProgress.Concat(v.Finished).ToList(), q?.Trim() ?? "", v.Unclassified, FileRoutes.TagFilterHtml(tags, st)));
         });
         app.MapGet("/analyses/unclassified", (AnalysisStore st, JobStore js) => Html(AnalysisPages.Unclassified(js.All(), st.All())));
-        static (AnalysisPageData D, Live L)? PageOf(string id, AnalysisStore st, JobStore js, FilmStore fs, FilmWorker fw, IConfiguration cfg, CutStore cs)
+        static (AnalysisPageData D, Live L)? PageOf(string id, AnalysisStore st, JobStore js, FilmStore fs, FilmWorker fw, IConfiguration cfg, CutStore cs, CatalogStore cat)
         {
             if (st.Get(id) is not { } a) return null;
             var jobs = js.All().Where(j => j.AnalysisId == id).ToList();
             var q = Queue(js, fw);
-            var d = new AnalysisPageData(a, jobs, fs.All().Where(f => f.Request.AnalysisId == id).ToList(), js, q, JobProgress.Parallel(cfg), cs.Get(id).Count, fs);
+            var d = new AnalysisPageData(a, jobs, fs.All().Where(f => f.Request.AnalysisId == id).ToList(), js, q, JobProgress.Parallel(cfg), cs.Get(id).Count, fs, cat.Prices());
             return (d, LiveFields.OfAnalysis(a, jobs, d.Films, q.Typical, d.Parallel, js));
         }
 
-        app.MapGet("/analyses/{id}", (string id, string? tab, HttpContext ctx, AnalysisStore st, JobStore js, FilmStore fs, FilmWorker fw, IConfiguration cfg, CutStore cs) =>
-            PageOf(id, st, js, fs, fw, cfg, cs) is { } p
+        app.MapGet("/analyses/{id}", (string id, string? tab, HttpContext ctx, AnalysisStore st, JobStore js, FilmStore fs, FilmWorker fw, IConfiguration cfg, CutStore cs, CatalogStore cat) =>
+            PageOf(id, st, js, fs, fw, cfg, cs, cat) is { } p
                 ? Html(AnalysisPages.Detail(p.D, tab ?? "status", ctx.Request.Query, (tab ?? "status") is "status" or "films" && p.L.Active ? JobPages.PollScript("/api/analyses/" + id + "/status", p.L.Watch) : null))
                 : Msg(404, "분석이 없습니다."));
 
-        app.MapGet("/api/analyses/{id}/status", (string id, AnalysisStore st, JobStore js, FilmStore fs, FilmWorker fw, IConfiguration cfg, CutStore cs) =>
-            PageOf(id, st, js, fs, fw, cfg, cs) is { } p
+        app.MapGet("/api/analyses/{id}/status", (string id, AnalysisStore st, JobStore js, FilmStore fs, FilmWorker fw, IConfiguration cfg, CutStore cs, CatalogStore cat) =>
+            PageOf(id, st, js, fs, fw, cfg, cs, cat) is { } p
                 ? Results.Json(new { active = p.L.Active, fields = p.L.Fields, watch = p.L.Watch,
                     analysis = new { plans = p.D.A.Plans.Count, versions = p.D.Jobs.Count, selected = p.D.Jobs.Count(j => j.Selected), films = p.D.Films.Count } })
                 : Msg(404, "분석이 없습니다."));
