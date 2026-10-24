@@ -204,6 +204,7 @@ app.MapAnalysis();
 app.MapCatalog();
 app.MapAssets();
 app.MapFiles();
+app.MapFilms();
 
 app.Run();
 return 0;

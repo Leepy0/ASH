@@ -146,7 +146,9 @@ public class CutTests
         var res = await env.Http.GetAsync($"/analyses/{a.Id}/cuts");
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
         var html = await res.Content.ReadAsStringAsync();
-        Assert.Contains("컷 편집기", html);
+        Assert.Contains("<h1>영상 만들기</h1>", html);
+        Assert.Contains("id=\"run\"", html); Assert.Contains("href=\"/films\" class=\" on\"", html); // the export action in the top bar; sidebar on 영상
+        Assert.Contains("A안 v1", html); // the base version chip
         Assert.Contains(id, html); // the base drawing is this job's drawing.json
         Assert.Contains("&lt;분석&gt;", html); Assert.DoesNotContain("<분석>", html);
         Assert.DoesNotContain("레이아웃 위치가", html);
