@@ -178,4 +178,26 @@ public class SearchStrategyTests
         cts.Cancel();
         Assert.ThrowsAny<System.OperationCanceledException>(() => SearchStrategy.Search(p, new Batching(), c, new SearchOptions(), cts.Token));
     }
+
+    [Fact] public void Confirm_Runs_Exactly_The_Given_Counts_Once_Per_Seed_And_Judges_Them()
+    {
+        var (p, _, f) = Case();
+        var r = SearchStrategy.Confirm(p, f, new Dictionary<string, int> { ["G1"] = 2, ["G2"] = 2, ["G3"] = 3 });
+        Assert.Equal(2, f.Calls);                                  // Replications = 2: seeds 1 and 2, nothing else
+        Assert.Equal((2, 2, 3), (r.Decided["G1"], r.Decided["G2"], r.Decided["G3"]));
+        var step = Assert.Single(r.Trace);
+        Assert.Equal("confirm", step.Phase); Assert.Equal(new[] { 1, 2 }, step.Seeds);
+        Assert.False(step.VerdictsByGroup["G1"].Ok);               // 2+2 < 5 breaks the pair rule
+        Assert.True(step.VerdictsByGroup["G3"].Ok);
+        Assert.Contains(r.Warnings, w => w.StartsWith("G1:") && w.Contains("2대"));
+    }
+    [Fact] public void Confirm_Rejects_Unknown_Missing_And_Out_Of_Range_Counts()
+    {
+        var (p, _, f) = Case();
+        var ok = new Dictionary<string, int> { ["G1"] = 2, ["G2"] = 2, ["G3"] = 3 };
+        Assert.Throws<System.ArgumentException>(() => SearchStrategy.Confirm(p, f, new Dictionary<string, int>(ok) { ["G9"] = 1 }));
+        Assert.Throws<System.ArgumentException>(() => SearchStrategy.Confirm(p, f, new Dictionary<string, int>(ok) { ["G3"] = 4 }));
+        Assert.Throws<System.ArgumentException>(() => SearchStrategy.Confirm(p, f, new Dictionary<string, int> { ["G1"] = 2 }));
+        Assert.Equal(0, f.Calls);
+    }
 }
