@@ -94,9 +94,9 @@ details summary{cursor:pointer;color:var(--blue-d);font-size:14px;margin-top:8px
 .field{display:grid;grid-template-columns:200px 1fr;gap:4px 16px;padding:10px 0;border-top:1px solid var(--line)}.field:first-of-type{border-top:none}
 .field label{font-weight:600;font-size:14px;padding-top:6px}.help{font-size:13px;color:var(--sub2);margin-top:4px}
 .scroll{overflow-x:auto;max-width:100%}.scroll td,.scroll th{white-space:nowrap}.grid>*{min-width:0}
-table{border-collapse:collapse;background:#fff;width:auto}td,th{border-bottom:1px solid var(--line);padding:8px 10px;text-align:left;font-size:14px}
+table{border-collapse:collapse;background:#fff;width:auto}td,th{border-bottom:1px solid var(--line);padding:8px 10px;text-align:center;font-size:14px}
 th{color:var(--sub2);font-weight:600;font-size:13px;background:#fafafa;border-bottom:1px solid var(--line2)}
-.num{text-align:right;font-variant-numeric:tabular-nums}.muted{color:var(--sub2)}.bad{color:var(--red)}.ok{color:var(--green)}
+.num{text-align:center;font-variant-numeric:tabular-nums}td.num,th.num{text-align:center}.muted{color:var(--sub2)}.bad{color:var(--red)}.ok{color:var(--green)}
 .tabs{display:flex;gap:2px;background:#e3e3e8;border-radius:8px;padding:2px;width:max-content;margin:6px 0 12px}
 .tabs a{height:28px;padding:0 14px;display:flex;align-items:center;border-radius:6px;font-size:13px;font-weight:500;color:var(--ink);text-decoration:none}.tabs a.on{background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.15);font-weight:600}
 .panel{background:transparent}
