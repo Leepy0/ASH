@@ -182,6 +182,7 @@ public static class InputValidator
             Blank("Routes", r.Row, i, "SupplyToCP", r.SupplyToCP);
             if (r.Material.Length > 0 && !mats.Contains(r.Material)) Err("Routes", r.Row, i, $"Material '{r.Material}'이(가) Materials에 없습니다.");
             if (r.Material.Length > 0 && input.Routes.Take(i).Any(x => x.Material == r.Material)) Err("Routes", r.Row, i, $"자재 '{r.Material}'의 Routes 행이 중복되었습니다(자재당 1행).");
+            if (!(r.BufferWaitSec >= 0)) Err("Routes", r.Row, i, $"자재 '{r.Material}'의 BufferWaitSec(버퍼 대기 허용)은 0 이상이어야 합니다(비우면 0).");
             if (cps == null) continue;
             foreach (var (col, cp) in new[] { ("SupplyFromCP", r.SupplyFromCP), ("SupplyToCP", r.SupplyToCP), ("BufferCP", r.BufferCP), ("ReturnFromCP", r.ReturnFromCP), ("ReturnToCP", r.ReturnToCP) })
                 if (!string.IsNullOrWhiteSpace(cp) && !cps.Contains(cp!)) Err("Routes", r.Row, i, $"{col} '{cp}'이(가) 레이아웃에 없습니다.");

@@ -120,6 +120,27 @@ public class ModelRunIntegrationTests
     }
 
     [SkippableFact]
+    public void Buffer_Wait_Allowance_Counts_The_Hold_As_Busy()
+    {
+        Skip.If(AmHome is null, "ASH_AM_HOME not set");
+        static string[] Tug(Run r) => r.Rows.Single(x => x[0] == "vehicle" && x[1] == "Tug1");
+        Run With(double sec)
+        {
+            var input = LogicGeneratorTests.Sample();
+            for (int i = 0; i < input.Routes.Count; i++) input.Routes[i] = input.Routes[i] with { BufferWaitSec = sec };
+            return BuildAndRun(input, 1);
+        }
+        // the allowance only changes the accounting: same seed, same jobs, so the busy times compare one to one
+        var none = With(0); var some = With(60); var all = With(100000); // 100000 s: longer than any hold, all of it busy
+        double b0 = V(Tug(none), 1), b60 = V(Tug(some), 1), ball = V(Tug(all), 1), jobs = V(Tug(none), 3);
+        Console.WriteLine($"Tug1 busy over {jobs} jobs: allowance 0 {b0:0} s, 60 {b60:0} s, 100000 {ball:0} s; utilization {b0 / 3240:P1} / {b60 / 3240:P1} / {ball / 3240:P1}");
+        Assert.Equal(jobs, V(Tug(some), 3)); Assert.Equal(jobs, V(Tug(all), 3));
+        Assert.True(b0 < b60 && b60 < ball, "a larger allowance counts more of the hold as busy");
+        Assert.True(b60 - b0 <= 60 * jobs + 1e-6, "at most the allowance per job comes back");
+        Cleanup(none.Work); Cleanup(some.Work); Cleanup(all.Work);
+    }
+
+    [SkippableFact]
     public void Breakdowns_EmptySpeed_And_Capacity_Run_And_Differ_By_Seed()
     {
         Skip.If(AmHome is null, "ASH_AM_HOME not set");

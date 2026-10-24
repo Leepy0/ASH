@@ -28,7 +28,10 @@ public static class InputSignature
         // FinishCP only when set: models made before it existed keep their signature
         foreach (var g in p.Groups) { if (string.IsNullOrEmpty(g.FinishCP)) L("group", g.Group, g.Type, g.MaxCount, string.Join(",", g.StandbyCPs)); else L("group", g.Group, g.Type, g.MaxCount, string.Join(",", g.StandbyCPs), g.FinishCP); }
         foreach (var m in p.Materials) L("material", m.Material, m.Group, m.EmptyReturn);
-        foreach (var r in p.Routes) L("route", r.Material, r.SupplyFromCP, r.SupplyToCP, r.BufferCP, r.ReturnFromCP, r.ReturnToCP, r.ExtraTime);
+        // BufferWaitSec only when set: models made before it existed keep their signature
+        foreach (var r in p.Routes)
+            if (r.BufferWaitSec > 0) L("route", r.Material, r.SupplyFromCP, r.SupplyToCP, r.BufferCP, r.ReturnFromCP, r.ReturnToCP, r.ExtraTime, r.BufferWaitSec);
+            else L("route", r.Material, r.SupplyFromCP, r.SupplyToCP, r.BufferCP, r.ReturnFromCP, r.ReturnToCP, r.ExtraTime);
         using var sha = SHA256.Create();
         return BitConverter.ToString(sha.ComputeHash(Encoding.UTF8.GetBytes(sb.ToString()))).Replace("-", "").ToLowerInvariant();
     }

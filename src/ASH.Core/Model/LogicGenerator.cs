@@ -113,8 +113,9 @@ public static class LogicGenerator
             if (!string.IsNullOrEmpty(r.BufferCP))
             {
                 legs.Append(Leg(r.BufferCP!, mi));
-                // waiting at the buffer for the stock to drop to the unload threshold has no set time in the input, so all of it is left out of busy time
-                legs.Append($"\tset A_hold to ac\n\twhile V_stock({mi}) > V_unload({mi}) do begin\n\t\twait for 5 sec\n\tend\n\tset A_hold to ac - A_hold\n");
+                // waiting at the buffer for the stock to drop to the unload threshold: up to Route.BufferWaitSec of it is busy, only the excess is left out
+                var hold = r.BufferWaitSec > 0 ? $"\tset A_hold to ac - A_hold - {N(r.BufferWaitSec)}\n\tif A_hold < 0 then set A_hold to 0\n" : "\tset A_hold to ac - A_hold\n";
+                legs.Append($"\tset A_hold to ac\n\twhile V_stock({mi}) > V_unload({mi}) do begin\n\t\twait for 5 sec\n\tend\n{hold}");
             }
             legs.Append(Leg(r.SupplyToCP, mi));
             var ret = new StringBuilder();

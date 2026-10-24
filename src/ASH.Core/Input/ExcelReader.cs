@@ -147,7 +147,7 @@ public static class ExcelReader
         }
         foreach (var r in Rows(wb, "Routes"))
             p.Routes.Add(new Route(r.Str("Material"), r.Str("SupplyFromCP"), r.Str("SupplyToCP"), r.OptStr("BufferCP"),
-                r.OptStr("ReturnFromCP"), r.OptStr("ReturnToCP"), r.Num("ExtraTime", 0), r.RowNum));
+                r.OptStr("ReturnFromCP"), r.OptStr("ReturnToCP"), r.Num("ExtraTime", 0), r.RowNum, r.OptNumIfColumn("BufferWaitSec") ?? 0));
         // the container goes back when the route has a return CP (an old EmptyReturn column is ignored: it could contradict the route)
         for (int i = 0; i < p.Materials.Count; i++)
         {

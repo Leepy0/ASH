@@ -29,7 +29,7 @@
 | AGV_Types | Type, Category(분류 메모), SpeedLoaded(m/s), SpeedLoadedCurve(m/s, 빈칸=직선), SpeedEmpty(m/s), SpeedEmptyCurve(m/s, 빈칸=직선), Accel(m/s²), Decel(m/s²), Capacity(용기 수), LoadTime(초), UnloadTime(초), MTBF(초, 0=없음), MTTR(초), Length(m), Width(m), Color, Kind(목록: Standard / Conveyor / Ant / Magnet), Asset(에셋 이름, 비워 둔다) |
 | AGV_Groups | Group, Type(AGV_Types 목록에서 선택, 여러 그룹이 같은 타입을 써도 된다), MinCount(≥1), MaxCount(≥MinCount), StandbyCPs(쉼표 구분), Dispatch(Nearest / FIFO), FinishCP(선택) |
 | Materials | Material, Station(공정명, 메모), Group(운반 그룹, AGV_Groups 목록), TaktTime(초, >0), UnitsPerCycle(소요 원수), UnitsPerContainer(용기당 자재 수량, ≥1), CallThreshold(호출 임계, 용기) + CallThresholdQty(호출 임계, 자재) → CallThresholdTotal(합계, 자동), UnloadThreshold(언로딩 임계, 용기) + UnloadThresholdQty(언로딩 임계, 자재) → UnloadThresholdTotal(합계, 자동), InitStock / SafetyStock(용기, `-` 또는 빈칸 = Settings 기본값), Form(목록: Box / Pallet / Trolley), LoadLength / LoadWidth / LoadHeight(m, `-` 또는 빈칸 = 형태별 기본값) |
-| Routes | Material, SupplyFromCP, SupplyToCP, BufferCP(선택), ReturnFromCP(선택), ReturnToCP(선택), ExtraTime(초) |
+| Routes | Material, SupplyFromCP, SupplyToCP, BufferCP(선택), ReturnFromCP(선택), ReturnToCP(선택), ExtraTime(초), BufferWaitSec(버퍼 대기 허용, 초, 빈칸 = 0, ≥0) |
 
 ## 도면 값으로 채운 양식
 
@@ -115,7 +115,7 @@ Stations·Ext 시트는 양식에서 뺐다(모델에 아무 영향이 없었다
 - 탑승: 호출된 용기(load)는 차량이 있든 없든 그룹의 첫 대기 CP(StandbyCPs의 첫 번째)로 들어가 먼저 온 순서대로 차량에 탄다.
 - 이동: 상차 CP → (BufferCP) → 하차 CP → (회수: ReturnFrom 도착 → 추가 시간(ExtraTime) → 상차 → ReturnTo 하차) → 대기 CP. 회수 구간이 없으면 추가 시간은 하차 뒤. 모든 작업은 대기 CP에 돌아와서 끝난다.
 - 가동 시간: 대기 CP에서 차량에 탄 순간(다른 곳에서 데리러 온 빈 주행 포함)부터 FinishCP 도착까지, FinishCP가 없으면 대기 CP 도착까지. 대기 CP 앞에 줄 서는 시간을 빼려면 FinishCP(CP 타입 finish)를 대기 레인 입구에 둔다.
-- 가동 시간에서 빼는 대기(2026-10-24): BufferCP에서 재고가 언로딩 임계(UnloadThreshold) 이하로 떨어지기를 기다리는 시간. 이 대기에는 입력에 정한 시간이 없으므로(설정 시간 0) 전부 "설정 시간 초과분"으로 보고 뺀다. 입력에 정한 시간(LoadTime, UnloadTime, ExtraTime)과 주행 중 정체·block 대기는 그대로 가동이다. 가동률 = 가동 시간 ÷ (시뮬레이션 시간 − 워밍업). 이 정의는 이 버전 이후 AGVMODEL로 다시 만든 모델에만 적용된다.
+- 가동 시간에서 빼는 대기: BufferCP에서 재고가 언로딩 임계(UnloadThreshold) 이하로 떨어지기를 기다리는 시간 중 Routes의 BufferWaitSec(버퍼 대기 허용, 초)을 넘는 부분. 한 번 기다릴 때마다 BufferWaitSec까지는 가동으로 치고 넘는 시간만 뺀다. 예: 허용 60초에 150초 기다리면 60초는 가동, 90초는 비가동. 빈칸·0이면 대기 전부를 뺀다(2026-10-24 동작). 허용 시간은 모델 로직에 들어가므로 바꾸면 AGVMODEL로 모델을 다시 만들어야 한다(0 → 값으로 바꾸면 입력 서명이 달라져 알려 준다). 입력에 정한 시간(LoadTime, UnloadTime, ExtraTime)과 주행 중 정체·block 대기는 그대로 가동이다. 가동률 = 가동 시간 ÷ (시뮬레이션 시간 − 워밍업). 이 정의는 이 버전 이후 AGVMODEL로 다시 만든 모델에만 적용된다.
 - 가동률 상한(UtilMax) 초과는 실패가 아니라 경고(주황 ⚠/▲ "경고: 가동률 초과")로 보인다. 대수 탐색은 그대로 상한을 넘지 않는 대수를 찾는다. 실패(빨강)는 결품·생산 미달·교착·결과 없음뿐이다.
 - 기록(result.tsv): 차량별 가동 시간·주행 거리(AutoMod total distance traveled)·작업 수, 자재별 리드타임(호출→상차 도착, 호출→하차 완료)·재고 평균·표준편차·최소·최대(AutoMod TABLE), 자재별 공급 작업 수·그 작업의 주행 거리(material 행 value8·value7, 예전 모델은 0 → 화면에 "-"). 평균 재고 − 2σ가 안전재고보다 작으면 경고.
 - 대기 CP 앞 레인이 "최대 대수 × (차량 길이 + 0.5 m)"보다 짧으면(분기점이나 block까지) 모델 생성 때 경고한다.
