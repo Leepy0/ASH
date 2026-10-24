@@ -14,13 +14,24 @@ public static class ServerPages
     static string Card(string label, string big, string sub, string cls = "") =>
         $"<div class=\"card\"><div class=\"sub\">{label}</div><div class=\"big {cls}\">{big}</div><div class=\"sub\">{sub}</div></div>";
 
-    public static string Status(StatusData d)
+    static readonly (string Key, string Name, string Href)[] Tabs = { ("jobs", "작업 현황", "/admin/settings"), ("catalog", "기준 정보", "/admin/types"), ("server", "서버 설정", "/admin/settings?tab=server") };
+
+    /// <summary>The admin tab bar shared by /admin/settings (작업 현황, 서버 설정) and /admin/types (기준 정보), with the logout button at its end.</summary>
+    public static string AdminTabs(string on)
     {
-        var (s, g, u, r) = (d.Releases, d.GitHub, d.Updater, d.Runner);
+        var sb = new StringBuilder("<div class=\"tabs admin-tabs\">");
+        foreach (var (k, name, href) in Tabs) sb.Append($"<a href=\"{href}\"{(k == on ? " class=\"on\" aria-current=\"page\"" : "")}>{name}</a>");
+        return sb.Append("<form method=\"post\" action=\"/admin/logout\"><button>로그아웃</button></form></div>").ToString();
+    }
+
+    /// <summary>작업 현황 tab: the running/queue/version cards and the five latest jobs.</summary>
+    public static string JobsStatus(StatusData d)
+    {
+        var (s, u) = (d.Releases, d.Updater);
         var cur = s.GetCurrent()?.Manifest;
         var running = d.Jobs.FirstOrDefault(j => j.State == JobState.Running);
         int queued = d.Jobs.Count(j => j.State == JobState.Queued);
-        var sb = new StringBuilder("<section class=\"box\"><h2>서버 현황</h2><div class=\"cards\">");
+        var sb = new StringBuilder("<div class=\"cards\">");
 
         sb.Append(Card("지금 실행", running == null ? "없음" : State(running),
             running == null ? (d.WorkerOn ? "작업 실행 켜짐" : "<span class=\"bad\">작업 실행 꺼짐</span>")
@@ -33,8 +44,15 @@ public static class ServerPages
         sb.Append("<section class=\"box\"><div class=\"box-head\"><h2>최근 작업</h2><a href=\"/admin/jobs\">작업 대기열(관리자) →</a></div>");
         JobTable(sb, d.Jobs.Take(5).ToList());
         sb.Append("</section>");
+        return sb.ToString();
+    }
 
-        sb.Append("<div class=\"grid\"><section class=\"box\"><h2>배포</h2><dl class=\"kv\">");
+    /// <summary>The 배포 and 서버 상태 boxes at the top of the 서버 설정 tab.</summary>
+    public static string ServerStatus(StatusData d)
+    {
+        var (s, g, u, r) = (d.Releases, d.GitHub, d.Updater, d.Runner);
+        var cur = s.GetCurrent()?.Manifest;
+        var sb = new StringBuilder("<div class=\"grid\"><section class=\"box\"><h2>배포</h2><dl class=\"kv\">");
         if (cur == null) sb.Append("<dt>ASH</dt><dd>게시된 버전이 없습니다.</dd>");
         else sb.Append($"<dt>현재 버전</dt><dd><b>{H(cur.Version)}</b></dd><dt>최소 지원</dt><dd>{H(cur.MinSupported)}</dd>")
                .Append($"<dt>게시 시각(서울)</dt><dd>{H(SeoulTime.FromIso(cur.Published))}</dd>")
@@ -62,7 +80,7 @@ public static class ServerPages
         sb.Append("<dt>수동 업로드</dt><dd>").Append(s.UploadsEnabled ? "가능" : "꺼짐 <span class=\"muted\">(Admin:Password가 규칙에 맞지 않음, GitHub 가져오기만 사용)</span>").Append("</dd>");
         // the clock behind every time on this page: if it differs from the wall clock the PC's own date and time is wrong
         sb.Append("<dt>서버 시각(서울)</dt><dd>").Append(H(SeoulTime.NowText)).Append(" <span class=\"muted\">· PC 표준 시간대 ").Append(H(TimeZoneInfo.Local.Id)).Append("</span></dd>");
-        sb.Append("</dl></section></div></section>");
+        sb.Append("</dl></section></div>");
         return sb.ToString();
     }
 
@@ -89,11 +107,16 @@ public static class ServerPages
 
     public sealed record SettingsView(JsonObject File, string FilePath, Func<string, string?>? Submitted, SettingsSave? Saved, string? RestartBlocked, JobInfo? Running);
 
-    public static string Settings(SettingsView v, string statusHtml)
+    /// <param name="tab">"jobs" (작업 현황, the default) or "server" (서버 설정: status, the settings form, restart)</param>
+    public static string Settings(SettingsView v, StatusData status, string tab)
     {
         var sb = new StringBuilder("<h1>서버 설정</h1>");
-        sb.Append(statusHtml);
-        sb.Append("<p><a href=\"/admin/types\">타입·투자비 관리</a></p>");
+        if (tab != "server")
+        {
+            sb.Append(AdminTabs("jobs")).Append("<div class=\"panel\">").Append(JobsStatus(status)).Append("</div>");
+            return Page("ASH 서버 설정", sb.ToString());
+        }
+        sb.Append(AdminTabs("server")).Append("<div class=\"panel\">").Append(ServerStatus(status));
         sb.Append($"<p class=\"muted\">파일: <code>{H(v.FilePath)}</code> · <span class=\"tag\">바로 적용</span> 저장하면 다음 작업·다음 확인부터 적용 · <span class=\"tag rs\">재시작 필요</span> 서비스를 다시 시작해야 적용</p>");
         if (v.Saved is { } r)
         {
@@ -111,7 +134,7 @@ public static class ServerPages
             }
         }
 
-        sb.Append("<form method=\"post\" action=\"/admin/settings\">");
+        sb.Append("<form method=\"post\" action=\"/admin/settings\"><div class=\"grid settings-grid\">");
         foreach (var section in ServerSettings.All.GroupBy(d => ServerSettings.Section(d.Key)))
         {
             sb.Append($"<section class=\"box\"><h2>{H(section.Key)}</h2>");
@@ -144,7 +167,7 @@ public static class ServerPages
             }
             sb.Append("</section>");
         }
-        sb.Append("<div class=\"actions\"><button class=\"primary\">저장</button><span class=\"muted\">저장할 때 이전 파일을 appsettings.json.날짜.bak으로 남깁니다. ")
+        sb.Append("</div><div class=\"actions\"><button class=\"primary\">저장</button><span class=\"muted\">저장할 때 이전 파일을 appsettings.json.날짜.bak으로 남깁니다. ")
           .Append("Admin:Password, Update:PublicKeyPem, Logging은 웹에서 바꾸지 않습니다(서버 PC에서 파일을 직접 고침).</span></div></form>");
 
         sb.Append("<section class=\"box\"><h2>서비스 다시 시작</h2>");
@@ -157,8 +180,7 @@ public static class ServerPages
                   .Append("<br><label><input type=\"checkbox\" name=\"confirm\" value=\"1\" required> 실행 중인 작업을 중단하고 다시 시작합니다</label></div>");
             sb.Append("<div class=\"actions\"><button class=\"primary\">서비스 다시 시작</button></div></form>");
         }
-        sb.Append("</section>");
-        sb.Append("<form method=\"post\" action=\"/admin/logout\" class=\"actions\"><button>로그아웃</button></form>");
+        sb.Append("</section></div>");
         return Page("ASH 서버 설정", sb.ToString());
     }
 }

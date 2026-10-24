@@ -50,6 +50,9 @@ table{border-collapse:collapse;background:#fff}td,th{border:1px solid var(--line
 .card .big{font-size:30px;font-weight:600}.card .sub{color:var(--muted);font-size:13px}
 .tabs a{display:inline-block;padding:8px 14px;border:1px solid var(--line);border-bottom:none;border-radius:8px 8px 0 0;background:var(--chip);color:var(--ink);text-decoration:none;margin-right:4px}
 .tabs a.on{background:#fff;font-weight:600}.panel{background:#fff;border:1px solid var(--line);padding:16px}
+.admin-tabs{display:flex;align-items:flex-end}.admin-tabs form{margin-left:auto}.panel>.box:first-child,.panel>.cards:first-child{margin-top:0}
+.settings-grid .field,.fgrid .field{grid-template-columns:1fr;gap:2px}.settings-grid .field label{padding-top:0}
+.fgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:0 14px}.fgrid .field>span{display:block}.fgrid .field input:not([type=checkbox]),.fgrid .field select{width:100%}
 .bar{background:#e6f1fb;height:14px;position:relative;width:180px;display:inline-block;vertical-align:middle}.bar i{display:block;height:14px;background:var(--blue)}
 .bar b{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--bad)}
 .state{display:inline-block;padding:2px 8px;border-radius:10px;font-size:13px}

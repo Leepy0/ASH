@@ -78,6 +78,36 @@ internal static partial class Routes
             return Html(Render(store, assets, t, msg));
         });
 
+        app.MapGet("/admin/types/template.xlsx", (HttpContext ctx, ReleaseStore rs, AdminSessions sessions, CatalogStore store) =>
+        {
+            if (!rs.UploadsEnabled || !(HeaderAdmin(ctx, rs) || CookieAdmin(ctx, sessions))) return Msg(rs.UploadsEnabled ? 401 : 403, "관리자 로그인이 필요합니다.");
+            ctx.Response.Headers.CacheControl = "no-store";
+            return Results.File(CatalogSheet.Template(store.Types(includeHidden: true), store.Prices()),
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "ASH-types.xlsx");
+        });
+
+        // rows copied out of the template: all checked first, nothing saved when any row is wrong
+        app.MapPost("/admin/types/paste", async (HttpContext ctx, ReleaseStore rs, AdminSessions sessions, CatalogStore store, AssetStore assets) =>
+        {
+            if (DenyPost(ctx, rs, sessions) is { } deny) return deny;
+            var text = (await FormFrom(ctx))?["rows"].ToString();
+            if (text == null) return Msg(400, "폼이 아닙니다.");
+            if (store.LoadError != null) return Html(Render(store, assets, null, Bad("types.json을 읽을 수 없어 저장하지 않았습니다."), paste: text), 400);
+            var (rows, errs) = CatalogSheet.Parse(text, store.Get);
+            if (errs.Count > 0) return Html(Render(store, assets, null, Bad("저장하지 않았습니다.<br>" + string.Join("<br>", errs.Select(WebUtility.HtmlEncode))), paste: text), 400);
+            foreach (var r in rows)
+                if (store.Save(r.Type, "admin") is { } why) return Html(Render(store, assets, null, Bad($"{WebUtility.HtmlEncode(r.Type.Name)}에서 멈췄습니다(앞 줄은 저장됨): {WebUtility.HtmlEncode(why)}"), paste: text), 500);
+            var priced = rows.Where(r => r.Price != null).ToList();
+            if (priced.Count > 0)
+            {
+                var old = store.Prices();
+                var keep = old.Values.Where(p => !priced.Any(r => r.Type.Name.Equals(p.Type, StringComparison.OrdinalIgnoreCase)));
+                var res = store.SavePrices(PricesCsv(keep.Concat(priced.Select(r => new PriceRow(r.Type.Name, r.Price!.Value, old.TryGetValue(r.Type.Name, out var o) ? o.Currency : "KRW", o?.Note ?? "")))));
+                if (res.Errors.Count > 0) return Html(Render(store, assets, null, Bad(PriceErrors(res))), 400);
+            }
+            return Html(Render(store, assets, null, Ok($"타입 {rows.Count}개를 저장했습니다{(priced.Count > 0 ? $"(단가 {priced.Count}개 포함)" : "")}.")));
+        });
+
         app.MapPost("/admin/types/prices", async (HttpContext ctx, ReleaseStore rs, AdminSessions sessions, CatalogStore store, AssetStore assets) =>
         {
             if (DenyPost(ctx, rs, sessions) is { } deny) return deny;
@@ -94,8 +124,8 @@ internal static partial class Routes
     static string Warn(string text) => $"<div class=\"msg warn\">{WebUtility.HtmlEncode(text)}</div>";
     static string PriceErrors(PriceSave r) => "투자비를 저장하지 않았습니다.<br>" + string.Join("<br>", r.Errors.Select(e => $"{e.Row}행: {WebUtility.HtmlEncode(e.Why)}"));
 
-    static string Render(CatalogStore store, AssetStore assets, CatalogType? editing, string? msg, string? csvOverride = null) =>
-        CatalogPages.Types(store.Types(includeHidden: true), store.Prices(), csvOverride ?? store.PricesCsv(), editing, msg, assets);
+    static string Render(CatalogStore store, AssetStore assets, CatalogType? editing, string? msg, string? csvOverride = null, string? paste = null) =>
+        CatalogPages.Types(store.Types(includeHidden: true), store.Prices(), csvOverride ?? store.PricesCsv(), editing, msg, assets, paste);
 
     static CatalogDefaults Copy(CatalogDefaults d) => new()
     {

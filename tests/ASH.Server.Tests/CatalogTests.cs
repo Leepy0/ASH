@@ -166,6 +166,80 @@ public class CatalogTests
     }
 
     [Fact]
+    public async Task Template_Round_Trips_And_A_Paste_Saves_All_Rows_Or_None()
+    {
+        const string Token = "test!Admin12";
+        using var env = new JobEnv(worker: false, adminToken: Token);
+        var store = env.Factory.Services.GetRequiredService<CatalogStore>();
+        store.Save(T("T_OLD"), "me"); store.AddAsset("T_OLD", "front");
+        async Task<HttpResponseMessage> Send(HttpMethod m, string url, string? rows = null)
+        {
+            var req = new HttpRequestMessage(m, url) { Content = rows == null ? null : new FormUrlEncodedContent(new[] { new KeyValuePair<string, string>("rows", rows) }) };
+            req.Headers.Add(ReleaseStore.HeaderName, Token);
+            return await env.Http.SendAsync(req);
+        }
+
+        Assert.Equal(System.Net.HttpStatusCode.Unauthorized, (await env.Http.GetAsync("/admin/types/template.xlsx")).StatusCode);
+        var x = await Send(HttpMethod.Get, "/admin/types/template.xlsx");
+        Assert.Equal(System.Net.HttpStatusCode.OK, x.StatusCode);
+        using (var wb = new ClosedXML.Excel.XLWorkbook(await x.Content.ReadAsStreamAsync()))
+        {
+            var ws = wb.Worksheet("타입");
+            Assert.Equal("이름", ws.Cell(1, 1).GetString());
+            Assert.Equal("T_OLD", ws.Cell(2, 1).GetString());
+            Assert.Equal(CatalogSheet.HeaderLine, string.Join("\t", ws.Row(1).CellsUsed().Select(c => c.GetString())));
+        }
+
+        // a bad row (unknown kind) and the good one beside it: nothing saved
+        var head = CatalogSheet.HeaderLine;
+        var bad = await Send(HttpMethod.Post, "/admin/types/paste", head + "\r\nT_NEW\t새 차\tAGV\tNoSuchKind\t1\t0.5\t1\t0.5\t0.3\t0.3\t2\t5\t5\t0\t0\t1.2\t0.8\t\t\t\r\n");
+        Assert.Equal(System.Net.HttpStatusCode.BadRequest, bad.StatusCode);
+        Assert.Contains("2행", await bad.Content.ReadAsStringAsync());
+        Assert.Null(store.Get("T_NEW"));
+
+        // Excel's copy: tab-separated, CRLF; a Korean kind label; a price with a thousands comma; an update that keeps the assets
+        var ok = await Send(HttpMethod.Post, "/admin/types/paste",
+            head + "\r\nT_NEW\t새 차\tAGV\t표준\t1\t0.5\t1\t0.5\t0.3\t0.3\t2\t5\t5\t0\t0\t1.2\t0.8\t\t15,000,000\t\r\n" +
+                   "T_OLD\t바뀜\tAGV\tStandard\t2\t1\t2\t1\t0.5\t0.5\t1\t0\t0\t0\t0\t1\t1\t\t\tY\r\n");
+        Assert.Equal(System.Net.HttpStatusCode.OK, ok.StatusCode);
+        Assert.Contains("타입 2개를 저장했습니다(단가 1개 포함)", await ok.Content.ReadAsStringAsync());
+        Assert.Equal(2, store.Get("T_NEW")!.Defaults.Capacity);
+        Assert.Equal("Standard", store.Get("T_NEW")!.Kind);
+        Assert.Equal(15_000_000m, store.Prices()["T_NEW"].UnitPrice);
+        Assert.Equal("바뀜", store.Get("T_OLD")!.Label);
+        Assert.True(store.Get("T_OLD")!.Hidden);
+        Assert.Equal(new[] { "front" }, store.Get("T_OLD")!.Assets);
+        using (var wb = new ClosedXML.Excel.XLWorkbook(await (await Send(HttpMethod.Get, "/admin/types/template.xlsx")).Content.ReadAsStreamAsync()))
+        {
+            var row = wb.Worksheet("타입").RowsUsed().Single(r => r.Cell(1).GetString() == "T_NEW");
+            Assert.Equal(15_000_000, row.Cell(CatalogSheet.HeaderLine.Split('\t').ToList().IndexOf("단가(원)") + 1).GetDouble()); // the price comes back with its type
+        }
+
+        // only some columns: the rest of an existing type stays
+        Assert.Equal(System.Net.HttpStatusCode.OK, (await Send(HttpMethod.Post, "/admin/types/paste", "이름\t라벨\nT_NEW\t짧게")).StatusCode);
+        Assert.Equal("짧게", store.Get("T_NEW")!.Label);
+        Assert.Equal(1.2, store.Get("T_NEW")!.Defaults.Length);
+
+        Assert.Contains("알 수 없습니다", await (await Send(HttpMethod.Post, "/admin/types/paste", "T_NEW\t짧게")).Content.ReadAsStringAsync()); // no header row
+    }
+
+    [Fact]
+    public async Task Settings_Has_Three_Tabs_And_Types_Is_The_Middle_One()
+    {
+        const string Token = "test!Admin12";
+        using var env = new JobEnv(worker: false, adminToken: Token);
+        async Task<string> Get(string url) => await (await env.Http.SendAsync(new HttpRequestMessage(HttpMethod.Get, url) { Headers = { { ReleaseStore.HeaderName, Token } } })).Content.ReadAsStringAsync();
+        var jobs = await Get("/admin/settings");
+        foreach (var s in new[] { "작업 현황", "기준 정보", "서버 설정", "최근 작업", "로그아웃" }) Assert.Contains(s, jobs);
+        Assert.DoesNotContain("서비스 다시 시작", jobs);
+        var server = await Get("/admin/settings?tab=server");
+        Assert.Contains("서비스 다시 시작", server); Assert.Contains("서버 상태", server); Assert.DoesNotContain("최근 작업", server);
+        var types = await Get("/admin/types");
+        Assert.Contains("href=\"/admin/types\" class=\"on\"", types);
+        Assert.Contains("엑셀에서 붙여넣기", types);
+    }
+
+    [Fact]
     public async Task Corrupt_TypesJson_Is_Not_Overwritten()
     {
         using var env = new JobEnv();

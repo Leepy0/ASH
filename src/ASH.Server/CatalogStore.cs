@@ -63,7 +63,8 @@ public sealed class CatalogStore
         lock (_lock) return Load().FirstOrDefault(t => t.Name.Equals(name, StringComparison.OrdinalIgnoreCase));
     }
 
-    public string? Save(CatalogType t, string by)
+    /// <summary>Why the type cannot be saved, or null. Save checks the same; the paste form checks every row with it before saving any.</summary>
+    public static string? Validate(CatalogType t)
     {
         if (!InputValidator.IsAmIdentifier(t.Name)) return $"타입 이름 '{t.Name}'은(는) AutoMod에서 쓸 수 없습니다(영문·숫자·_만, 영문 또는 _로 시작).";
         if (VehicleKinds.Find(t.Kind) == null) return $"종류 '{t.Kind}'을(를) 알 수 없습니다.";
@@ -71,6 +72,12 @@ public sealed class CatalogStore
         if (new[] { d.SpeedLoadedStraight, d.SpeedLoadedCurve, d.SpeedEmptyStraight, d.SpeedEmptyCurve, d.Accel, d.Decel, d.LoadTime, d.UnloadTime, d.MTBF, d.MTTR, d.Length, d.Width }
                 .Any(v => double.IsNaN(v) || v < 0)) return "수치는 0 이상이어야 합니다.";
         if (d.Capacity < 1) return "적재 수량은 1 이상이어야 합니다.";
+        return null;
+    }
+
+    public string? Save(CatalogType t, string by)
+    {
+        if (Validate(t) is { } why) return why;
         lock (_lock)
         {
             var all = Load();

@@ -75,7 +75,10 @@ public class SettingsTests
         Assert.Contains("작업 대기열", await (await e.Http.SendAsync(req)).Content.ReadAsStringAsync());
         var settings = new HttpRequestMessage(HttpMethod.Get, "/admin/settings"); settings.Headers.Add("X-ASH-Admin-Token", SettingsEnv.Token);
         var page = await (await e.Http.SendAsync(settings)).Content.ReadAsStringAsync();
-        foreach (var s in new[] { "서버 현황", "배포", "서버 상태", "href=\"/admin/jobs\"" }) Assert.Contains(s, page);
+        foreach (var s in new[] { "작업 현황", "최근 작업", "href=\"/admin/jobs\"" }) Assert.Contains(s, page);
+        var server = new HttpRequestMessage(HttpMethod.Get, "/admin/settings?tab=server"); server.Headers.Add("X-ASH-Admin-Token", SettingsEnv.Token);
+        page = await (await e.Http.SendAsync(server)).Content.ReadAsStringAsync();
+        foreach (var s in new[] { "배포", "서버 상태" }) Assert.Contains(s, page);
     }
 
     [Fact]
@@ -89,7 +92,7 @@ public class SettingsTests
         Assert.DoesNotContain("Jobs:Parallel", page);
 
         await e.Login();
-        page = await e.Http.GetStringAsync("/admin/settings");
+        page = await e.Http.GetStringAsync("/admin/settings?tab=server");
         Assert.Contains("Jobs:Parallel", page);
         Assert.Contains("동시 실행 수", page);
         Assert.DoesNotContain(SettingsEnv.Token, page);
@@ -197,7 +200,7 @@ public class SettingsTests
         var r = await e.Post("/admin/restart", SettingsEnv.Form(("confirm", "1")));
         Assert.Equal(HttpStatusCode.Conflict, r.StatusCode); // the test host is not the Windows service: nothing is restarted
         Assert.Contains("Windows 서비스로 실행 중이 아님", await r.Content.ReadAsStringAsync());
-        Assert.Contains("Windows 서비스로 실행 중이 아님", await e.Http.GetStringAsync("/admin/settings"));
+        Assert.Contains("Windows 서비스로 실행 중이 아님", await e.Http.GetStringAsync("/admin/settings?tab=server"));
     }
 
     [Fact]
