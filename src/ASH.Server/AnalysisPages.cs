@@ -38,8 +38,8 @@ public static class AnalysisPages
     static bool Ok(JobInfo j) => j.State == JobState.Done && j.Decided != null;
     static DateTime At(JobInfo j) => j.FinishedUtc ?? j.CreatedUtc;
     /// <summary>The version a plan (or the analysis) stands for: the latest selected finished one, else the latest finished one.</summary>
-    static JobInfo? Pick(IEnumerable<JobInfo> js) { var l = js.Where(Ok).ToList(); return l.Where(j => j.Selected).OrderByDescending(At).FirstOrDefault() ?? l.OrderByDescending(At).FirstOrDefault(); }
-    static string PlanName(AnalysisInfo a, JobInfo j) => a.Plans.FirstOrDefault(p => p.Id == j.PlanId)?.Name ?? j.Plan;
+    internal static JobInfo? Pick(IEnumerable<JobInfo> js) { var l = js.Where(Ok).ToList(); return l.Where(j => j.Selected).OrderByDescending(At).FirstOrDefault() ?? l.OrderByDescending(At).FirstOrDefault(); }
+    internal static string PlanName(AnalysisInfo a, JobInfo j) => a.Plans.FirstOrDefault(p => p.Id == j.PlanId)?.Name ?? j.Plan;
 
     /// <summary>One option per "analysis › plan", value "analysisId|planId" (the move endpoint splits it).</summary>
     static string Options(IReadOnlyList<AnalysisInfo> analyses, string? planId = null)
@@ -150,7 +150,7 @@ public static class AnalysisPages
     // ---------------------------------------------------------------- master-detail shell
 
     // page-only CSS: the 270px list, the detail pane (scrolls by itself) and the 결론 grid that takes the remaining height
-    const string Css = @"<style>
+    internal const string Css = @"<style>
 .ana{flex:1;min-height:0;display:grid;grid-template-columns:270px minmax(0,1fr);grid-template-rows:minmax(0,1fr);margin:-18px -26px -22px}
 .lp{background:#fff;border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
 .lp-h{display:flex;align-items:center;gap:8px;padding:14px 14px 8px}.lp-h b{font-size:16px;flex:1}
@@ -274,11 +274,11 @@ public static class AnalysisPages
         foreach (var t in new[] { a.Corp, a.ProductLine, a.Line }.Where(t => t.Length > 0)) sb.Append($"<span class=\"tag\">{H(t)}</span>");
         sb.Append("<span class=\"sp\"></span>");
         // one blue button: the next step (영상 once there is a result, then the report once a film is made)
-        var report = cur == null ? null : $"/jobs/{H(cur.Id)}/files/report.xlsx";
+        var report = $"/analyses/{id}/report"; // the report page offers PDF, PowerPoint and Excel
         if (cur == null) sb.Append($"<a class=\"btn\" href=\"/analyses/{id}/cuts\">컷 편집</a>");
         else if (d.Films.Any(f => f.State == JobState.Done))
-            sb.Append($"<a class=\"btn\" href=\"/analyses/{id}?tab=films\">◐ 영상 보기</a><a class=\"btn pri\" href=\"{report}\" download>↓ 보고서 받기</a>");
-        else sb.Append($"<a class=\"btn\" href=\"{report}\" download>↓ 보고서 받기</a><a class=\"btn pri\" href=\"/analyses/{id}/cuts\">◐ 영상 만들기</a>");
+            sb.Append($"<a class=\"btn\" href=\"/analyses/{id}?tab=films\">◐ 영상 보기</a><a class=\"btn pri\" href=\"{report}\">✓ 보고서 받기</a>");
+        else sb.Append($"<a class=\"btn\" href=\"{report}\">✓ 보고서 받기</a><a class=\"btn pri\" href=\"/analyses/{id}/cuts\">◐ 영상 만들기</a>");
         sb.Append("</div><div class=\"tb\"><nav class=\"segc\" aria-label=\"보기\">");
         foreach (var (k, name) in Tabs)
         {
@@ -330,7 +330,7 @@ public static class AnalysisPages
         return x >= 100_000_000m ? F((double)(d / 100_000_000m), "0.##") + "억" : x >= 10_000m ? F((double)(d / 10_000m), "#,0") + "만" : Won(d);
     }
 
-    static string Kpi(string label, string value, string unit, string color, string sub, string subColor = "") =>
+    internal static string Kpi(string label, string value, string unit, string color, string sub, string subColor = "") =>
         $"<div class=\"kpi\" style=\"--c:var(--{color})\"><div class=\"t3\">{label}</div><div class=\"t1\">{value}<small>{unit}</small></div><div class=\"t4\"{(subColor.Length > 0 ? $" style=\"color:var(--{subColor})\"" : "")}>{sub}</div></div>";
 
     /// <summary>결론 tab: four numbers, then 그룹별 권장 대수 (problems first) and 안별 결론 beside the bottleneck map, for one version

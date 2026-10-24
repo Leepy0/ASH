@@ -96,7 +96,7 @@ public class HomeViewTests
         var l = LiveFields.OfHome(v);
         Assert.Equal("1 / 3", l.Fields["film.f2.done"]); Assert.Equal("33", l.Fields["film.f2.bar"]); Assert.Equal("running", l.Watch["f2"]);
         var html = HomePages.Home(v, "", "", null);
-        foreach (var s in new[] { "href=\"/analyses/a1/cuts?job=j1\"", "href=\"/jobs/j3/files/report.xlsx\"", "data-field=\"film.f2.done\"", "결론 확인", "보고서", "class=\"lanes\"" })
+        foreach (var s in new[] { "href=\"/analyses/a1/cuts?job=j1\"", "href=\"/analyses/a3/report?job=j3\"", "data-field=\"film.f2.done\"", "결론 확인", "보고서", "class=\"lanes\"" })
             Assert.Contains(s, html);
     }
 }

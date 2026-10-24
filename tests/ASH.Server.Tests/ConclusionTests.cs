@@ -66,7 +66,7 @@ public class ConclusionTests
         Assert.Contains($"<option value=\"{a.Id}\" selected>A안 v1 · 선정</option>", one); Assert.Single(Regex.Matches(one, ">권장 대수<"));
         Assert.Equal(2, Regex.Matches(one, "class=\"pr( on)?\"").Count); // 안별 결론: one row per plan, the shown one outlined
         Assert.Contains($"class=\"pr on\" href=\"?tab=conclusion&amp;job={a.Id}\"", one);
-        Assert.Contains($"href=\"/jobs/{a.Id}/files/report.xlsx\" download", one); Assert.Contains($"class=\"btn pri\" href=\"/analyses/{aid}/cuts\"", one); // next step: the film
+        Assert.Contains($"href=\"/analyses/{aid}/report\">", one); Assert.Contains($"class=\"btn pri\" href=\"/analyses/{aid}/cuts\"", one); // next step: the film
         var other = await env.Http.GetStringAsync($"/analyses/{aid}?tab=conclusion&job={b.Id}");
         Assert.Contains($"<option value=\"{b.Id}\" selected>", other); Assert.Contains($"class=\"pr on\" href=\"?tab=conclusion&amp;job={b.Id}\"", other);
         Assert.Contains("A안 대비 동일", other); // both versions recommend the same count
