@@ -38,23 +38,6 @@ document.querySelectorAll('a[data-me]').forEach(function(a){
             $" · <span data-field=\"{k}.film\">{H(c.Film ?? "")}</span></p></div>");
     }
 
-    static string Chip(PlanChip p)
-    {
-        var t = H(LiveFields.ChipText(p));
-        return $"<a class=\"chip{(p.Selected ? " sel" : "")}\" href=\"/jobs/{H(p.JobId)}\" data-field=\"chip.{H(p.JobId)}.text\">{t}</a>";
-    }
-
-    internal static void AnalysisList(StringBuilder sb, IReadOnlyList<AnalysisRow> rows)
-    {
-        if (rows.Count == 0) { sb.Append("<p class=\"muted\">분석이 없습니다.</p>"); return; }
-        sb.Append("<ul class=\"alist\">");
-        foreach (var r in rows)
-            sb.Append($"<li><a href=\"/analyses/{H(r.Id)}\">{H(r.Name)}</a> · <span class=\"chip\">{(r.Active ? "진행 중" : "완료")}</span> " +
-                $"안 {r.Plans} · 버전 {r.Versions} · 선정 {r.Selected} · 영상 {r.Films} · <span class=\"muted\">{H(When(r.LastSentUtc))}</span> " +
-                string.Concat(r.Chips.Select(Chip)) + "</li>");
-        sb.Append("</ul>");
-    }
-
     // page-only CSS for the four lanes; the shared parts (.lanes .card .row .grp …) are in JobPages.Css
     const string HomeCss = @"<style>
 .lanes .card{gap:2px}.lanes .card a.t2{color:var(--ink);text-decoration:none}.lanes .card .t1{color:var(--c)}.lanes .card .pv{margin:10px 0 6px}
@@ -148,19 +131,5 @@ document.querySelectorAll('a[data-me]').forEach(function(a){
         if (v.Reports.Count == 0) sb.Append("<div class=\"empty\">영상이 끝나면 보고서를 받을 수 있습니다</div>");
         sb.Append(LaneEnd).Append("</div>");
         return Page("ASH", sb.ToString(), pollScript, nav: "home", fill: true);
-    }
-
-    public static string Analyses(IReadOnlyList<AnalysisRow> rows, string q, int unclassified, string tagFilter = "")
-    {
-        var sb = new StringBuilder("<h1>분석</h1>");
-        sb.Append("<p class=\"muted\">분석은 한 가지 검토(예: 라인 증설)이고, 그 안에 여러 안(A안, B안)이 있습니다. 같은 안을 고쳐 다시 보낼 때마다 버전(v1, v2…)이 올라갑니다.</p>");
-        sb.Append($"<form class=\"mini\"><input type=\"text\" name=\"q\" value=\"{H(q)}\" placeholder=\"이름·보낸 사람\" aria-label=\"검색\">{tagFilter}<button>검색</button></form>");
-        var shown = q.Length == 0 ? rows : rows.Where(r => r.Name.Contains(q, StringComparison.OrdinalIgnoreCase) || r.Submitters.Any(s => s.Contains(q, StringComparison.OrdinalIgnoreCase))).ToList();
-        AnalysisList(sb, shown);
-        sb.Append($"<p><a href=\"/analyses/unclassified\">분석에 넣지 않은 작업 {unclassified}건 →</a></p>");
-        sb.Append("<section class=\"box\"><h2>새 분석</h2><form method=\"post\" action=\"/analyses\" class=\"mini\">" +
-            "<input type=\"text\" name=\"name\" required maxlength=\"100\" placeholder=\"분석 이름(100자까지)\" aria-label=\"분석 이름\">" +
-            "<input type=\"text\" name=\"note\" maxlength=\"200\" placeholder=\"메모(선택, 200자까지)\" aria-label=\"메모\"><button class=\"primary\">만들기</button></form></section>");
-        return Page("ASH 분석", sb.ToString());
     }
 }
