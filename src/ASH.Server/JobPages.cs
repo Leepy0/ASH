@@ -186,10 +186,10 @@ document.querySelectorAll('table.sort').forEach(function(t){
 
     /// <summary>Every 30 s (and when the tab shows) asks /api/me/events for my jobs/films that ended since the last look and tells the user:
     /// a Notification where the browser allows it (secure context + permission granted), else an in-page toast and a "(n)" in the title.
-    /// The last seen server time lives in localStorage so a reload repeats nothing; the first visit starts from now. Texts go in with textContent only. Texts go in with textContent only. No literal fetch( here: page tests use that to tell "nothing to poll".</summary>
+    /// The last seen server time lives in localStorage so a reload repeats nothing; the first visit starts from now. Texts go in with textContent only.</summary>
     internal const string NotifyScript = @"<div id=""toasts"" role=""status"" aria-live=""polite""></div><script>
 (function(){
-  var get=window.fetch, KEY='ash.notify.since', mem=null, unread=0, base=document.title, bell=document.getElementById('bell'), bt=document.getElementById('bell-t'), box=document.getElementById('toasts');
+  var KEY='ash.notify.since', mem=null, unread=0, base=document.title, bell=document.getElementById('bell'), bt=document.getElementById('bell-t'), box=document.getElementById('toasts');
   var native=('Notification' in window)&&window.isSecureContext;
   function ls(v){ try{ if(v===undefined) return localStorage.getItem(KEY); localStorage.setItem(KEY,v); }catch(e){} return null; }
   function perm(){ return native?Notification.permission:'insecure'; }
@@ -215,7 +215,7 @@ document.querySelectorAll('table.sort').forEach(function(t){
   }
   function tick(){
     var s=ls()||mem;
-    get.call(window,'/api/me/events'+(s?'?since='+encodeURIComponent(s):''),{cache:'no-store'}).then(function(r){ if(!r.ok) throw 0; return r.json(); }).then(function(d){
+    fetch('/api/me/events'+(s?'?since='+encodeURIComponent(s):''),{cache:'no-store'}).then(function(r){ if(!r.ok) throw 0; return r.json(); }).then(function(d){
       mem=d.now; ls(d.now); (d.events||[]).forEach(show);
     }).catch(function(){});
   }

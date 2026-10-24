@@ -85,6 +85,7 @@ public sealed class FakeFilm : IFilmAutoMod, IFilmRenderer
 
 public class FilmTests
 {
+    const string PollMarker = "setInterval(tick,10000)"; // the 10 s page poll; the 30 s notifier on every page is not it
     const string Ok = "http://localhost";
 
     static CutSpec Hold(string id, string name = "입구", double start = 7200) => new(id, name, CutKind.Hold, start, 600, new Rect(1, 2, 30, 18), null, 0, 0, 0, 10, 30, 0, true, true);
@@ -293,7 +294,7 @@ public class FilmTests
         Assert.True(JsonDocument.Parse(await env.Http.GetStringAsync("/api/films/" + id)).RootElement.GetProperty("active").GetBoolean());
         await env.Http.SendAsync(Cancel(id));
         var f = await Until(() => fs.Get(id) is { Finished: true } x ? x : null, 30);
-        Assert.DoesNotContain("fetch(", await env.Http.GetStringAsync("/films/" + id));
+        Assert.DoesNotContain(PollMarker, await env.Http.GetStringAsync("/films/" + id));
         Assert.Equal(JobState.Cancelled, f.State);
         Assert.True(f.Items[0].Ok);                       // made before the cancel: kept
         Assert.True(File.Exists(Path.Combine(fs.FilmDir(id), f.Items[0].Name)));

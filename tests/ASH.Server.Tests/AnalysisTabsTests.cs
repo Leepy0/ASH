@@ -7,6 +7,7 @@ namespace ASH.Server.Tests;
 
 public class AnalysisTabsTests
 {
+    const string PollMarker = "setInterval(tick,10000)"; // the 10 s page poll; the 30 s notifier on every page is not it
     [Fact] public async Task Status_Tab_Is_Default_And_Shows_Partial_While_Running()
     {
         using var env = new JobEnv(); env.Runner.Gate.Reset();
@@ -20,7 +21,7 @@ public class AnalysisTabsTests
         Assert.Equal("G1 2", api.GetProperty("fields").GetProperty("partial.text").GetString());
         env.Runner.Gate.Set(); await env.WaitFinished(id);
         var done = await env.Http.GetStringAsync("/analyses/" + aid + "?tab=status");
-        Assert.Contains("v1", done); Assert.Contains("2대", done); Assert.DoesNotContain("fetch(", done);
+        Assert.Contains("v1", done); Assert.Contains("2대", done); Assert.DoesNotContain(PollMarker, done);
     }
 
     [Fact] public async Task Other_Tabs_Keep_Old_Content_And_Unknown_Tab_Is_Status()
