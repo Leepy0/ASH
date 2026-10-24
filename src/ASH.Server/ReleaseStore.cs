@@ -20,7 +20,9 @@ public sealed record CurrentRelease(byte[] Json, ReleaseManifest Manifest);
 public sealed class ReleaseStore
 {
     public const string HeaderName = "X-ASH-Admin-Token";
-    public const int MinTokenLength = 16;
+    public const int MinPasswordLength = 4, MaxPasswordLength = 20;
+    /// <summary>Admin:Password when the file leaves it empty. Change it on any server others can reach.</summary>
+    public const string DefaultPassword = "ash!23";
     private const long MaxManifestBytes = 1 << 20, MaxSignatureBytes = 4096;
 
     private readonly ILogger _log;
@@ -40,14 +42,14 @@ public sealed class ReleaseStore
     public string HistoryDir => Path.Combine(Dir, "history");
 
     /// <exception cref="ArgumentException">publicKeyPem is set but holds no valid P-256 key.</exception>
-    public ReleaseStore(string dir, string? publicKeyPem, string? adminToken, ILogger log, bool allowUnsigned = false)
+    public ReleaseStore(string dir, string? publicKeyPem, string? adminPassword, ILogger log, bool allowUnsigned = false)
     {
         Dir = dir;
         AllowUnsigned = allowUnsigned;
         _log = log;
-        if (!string.IsNullOrEmpty(adminToken) && adminToken.Length < MinTokenLength)
-            _log.LogWarning("Admin:Token이 {Min}자 미만이라 업로드를 끕니다.", MinTokenLength);
-        else if (!string.IsNullOrEmpty(adminToken)) _token = Encoding.UTF8.GetBytes(adminToken);
+        var pw = string.IsNullOrEmpty(adminPassword) ? DefaultPassword : adminPassword;
+        if (IsValidPassword(pw)) _token = Encoding.UTF8.GetBytes(pw);
+        else _log.LogWarning("Admin:Password는 {Min}~{Max}자의 영문·숫자·특수문자(공백·한글 없음)여야 합니다. 관리자 기능을 끕니다.", MinPasswordLength, MaxPasswordLength);
         Key = string.IsNullOrWhiteSpace(publicKeyPem) ? null : new ManifestSignature(publicKeyPem);
         foreach (var d in new[] { CurrentDir, FilesDir, HistoryDir }) Directory.CreateDirectory(d);
         // leftovers of a crashed upload
@@ -57,6 +59,9 @@ public sealed class ReleaseStore
         else _log.LogInformation("서명 공개키 {KeyId}", Key.KeyId);
     }
 
+    /// <summary>4~20 printable ASCII characters: letters, digits and symbols may be mixed freely; no spaces or other scripts.</summary>
+    public static bool IsValidPassword(string s) => s.Length is >= MinPasswordLength and <= MaxPasswordLength && s.All(c => c is > ' ' and <= '~');
+
     public static ReleaseStore Create(IConfiguration cfg, IHostEnvironment env, ILogger log)
     {
         var dir = cfg["Releases:Dir"];
@@ -64,7 +69,8 @@ public sealed class ReleaseStore
         dir = Path.GetFullPath(Environment.ExpandEnvironmentVariables(dir));
         var pem = ResolveKeyPem(cfg["Update:PublicKeyPem"], EmbeddedKey(), env.IsDevelopment(), log);
         // 키 없는 빌드(기본)는 서명 없이 받는다: 플러그인이 github.com 릴리스와 대조한다
-        return new ReleaseStore(dir, pem, cfg["Admin:Token"], log, cfg.GetValue("Update:AllowUnsigned", true));
+        if (!string.IsNullOrEmpty(cfg["Admin:Token"])) log.LogWarning("Admin:Token은 더 이상 읽지 않습니다. Admin:Password에 관리자 암호를 넣으세요.");
+        return new ReleaseStore(dir, pem, cfg["Admin:Password"], log, cfg.GetValue("Update:AllowUnsigned", true));
     }
 
     /// <summary>

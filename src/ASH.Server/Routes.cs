@@ -43,7 +43,7 @@ internal static partial class Routes
     // null = allowed, else the answer to send
     internal static IResult? DenyPost(HttpContext ctx, ReleaseStore rs, AdminSessions sessions)
     {
-        if (!rs.UploadsEnabled) return Msg(403, $"웹 설정이 꺼져 있습니다(Admin:Token이 비어 있거나 {ReleaseStore.MinTokenLength}자 미만).");
+        if (!rs.UploadsEnabled) return Msg(403, $"웹 설정이 꺼져 있습니다(Admin:Password가 {ReleaseStore.MinPasswordLength}~{ReleaseStore.MaxPasswordLength}자 규칙에 맞지 않음).");
         if (HeaderAdmin(ctx, rs)) return null;
         if (!CookieAdmin(ctx, sessions)) return Msg(401, "관리자 로그인이 필요합니다(/admin/settings).");
         return SameOrigin(ctx) ? null : Msg(403, "다른 사이트에서 보낸 요청은 받지 않습니다.");

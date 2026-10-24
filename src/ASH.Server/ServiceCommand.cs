@@ -28,7 +28,7 @@ internal static class ServiceCommand
         {
             Console.WriteLine("서비스 등록 완료. 아래 BINARY_PATH_NAME 이 따옴표로 감싸져 있는지 확인하세요.");
             Sc(new[] { "qc", ServiceName });
-            Console.WriteLine($"시작: sc start {ServiceName}  (방화벽에서 서버 포트 허용. 새 버전은 GitHub에서 자동으로 가져옴, Admin:Token은 수동 업로드할 때만)");
+            Console.WriteLine($"시작: sc start {ServiceName}  (방화벽에서 서버 포트 허용. 새 버전은 GitHub에서 자동으로 가져옴, 관리자 암호는 Admin:Password, 비우면 ash!23)");
         }
         else if (code == 0) Console.WriteLine("서비스를 제거했습니다.");
         return code;

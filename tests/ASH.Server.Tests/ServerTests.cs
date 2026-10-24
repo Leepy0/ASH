@@ -12,7 +12,7 @@ namespace ASH.Server.Tests;
 /// <summary>Server over a temp release folder. key=true: a fresh P-256 key is injected via Update:PublicKeyPem, otherwise "no key" (empty override).</summary>
 public sealed class Env : IDisposable
 {
-    public const string Token = "test-token-1234567890";
+    public const string Token = "test!Token12";
     public readonly string Dir = Path.Combine(Path.GetTempPath(), "ash-server-test-" + Guid.NewGuid().ToString("N"));
     public readonly ECDsa Key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
     public readonly WebApplicationFactory<Program> Factory;
@@ -25,7 +25,7 @@ public sealed class Env : IDisposable
         Factory = new WebApplicationFactory<Program>().WithWebHostBuilder(b =>
         {
             b.UseSetting("Releases:Dir", Dir);
-            b.UseSetting("Admin:Token", token);
+            b.UseSetting("Admin:Password", token);
             b.UseSetting("Update:PublicKeyPem", pem);
             b.UseSetting("Update:AllowUnsigned", allowUnsigned ? "true" : "false");
             b.UseSetting("GitHub:Enabled", "false");
@@ -118,21 +118,32 @@ public class ServerTests
     }
 
     [Fact]
-    public async Task Empty_admin_token_disables_uploads_with_403()
+    public async Task Empty_admin_password_falls_back_to_the_default()
     {
         using var e = new Env(token: "");
-        Assert.Equal(HttpStatusCode.Forbidden, (await e.Upload(e.MakeRelease("0.2.0"), "")).StatusCode);
-        Assert.Equal(HttpStatusCode.Forbidden, (await e.Upload(e.MakeRelease("0.2.0"), null)).StatusCode);
-        Assert.Contains("꺼져", await e.Admin("/admin/settings"));
+        Assert.Equal(HttpStatusCode.Unauthorized, (await e.Upload(e.MakeRelease("0.2.0"), "")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await e.Upload(e.MakeRelease("0.2.0"), ReleaseStore.DefaultPassword)).StatusCode);
     }
 
     [Theory]
-    [InlineData("short")]
-    [InlineData("0123456789abcde")] // 15 chars
-    public async Task Short_admin_token_disables_uploads_with_403(string token)
+    [InlineData("ash!23", true)]
+    [InlineData("abcd", true)]
+    [InlineData("A#b$c%D^e&f*g(h)i_j+", true)] // 20 characters, letters and symbols mixed
+    [InlineData("abc", false)]
+    [InlineData("abcdefghij0123456789!", false)]
+    [InlineData("tab\there", false)]
+    [InlineData("암호1234", false)]
+    public void Password_rule_is_4_to_20_ascii_letters_digits_and_symbols(string pw, bool ok) => Assert.Equal(ok, ReleaseStore.IsValidPassword(pw));
+
+    [Theory]
+    [InlineData("abc")]                    // 3 characters
+    [InlineData("abcdefghij0123456789!")]  // 21 characters
+    [InlineData("has space")]
+    [InlineData("한글암호")]
+    public async Task Admin_password_outside_the_rule_disables_uploads_with_403(string token)
     {
         using var e = new Env(token: token);
-        Assert.Equal(HttpStatusCode.Forbidden, (await e.Upload(e.MakeRelease("0.2.0"), token)).StatusCode);
+        Assert.Equal(HttpStatusCode.Forbidden, (await e.Upload(e.MakeRelease("0.2.0"), token.All(char.IsAscii) ? token : null)).StatusCode); // a header cannot carry Hangul
         Assert.Contains("꺼져", await e.Admin("/admin/settings"));
     }
 

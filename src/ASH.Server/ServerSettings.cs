@@ -16,7 +16,7 @@ public enum SettingKind { Bool, Int, Text }
 /// </summary>
 public sealed record SettingDef(string Key, string Label, string Help, SettingKind Kind, string Default, bool Live, int Min = 0, int Max = 0, Func<string, string?>? Check = null);
 
-/// <summary>Every key the server code reads, except Admin:Token and Update:PublicKeyPem (security: never editable from the web) and Logging (framework).</summary>
+/// <summary>Every key the server code reads, except Admin:Password and Update:PublicKeyPem (security: never editable from the web) and Logging (framework).</summary>
 public static class ServerSettings
 {
     static string? PathCheck(string v) => v.IndexOfAny(Path.GetInvalidPathChars()) >= 0 ? "폴더 경로에 쓸 수 없는 문자가 있습니다." : null;

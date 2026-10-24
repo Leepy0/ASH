@@ -78,7 +78,7 @@ public sealed class JobEnv : IDisposable
     {
         Factory = new WebApplicationFactory<Program>().WithWebHostBuilder(b =>
         {
-            if (adminToken != null) b.UseSetting("Admin:Token", adminToken);
+            if (adminToken != null) b.UseSetting("Admin:Password", adminToken);
             if (assetMaxMb != null) b.UseSetting("Catalog:AssetMaxMb", assetMaxMb);
             b.UseSetting("Releases:Dir", Path.Combine(Dir, "releases"));
             b.UseSetting("Jobs:Dir", Path.Combine(Dir, "jobs"));
@@ -288,7 +288,7 @@ public class JobTests
     [Fact]
     public async Task Upload_Queues_A_Job_And_The_Pages_Show_It()
     {
-        using var env = new JobEnv(worker: false, adminToken: "test-token-1234567890");
+        using var env = new JobEnv(worker: false, adminToken: "test!Token12");
         var zip = JobEnv.MakePackage(env.Dir);
         var res = await env.Send(zip);
         var body = await res.Content.ReadAsStringAsync();
@@ -304,7 +304,7 @@ public class JobTests
         Assert.Equal(1, q.GetProperty("ahead").GetInt32());
         Assert.False(q.GetProperty("enabled").GetBoolean()); // worker off
 
-        var lreq = new HttpRequestMessage(HttpMethod.Get, "/admin/jobs"); lreq.Headers.Add("X-ASH-Admin-Token", "test-token-1234567890");
+        var lreq = new HttpRequestMessage(HttpMethod.Get, "/admin/jobs"); lreq.Headers.Add("X-ASH-Admin-Token", "test!Token12");
         var list = await (await env.Http.SendAsync(lreq)).Content.ReadAsStringAsync();
         Assert.Contains(id, list); Assert.Contains("Line A", list); Assert.Contains("대기", list);
         var page = await env.Http.GetStringAsync("/jobs/" + id);

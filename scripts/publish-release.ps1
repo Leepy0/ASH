@@ -1,6 +1,6 @@
 # Uploads dist/ASH.json, dist/ASH.json.sig (if present) and the Setup exe named in the manifest to an ASH.Server.
-#   publish-release.ps1 -Server http://host:8082 [-Token <Admin:Token>] [-Dist <folder>] [-Force]
-# -Token defaults to $env:ASH_ADMIN_TOKEN (keeps the token out of the command line / history). -Dist defaults to <repo>\dist.
+#   publish-release.ps1 -Server http://host:8082 [-Token <Admin:Password>] [-Dist <folder>] [-Force]
+# -Token defaults to $env:ASH_ADMIN_TOKEN (keeps the admin password out of the command line / history). -Dist defaults to <repo>\dist.
 # -Force also allows publishing a version lower than the current one (rollback).
 # Uses System.Net.Http.HttpClient so it behaves the same on Windows PowerShell 5.1 and PowerShell 7 (streams the exe, no -Form needed).
 param(

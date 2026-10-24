@@ -25,10 +25,10 @@
      - `UpdateServer` 기본 true. 서버 프로그램 자신도 자동으로 새 버전으로 바꾼다(5절 "서버 자동 업데이트"). false면 서버 exe는 수동 교체.
      - `Enabled` false면 끈다(수동 업로드만 사용, 서버 자동 업데이트도 꺼짐).
      - 가져온 릴리스도 업로드와 똑같이 크기·SHA-256을 확인하고(GitHub에서 HTTPS로 받은 것은 그대로 믿는다. 서명은 요구하지 않는다), 서버 버전보다 높을 때만 게시한다.
-   - `Admin:Token` — **선택.** 수동 업로드(`publish-release.ps1`)를 쓸 때만 넣는다. 16자 이상의 긴 무작위 문자열. 비워 두면 수동 업로드만 꺼지고 GitHub 가져오기는 그대로 동작한다.
+   - `Admin:Password` — 관리자 암호(웹 설정·작업 대기열·분석 삭제·타입 관리·수동 업로드). 4~20자, 영문·숫자·특수문자를 섞어 쓸 수 있고 공백·한글은 안 됨. 비워 두면 기본값 `ash!23`. **다른 사람이 닿는 서버는 반드시 바꾼다.** 규칙에 맞지 않으면 관리자 기능이 모두 꺼진다. 0.22 이하의 `Admin:Token`은 읽지 않는다.
    - `Urls` — 기본 `http://0.0.0.0:8082`. 포트를 바꾸면 아래 방화벽·`/server:` 주소도 같이 바꾼다.
    - `Releases:Dir` — 배포 파일 보관 폴더(기본 `%ProgramData%/ASH.Server/releases`). **3번에서 권한을 먼저 잠근 폴더**여야 한다.
-   - 설정 파일(토큰을 넣었다면 토큰 포함)을 보호하도록 설치 폴더 권한도 관리자로 제한한다(`Program Files` 기본값은 일반 사용자 읽기 가능).
+   - 설정 파일(관리자 암호 포함)을 보호하도록 설치 폴더 권한도 관리자로 제한한다(`Program Files` 기본값은 일반 사용자 읽기 가능).
      ```bat
      icacls "C:\Program Files\ASH.Server" /inheritance:r /grant:r "Administrators:(OI)(CI)F" "SYSTEM:(OI)(CI)F"
      ```
@@ -62,7 +62,7 @@
    **함정:** 서버 PC의 네트워크가 도메인에 연결되지 않으면 윈도우가 그 NIC를 **Public**으로 분류하기도 한다. 그러면 위 규칙은 적용되지 않아 다른 PC에서 접속이 안 된다(서버 PC 자신에서는 열린다). `Get-NetConnectionProfile`로 `NetworkCategory`를 확인하고, Public이면 NIC를 Private로 바꾼다(`Set-NetConnectionProfile -InterfaceAlias <이름> -NetworkCategory Private`). 규칙에 `-Profile Public`을 그냥 추가하지 말 것 — 카페·공유기 같은 신뢰할 수 없는 네트워크에도 포트가 열린다. 꼭 필요하면 `-RemoteAddress 10.0.0.0/8`처럼 사내 대역으로 제한한다.
 6. 다른 PC의 브라우저로 `http://<서버>:8082/admin/settings` 를 열어 서버 상태를 확인한다. 서비스 시작 직후에는 "게시된 버전이 없습니다."가 정상이고, 10초쯤 뒤 설정(`/admin/settings`)을 새로 고치면 "마지막 확인 … 가져옴: x.y.z"와 현재 버전이 보인다. "실패: …"가 보이면 서버 PC에서 github.com 접속과 `GitHub:Proxy`를 확인한다. "무결성 확인: 없음 — PC가 github.com 릴리스와 대조해 확인"이 보이는 것이 정상이다.
 
-수동 업로드의 토큰은 평문 HTTP로 전달된다. 수동 업로드는 신뢰할 수 있는 사내망에서만 하거나 앞단에 HTTPS 프록시를 둔다.
+수동 업로드의 관리자 암호는 평문 HTTP로 전달된다. 수동 업로드는 신뢰할 수 있는 사내망에서만 하거나 앞단에 HTTPS 프록시를 둔다.
 
 ### 로그 위치
 
@@ -99,9 +99,9 @@ gh release create v<버전> dist\ASH-Setup-<버전>.exe dist\ASH.json dist\ASH.S
 
 - 정식 릴리스(초안·시험판 아님)에 `ASH.json`, `ASH-Setup-<버전>.exe`가 반드시 있어야 서버가 가져간다. 서버 자동 업데이트에는 `ASH.Server.json`, `ASH-Server-<버전>-win-x64.zip`, ash-run 배포에는 `ASH.Runner.json`, `ASH-Runner-<버전>-win-x64.zip`도 필요하다(`build-release.ps1`이 함께 만든다). 태그는 `v<버전>`(매니페스트의 version과 같게). 위 7개 자산이 전부 올라가야 한다.
 - 서버는 `CheckIntervalMin`(기본 60분) 안에 가져간다. 바로 반영하려면 서버에서 `sc stop ASH.Server && sc start ASH.Server`.
-- 서버가 GitHub에 닿지 않는 곳이면 수동 업로드를 쓴다(서버 `Admin:Token` 필요):
+- 서버가 GitHub에 닿지 않는 곳이면 수동 업로드를 쓴다(서버 `Admin:Password` 필요):
   ```powershell
-  $env:ASH_ADMIN_TOKEN = '<서버 appsettings.json 의 Admin:Token>'      # 명령줄·기록에 남기지 않으려고 환경 변수로
+  $env:ASH_ADMIN_TOKEN = '<서버 appsettings.json 의 Admin:Password>'      # 명령줄·기록에 남기지 않으려고 환경 변수로
   scripts\publish-release.ps1 -Server http://<서버>:8082
   ```
   서명 없이 받지만, PC는 서버의 매니페스트를 github.com의 `v<버전>` 릴리스와 대조하므로 GitHub 릴리스와 같은 파일을 올려야 설치된다.
@@ -166,9 +166,9 @@ SYSTEM으로 실행해도 로그온한 대화형 사용자가 있고 그 사용�
 
 ### 웹 설정과 서비스 재시작 (`/admin/settings`)
 
-`appsettings.json`의 값을 브라우저에서 바꾼다. `Admin:Token`(16자 이상)이 비어 있으면 페이지가 꺼져 있다.
+`appsettings.json`의 값을 브라우저에서 바꾼다. `Admin:Password`가 규칙(4~20자, 영문·숫자·특수문자를 섞어 쓸 수 있고 공백·한글은 안 됨, 비우면 기본값 `ash!23`)에 맞지 않으면 페이지가 꺼져 있다.
 
-- **로그인:** 토큰을 한 번 입력하면 서버가 무작위 세션 ID를 만들어 `HttpOnly`, `SameSite=Strict`, `Path=/admin` 쿠키로 준다(8시간, 서버 메모리에만 있어 재시작하면 다시 로그인). 토큰 자체는 브라우저에 저장되지 않고 페이지에 다시 나오지 않는다. 틀리면 1초 늦게 거절한다.
+- **로그인:** 관리자 암호를 한 번 입력하면 서버가 무작위 세션 ID를 만들어 `HttpOnly`, `SameSite=Strict`, `Path=/admin` 쿠키로 준다(8시간, 서버 메모리에만 있어 재시작하면 다시 로그인). 토큰 자체는 브라우저에 저장되지 않고 페이지에 다시 나오지 않는다. 틀리면 1초 늦게 거절한다.
 - **위조 방지:** 저장·재시작·로그인 POST는 `Origin`(없으면 `Referer`)이 이 서버 주소일 때만 받는다. 스크립트는 `X-ASH-Admin-Token` 헤더로 같은 주소에 POST할 수 있다(`/api/admin/releases`와 같은 토큰).
 - **바꿀 수 있는 값과 적용 시점:**
 
@@ -176,14 +176,14 @@ SYSTEM으로 실행해도 로그온한 대화형 사용자가 있고 그 사용�
 |---|---|
 | `Jobs:Enabled`, `Jobs:AmHome`, `Jobs:Parallel`, `Jobs:DialogButton`, `Jobs:RunTimeoutMin`, `Jobs:BuildTimeoutMin`, `Jobs:JobTimeoutHours`, `Jobs:KeepRunsDays`, `Film:CutTimeoutMin`, `Film:CalibrationTimeoutMin`, `Film:DialogTitles` | `Jobs:WorkerEnabled`, `Jobs:Dir`, `Film:FfmpegPath`, `Film:AviewExe`, `GitHub:Enabled`, `GitHub:BaseUrl`, `GitHub:CheckIntervalMin`, `GitHub:UpdateServer`, `GitHub:Proxy`, `GitHub:Dns`, `Urls`, `Releases:Dir`, `Update:AllowUnsigned` |
 
-  `Admin:Token`, `Update:PublicKeyPem`, `Logging`은 웹에서 바꾸지 않는다(서버 PC에서 파일을 직접 고친다).
+  `Admin:Password`, `Update:PublicKeyPem`, `Logging`은 웹에서 바꾸지 않는다(서버 PC에서 파일을 직접 고친다).
 - **저장:** 모든 값을 먼저 검사한다(정수 범위, 켬/끔, `Urls`·`GitHub:BaseUrl`·`GitHub:Proxy`·`GitHub:Dns` 형식). 하나라도 틀리면 아무것도 쓰지 않는다. 통과하면 파일을 다시 읽어 바뀐 키만 고치고(모르는 키는 그대로) 임시 파일로 쓴 뒤 `File.Replace`로 바꿔 넣으며, 이전 파일은 `appsettings.json.yyyyMMdd-HHmmss.bak`으로 남는다. 파일 안의 `//` 주석은 저장 때 없어진다(.bak에는 남음). `Jobs:AmHome`에 AutoMod 빌드 exe가 없으면 경고만 한다.
 - **재시작:** "서비스 다시 시작"은 자동 업데이트의 `update\apply-update.bat`을 파일 교체 없이(stage `-`) 실행해 `sc stop` → 이 프로세스가 끝나기를 기다림 → `sc start`를 한다(기록은 `update\apply.log`). 서비스는 자기 자신을 동기적으로 다시 시작할 수 없어서 분리된 배치가 한다. 실행 중인 작업이 있으면 확인란을 체크해야 하며 그 작업은 "서버가 다시 시작되어 중단되었습니다"로 실패 처리된다. 콘솔로 실행 중이거나 등록된 서비스의 exe가 다르면 버튼 대신 이유가 나온다.
 - 서비스 계정이 설치 폴더에 쓸 수 없으면(LocalService) 저장이 실패하고 파일은 바뀌지 않는다.
 
 ### 관리자의 분석 삭제 (`/admin/analyses/{id}/delete`)
 
-분석 페이지 맨 아래 "관리자: 분석 삭제…" 링크(누구에게나 보임)가 이 확인 페이지로 간다. 페이지가 로그인을 요구한다(`/admin/settings`와 같은 토큰·쿠키, 로그인 뒤 이 페이지로 돌아온다). 보낸 작업이 없는 분석은 예전처럼 누구나 분석 페이지에서 바로 지울 수 있고, 작업이 있는 분석은 관리자만 지운다.
+분석 페이지 맨 아래 "관리자: 분석 삭제…" 링크(누구에게나 보임)가 이 확인 페이지로 간다. 페이지가 로그인을 요구한다(`/admin/settings`와 같은 관리자 암호·쿠키, 로그인 뒤 이 페이지로 돌아온다). 보낸 작업이 없는 분석은 예전처럼 누구나 분석 페이지에서 바로 지울 수 있고, 작업이 있는 분석은 관리자만 지운다.
 
 - **결과:** 분석의 작업은 **지워지지 않고** "분석에 넣지 않은 작업"이 된다(안·버전·선정은 해제, 버전 메모는 유지). 분석과 안, 컷 목록(`analyses\<id>\cuts.json`), 이 분석의 영상 기록과 영상 파일(`films\<id>\`)은 지워지고 되돌릴 수 없다.
 - **확인:** 분석 이름을 그대로 입력해야 지워진다(다르면 400, 아무것도 지우지 않음). POST는 `Origin` 검사와 관리자 로그인(또는 `X-ASH-Admin-Token` 헤더)이 필요하다.
@@ -273,7 +273,7 @@ sc start ASH.Server
 
 ### 백업과 복원
 
-- 백업 대상: **`Releases:Dir` 폴더 전체**(`current\`, `files\`, `history\`)와 **`appsettings.json`**(토큰·설정). 서버 exe는 zip에서 다시 얻을 수 있으니 필수가 아니다. 서명 키를 쓰는 경우 개인키는 서버에 없다(2절 "선택: 서명 키 사용").
+- 백업 대상: **`Releases:Dir` 폴더 전체**(`current\`, `files\`, `history\`)와 **`appsettings.json`**(관리자 암호·설정). 서버 exe는 zip에서 다시 얻을 수 있으니 필수가 아니다. 서명 키를 쓰는 경우 개인키는 서버에 없다(2절 "선택: 서명 키 사용").
 - 복원: 서비스를 멈추고 두 가지를 제자리에 복사한 뒤(`Releases:Dir`는 3절의 권한을 다시 확인) `sc start ASH.Server`. 설정 페이지에서 현재 버전·이전 버전 목록을 확인한다.
 
 ### `files\` 정리
@@ -294,8 +294,8 @@ sc start ASH.Server
 | 분석 PC에서 `update skipped: …` | 서버 주소 없음/응답 없음, github.com 접속 불가 또는 서버의 `ASH.Runner.json`이 github.com과 다름, 폴더에 쓸 수 없음 등. 문장 그대로 원인이 나온다. 작업은 지금 버전으로 계속된다. `ash-run --update --server <주소>`로 원인을 다시 확인한다. |
 | 설정 페이지 "마지막 확인 — 실패: …" | 서버 PC에서 github.com에 닿지 않음. 브라우저로 `https://github.com/Leepy0/ASH/releases/latest/download/ASH.json`이 받아지는지 보고, 콘솔에서는 되는데 서비스에서만 실패하면 `GitHub:Proxy`를 적는다. 이벤트 로그에 같은 내용이 남는다. |
 | 설정 페이지 "마지막 확인 — GitHub에 ASH.json이(가) 있는 릴리스가 없습니다" | 최신 정식 릴리스에 `ASH.json`이 빠졌거나 초안·시험판만 있음. |
-| 업로드가 403 "업로드가 꺼져 있습니다" | `Admin:Token`이 비었거나 16자 미만. 서비스 재시작 필요. |
-| 업로드가 401 | 토큰이 다름(`$env:ASH_ADMIN_TOKEN` 확인). |
+| 업로드가 403 "업로드가 꺼져 있습니다" | `Admin:Password`가 4~20자 규칙에 맞지 않음(공백·한글 포함 등). 고친 뒤 서비스 재시작. |
+| 업로드가 401 | 관리자 암호가 다름(`$env:ASH_ADMIN_TOKEN` 확인). |
 | (서명 키를 다시 쓸 때만) 경고 "서명 키 미설정", 업로드 400 "서명 키 없음"/서명 거절, `build-release.ps1` 중단, "업데이트 확인 실패(서명 확인 실패)", 설정 페이지 "거절: 서명이 맞지 않습니다" | `update-key.pub`와 `ASH_SIGNING_KEY`(개인키)가 짝이 맞는지, 서버·플러그인·ash-run이 그 공개키로 빌드된 판인지 확인한다. 키 교체 중이면 4절. |
 | 영상 컷이 "AutoView가 동영상(MP4/AVI)을 만들지 않았습니다"로 실패 | 서버 PATH에 ffmpeg가 없거나 AutoView가 서비스 세션에서 그리지 못함, 또는 이전 AutoView(12.4)가 다른 방식으로 만듦. 오류 끝의 `진단:`(5절 "영상 촬영"의 "진단 읽는 법")에서 AutoView 버전·창·파일·ffmpeg를 본다. |
 | 영상이 "시간 제한…"이나 "화면 배율 보정 실패, 추정값 사용"으로 끝남 | AutoView가 대화상자에 걸렸을 가능성이 크다. `진단:`의 `창 "제목"`을 `Film:DialogTitles`에 더하고 다시 찍는다. |
