@@ -297,7 +297,7 @@ public class ServerTests
         await e.Published(e.MakeRelease("0.2.0", published: "<script>alert(1)</script>"));
         await e.Published(e.MakeRelease("0.3.0"));
         var page = await e.Admin("/admin/settings?tab=server"); // 0.2.0 is in the history list
-        Assert.DoesNotContain("<script>", page);
+        Assert.DoesNotContain("<script>alert(1)", page);
         Assert.Contains("&lt;script&gt;", page);
     }
 

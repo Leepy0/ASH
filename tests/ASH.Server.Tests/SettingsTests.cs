@@ -143,6 +143,31 @@ public class SettingsTests
         Assert.False(File.Exists(e.File + ".tmp"));
     }
 
+    // a switch is a nameless checkbox plus ONE named hidden input that the page script keeps at true/false: the form never posts a bool twice
+    [Fact]
+    public async Task Bool_switch_posts_exactly_one_value_and_saves_on_and_off()
+    {
+        using var e = new SettingsEnv();
+        await e.Login();
+        var page = await e.Http.GetStringAsync("/admin/settings?tab=server");
+        foreach (var key in ServerSettings.All.Where(d => d.Kind == SettingKind.Bool).Select(d => d.Key))
+        {
+            Assert.Single(System.Text.RegularExpressions.Regex.Matches(page, $"name=\"{key}\""));
+            Assert.Matches($"<input type=\"hidden\" name=\"{key}\" value=\"(true|false)\"", page);
+        }
+        Assert.Matches("<input type=\"checkbox\" role=\"switch\" id=\"f-Jobs-Enabled\"", page); // no name: it never posts itself
+
+        JsonNode Json() => JsonNode.Parse(File.ReadAllText(e.File))!;
+        var off = await e.Post("/admin/settings", SettingsEnv.Form(("Jobs:Enabled", "false")));
+        Assert.Equal(HttpStatusCode.OK, off.StatusCode);
+        Assert.False(Json()["Jobs"]!["Enabled"]!.GetValue<bool>());
+        Assert.Contains("name=\"Jobs:Enabled\" value=\"false\"", await off.Content.ReadAsStringAsync()); // the switch comes back off
+        var on = await e.Post("/admin/settings", SettingsEnv.Form(("Jobs:Enabled", "true")));
+        Assert.Equal(HttpStatusCode.OK, on.StatusCode);
+        Assert.True(Json()["Jobs"]!["Enabled"]!.GetValue<bool>());
+        Assert.Contains("name=\"Jobs:Enabled\" value=\"true\"", await on.Content.ReadAsStringAsync());
+    }
+
     [Theory]
     [InlineData("Jobs:Parallel", "0")]
     [InlineData("Jobs:Parallel", "abc")]
