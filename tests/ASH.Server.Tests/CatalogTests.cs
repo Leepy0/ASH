@@ -224,6 +224,36 @@ public class CatalogTests
     }
 
     [Fact]
+    public async Task Paste_Preview_Counts_New_Changed_And_Errors_And_Saves_Nothing()
+    {
+        const string Token = "test!Admin12";
+        using var env = new JobEnv(worker: false, adminToken: Token);
+        var store = env.Factory.Services.GetRequiredService<CatalogStore>();
+        store.Save(T("T_OLD"), "me");
+        async Task<string> Send(string rows, bool preview = true)
+        {
+            var req = new HttpRequestMessage(HttpMethod.Post, "/admin/types/paste" + (preview ? "?preview=1" : "")) { Content = new FormUrlEncodedContent(new[] { new KeyValuePair<string, string>("rows", rows) }) };
+            req.Headers.Add(ReleaseStore.HeaderName, Token);
+            var r = await env.Http.SendAsync(req);
+            Assert.Equal(System.Net.HttpStatusCode.OK, r.StatusCode);
+            return await r.Content.ReadAsStringAsync();
+        }
+
+        var html = await Send("이름\t라벨\t단가(원)\nT_NEW\t새 차\t1000\nT_OLD\t바뀜\t\n");
+        Assert.Contains("새로 1", html); Assert.Contains("변경 1", html); Assert.Contains("오류 0", html);
+        Assert.Null(store.Get("T_NEW")); Assert.Equal(T("T_OLD").Label, store.Get("T_OLD")!.Label); // nothing saved
+        Assert.DoesNotContain(" disabled>가져오기", html);
+
+        var bad = await Send("이름\t형상\nT_X\tForklift?\n");
+        Assert.Contains("오류 1", bad); Assert.Contains(" disabled>가져오기", bad);
+        Assert.Contains("T_X\tForklift?", bad); // the text stays in the box for the fix
+        Assert.Contains("동일 1", await Send("이름\nT_OLD\n"));
+
+        Assert.Contains("타입 1개를 저장했습니다", await Send("이름\t라벨\nT_NEW\t새 차\n", preview: false)); // the real import still saves
+        Assert.Equal("새 차", store.Get("T_NEW")!.Label);
+    }
+
+    [Fact]
     public async Task Settings_Has_Three_Tabs_And_Types_Is_The_Middle_One()
     {
         const string Token = "test!Admin12";
@@ -236,7 +266,7 @@ public class CatalogTests
         Assert.Contains("서비스 다시 시작", server); Assert.Contains("서버 상태", server); Assert.DoesNotContain("최근 작업", server);
         var types = await Get("/admin/types");
         Assert.Contains("href=\"/admin/types\" class=\"on\"", types);
-        Assert.Contains("엑셀에서 붙여넣기", types);
+        Assert.Contains("엑셀에서 가져오기", types);
     }
 
     [Fact]
