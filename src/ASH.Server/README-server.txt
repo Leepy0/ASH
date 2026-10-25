@@ -35,6 +35,8 @@ ASH.Server - ASH 배포 서버 (최소판)
                     Dir 작업 폴더(기본 %ProgramData%/ASH.Server/jobs).
                     KeepRunsDays 끝난 작업의 실행 폴더를 이 일수 뒤 작업 폴더의 runs.zip 하나로 압축해 보관하고 원본 폴더와 빌드 출력을 지운다(기본 30, 0 = 그대로 둠).
                       runs.zip 받기, 요약(summary.tsv, 결과 화면, Excel 보고서), 올린 원본(upload.zip), 로그는 그대로다. 한 시간마다 확인한다.
+                      압축 전에 runs.zip 을 받으면 그때 만들어 작업 폴더에 남기고, 압축할 때 같은 이름으로 바꿔 넣는다. 압축 뒤 파일이 없으면 410.
+                      영상(films\)과 컷 미리보기(analyses\<id>\previews\)는 정리 대상이 아니다.
                     Enabled false 면 작업을 받지 않는다. WorkerEnabled false 면 받기만 하고 실행하지 않는다.
                     주의: 올린 모델의 로직(user_ext.m 등)이 서버에서 AutoMod 로 컴파일·실행된다. 사내망에서만 연다.
                     작업 대기열은 http://서버:8082/admin/jobs, 결과는 홈(/)·분석(/analyses)에서 본다. 취소는 보낸 PC(같은 IP)나 관리자 암호로만 된다.
@@ -46,6 +48,9 @@ ASH.Server - ASH 배포 서버 (최소판)
                       확인: ffmpeg -hide_banner -encoders | findstr libx264   /   ffmpeg -hide_banner -filters | findstr drawtext
                     AviewExe 비우면 AmHome\bin 안의 aview64.exe(12.6 이상), 없으면 aview.exe(12.4). AutoView 는 모델 실행과 같은 AutoMod 라이선스를 쓴다.
                     CutTimeoutMin 컷 하나의 AutoView 제한(기본 20분). 넘으면 그 컷만 실패한다.
+                    컷 미리보기(컷 편집기의 "미리보기", AutoView 1장)도 같은 일꾼 하나를 쓴다. 작업 하나를 끝낼 때마다 영상 일을 하나
+                      (장면 후보, 미리보기, 영상 한 편 순) 하므로 작업·영상과 AutoMod/AutoView 가 동시에 돌지 않고, 큰 작업이 돌면 미리보기는 그 뒤에 한다.
+                      분석마다 Jobs:Dir\analyses\<id>\previews\ 에 미리보기 그림과 모델 복사본(work\)이 남는다. 분석을 지우면 함께 지워진다.
                     최초 1회 확인: 영상을 한 편 만들어 서비스 세션에서 AutoView 가 그리는지 본다. "AutoView가 MP4를 만들지 않았습니다" 로 실패하면
                       서비스를 로그온 가능한 계정으로 바꾸고 그 계정이 서버 PC 에 로그온해 두거나, 서비스 대신 작업 스케줄러에
                       "사용자가 로그온한 경우에만 실행" 으로 ASH.Server.exe 를 등록한다. 자세한 내용은 docs\server-install.md 5절 "영상 촬영".
@@ -103,25 +108,43 @@ ASH.Server - ASH 배포 서버 (최소판)
 - Update:PublicKeyPem 설정은 시험/개발용 덮어쓰기다. 서명을 쓰는 운영에서는 설정하지 말 것
   (설정하면 내장 공개키를 대체하고 경고 로그가 남는다. 빈 값은 개발 환경에서만 "키 없음"으로 쓰인다).
 
-웹 주소 (상단 메뉴 홈 · 분석 · 설정)
-- /                          홈: 내 것만 | 전체 작업·분석, 대기·실행 상태(열려 있으면 10초마다 갱신)
+웹 주소 (사이드바 홈 · 분석 · 영상 · 보관함 · 관리, 관리 위의 종 버튼이 알림)
+- /                          홈: 네 구획 진행 | 결론 확인 | 영상 | 보고서. 내 것만 | 전체(열려 있으면 10초마다 갱신)
 - /analyses                  분석 목록
-- /analyses/{id}?tab=        분석 하나: status(현황) · conclusion(결론) · compare(비교) · films(영상)
+- /analyses/{id}?tab=        분석 하나: conclusion(결론) · compare(비교) · films(영상) · status(버전)
+- /analyses/{id}/cuts        컷 편집기(영상 만들기). 컷 미리보기는 /api/analyses/{id}/cuts/{cutId}/preview
+- /analyses/{id}/report      보고서 인쇄 화면(?job= 버전, ?map=all 전체 배치). "PDF로 저장"은 브라우저 인쇄(A4 가로)
+- /analyses/{id}/report.pptx 보고서 PPT(요청 때 서버가 만듦, 파워포인트 차트)
+- /films                     영상 목록. 영상 하나는 /films/{id}
+- /files                     보관함(보낸 파일 검색, continue.zip)
 - /admin/jobs                전체 작업 대기열(옛 /jobs 는 여기로 301). 작업 하나는 /jobs/{id}
+- /jobs/{id}/rerun           (POST) 대수 바꿔 다시 돌리기. 보낸 PC(같은 IP)나 관리자 암호(token 필드 또는 X-ASH-Admin-Token 헤더)만
+- /jobs/{id}/files/report.xlsx  Excel 보고서
 - /api/home                  홈이 쓰는 JSON(작업·분석·대기 상태)
 - /api/analyses/{id}/status  분석 현황 JSON(실행 중 진행·중간 결과)
-- /api/films/{id}            영상 한 건의 진행 JSON
+- /api/films, /api/films/{id}  영상 목록·한 건의 진행 JSON
+- /api/me/events?since=      내 작업·영상 중 since 뒤에 끝난 것(알림용, 화면이 30초마다 부름)
 - /films/{id}/files/all.zip  그 영상의 컷 파일 전부(zip)
+
+알림 (종 버튼)
+- 내 작업·영상이 끝나거나 실패하면 열려 있는 ASH 화면이 알린다. "내" = 홈의 내 것과 같은 규칙(같은 IP 또는 보낸 사람 이름).
+- http 주소(기본 http://서버:8082)에서는 브라우저가 시스템 알림을 막는다. 화면 안 토스트와 탭 제목 "(n)"으로 알린다. 설정은 필요 없다.
+- 시스템 알림은 (1) 서버를 https 로 열거나(appsettings.json: Urls "http://0.0.0.0:8082;https://0.0.0.0:8443",
+  Kestrel:Certificates:Default:Path / Password, PC 가 신뢰하는 인증서, 방화벽 8443. install-service.bat 은 Urls 의 첫 포트만 열고 확인하니
+  http 를 첫째로 둔다. https 만 쓰면 서버 자동 업데이트의 응답 확인을 건너뛴다) 또는 (2) Chrome/Edge 기업 정책
+  OverrideSecurityRestrictionsOnInsecureOrigin 에 http://서버:8082 를 올려 배포하면 된다((2)는 브라우저 동작이라 이 저장소에서 시험하지 않았다).
+- 모든 탭을 닫은 뒤에도 알리는 푸시는 외부 푸시 서비스가 필요해 지원하지 않는다. 화면이 한 곳이라도 열려 있어야 알린다.
+- 자세한 내용: docs\server-install.md 5절 "완료·실패 알림".
 
 웹 설정 (/admin/settings, 상단 메뉴 "설정")
 - Admin:Password가 규칙(4~20자)에 맞아야 열린다. 처음에 관리자 암호를 한 번 입력하면 브라우저에 HttpOnly·SameSite=Strict 쿠키(서버만 아는 무작위
   세션 ID, 8시간, 서버를 다시 시작하면 로그아웃)가 남는다. 암호 자체는 쿠키나 페이지에 들어가지 않는다. 다른 사이트에서 온 POST 는
   Origin 검사로 거절한다. 스크립트는 X-ASH-Admin-Token 헤더로 같은 주소에 POST 해도 된다.
 - 바꿀 수 있는 값: Jobs(Enabled, WorkerEnabled, AmHome, Parallel, DialogButton, RunTimeoutMin, BuildTimeoutMin, JobTimeoutHours,
-  KeepRunsDays, Dir), Film(FfmpegPath, AviewExe, CutTimeoutMin), GitHub(Enabled, BaseUrl, CheckIntervalMin, UpdateServer, Proxy, Dns), Urls, Releases:Dir, Update:AllowUnsigned.
+  KeepRunsDays, Dir), Film(FfmpegPath, AviewExe, CutTimeoutMin, CalibrationTimeoutMin, DialogTitles), GitHub(Enabled, BaseUrl, CheckIntervalMin, UpdateServer, Proxy, Dns), Urls, Releases:Dir, Update:AllowUnsigned.
   Admin:Password, Update:PublicKeyPem, Logging 은 웹에서 바꾸지 않는다(파일을 직접 고친다).
 - 바로 적용(저장하면 다음 작업·다음 정리부터): Jobs:Enabled, AmHome, Parallel, DialogButton, RunTimeoutMin, BuildTimeoutMin,
-  JobTimeoutHours, KeepRunsDays, Film:CutTimeoutMin, Film:FfmpegPath, Film:AviewExe.  재시작 필요: 나머지 전부(Jobs:WorkerEnabled, Jobs:Dir, GitHub:*, Urls, Releases:Dir, Update:AllowUnsigned).
+  JobTimeoutHours, KeepRunsDays, Film:CutTimeoutMin, Film:CalibrationTimeoutMin, Film:DialogTitles, Film:FfmpegPath, Film:AviewExe.  재시작 필요: 나머지 전부(Jobs:WorkerEnabled, Jobs:Dir, GitHub:*, Urls, Releases:Dir, Update:AllowUnsigned).
 - 경로 항목(AmHome, Dir, FfmpegPath, AviewExe, Releases:Dir) 옆의 "찾아보기…" 는 서버 PC 의 드라이브·폴더를 보여 주는 대화상자다(관리자 로그인 필요, 이름만 읽음).
 - 저장은 값을 검사(정수 범위, 켬/끔, 주소 형식)한 뒤 appsettings.json 을 임시 파일로 쓰고 바꿔 넣는다. 이전 파일은
   appsettings.json.yyyyMMdd-HHmmss.bak 으로 남는다. 모르는 키는 그대로 두지만 파일 안의 // 주석은 없어진다(.bak 에는 남음).
