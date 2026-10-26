@@ -268,7 +268,7 @@ public static class AnalysisPages
 
     // ---------------------------------------------------------------- detail
 
-    static readonly (string Key, string Name)[] Tabs = { ("conclusion", "결론"), ("compare", "비교"), ("films", "영상"), ("status", "버전") };
+    static readonly (string Key, string Name)[] Tabs = { ("conclusion", "결론"), ("compare", "비교"), ("cause", "원인"), ("films", "영상"), ("status", "버전") };
 
     /// <summary>The tab to show: a known ?tab=, else 결론 when a version has a result, else 버전(status).</summary>
     public static string TabOf(AnalysisPageData d, string? tab) => Tabs.Any(t => t.Key == tab) ? tab! : d.Jobs.Any(Ok) ? "conclusion" : "status";
@@ -309,6 +309,7 @@ public static class AnalysisPages
         {
             case "conclusion": sb.Append("<div class=\"fill\">"); ConclusionTab(sb, d, q); sb.Append("</div>"); break;
             case "compare": CompareTab(sb, d, q); break;
+            case "cause": CausePages.Tab(sb, d, q); break;
             case "films": FilmsTab(sb, d); break;
             default: StatusTab(sb, d); break;
         }
@@ -458,7 +459,7 @@ public static class AnalysisPages
 
     // markers and labels are drawn in screen px inside a group scaled by "user units per px"; this keeps them the same size at any zoom or window size.
     // Wheel zooms at the cursor, drag pans (a drag never follows a marker link), double-click or 맞춤 goes back to the first view.
-    const string FitScript = @"<script>(function(){
+    internal const string FitScript = @"<script>(function(){
 function fit(){document.querySelectorAll('svg.bm').forEach(function(s){var m=s.getScreenCTM();if(!m||!m.a)return;var k=1/m.a;
  s.querySelectorAll('g.mk').forEach(function(g){g.setAttribute('transform','translate('+g.getAttribute('data-x')+' '+g.getAttribute('data-y')+') scale('+k+')');});});}
 document.querySelectorAll('svg.bm').forEach(function(s){

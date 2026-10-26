@@ -1,6 +1,11 @@
+using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using ASH.Core.Cause;
+using ASH.Core.Input;
 using ASH.Core.Layout;
+using ASH.Core.Settings;
 using ASH.Plugin.Cad;
 using ZwSoft.ZwCAD.DatabaseServices;
 using ZwSoft.ZwCAD.EditorInput;
@@ -51,13 +56,15 @@ public sealed class CheckCommands
                     DrawingWriter.RefreshDirectionArrows(db, tr); // Run skips the refresh for AGVCHECK
                 }
                 ed.WriteMessage("\n재검사:");
-                findings = Report(ed, DrawingReader.Read(db, tr));
+                layout = DrawingReader.Read(db, tr);
+                findings = Report(ed, layout);
             }
-            ed.WriteMessage($"\n검사 결과 {findings.Count}건");
-            Ui.PaletteStatus.SetCheck(findings.Count);
+            var cause = CauseRows(ed, layout);
+            ed.WriteMessage($"\n검사 결과 {findings.Count + cause.Count}건");
+            Ui.PaletteStatus.SetCheck(findings.Count + cause.Count);
             // only problems exist in this list; the palette shows them in a table and a double-click goes to the spot
             Ui.PaletteStatus.SetFindings(findings.Select(f => new Ui.FindingRow(FindingText.Label(f.Code), f.EntityId ?? "", f.Message,
-                f.Where.X, f.Where.Y, !(f.Where.X == 0 && f.Where.Y == 0))).ToList());
+                f.Where.X, f.Where.Y, !(f.Where.X == 0 && f.Where.Y == 0))).Concat(cause).ToList());
             return changed;
         }, refreshArrows: false);
     }
@@ -70,6 +77,42 @@ public sealed class CheckCommands
         foreach (var f in findings) ed.WriteMessage($"\n[{f.Code}] {f.Message} ({f.Where.X:0.###}, {f.Where.Y:0.###})");
         if (findings.Count > 0) ZoomTo(ed, findings[0].Where.X, findings[0].Where.Y, 10 * u);
         return findings;
+    }
+
+    /// <summary>CauseAnalysis.Static findings of the drawing as palette rows (warnings). The layout goes to the analysers in model metres like the exporter makes it
+    /// ((p - Origin) x Scale, ash.settings.tsv, else Scale from the drawing units); input.xlsx is read when it is there and readable, else the analysers get an empty input
+    /// (so no detour findings). Zoom targets are converted back to drawing units. Never throws: a failing analyser only drops its findings from the check.</summary>
+    internal static List<Ui.FindingRow> CauseRows(Editor ed, CoreLayout layout)
+    {
+        var rows = new List<Ui.FindingRow>();
+        try
+        {
+            var s = new ProjectSettings(Scale: 1 / DrawingUnits.PerMeter);
+            ProjectInput? input = null;
+            if (System.Convert.ToInt32(Application.GetSystemVariable("DWGTITLED")) != 0)
+            {
+                var dir = (string)Application.GetSystemVariable("DWGPREFIX");
+                var sf = Path.Combine(dir, ExportCommands.SettingsFileName);
+                try { if (File.Exists(sf)) s = SettingsFile.Load(sf); }
+                catch (System.Exception ex) when (ex is FormatException || ex is IOException || ex is UnauthorizedAccessException) { }
+                var xlsx = Path.Combine(dir, ModelCommands.ExcelFileName);
+                try { if (File.Exists(xlsx)) input = ExcelReader.Read(xlsx); }
+                catch (System.Exception ex) when (!(ex is OperationCanceledException)) { PluginLog.Write("AGVCHECK Excel read", ex); } // locked or encrypted: layout-only
+            }
+            foreach (var i in CauseFrame.StaticOf(layout, s, input))
+            {
+                var text = string.Join(" · ", new[] { i.Title, i.Detail, i.Fix.Length > 0 ? "조치 " + i.Fix : "" }.Where(t => t.Length > 0));
+                bool at = i.X is double && i.Y is double;
+                var p = at ? CauseFrame.ToDrawing(i.X!.Value, i.Y!.Value, s.Origin, s.Scale) : default;
+                ed.WriteMessage($"\n[원인] {text}" + (at ? $" ({p.X:0.###}, {p.Y:0.###})" : ""));
+                rows.Add(new Ui.FindingRow("원인", i.Where, text, p.X, p.Y, at, warning: true));
+            }
+        }
+        catch (System.Exception ex) when (!(ex is OperationCanceledException))
+        {
+            PluginLog.Write("AGVCHECK cause", ex);
+        }
+        return rows;
     }
 
     // shortcut: assumes a plan (WCS top) view, so DCS centre = WCS point; upgrade to a WCS->DCS transform if users work in rotated UCS/views.
