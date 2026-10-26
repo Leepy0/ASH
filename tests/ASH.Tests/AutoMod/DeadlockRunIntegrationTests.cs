@@ -63,6 +63,14 @@ public class DeadlockRunIntegrationTests
         Console.WriteLine($"episode at {ev.AtSec} s, last leg end {(legEnds.Count == 0 ? double.NaN : legEnds.Max())} s, legs over DeadlockSec {rs.Deadlocks}");
         Assert.NotEmpty(legEnds);
         Assert.InRange(legEnds.Max(), ev.AtSec - 60, ev.AtSec);
+
+        // the cause: when, where, and the CP the holder of the waited block stands at (Tug1 at S001, 0.5 m past BL, 2 m long)
+        var item = Assert.Single(DeadlockCauses.Find(new CauseContext(l, input, rs, VehicleLength: 2)));
+        Console.WriteLine($"{item.Title} | {item.Detail} | {item.Fix} | {item.AtSec} s");
+        Assert.Equal("교착 BL·BR", item.Title);
+        Assert.Equal(ev.AtSec, item.AtSec);
+        Assert.Equal("S001 block 밖 1.5 m 이동", item.Fix);
+        Assert.Contains(DeadlockRisk.Find(new CauseContext(l, input, VehicleLength: 2)), x => x.Where == "BL·BR"); // the layout said so before the run
         if (Environment.GetEnvironmentVariable("ASH_KEEP_TEMP") != "1") Directory.Delete(work, true);
     }
 }
