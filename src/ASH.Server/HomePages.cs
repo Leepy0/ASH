@@ -62,7 +62,7 @@ document.querySelectorAll('a[data-me]').forEach(function(a){
         sb.Append($"<div class=\"head\"><h1>{(v.Me ? "내 작업" : "전체 작업")}</h1><nav class=\"segc\" aria-label=\"보기\">" +
             $"<a href=\"/?me=1{H(tagQuery)}\" data-me=\"1\"{(v.Me ? " class=\"on\" aria-current=\"true\"" : "")}>내 것</a>" +
             $"<a href=\"/?me=0{H(tagQuery)}\" data-me=\"0\"{(v.Me ? "" : " class=\"on\" aria-current=\"true\"")}>전체</a></nav>").Append(SaveScript);
-        sb.Append($"<span class=\"sp\"></span><form class=\"tagf\"><input type=\"hidden\" name=\"me\" value=\"{(v.Me ? 1 : 0)}\">{tagFilter}<button>거르기</button></form></div>");
+        sb.Append($"<span class=\"sp\"></span><form class=\"tagf\"><input type=\"hidden\" name=\"me\" value=\"{(v.Me ? 1 : 0)}\">{tagFilter}<button>검색</button></form></div>");
         sb.Append("<div class=\"lanes\">");
 
         // 1. 진행: the running job (or film) and the queue

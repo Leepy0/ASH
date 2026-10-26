@@ -299,7 +299,7 @@ public sealed class AgvPaletteControl : UserControl
         PaletteStatus.Objects = items => { all = items.ToList(); loaded = true; Apply(); };
 
         var top = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, BackColor = Theme.Panel, Padding = Padding.Empty };
-        top.Controls.AddRange(new Control[] { Theme.Caption("범주"), category, Theme.Caption("이름·정보로 거르기"), text, Theme.Make("목록 새로고침", GlyphKind.Search, "AGVFIND"), count });
+        top.Controls.AddRange(new Control[] { Theme.Caption("범주"), category, Theme.Caption("이름·정보 검색"), text, Theme.Make("목록 새로고침", GlyphKind.Search, "AGVFIND"), count });
         top.Layout += (o, e) =>
         {
             int w = top.ClientSize.Width;

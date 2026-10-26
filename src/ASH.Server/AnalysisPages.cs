@@ -230,7 +230,7 @@ public static class AnalysisPages
             "<input type=\"text\" name=\"note\" maxlength=\"200\" placeholder=\"메모(선택)\" aria-label=\"메모\"><button class=\"primary\">만들기</button></form></details></div>");
         sb.Append($"<form class=\"lp-f\" action=\"{H(path)}\"><input type=\"hidden\" name=\"me\" value=\"{(l.Me ? 1 : 0)}\">" +
             $"<input type=\"search\" name=\"q\" value=\"{H(l.Q)}\" placeholder=\"이름·보낸 사람\" aria-label=\"검색\">" +
-            $"<details><summary>법인·제품군·라인</summary>{l.TagFilter}<button>거르기</button></details></form>");
+            $"<details><summary>법인·제품군·라인</summary>{l.TagFilter}<button>검색</button></details></form>");
         if (l.Running is { } run)
             sb.Append($"<a class=\"lr c-blue lr-now\" href=\"{H(run.Href ?? "/jobs/" + run.JobId)}\"><i class=\"dot\" aria-hidden=\"true\"></i><span class=\"t\"><span class=\"st\">지금 실행 중{(l.Queued > 0 ? $" · 대기 {l.Queued}건" : "")}</span>" +
                 $"<b>{H(run.Name ?? run.Title)}</b><span class=\"st\">{H(run.Sub ?? "")} · {Math.Round((run.Progress ?? 0) * 100):0}%</span></span></a>");
