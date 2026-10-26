@@ -125,7 +125,7 @@ public sealed class InitCommands
             b(new Line(new Point3d(-0.3, 0, 0), new Point3d(-0.1, -0.15, 0)));
         });
 
-        foreach (var name in new[] { Conventions.CpBlockName, Conventions.StationBlockName, Conventions.BlockBlockName, Conventions.DirBlockName, Conventions.DirTwoBlockName })
+        foreach (var name in new[] { Conventions.CpBlockName, Conventions.StationBlockName, Conventions.BlockBlockName }.Concat(Conventions.DirBlockNames))
             if (bt.Has(name))
                 foreach (ObjectId id in (BlockTableRecord)tr.GetObject(bt[name], OpenMode.ForRead))
                     if (tr.GetObject(id, OpenMode.ForRead) is Entity e && (e.Layer != "0" || e.ColorIndex != ByLayer))
@@ -135,6 +135,24 @@ public sealed class InitCommands
                         e.ColorIndex = ByLayer;
                         fixedDefs++;
                     }
+
+        made += Def(db, tr, bt, Conventions.DirSpurBlockName, b =>
+        {
+            // single arrow ending in a stop bar: a spur is a dead end
+            b(new Line(new Point3d(-0.3, 0, 0), new Point3d(0.3, 0, 0)));
+            b(new Line(new Point3d(0.3, 0, 0), new Point3d(0.1, 0.15, 0)));
+            b(new Line(new Point3d(0.3, 0, 0), new Point3d(0.1, -0.15, 0)));
+            b(new Line(new Point3d(0.3, 0.18, 0), new Point3d(0.3, -0.18, 0)));
+        });
+        made += Def(db, tr, bt, Conventions.DirCrabBlockName, b =>
+        {
+            // single arrow with two cross ticks on the shaft: crab travel, sideways without turning
+            b(new Line(new Point3d(-0.3, 0, 0), new Point3d(0.3, 0, 0)));
+            b(new Line(new Point3d(0.3, 0, 0), new Point3d(0.1, 0.15, 0)));
+            b(new Line(new Point3d(0.3, 0, 0), new Point3d(0.1, -0.15, 0)));
+            b(new Line(new Point3d(-0.2, 0.12, 0), new Point3d(-0.2, -0.12, 0)));
+            b(new Line(new Point3d(-0.08, 0.12, 0), new Point3d(-0.08, -0.12, 0)));
+        });
 
         var rat = (RegAppTable)tr.GetObject(db.RegAppTableId, OpenMode.ForRead);
         if (!rat.Has(Conventions.AppName)) { XData.EnsureRegApp(db, tr); made++; }

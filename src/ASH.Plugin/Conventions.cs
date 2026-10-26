@@ -19,6 +19,12 @@ public static class Conventions
     public const string BlockBlockName = "AGV_BLOCK";
     public const string DirBlockName = "AGV_DIR";
     public const string DirTwoBlockName = "AGV_DIR2";
+    /// <summary>Spur: arrow with a stop bar at its head (a dead end the AGV backs out of). Crab: arrow with two cross ticks on its shaft (sideways travel).</summary>
+    public const string DirSpurBlockName = "AGV_DIR_SPUR", DirCrabBlockName = "AGV_DIR_CRAB";
+    public static readonly string[] DirBlockNames = { DirBlockName, DirTwoBlockName, DirSpurBlockName, DirCrabBlockName };
+
+    /// <summary>The arrow block for a path type.</summary>
+    public static string DirBlockFor(bool spur, bool twoWay, bool crab) => twoWay ? DirTwoBlockName : spur ? DirSpurBlockName : crab ? DirCrabBlockName : DirBlockName;
     /// <summary>Length of the arrow block definitions (meters); the inserted size is ArrowSize / this.</summary>
     public const double ArrowDefMeters = 0.6;
     /// <summary>One layer per CP type (AGV_CP_LOAD, ...) so each type has its own colour and can be switched off; unknown types and old drawings use AGV_CP.</summary>
