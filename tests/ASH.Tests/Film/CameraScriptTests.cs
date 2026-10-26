@@ -72,10 +72,11 @@ public class CameraScriptTests
         Assert.Contains("format avi\n", s); Assert.Contains("filename \"C:\\job\\cut01.avi\"\n", s);
         Assert.DoesNotContain("mp4", s); Assert.DoesNotContain("upvector", s); Assert.DoesNotContain("saveframe", s);
         // plan view, north up: the camera stands 1/1000 of its height south of the focus, so screen-up is +Y without an upvector
-        Assert.Contains("view focus relative to world pos 1000000, 1000000, 0 camera relative to world pos 1000000, 969520, 30480000 scale ", s);
+        // positions in feet, the script's distance unit (12.6 reads them so): 1 m = 3.28084 ft, the 100 ft camera, 1/1000 of it = 0.1 ft south
+        Assert.Contains("view focus relative to world pos 3.28084, 3.28084, 0 camera relative to world pos 3.28084, 3.18084, 100 scale ", s);
         // east up: the camera moves west instead
         var e = CameraScript.Build(Hold(a: new Rect(0, 0, 2, 2)) with { DirDeg = 90 }, 81, 1280, 720, 15, 80, @"C:\job\cut01", legacy: true);
-        Assert.Contains("camera relative to world pos 969520, 1000000, 30480000 scale ", e);
+        Assert.Contains("camera relative to world pos 3.18084, 3.28084, 100 scale ", e);
         Assert.Equal(Build(Hold()), CameraScript.Build(Hold(), 81, 1280, 720, 15, 80, @"C:\job\cut01", legacy: false)); // 14.x unchanged
         Assert.True(AutoViewExe.IsLegacy(@"C:\nowhere\aview.exe")); Assert.False(AutoViewExe.IsLegacy(@"C:\nowhere\aview64.exe")); Assert.False(AutoViewExe.IsLegacy(null));
     }

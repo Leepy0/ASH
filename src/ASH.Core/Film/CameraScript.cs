@@ -71,15 +71,19 @@ public static class CameraScript
         return sb.ToString();
     }
 
-    /// <summary>One "view focus … camera …" line (micrometres). Before 14 there is no upvector: a camera straight above the focus (up vector in the plan)
+    /// <summary>One "view focus … camera …" line from micrometres (written as such for 14.x). Before 14 there is no upvector: a camera straight above the focus (up vector in the plan)
     /// is moved off the sight line by 1/1000 of its height against the wanted screen-up direction, so the plan view keeps its heading (0.06° of tilt);
-    /// a tilted view already says it by where the camera stands. Roll cannot be given there.</summary>
+    /// a tilted view already says it by where the camera stands. Roll cannot be given there.
+    /// Before 14 the positions are also read in the script's "distance" unit (feet: its own saved views write "distance unit …" before them), where 14.x
+    /// took the micrometres as they are; written in micrometres the 12.6 camera stood about 30 million ft away and every frame was white.</summary>
     public static string View(double fx, double fy, double fz, double cx, double cy, double cz, double ux, double uy, double uz, double scale, bool legacy)
     {
-        var focus = $"view focus relative to world pos {N(fx, "0")}, {N(fy, "0")}, {N(fz, "0")} ";
         if (!legacy)
-            return focus + $"camera relative to world pos {N(cx, "0")}, {N(cy, "0")}, {N(cz, "0")} upvector {N(ux, "0.######")}, {N(uy, "0.######")}, {N(uz, "0.######")} scale {N(scale)}";
+            return $"view focus relative to world pos {N(fx, "0")}, {N(fy, "0")}, {N(fz, "0")} " +
+                   $"camera relative to world pos {N(cx, "0")}, {N(cy, "0")}, {N(cz, "0")} upvector {N(ux, "0.######")}, {N(uy, "0.######")}, {N(uz, "0.######")} scale {N(scale)}";
         if (Math.Abs(uz) < 0.5) { var h = (cz - fz) * 1e-3; cx -= ux * h; cy -= uy * h; }
-        return focus + $"camera relative to world pos {N(cx, "0")}, {N(cy, "0")}, {N(cz, "0")} scale {N(scale)}";
+        const double UmPerFoot = 304_800;
+        string Ft(double um) => N(um / UmPerFoot, "0.#####");
+        return $"view focus relative to world pos {Ft(fx)}, {Ft(fy)}, {Ft(fz)} camera relative to world pos {Ft(cx)}, {Ft(cy)}, {Ft(cz)} scale {N(scale)}";
     }
 }
