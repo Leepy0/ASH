@@ -270,6 +270,7 @@ document.querySelectorAll('table.sort').forEach(function(t){
     const string JobCss = @"
 .jh{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 4px}.jh h1{margin:0;font-size:22px}.jh .sp{flex:1}.jh form{margin:0}
 .jm{font-size:13px;color:var(--sub2);margin:0 0 8px}
+.fitrun{margin:0 0 12px;padding:10px 12px;background:var(--green-b);border-radius:10px}.fitrun .dl{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
 .jm .tag{margin-right:4px}
 .state[data-state]::before{margin-right:4px}.state[data-state].s-queued::before{content:'○'}.state[data-state].s-running::before{content:'▶'}.state[data-state].s-done::before{content:'✓'}.state[data-state].s-failed::before{content:'▲'}.state[data-state].s-cancelled::before{content:'■'}
 .kpis{margin-top:10px}.kpi .t3{margin-bottom:2px}.kpi .t4{margin-top:2px}.kpi.ok{--c:var(--green)}.kpi.bad{--c:var(--red)}.kpi.blue{--c:var(--blue)}.kpi .t2{color:var(--c,var(--ink))}
@@ -764,7 +765,21 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
         // one row per run and group; every group's count of the run is a column, so the list sorts by any of them
         var gs = v.Input.Groups;
         var counts = v.RunCounts();
+        // 적정: a run at exactly the recommended counts that passed for every group (a utilisation warning still passes), the one to open in AutoMod
+        int CountOf(string runId, ASH.Core.Input.AgvGroup g) => counts[runId].TryGetValue(g.Group, out var n) ? n : g.MinCount;
+        bool Fit(string runId) => j.Decided != null && counts.ContainsKey(runId)
+            && gs.All(g => CountOf(runId, g) == (j.Decided.TryGetValue(g.Group, out var d) ? d : g.MinCount))
+            && v.Rows.Where(x => x.RunId == runId).All(x => x.Ok || JobView.UtilOnly(x));
+        var fit = v.Rows.Select(x => x.RunId).Distinct().Where(Fit).ToList();
+        string Zip(string runId) => $"/jobs/{H(j.Id)}/runs/{Uri.EscapeDataString(runId)}/model.zip";
         sb.Append("<div class=\"box\"><div class=\"box-head\"><h2>실행 목록</h2><span class=\"t4\" title=\"받기: 그 실행의 모델과 조건(params.txt)을 zip으로 받아 AutoMod가 있는 PC에서 run.bat으로 창을 띄워 볼 수 있습니다.\">제목을 누르면 정렬 · 받기 = 모델 zip</span></div>");
+        if (fit.Count > 0)
+        {
+            var seedOf = v.Rows.GroupBy(x => x.RunId).ToDictionary(g2 => g2.Key, g2 => g2.First().Seed);
+            sb.Append($"<div class=\"fitrun\"><b>적정 대수 실행</b> <span class=\"t4\">권장 {H(string.Join(" · ", gs.Select(g => $"{g.Group} {(j.Decided!.TryGetValue(g.Group, out var d) ? d : g.MinCount)}대")))}, 판정 통과 · {fit.Count}개</span><div class=\"dl\">");
+            foreach (var id in fit) sb.Append($"<a class=\"btn\" href=\"{Zip(id)}\" download title=\"{H(id)}\">시드 {seedOf[id]} 모델 받기</a>");
+            sb.Append("</div></div>");
+        }
         sb.Append("<div class=\"scroll\"><table class=\"sort\"><thead><tr>").Append(Th("실행"));
         foreach (var g in gs) sb.Append(Th(H(g.Group) + " 대수(대)"));
         sb.Append(Th("시드")).Append(Th("반복(회차)")).Append(Th("그룹")).Append(Th("판정")).Append(Th("가동률(%)")).Append(Th("최소 재고/안전재고(배)")).Append(Th("공급(회)"))
@@ -774,12 +789,13 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
             // the id spells out every group's count, which the columns after it already show; keep only the tail (seed, flags) and put the full id in the tooltip
             var us = r.RunId.IndexOf('_');
             var warnOnly = JobView.UtilOnly(r);
-            sb.Append($"<tr{(r.Ok ? "" : warnOnly ? " class=\"ow\"" : " class=\"over\"")}><td title=\"{H(r.RunId)}\">{(us > 0 ? "…" + H(r.RunId[us..]) : H(r.RunId))}</td>");
+            var isFit = fit.Contains(r.RunId);
+            sb.Append($"<tr{(r.Ok ? "" : warnOnly ? " class=\"ow\"" : " class=\"over\"")}><td title=\"{H(r.RunId)}\">{(us > 0 ? "…" + H(r.RunId[us..]) : H(r.RunId))}{(isFit ? " <span class=\"tag green\" title=\"권장 대수 그대로이고 판정을 통과한 실행\">적정</span>" : "")}</td>");
             var c = counts[r.RunId];
             foreach (var g in gs) sb.Append($"<td class=\"num\">{(c.TryGetValue(g.Group, out var n) ? n : g.MinCount)}</td>");
             sb.Append($"<td class=\"num\">{r.Seed}</td><td class=\"num\">{r.Seed - v.Input.Settings.SeedBase + 1}</td><td>{H(r.Group)}</td><td class=\"{(r.Ok ? "ok" : warnOnly ? "wn" : "bad")}\">{(r.Ok ? "통과" : warnOnly ? "⚠ 경고: " + H(r.Reason) : H(r.Reason))}</td>" +
                 $"<td class=\"num\">{P(r.Utilization)}</td><td class=\"num\">{F(r.MinStockRatio)}</td><td class=\"num\">{r.Supplies}</td><td class=\"num\">{F(r.Expected, "0.#")}</td><td class=\"num\">{F(r.StopTimeSec, "0")}</td><td class=\"num\">{r.Deadlocks}</td><td class=\"num\">{F(r.DurationSec, "0")}</td>" +
-                $"<td><a href=\"/jobs/{H(j.Id)}/runs/{Uri.EscapeDataString(r.RunId)}/model.zip\" download>받기</a></td></tr>");
+                $"<td><a href=\"{Zip(r.RunId)}\" download>받기</a></td></tr>");
         }
         sb.Append("</tbody></table></div>").Append(SortScript);
         if (v.Rows.Count > 1000) sb.Append($"<div class=\"t4\">처음 1000행만 보여 주고 그 안에서 정렬합니다(전체 {v.Rows.Count}행은 summary.tsv로 받으세요).</div>");
