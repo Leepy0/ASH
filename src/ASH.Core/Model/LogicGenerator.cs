@@ -211,7 +211,7 @@ public static class LogicGenerator
             int mi = input.Materials.FindIndex(x => x.Material == c.Material) + 1;
             if (mi == 0) throw new ArgumentException($"컨베이어 '{c.Conveyor}'의 자재 '{c.Material}'이(가) Materials에 없습니다.");
             matLogic.Append(Fill(Res("code_conv.m.txt"), ("K", k.ToString()), ("CV", Lit(c.Conveyor)), ("M", mi.ToString()), ("NAME", Lit(c.Material)),
-                ("SYS", ConveyorAsyWriter.SystemName), ("TAKT", N(c.ProductTakt))));
+                ("SYS", ConveyorAsyWriter.SystemName)));
             create.Append($"\tcreate 1 load of type L_prod to P_cv_{k}\n");
             foreach (var (on, since, sum) in new[] { ("V_cvWait", "V_cvSince", "V_cvStop"), ("V_cvBlk", "V_cvT0", "V_cvLate") })
                 snap.Append($"\tif {on}({k}) = 1 then begin\n\t\tif {since}({k}) < V_warmup then set {since}({k}) to V_warmup\n" +

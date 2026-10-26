@@ -1,7 +1,8 @@
 /* conveyor {{K}} = {{CV}}: products consume material {{M}} = {{NAME}} at {{CV}}_use */
-/* the takt clock of the line: the next product is made one takt after the last one got on (P_cv_{{K}} starts this load once it is on) */
+/* the takt clock of the line: the next product is made one takt after the last one got on (P_cv_{{K}} starts this load once it is on);
+   the takt comes from params.txt (the material's TaktTime holds the ProductTakt), so a run can change it without a rebuild */
 begin P_cvsrc_{{K}} arriving procedure
-	wait for {{TAKT}} sec
+	wait for V_takt({{M}}) sec
 	create 1 load of type L_prod to P_cv_{{K}}
 	send to die
 end

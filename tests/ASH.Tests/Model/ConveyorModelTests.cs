@@ -105,7 +105,8 @@ public class ConveyorModelTests
         Assert.Contains("move into ash_conv:CV001_in", src);
         Assert.Contains("travel to ash_conv:CV001_use", src);
         Assert.Contains("\tdec V_stock(1) by V_need(1)\n", src);
-        Assert.Contains("\twait for 5 sec\n\tcreate 1 load of type L_prod to P_cv_1", src);
+        // the line clock reads the takt from params.txt (M1's TaktTime holds the ProductTakt), so a run can change it without a rebuild
+        Assert.Contains("\twait for V_takt(1) sec\n\tcreate 1 load of type L_prod to P_cv_1", src);
         Assert.Contains("\tcreate 1 load of type L_prod to P_cv_1\n", src.Substring(src.IndexOf("begin model initialization function")));
         Assert.Contains("print \"conveyor\\tCV001\\tM1\\t\" V_cvPass(1) \"\\t\" V_cvStop(1) \"\\t\" V_cvLate(1) to V_out", src);
         var pm = LogicGenerator.BuildProcessModel(input, LogicGeneratorTests.Layout, "Meters");
