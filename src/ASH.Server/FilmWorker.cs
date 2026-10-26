@@ -53,6 +53,8 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
     TimeSpan CutTimeout => TimeSpan.FromMinutes(Math.Max(0.01, cfg.GetValue("Film:CutTimeoutMin", 20.0)));
     TimeSpan CalTimeout => TimeSpan.FromMinutes(Math.Max(0.01, cfg.GetValue("Film:CalibrationTimeoutMin", 3.0)));
     AutoModJobRunner Jr => new(cfg);
+    /// <summary>The AutoView in use is older than 14 (AVI, no upvector): read per run, like the renderer's settings.</summary>
+    bool Legacy => AutoViewExe.IsLegacy(LiveFilmRenderer.ResolveAviewExe(cfg));
 
     public const string FilmBusy = "영상 촬영 중", ScenesBusy = "장면 후보 찾기 중", PreviewBusy = "컷 미리보기 중";
     /// <summary>Preview frame size: big enough to judge the framing (and the roll), quick to render.</summary>
@@ -384,7 +386,7 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
             var item = films.Get(f.Id)!.Items.First(i => i.JobId == j.Id && i.CutId == c.Id);
             Phase(c.Name);
             string script;
-            try { script = CameraScript.Build(c, f0, r.Width, r.Height, r.Fps, Quality, Path.Combine(work, $"cut{k + 1:00}"), new[] { CalOff }); }
+            try { script = CameraScript.Build(c, f0, r.Width, r.Height, r.Fps, Quality, Path.Combine(work, $"cut{k + 1:00}"), new[] { CalOff }, Legacy); }
             catch (ArgumentException e) { failed = true; SetItem(f, j.Id, c.Id, false, "카메라 스크립트를 만들 수 없는 컷입니다: " + e.Message); continue; } // a cut saved before validation tightened
             var res = Render(work, j.Model, script, CutTimeout, stop);
             if (res.Dialogs.Count > 0) say($"{label}: 대화상자 {string.Join(", ", res.Dialogs)}");
@@ -499,7 +501,7 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
         Phase("AutoView 그리기");
         var c = p.Cut;
         var shot = c with { Kind = c.Kind == CutKind.Move ? CutKind.Hold : c.Kind, B = null, StartSec = t, HoldSec = 1, HoldASec = 0, MoveSec = 0, HoldBSec = 0, Speed = 1 };
-        var res = Render(work, j.Model, CameraScript.Build(shot, f0, PreviewWidth, PreviewHeight, 15, Quality, Path.Combine(work, "preview"), new[] { CalOff }), CutTimeout, stop);
+        var res = Render(work, j.Model, CameraScript.Build(shot, f0, PreviewWidth, PreviewHeight, 15, Quality, Path.Combine(work, "preview"), new[] { CalOff }, Legacy), CutTimeout, stop);
         if (!res.Ok) { File.Delete(keyFile); throw new InvalidOperationException(res.Error); } // the next try builds the model again
         var jpg = Previews.ImagePath(p.AnalysisId, c.Id);
         renderer.Thumbnail(res.Mp4!, jpg + ".tmp.jpg", 0, stop, PreviewWidth);
@@ -543,12 +545,12 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
         Action<string> warn, CancellationToken stop)
     {
         var guess = 1.19 * scene.Diag;
+        var legacy = Legacy;
         string Script(bool hide, string movie) => string.Join("\n",
-            "camera description", "distance feet", "time seconds", "angle degree", "time scale 1", "orthogonal", "solid", "grid off", hide ? CalOff : "",
-            "define movie spec", "format mp4", $"filename \"{movie}\"", $"width {width}", $"height {height}", "quality 100", "framespersec 15", "keyframefreq 30",
-            $"saveframedir \"{movie}_frames\\\"", "saveframes false", "end movie spec",
+            "camera description", "distance feet", "time seconds", "angle degree", "time scale 1", "orthogonal", "solid", "grid off", hide ? CalOff : "") + "\n" +
+            CameraScript.MovieSpec(movie, width, height, 100, 15, legacy) + string.Join("\n",
             "time " + t.ToString("0.###", C),
-            $"view focus relative to world pos {Um(scene.Cx)}, {Um(scene.Cy)}, 0 camera relative to world pos {Um(scene.Cx)}, {Um(scene.Cy)}, 30480000 upvector 0, 1, 0 scale 1",
+            CameraScript.View(scene.Cx * 1e6, scene.Cy * 1e6, 0, scene.Cx * 1e6, scene.Cy * 1e6, 30480000, 0, 1, 0, 1, legacy),
             "record movie", "time " + (t + 1).ToString("0.###", C), "generate movie", "");
         var on = Render(work, model, Script(false, Path.Combine(work, "cal_on")), CalTimeout, stop);
         var off = on.Ok ? Render(work, model, Script(true, Path.Combine(work, "cal_off")), CalTimeout, stop) : on;
@@ -572,7 +574,6 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
         return guess;
     }
 
-    static string Um(double metres) => (metres * 1_000_000).ToString("0", C);
 
     static string Hms(double sec) { var t = TimeSpan.FromSeconds(Math.Max(0, sec)); return $"{(int)t.TotalHours:00}:{t.Minutes:00}:{t.Seconds:00}"; }
 
