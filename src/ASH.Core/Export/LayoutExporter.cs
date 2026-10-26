@@ -54,7 +54,7 @@ public static class LayoutExporter
         foreach (var g in groups) { CheckName("group", g.Group); CheckName("vehicle type", g.TypeName); if (!(g.RotateDegPerSec > 0)) throw new ArgumentException($"group {g.Group}: RotateDegPerSec must be > 0"); }
 
         var s = new AgvsSystem { Version = o.Version, UnitsTokens = new[] { o.Units, "Seconds" } };
-        s.HeaderLines.AddRange(Template("agvs_header.txt").Select(x => o.ClaimBlockOnNextCp ? x.Replace("ignore ResumeSpeedWhenClaimed", "ignore OldBlockClaim ResumeSpeedWhenClaimed") : x));
+        s.HeaderLines.AddRange(Template("agvs_header.txt").Select(x => o.ClaimBlockOnNextCp ? x.Replace("ALTERNATE NONE ResumeSpeedWhenClaimed", "ALTERNATE NONE OldBlockClaim ResumeSpeedWhenClaimed") : x));
         s.PathTypeLines.Add($"GPATHTYPE name {o.PathType} one normal attach rigid color -1 nav 1 vel 1 {N(groups.Max(g => Math.Max(g.Speed, g.SpeedEmpty)) * upm)} {o.Units} Seconds ");
 
         // GPATH names: single-segment paths keep their name, others get _s<k> skipping any name already emitted.

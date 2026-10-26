@@ -13,7 +13,7 @@ FLAGS
 AGVSDEF secname path31 name workcheck1 UserId 2
 	NEXTPATH name path31 type DefaultGuidePath
 	NEXTCP name workcheck1 type DefaultControlPoint
-	ALTERNATE NONE ignore ResumeSpeedWhenClaimed
+	ALTERNATE NONE ResumeSpeedWhenClaimed
 	vel 0 Infinite Feet Seconds
 	crabvel 0 Infinite Feet Seconds
 	sprvel 0 Infinite Feet Seconds
