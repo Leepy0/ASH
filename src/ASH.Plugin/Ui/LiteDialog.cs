@@ -36,11 +36,12 @@ public sealed class LiteDialog : Form
         Font = Theme.Base;
         ForeColor = Theme.Text;
         BackColor = Theme.Panel;
+        Theme.ScaleToDpi(this);
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = MinimizeBox = false;
         ShowInTaskbar = false;
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(600, 740);
+        ClientSize = new Size(617, 740); // 96 dpi; 17 px of it are for the scroll bar. FitHeight below keeps it on the screen
 
         var info = new Label { AutoSize = true, MaximumSize = new Size(568, 0), Font = HintFont, ForeColor = Theme.Muted, Margin = new Padding(2, 8, 0, 0),
             Text = $"{drawing}  →  {output}\n원본 도면은 바꾸지 않습니다. 블록 안까지 풀어 읽은 선·곡선 {src.Items.Count:N0}개 · 모든 좌표 Z = 0\n" +
@@ -124,13 +125,14 @@ public sealed class LiteDialog : Form
         bar.Controls.AddRange(new Control[] { ok, cancel });
         bar.Layout += (s, e) =>
         {
-            cancel.Location = new Point(bar.ClientSize.Width - 16 - cancel.Width, 11);
-            ok.Location = new Point(cancel.Left - 8 - ok.Width, 11);
+            cancel.Location = new Point(bar.ClientSize.Width - 16 - cancel.Width, (bar.ClientSize.Height - cancel.Height) / 2);
+            ok.Location = new Point(cancel.Left - 8 - ok.Width, cancel.Top);
         };
         AcceptButton = ok;
         CancelButton = cancel;
         Controls.Add(flow); // Fill first, then the bottom bar docks before it
         Controls.Add(bar);
+        Theme.FitHeight(this, null);
         _loading = false;
         Recount(true);
     }

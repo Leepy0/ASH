@@ -34,15 +34,23 @@ public sealed class SendDialog : Form
         Font = Theme.Base;
         ForeColor = Theme.Text;
         BackColor = Theme.Panel;
+        Theme.ScaleToDpi(this);
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = MinimizeBox = false;
         ShowInTaskbar = false;
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(460, analyses == null ? 250 : 510);
+        ClientSize = new Size(477, 510); // 96 dpi; FitHeight below sets the height the content needs
 
-        var table = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, BackColor = Theme.Panel, Padding = new Padding(16, 4, 16, 8) };
+        // scrolls if the screen is too short; right padding leaves room for the scroll bar (17 px at 96 dpi), so no horizontal one appears
+        var table = new TableLayoutPanel { Dock = DockStyle.Fill, AutoScroll = true, ColumnCount = 2, BackColor = Theme.Panel, Padding = new Padding(16, 4, 16 + 17, 8) };
+        table.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); // only the tag names sit in it; everything else spans both columns
         table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        void Add(Control c) { if (!(c is Label)) c.Dock = DockStyle.Fill; table.Controls.Add(c); }
+        void Add(Control c)
+        {
+            if (c is ComboBox) c.Anchor = AnchorStyles.Left | AnchorStyles.Right; // a combo has a height of its own, so it is anchored, not docked
+            else if (!(c is Label)) c.Dock = DockStyle.Fill;
+            table.Controls.Add(c); table.SetColumnSpan(c, 2);
+        }
         Add(new Label { Text = info, ForeColor = Theme.Muted, AutoSize = true, MaximumSize = new Size(428, 0), Margin = new Padding(2, 8, 0, 0) });
         if (analyses == null)
             Add(new Label { Text = "이 서버에서 분석 목록을 받지 못해 분류 없이 보냅니다.", ForeColor = Theme.Muted, AutoSize = true, MaximumSize = new Size(428, 0), Margin = new Padding(2, 8, 0, 0) });
@@ -57,13 +65,9 @@ public sealed class SendDialog : Form
             {
                 box.Items.AddRange(analyses.Select(pick).Where(v => v.Length > 0).Distinct().Cast<object>().ToArray());
                 // one row per tag, its name beside it, with a gap: the three boxes no longer read as one block
-                var row = new TableLayoutPanel { ColumnCount = 2, RowCount = 1, AutoSize = true, Margin = new Padding(0, 4, 0, 0), BackColor = Theme.Panel };
-                row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 64));
-                row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-                row.Controls.Add(new Label { Text = name, AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(2, 0, 0, 0) }, 0, 0);
-                box.Dock = DockStyle.Fill; box.Margin = Padding.Empty; box.AccessibleName = name;
-                row.Controls.Add(box, 1, 0);
-                Add(row);
+                table.Controls.Add(new Label { Text = name, AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(2, 4, 8, 0) });
+                box.Anchor = AnchorStyles.Left | AnchorStyles.Right; box.Margin = new Padding(0, 4, 0, 0); box.AccessibleName = name;
+                table.Controls.Add(box);
             }
             Add(Theme.Section("안"));
             Add(_plan);
@@ -79,9 +83,10 @@ public sealed class SendDialog : Form
         }
         Add(Theme.Section("메모 (선택)"));
         _note.Multiline = true;
-        _note.Height = 60;
+        _note.MinimumSize = new Size(0, 60); // a multiline box has no height of its own for the row to measure
         Add(_note);
         var hint = new Label { Text = AnalysisNames.PlanNotePlaceholder, ForeColor = Theme.Muted, BackColor = SystemColors.Window, AutoSize = true, Cursor = Cursors.IBeam };
+        _note.SizeChanged += (o, e) => hint.MaximumSize = new Size(Math.Max(40, _note.ClientSize.Width - 4), 0); // wraps instead of running out of the box
         hint.Click += (o, e) => _note.Focus();
         _note.Controls.Add(hint);
         _note.TextChanged += (o, e) => hint.Visible = _note.Text.Length == 0;
@@ -96,13 +101,14 @@ public sealed class SendDialog : Form
         bar.Controls.AddRange(new Control[] { ok, cancel });
         bar.Layout += (o, e) =>
         {
-            cancel.Location = new Point(bar.ClientSize.Width - 16 - cancel.Width, 11);
-            ok.Location = new Point(cancel.Left - 8 - ok.Width, 11);
+            cancel.Location = new Point(bar.ClientSize.Width - 16 - cancel.Width, (bar.ClientSize.Height - cancel.Height) / 2);
+            ok.Location = new Point(cancel.Left - 8 - ok.Width, cancel.Top);
         };
         AcceptButton = ok;
         CancelButton = cancel;
         Controls.Add(table); // Fill first, then the bottom bar docks before it
         Controls.Add(bar);
+        Load += (o, e) => Theme.FitHeight(this, table); // after the windows exist: see FitHeight
     }
 
     private AnalysisSummary? SelectedAnalysis => _analyses != null && _analysis.SelectedIndex >= 0 && _analysis.SelectedIndex < _analyses.Count ? _analyses[_analysis.SelectedIndex] : null;
@@ -149,8 +155,9 @@ public sealed class SendDialog : Form
         DialogResult = DialogResult.OK;
     }
 
-    private static ComboBox Combo() => new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.System, Margin = new Padding(0, 2, 0, 0) };
-    private static ComboBox TagBox() => new ComboBox { DropDownStyle = ComboBoxStyle.DropDown, AutoCompleteMode = AutoCompleteMode.SuggestAppend, AutoCompleteSource = AutoCompleteSource.ListItems, FlatStyle = FlatStyle.System, Margin = new Padding(0, 2, 0, 0), MaxLength = 100 };
+    // AutoSize: without it a table row is measured with the combo's default height (21 px), not the 25+ its font gives it, and the combo sticks out of the row over the next control
+    private static ComboBox Combo() => new ComboBox { AutoSize = true, DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.System, Margin = new Padding(0, 2, 0, 0) };
+    private static ComboBox TagBox() => new ComboBox { AutoSize = true, DropDownStyle = ComboBoxStyle.DropDown, AutoCompleteMode = AutoCompleteMode.SuggestAppend, AutoCompleteSource = AutoCompleteSource.ListItems, FlatStyle = FlatStyle.System, Margin = new Padding(0, 2, 0, 0), MaxLength = 100 };
     private static TextBox Box(int max) => new TextBox { BorderStyle = BorderStyle.FixedSingle, Margin = new Padding(0, 4, 0, 0), MaxLength = max };
 
     private static Button Flat(string text, Color back, Color fore)
