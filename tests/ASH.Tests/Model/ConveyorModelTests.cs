@@ -64,6 +64,20 @@ public class ConveyorModelTests
         Assert.Contains("CONVSTATION name CV001_out type DefaultStation at CV001_s3 16.404199475\n", asy);
     }
 
+    // layout coordinates are drawing units (mm here): Origin and Scale convert them as LayoutExporter does for paths; WidthM is already metres
+    [Fact]
+    public void Drawing_Units_Go_Through_Origin_And_Scale()
+    {
+        var c = new LayoutConveyor { Name = "CV001", WidthM = 0.8, Segments = { new LineSeg(new Point2(1000, 15000), new Point2(9000, 15000)),
+            new ArcSeg(new Point2(9000, 17000), new Point2(9000, 15000), 90) } };
+        var o = new ExportOptions(Origin: new Point2(1000, 10000), Scale: 0.001);
+        var asy = ConveyorAsyWriter.Render(new[] { c }, Input().Conveyors, o);
+        Assert.Contains("width 0.8 Meters motor M_CV001 piece begx 0 begy 5 begz 0.76 endx 8 endy 5 endz 0.76 upz 1\n", asy);
+        Assert.Contains("piece cenx 8 ceny 7 cenz 0.76 begx 8 begy 5 begz 0.76 upz 1 angle 900\n", asy);
+        Assert.Contains("CONVSTATION name CV001_use type DefaultStation at CV001_s2 2\n", asy);
+        Assert.Equal(8 + Math.PI, ConveyorAsyWriter.LengthM(c, 0.001), 6);
+    }
+
     [Fact]
     public void Check_Rows_Against_Drawing()
     {
