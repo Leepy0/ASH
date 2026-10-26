@@ -56,6 +56,23 @@ public class CausePagesTests
         Assert.Contains("svg class=\"bm\"", html); Assert.Contains("<title>B005</title>", html);
     }
 
+    [Fact] public void Rows_With_Refs_Expand_To_A_Zoomed_Map_Of_Their_Paths_Cps_And_Blocks()
+    {
+        var l = Lay(); l.Cps.Add(new LayoutCp { Name = "U003", Type = "unload", Position = new Point2(12, 0) });
+        var items = new CauseItem[]
+        {
+            new(CauseKinds.BlockHold, 1, "B005 안 정차", "B005", "d", "", null, 12, 0, new[] { "B005", "U003", "P1", "nope" }),
+            new(CauseKinds.Detour, 1, "우회", "A→B", "d", "", null, 30, 0, new[] { "nope" }),
+            new(CauseKinds.TimeLoss, 0, "대기", "G1", "d", ""),
+        };
+        var html = Page(items, null, l);
+        Assert.Equal(1, Regex.Matches(html, "data-ex=\"1\"").Count); // only the row whose refs resolve
+        Assert.Equal(1, Regex.Matches(html, "class=\"cz-s\"").Count);
+        foreach (var s in new[] { "경로 P1", "CP U003", "block B005", "stroke=\"#007aff\" stroke-width=\"6\"", "fill=\"#d70015\"", "stroke=\"#ff9500\"" }) Assert.Contains(s, html);
+        Assert.DoesNotContain("nope</", html);
+        Assert.Contains("class=\"mk cm\"", html); // the overview map stays
+    }
+
     [Fact] public void Without_A_Layout_Or_Places_There_Is_No_Map()
     {
         Assert.DoesNotContain("class=\"bm\"", Page(Items, null, null));

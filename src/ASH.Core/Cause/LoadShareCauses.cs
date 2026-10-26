@@ -31,7 +31,7 @@ public static class LoadShareCauses
                 detours ??= DetourCauses.ByMaterial(c);
                 var leg = detours.Where(x => x.Material == m.Name).Select(x => x.Item).FirstOrDefault();
                 yield return new CauseItem(CauseKinds.LoadShare, dr - de >= SevereGap ? 2 : 1, $"{m.Name} 주행 {Pct(dr)}%", g.Key,
-                    $"수요 {Pct(de)}% · 주행 {Pct(dr)}%", leg == null ? "" : $"{leg.Where} 우회 확인");
+                    $"수요 {Pct(de)}% · 주행 {Pct(dr)}%", leg == null ? "" : $"{leg.Where} 우회 확인", null, null, null, leg?.Refs);
             }
         }
     }
