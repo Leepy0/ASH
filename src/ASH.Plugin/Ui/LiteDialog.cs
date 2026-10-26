@@ -43,7 +43,10 @@ public sealed class LiteDialog : Form
         ClientSize = new Size(600, 740);
 
         var info = new Label { AutoSize = true, MaximumSize = new Size(568, 0), Font = HintFont, ForeColor = Theme.Muted, Margin = new Padding(2, 8, 0, 0),
-            Text = $"{drawing}  →  {output}\n원본 도면은 바꾸지 않습니다. 블록 안까지 풀어 읽은 선·곡선 {src.Items.Count:N0}개 · 점·솔리드·문자·속성 정의·지시선·스플라인·구름형 리비전·구성선·치수·해치 등 {src.Removed.Values.Sum():N0}개는 항상 제외 · 모든 좌표 Z = 0" };
+            Text = $"{drawing}  →  {output}\n원본 도면은 바꾸지 않습니다. 블록 안까지 풀어 읽은 선·곡선 {src.Items.Count:N0}개 · 모든 좌표 Z = 0\n" +
+                // what went where, biggest first: a block that seems to vanish shows here (its splines, 3D objects, text ...)
+                $"항상 제외 {src.Removed.Values.Sum():N0}개: " + string.Join(" · ", src.Removed.OrderByDescending(kv => kv.Value).Take(6).Select(kv => $"{kv.Key} {kv.Value:N0}")) +
+                (src.Removed.Count > 6 ? " 외" : "") };
         var problems = new List<string>();
         if (src.Truncated) problems.Add("작업 한도에 도달해 도면 일부만 읽었습니다(블록 중첩·반복이 너무 많음). 결과가 빠질 수 있습니다.");
         if (src.Failures > 0) problems.Add($"읽지 못한 엔티티 {src.Failures:N0}개는 건너뜁니다.");
@@ -61,7 +64,9 @@ public sealed class LiteDialog : Form
             _list.Items.Add(new ListViewItem(new[] { t, "", "" })
             {
                 Tag = t, Checked = checkedTypes != null ? checkedTypes.Contains(t) : plan.DefaultOn(t),
-                ToolTipText = t == LiteTypes.Footprint ? "3D 솔리드·메시·서피스의 범위 상자(GeometricExtents). 실제 평면 투영이 아닙니다." : "블록 안의 것도 포함. 최소 크기 미만은 빠집니다.",
+                ToolTipText = t == LiteTypes.Footprint ? "3D 솔리드·메시·서피스의 범위 상자(GeometricExtents). 실제 평면 투영이 아닙니다."
+                    : t == LiteTypes.Spline ? "기본은 지웁니다. 다른 CAD에서 가져온 장비 블록의 외곽이 스플라인이면 켜세요(곡선 허용 오차로 나눈 선으로 남김)."
+                    : "최소 크기 미만은 빠집니다. 블록은 외곽 상자가 작으면 통째로, 크면 안의 것을 같은 기준으로(이어진 선은 묶음 전체 크기로) 판단.",
             });
         _list.ItemChecked += (s, e) => Recount(false);
 
@@ -88,7 +93,7 @@ public sealed class LiteDialog : Form
         var minRow = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Margin = new Padding(0, 2, 0, 0) };
         minRow.Controls.Add(new Label { Text = "최소 크기 (mm)", AutoSize = true, Margin = new Padding(2, 5, 8, 0) });
         minRow.Controls.Add(_min);
-        var minHint = Hint("선은 길이, 그 밖의 객체는 외곽 상자 대각선이 이보다 작으면 지웁니다. 블록 안에 중첩된 것도 삽입 배율을 적용해 판단합니다. 0 = 지우지 않음.");
+        var minHint = Hint("외곽 상자 대각선이 이보다 작으면 지웁니다. 끝점이 이어진 선·호·열린 폴리선은 묶음 전체 크기로 판단해, 짧은 조각으로 그린 큰 외곽은 남깁니다. 블록은 외곽 상자가 이보다 작으면 통째로 지우고, 크면 안의 것을 같은 기준으로 판단합니다(중첩 블록도 단계마다). 0 = 지우지 않음.");
         _hidden = Opt("꺼진·동결 레이어 제외", o.SkipHidden);
         _tol = new NumericUpDown { Minimum = 0.1m, Maximum = 1000m, DecimalPlaces = 1, Increment = 1m, Width = 80, Value = (decimal)Math.Max(0.1, Math.Min(1000, toleranceMm)), Margin = new Padding(0, 2, 6, 0) };
         var tolRow = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Margin = new Padding(0, 6, 0, 0) };

@@ -193,7 +193,7 @@ public class LitePlanTests
         s.Layers["DIM"] = new LiteLayerState(2, false, false);
         s.Layers["OLD"] = new LiteLayerState(3, true, false);
         s.Items.Add(new LiteItem(new LiteLine("WALL", 123456, 45678, 130000, 45678), LiteFlags.None));
-        s.Items.Add(new LiteItem(new LiteLine("DIM", 123456, 45678, 124000, 46000), LiteFlags.None));
+        s.Items.Add(new LiteItem(new LiteLine("DIM", 124500, 46500, 125044, 46822), LiteFlags.None));
         s.Items.Add(new LiteItem(new LiteLine("OLD", 0, 0, 1, 1), LiteFlags.Hidden));
         s.Items.Add(new LiteItem(new LiteLine("WALL", 200000, 50000, 201000, 50000), LiteFlags.Xref));
         s.Items.Add(new LiteItem(new LitePolyline("WALL", new[] { new LiteVertex(125000, 46000), new LiteVertex(126000, 46000), new LiteVertex(126000, 47000), new LiteVertex(125000, 47000) }, true), LiteFlags.Footprint, LiteTypes.Footprint));
@@ -210,6 +210,54 @@ public class LitePlanTests
     [InlineData(12.3, 1, 10)]
     [InlineData(-12345.6, 0, -13000)]
     public void Shift_Rounds_Down_To_A_Clean_Step(double min, int insUnits, double shift) => Assert.Equal(shift, LitePlan.Shift(min, insUnits), 9);
+
+    [Fact]
+    public void A_Block_Smaller_Than_The_Minimum_Goes_Whole_And_A_Big_One_Is_Judged_Inside()
+    {
+        var s = new LiteSource { InsUnits = 4, Tolerance = 1 };
+        s.Layers["0"] = new LiteLayerState(7, false, false);
+        void Line(double x1, double y1, double x2, double y2) => s.Items.Add(new LiteItem(new LiteLine("0", x1, y1, x2, y2), LiteFlags.None));
+        Line(0, 0, 5000, 0);                       // model space wall, touching the small block below
+        int big = s.Items.Count;                   // big block: 3000 frame + nested 300 x 300 block + lone 50 detail
+        Line(10000, 0, 13000, 0);
+        int small = s.Items.Count;
+        Line(10000, 500, 10300, 500); Line(10300, 500, 10300, 800);
+        s.CloseBlock(small);
+        Line(12000, 1000, 12050, 1000);
+        s.CloseBlock(big);
+        int tiny = s.Items.Count;                  // 40 block chained to the wall
+        Line(5000, 0, 5040, 0);
+        s.CloseBlock(tiny);
+        var plan = new LitePlan(s);
+        Assert.Equal(double.PositiveInfinity, s.Items[0].Block);
+        Assert.Equal(Math.Sqrt(3000 * 3000 + 1000 * 1000), s.Items[big].Block, 6);
+        Assert.Equal(Math.Sqrt(300 * 300 + 300 * 300), s.Items[small].Block, 6);
+        Assert.Equal(3000, plan.SizeOf(big), 6);
+        Assert.Equal(Math.Sqrt(300 * 300 + 300 * 300), plan.SizeOf(small + 1), 6);
+        Assert.Equal(50, plan.SizeOf(small + 2), 6);
+        Assert.Equal(40, plan.SizeOf(tiny), 6);     // chains to the 5040 wall but its block is 40
+        Assert.Equal(5040, plan.SizeOf(0), 6);
+    }
+
+    [Fact]
+    public void ChainSizes_Judges_A_Big_Outline_Of_Short_Pieces_As_A_Whole()
+    {
+        var items = new List<LiteItem>();
+        // 4000 x 2000 equipment outline drawn as 100-long segments, closed by an arc and an open polyline
+        for (int x = 0; x < 4000; x += 100) { items.Add(new LiteItem(new LiteLine("E", x, 0, x + 100, 0), LiteFlags.None)); items.Add(new LiteItem(new LiteLine("E", x, 2000, x + 100.5, 2000), LiteFlags.None)); }
+        items.Add(new LiteItem(new LiteArc("E", 4000, 1000, 1000, -90, 90), LiteFlags.None));
+        items.Add(new LiteItem(new LitePolyline("E", new[] { new LiteVertex(0, 2000), new LiteVertex(-50, 1000), new LiteVertex(0, 0) }, false), LiteFlags.None));
+        int lone = items.Count; items.Add(new LiteItem(new LiteLine("E", 9000, 9000, 9100, 9000), LiteFlags.None));
+        int hole = items.Count; items.Add(new LiteItem(new LiteCircle("E", 100, 0, 20), LiteFlags.None));      // touches the outline but stands alone
+        int box = items.Count; items.Add(new LiteItem(new LitePolyline("E", new[] { new LiteVertex(0, 0), new LiteVertex(50, 0), new LiteVertex(50, 50) }, true), LiteFlags.None));
+        var size = new double[items.Count];
+        LitePlan.ChainSizes(items, 1, size);
+        double whole = Math.Sqrt(5050 * 5050 + 2000 * 2000);
+        for (int i = 0; i < lone; i++) Assert.Equal(whole, size[i], 3);
+        Assert.Equal(100, size[lone], 9);
+        Assert.Equal(Math.Sqrt(40 * 40 + 40 * 40), size[hole], 9);
+        Assert.Equal(Math.Sqrt(50 * 50 + 50 * 50), size[box], 9);
+    }
 
     [Fact]
     public void Options_Types_And_MinSize_Select_Items_And_Shift_Follows_What_Is_Written()

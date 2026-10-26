@@ -58,6 +58,7 @@ public struct LiteBox
 {
     public double MinX, MinY, MaxX, MaxY;
     public bool IsEmpty => !(MaxX >= MinX);
+    public double Diagonal => IsEmpty ? 0 : Math.Sqrt((MaxX - MinX) * (MaxX - MinX) + (MaxY - MinY) * (MaxY - MinY));
     public static LiteBox Empty => new LiteBox { MinX = double.PositiveInfinity, MinY = double.PositiveInfinity, MaxX = double.NegativeInfinity, MaxY = double.NegativeInfinity };
 
     public void Add(double x, double y)
@@ -80,7 +81,7 @@ public struct LiteBox
     {
         var b = Empty;
         e.Extend(ref b);
-        return b.IsEmpty ? 0 : Math.Sqrt((b.MaxX - b.MinX) * (b.MaxX - b.MinX) + (b.MaxY - b.MinY) * (b.MaxY - b.MinY));
+        return b.Diagonal;
     }
 
     /// <summary>Arc end points plus every axis crossing (0, 90, 180, 270 degrees) inside the sweep (radians, may be negative).</summary>

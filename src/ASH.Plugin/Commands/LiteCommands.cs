@@ -129,10 +129,11 @@ public sealed class LiteCommands
     }
 
     /// <summary>Reads each block definition once into block-local neutral geometry, then places it per insert with the composed transform.
-    /// The work budget and the nesting cap keep a drawing with huge INSERT fan-out (or a malformed self-referencing block) from hanging ZWCAD.</summary>
+    /// The work budget keeps a drawing with huge INSERT fan-out from hanging ZWCAD; a malformed block that contains itself is cut where it loops.</summary>
     private sealed class Extractor
     {
-        private const int MaxDepth = 8;
+        /// <summary>Only a stack guard: real nesting (imported equipment assemblies run deep) is followed to the end, a loop is cut by <see cref="_path"/>.</summary>
+        private const int MaxDepth = 256;
         /// <summary>Items placed + inserts expanded. 2 million lines are ~200 MB of DXF, far past anything AutoMod opens, so only a runaway drawing reaches it.</summary>
         private const int Budget = 2_000_000;
 
@@ -148,6 +149,7 @@ public sealed class LiteCommands
         private readonly Transaction _tr;
         private readonly LiteSource _src;
         private readonly Dictionary<ObjectId, BlockGeo> _cache = new Dictionary<ObjectId, BlockGeo>();
+        private readonly HashSet<ObjectId> _path = new HashSet<ObjectId>(); // blocks being expanded above the current one
         private int _left = Budget;
 
         public Extractor(Transaction tr, LiteSource src) { _tr = tr; _src = src; }
@@ -191,15 +193,20 @@ public sealed class LiteCommands
                     _src.XrefRefs++;
                     if (!ins.Resolved) { LiteSource.Count(_src.Removed, "외부참조 (찾을 수 없거나 언로드됨)"); continue; }
                 }
+                if (_path.Contains(ins.Btr)) { LiteSource.Count(_src.Removed, "자기 자신을 포함하는 블록 (순환)"); continue; }
                 if (depth + 1 > MaxDepth) { LiteSource.Count(_src.Removed, $"블록 중첩 {MaxDepth}단계 초과"); continue; }
+                _path.Add(ins.Btr);
+                int start = _src.Items.Count;
                 Walk(Geo(ins.Btr), ins.Xf.Then(xf), layer, flags | (ins.Xref ? LiteFlags.Xref : LiteFlags.None), depth + 1, parentFrozen || Frozen(layer));
+                _src.CloseBlock(start);
+                _path.Remove(ins.Btr);
                 if (_src.Truncated) return;
             }
         }
 
         private BlockGeo Geo(ObjectId btrId)
         {
-            // a block that (wrongly) contains itself is stopped by MaxDepth in Walk: Read never recurses
+            // a block that (wrongly) contains itself is cut by _path in Walk: Read never recurses
             if (!_cache.TryGetValue(btrId, out var g)) _cache[btrId] = g = Read((BlockTableRecord)_tr.GetObject(btrId, OpenMode.ForRead));
             return g;
         }
@@ -308,7 +315,7 @@ public sealed class LiteCommands
                     Poly(CurveApprox.Ellipse(el.Center.X, el.Center.Y, el.MajorAxis.X, el.MajorAxis.Y, el.MinorAxis.X, el.MinorAxis.Y, el.StartParam, el.EndParam, tol), full, LiteTypes.Ellipse);
                     break;
                 }
-                case Spline _: Drop("스플라인"); break;
+                case Spline sp: Sample(sp, Math.Max(8, sp.NumControlPoints * 4), LiteTypes.Spline); break; // a type of its own, off by default
                 case Leader _: case MLeader _: Drop("지시선"); break;
                 case Ray _: case Xline _: Drop("구성선 (XLINE/RAY)"); break;
                 case Hatch _: Drop("해치"); break;
