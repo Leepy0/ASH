@@ -158,7 +158,10 @@ public static class LogicGenerator
                 ("CAPACITY", Math.Max(1, t.Capacity).ToString()), ("FAIL_IDLE", Fail("V_vNextFail(A_vid)")), ("FAIL_LEG", Fail("ac")),
                 ("FAIL_HOME", Fail("ac", string.IsNullOrEmpty(g.FinishCP))), ("HANDLE", N(handle)),
                 ("EMPTY_SPEED", emptySpeed), ("LOADED_SPEED", loadedSpeed), ("AFTER_UNLOAD_SPEED", carriesOn ? "" : emptySpeed),
-                ("AFTER_UNLOAD_HIDE", carriesOn ? "" : Hide.TrimEnd('\n')), ("SPEC_SPEED", loadedSpeed)));
+                ("AFTER_UNLOAD_HIDE", carriesOn ? "" : Hide.TrimEnd('\n')), ("SPEC_SPEED", loadedSpeed),
+                // a conveyor-fed material is consumed by the products passing its use point (code_conv.m), not by this clock
+                ("CONSUME", m.ConveyorFed ? "\t\t\t/* consumed by the conveyor products (code_conv.m) */"
+                    : $"\t\t\tdec V_stock({mi}) by V_need({mi})\n\t\t\tif ac >= V_warmup then inc V_consumed({mi}) by V_need({mi})")));
             create.Append($"\tcreate 1 load of type L_ctl to P_consume_{mi}\n");
 
             // a stop still running at the end of the run counts up to the snap
@@ -200,6 +203,21 @@ public static class LogicGenerator
         }
         foreach (var b in layout.BlockNames)
             snap.Append($"\tprint \"block\\t{Lit(b)}\\t\\t\" {b} total \"\\t\" {b} average waiting time \"\\t0\\t\" {b} utilization \"\\t0\\t0\\t0\\t0\" to V_out\n");
+        // conveyors (code_conv.m): each Conveyors row runs its own product line on the conveyor system, the first product at once;
+        // row: products passed the end, seconds stopped at the use point for want of stock, seconds a product waited at the full entry (all after warmup)
+        for (int k = 1; k <= input.Conveyors.Count; k++)
+        {
+            var c = input.Conveyors[k - 1];
+            int mi = input.Materials.FindIndex(x => x.Material == c.Material) + 1;
+            if (mi == 0) throw new ArgumentException($"컨베이어 '{c.Conveyor}'의 자재 '{c.Material}'이(가) Materials에 없습니다.");
+            matLogic.Append(Fill(Res("code_conv.m.txt"), ("K", k.ToString()), ("CV", Lit(c.Conveyor)), ("M", mi.ToString()), ("NAME", Lit(c.Material)),
+                ("SYS", ConveyorAsyWriter.SystemName), ("TAKT", N(c.ProductTakt))));
+            create.Append($"\tcreate 1 load of type L_prod to P_cv_{k}\n");
+            foreach (var (on, since, sum) in new[] { ("V_cvWait", "V_cvSince", "V_cvStop"), ("V_cvBlk", "V_cvT0", "V_cvLate") })
+                snap.Append($"\tif {on}({k}) = 1 then begin\n\t\tif {since}({k}) < V_warmup then set {since}({k}) to V_warmup\n" +
+                            $"\t\tif ac > {since}({k}) then inc {sum}({k}) by ac - {since}({k})\n\t\tset {since}({k}) to ac\n\tend\n");
+            snap.Append($"\tprint \"conveyor\\t{Lit(c.Conveyor)}\\t{Lit(c.Material)}\\t\" V_cvPass({k}) \"\\t\" V_cvStop({k}) \"\\t\" V_cvLate({k}) to V_out\n");
+        }
 
         return Fill(Res("code.m.txt"), ("GROUP_COUNT", input.Groups.Count.ToString()), ("MATERIAL_COUNT", input.Materials.Count.ToString()),
             ("CREATE_CONSUMERS", create.ToString().TrimEnd('\n')), ("GROUP_LOGIC", groupLogic.ToString()), ("MATERIAL_LOGIC", matLogic.ToString()),
@@ -293,6 +311,20 @@ public static class LogicGenerator
         if (input.AgvTypes.Any(t => t.MTBF > 0 && t.MTTR > 0)) m.RnStreams.Add(new("RS_fail", 12345));
         for (int i = 1; i <= nm; i++) m.Tables.AddRange(new[] { $"T_pick_{i}", $"T_deliv_{i}", $"T_stock_{i}" });
         m.Funcs.AddRange(new[] { "F_ext_on_call", "F_ext_select_vehicle", "F_ext_before_unload", "F_ext_on_snap" });
+        int nc = input.Conveyors.Count;
+        if (nc > 0)
+        {
+            // the product: an orange box, its length along the conveyor (AutoMod spaces accumulated loads by their size)
+            m.LoadTypes.Add("L_prod");
+            var u = ASH.Core.Settings.UnitScale.ModelUnitsPerMeter(units);
+            if (u != null)
+                m.LoadGraphics["L_prod"] = new[] { "700 17", "2 2 0 1 1 none", "1" }
+                    .Concat(LoadGeometry.Box("Product", 13, 0, 0, 0, ConveyorAsyWriter.ProductLengthM * u.Value, 0.4 * u.Value, 0.25 * u.Value)).ToList();
+            for (int k = 1; k <= nc; k++) { m.Procs.Add(new($"P_cvsrc_{k}")); m.Procs.Add(new($"P_cv_{k}")); }
+            int cs = Math.Max(2, nc);
+            foreach (var v in new[] { "V_cvPass", "V_cvWait", "V_cvBlk" }) m.Vars.Add(new(v, "Integer", cs));
+            foreach (var v in new[] { "V_cvStop", "V_cvLate", "V_cvSince", "V_cvT0" }) m.Vars.Add(new(v, "Real", cs));
+        }
         return m;
     }
 }

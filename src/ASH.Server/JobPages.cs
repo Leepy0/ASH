@@ -762,6 +762,7 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
             sb.Append("</table></div>" + (split ? SplitLegend(v.UtilMax) : "") + "</div>");
         }
         if (v.Materials.Count > 0) MaterialTable(sb, v);
+        if (v.Conveyors is { } cv) sb.Append($"<div class=\"box\"><div class=\"box-head\"><h2>컨베이어</h2><span class=\"t4\">컨베이어 {cv.Count}개, 제품 {F(cv.Passed, "0")}개 통과, 정지 {F(cv.StopSec / 60, "0.#")}분 (확인 실행 평균)</span></div></div>");
         // one row per run and group; every group's count of the run is a column, so the list sorts by any of them
         var gs = v.Input.Groups;
         var counts = v.RunCounts();
