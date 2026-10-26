@@ -17,8 +17,8 @@ public sealed record LiteItem(LiteEntity Entity, LiteFlags Flags, string Type = 
 /// <summary>The kinds AGVLITE keeps (everything else is always removed), in dialog order.</summary>
 public static class LiteTypes
 {
-    public const string Line = "선", Polyline = "폴리선", Arc = "호", Circle = "원", Ellipse = "타원", Footprint = "3D 외곽 상자";
-    public static readonly string[] Order = { Line, Polyline, Arc, Circle, Ellipse, Footprint };
+    public const string Line = "선", Polyline = "폴리선", Arc = "호", Circle = "원", Ellipse = "타원", Spline = "스플라인", Footprint = "3D 외곽 상자";
+    public static readonly string[] Order = { Line, Polyline, Arc, Circle, Ellipse, Spline, Footprint };
 }
 
 public sealed record LiteLayerState(short Color, bool Off, bool Frozen);
@@ -75,13 +75,67 @@ public sealed class LitePlan
         {
             var e = src.Items[i].Entity;
             _bytes[i] = LiteDxfWriter.Bytes(e, Names[e.Layer], sx, sy);
-            _size[i] = LiteBox.Size(e);
         }
+        ChainSizes(src.Items, Math.Max(src.Tolerance, 1e-9), _size);
         Types = src.Items.Select(i => i.Type).Distinct().OrderBy(t => Array.IndexOf(LiteTypes.Order, t) is var k && k < 0 ? int.MaxValue : k).ThenBy(t => t, StringComparer.Ordinal).ToList();
     }
 
-    /// <summary>Default check state of a type: everything but the 3D footprint boxes (not a true plan projection).</summary>
-    public bool DefaultOn(string type) => type != LiteTypes.Footprint;
+    /// <summary>The size the minimum-size rule judges item <paramref name="i"/> by (see <see cref="ChainSizes"/>).</summary>
+    public double SizeOf(int i) => _size[i];
+
+    /// <summary>Size of each item for the minimum-size rule: the box diagonal of the chain it belongs to. Lines, arcs and open polylines whose end points
+    /// meet (within <paramref name="snap"/>, drawing units) are one chain, so a large outline drawn as many short pieces — common in equipment blocks
+    /// from other CAD — is kept as a whole instead of losing every piece; a closed shape or a circle stands alone (a bolt hole stays a small detail).</summary>
+    internal static void ChainSizes(IReadOnlyList<LiteItem> items, double snap, double[] size)
+    {
+        int n = items.Count;
+        var parent = new int[n];
+        for (int i = 0; i < n; i++) parent[i] = i;
+        int Find(int i) { while (parent[i] != i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; }
+        void Union(int a, int b) { a = Find(a); b = Find(b); if (a != b) parent[a] = b; }
+        // one end point per grid cell is enough to link: every later point in or next to that cell within snap joins its item
+        var cells = new Dictionary<(long, long), (double X, double Y, int Item)>();
+        void End(int i, double x, double y)
+        {
+            long cx = (long)Math.Floor(x / snap), cy = (long)Math.Floor(y / snap);
+            for (long dx = -1; dx <= 1; dx++)
+                for (long dy = -1; dy <= 1; dy++)
+                    if (cells.TryGetValue((cx + dx, cy + dy), out var c) && Math.Abs(c.X - x) <= snap && Math.Abs(c.Y - y) <= snap) Union(i, c.Item);
+            if (!cells.ContainsKey((cx, cy))) cells[(cx, cy)] = (x, y, i);
+        }
+        for (int i = 0; i < n; i++)
+        {
+            if ((items[i].Flags & LiteFlags.Footprint) != 0) continue;
+            switch (items[i].Entity)
+            {
+                case LiteLine l: End(i, l.X1, l.Y1); End(i, l.X2, l.Y2); break;
+                case LiteArc a:
+                    End(i, a.Cx + a.R * Math.Cos(a.StartDeg * Math.PI / 180), a.Cy + a.R * Math.Sin(a.StartDeg * Math.PI / 180));
+                    End(i, a.Cx + a.R * Math.Cos(a.EndDeg * Math.PI / 180), a.Cy + a.R * Math.Sin(a.EndDeg * Math.PI / 180));
+                    break;
+                case LitePolyline p when !p.Closed && p.Vertices.Count >= 2:
+                    End(i, p.Vertices[0].X, p.Vertices[0].Y); End(i, p.Vertices[p.Vertices.Count - 1].X, p.Vertices[p.Vertices.Count - 1].Y);
+                    break;
+            }
+        }
+        var boxes = new Dictionary<int, LiteBox>();
+        for (int i = 0; i < n; i++)
+        {
+            var r = Find(i);
+            var b = boxes.TryGetValue(r, out var x) ? x : LiteBox.Empty;
+            items[i].Entity.Extend(ref b);
+            boxes[r] = b;
+        }
+        for (int i = 0; i < n; i++)
+        {
+            var b = boxes[Find(i)];
+            size[i] = b.IsEmpty ? 0 : Math.Sqrt((b.MaxX - b.MinX) * (b.MaxX - b.MinX) + (b.MaxY - b.MinY) * (b.MaxY - b.MinY));
+        }
+    }
+
+    /// <summary>Default check state of a type: off for the 3D footprint boxes (not a true plan projection) and splines (removed unless asked for:
+    /// an imported equipment block may draw its outline with them, so they can be turned back on, as lines).</summary>
+    public bool DefaultOn(string type) => type is not (LiteTypes.Footprint or LiteTypes.Spline);
 
     /// <summary>Millimetres to drawing units, for the dialog's minimum size.</summary>
     public double FromMm(double mm) => mm * 0.001 / UnitScale.FromInsUnits(Source.InsUnits);
@@ -194,13 +248,13 @@ public static class LiteReport
 
         int xref = 0, hidden = 0, small = 0, unchecked_ = 0, footWritten = 0;
         var set = new HashSet<string>(on, StringComparer.Ordinal);
-        foreach (var it in s.Items)
+        for (int ii = 0; ii < s.Items.Count; ii++)
         {
-            var f = it.Flags;
+            var it = s.Items[ii]; var f = it.Flags;
             if ((f & LiteFlags.Xref) != 0 && !o.IncludeXref) xref++;
             else if ((f & LiteFlags.Hidden) != 0 && o.SkipHidden) hidden++;
             else if (!set.Contains(it.Type)) unchecked_++;
-            else if (LiteBox.Size(it.Entity) < o.MinSize) small++;
+            else if (plan.SizeOf(ii) < o.MinSize) small++;
             else if ((f & LiteFlags.Footprint) != 0) footWritten++;
         }
         Section("제거한 항목 (블록 안은 삽입 수만큼)");

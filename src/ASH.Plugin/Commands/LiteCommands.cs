@@ -308,7 +308,7 @@ public sealed class LiteCommands
                     Poly(CurveApprox.Ellipse(el.Center.X, el.Center.Y, el.MajorAxis.X, el.MajorAxis.Y, el.MinorAxis.X, el.MinorAxis.Y, el.StartParam, el.EndParam, tol), full, LiteTypes.Ellipse);
                     break;
                 }
-                case Spline _: Drop("스플라인"); break;
+                case Spline sp: Sample(sp, Math.Max(8, sp.NumControlPoints * 4), LiteTypes.Spline); break; // a type of its own, off by default
                 case Leader _: case MLeader _: Drop("지시선"); break;
                 case Ray _: case Xline _: Drop("구성선 (XLINE/RAY)"); break;
                 case Hatch _: Drop("해치"); break;

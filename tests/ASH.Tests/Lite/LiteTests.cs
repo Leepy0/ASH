@@ -193,7 +193,7 @@ public class LitePlanTests
         s.Layers["DIM"] = new LiteLayerState(2, false, false);
         s.Layers["OLD"] = new LiteLayerState(3, true, false);
         s.Items.Add(new LiteItem(new LiteLine("WALL", 123456, 45678, 130000, 45678), LiteFlags.None));
-        s.Items.Add(new LiteItem(new LiteLine("DIM", 123456, 45678, 124000, 46000), LiteFlags.None));
+        s.Items.Add(new LiteItem(new LiteLine("DIM", 124500, 46500, 125044, 46822), LiteFlags.None));
         s.Items.Add(new LiteItem(new LiteLine("OLD", 0, 0, 1, 1), LiteFlags.Hidden));
         s.Items.Add(new LiteItem(new LiteLine("WALL", 200000, 50000, 201000, 50000), LiteFlags.Xref));
         s.Items.Add(new LiteItem(new LitePolyline("WALL", new[] { new LiteVertex(125000, 46000), new LiteVertex(126000, 46000), new LiteVertex(126000, 47000), new LiteVertex(125000, 47000) }, true), LiteFlags.Footprint, LiteTypes.Footprint));
@@ -210,6 +210,26 @@ public class LitePlanTests
     [InlineData(12.3, 1, 10)]
     [InlineData(-12345.6, 0, -13000)]
     public void Shift_Rounds_Down_To_A_Clean_Step(double min, int insUnits, double shift) => Assert.Equal(shift, LitePlan.Shift(min, insUnits), 9);
+
+    [Fact]
+    public void ChainSizes_Judges_A_Big_Outline_Of_Short_Pieces_As_A_Whole()
+    {
+        var items = new List<LiteItem>();
+        // 4000 x 2000 equipment outline drawn as 100-long segments, closed by an arc and an open polyline
+        for (int x = 0; x < 4000; x += 100) { items.Add(new LiteItem(new LiteLine("E", x, 0, x + 100, 0), LiteFlags.None)); items.Add(new LiteItem(new LiteLine("E", x, 2000, x + 100.5, 2000), LiteFlags.None)); }
+        items.Add(new LiteItem(new LiteArc("E", 4000, 1000, 1000, -90, 90), LiteFlags.None));
+        items.Add(new LiteItem(new LitePolyline("E", new[] { new LiteVertex(0, 2000), new LiteVertex(-50, 1000), new LiteVertex(0, 0) }, false), LiteFlags.None));
+        int lone = items.Count; items.Add(new LiteItem(new LiteLine("E", 9000, 9000, 9100, 9000), LiteFlags.None));
+        int hole = items.Count; items.Add(new LiteItem(new LiteCircle("E", 100, 0, 20), LiteFlags.None));      // touches the outline but stands alone
+        int box = items.Count; items.Add(new LiteItem(new LitePolyline("E", new[] { new LiteVertex(0, 0), new LiteVertex(50, 0), new LiteVertex(50, 50) }, true), LiteFlags.None));
+        var size = new double[items.Count];
+        LitePlan.ChainSizes(items, 1, size);
+        double whole = Math.Sqrt(5050 * 5050 + 2000 * 2000);
+        for (int i = 0; i < lone; i++) Assert.Equal(whole, size[i], 3);
+        Assert.Equal(100, size[lone], 9);
+        Assert.Equal(Math.Sqrt(40 * 40 + 40 * 40), size[hole], 9);
+        Assert.Equal(Math.Sqrt(50 * 50 + 50 * 50), size[box], 9);
+    }
 
     [Fact]
     public void Options_Types_And_MinSize_Select_Items_And_Shift_Follows_What_Is_Written()
