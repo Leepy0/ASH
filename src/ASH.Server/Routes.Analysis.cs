@@ -190,6 +190,24 @@ internal static partial class Routes
             return Results.Json(cs.Get(id), CutStore.Json);
         });
 
+        // the 원인 tab's "영상 컷": a Hold cut around the finding is added to the analysis' list, then the cut editor opens
+        app.MapPost("/analyses/{id}/cuts/cause", async (string id, HttpContext ctx, AnalysisStore st, CutStore cs) =>
+        {
+            if (CrossSiteBrowser(ctx)) return Msg(403, CrossSite);
+            if (st.Get(id) == null) return Msg(404, "분석이 없습니다.");
+            if (!ctx.Request.HasFormContentType) return Msg(400, "양식이 필요합니다.");
+            var f = await ctx.Request.ReadFormAsync();
+            double N(string k) => double.TryParse(f[k], System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var d) ? d : double.NaN;
+            double x = N("x"), y = N("y"), at = N("at");
+            if (!double.IsFinite(x) || !double.IsFinite(y) || !double.IsFinite(at)) return Msg(400, "위치와 시각이 필요합니다.");
+            var cuts = cs.Get(id).ToList();
+            cuts.Add(CausePages.CutFor(f["name"].ToString(), x, y, at, "c" + Guid.NewGuid().ToString("N")[..8]));
+            try { cs.Save(id, cuts); }
+            catch (ArgumentException e) { return Msg(400, e.Message); }
+            var job = f["job"].ToString();
+            return Results.Redirect($"/analyses/{id}/cuts" + (job.Length > 0 ? "?job=" + Uri.EscapeDataString(job) : ""));
+        });
+
         // ---- films: the export of the cut editor, filmed by FilmWorker between jobs ----
         app.MapPost("/api/analyses/{id}/films", async (string id, HttpContext ctx, AnalysisStore st, CutStore cs, JobStore js, FilmStore fs, IConfiguration cfg) =>
         {

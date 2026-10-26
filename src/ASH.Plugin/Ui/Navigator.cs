@@ -3,9 +3,9 @@ namespace ASH.Plugin.Ui;
 /// <summary>One row of the check table in the palette: only problems are listed.</summary>
 public sealed class FindingRow
 {
-    public FindingRow(string kind, string target, string message, double x, double y, bool hasLocation)
+    public FindingRow(string kind, string target, string message, double x, double y, bool hasLocation, bool warning = false)
     {
-        Kind = kind; Target = target; Message = message; X = x; Y = y; HasLocation = hasLocation;
+        Kind = kind; Target = target; Message = message; X = x; Y = y; HasLocation = hasLocation; Warning = warning;
     }
 
     public string Kind { get; }
@@ -14,6 +14,8 @@ public sealed class FindingRow
     public double X { get; }
     public double Y { get; }
     public bool HasLocation { get; }
+    /// <summary>A finding of the cause analysis (shown as a warning, not an error).</summary>
+    public bool Warning { get; }
 }
 
 /// <summary>Where the palette's tables send the drawing: a point to pan to and, when there is one, the object to select.</summary>

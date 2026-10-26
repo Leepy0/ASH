@@ -129,7 +129,7 @@ public sealed class AgvPaletteControl : UserControl
             problems.BeginUpdate();
             problems.Items.Clear();
             foreach (var r in rows)
-                problems.Items.Add(new ListViewItem(new[] { r.Kind, r.Target, r.Message }) { Tag = r, ForeColor = Theme.Error, ToolTipText = r.Message });
+                problems.Items.Add(new ListViewItem(new[] { r.Kind, r.Target, r.Message }) { Tag = r, ForeColor = r.Warning ? Theme.Warning : Theme.Error, ToolTipText = r.Message });
             problems.EndUpdate();
         };
         tabs.TabPages.Add(Page("검증·내보내기", Theme.Section("도면 준비"), Theme.Make("도면 경량화", GlyphKind.Lite, "AGVLITE"),
