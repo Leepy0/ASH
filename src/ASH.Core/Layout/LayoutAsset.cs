@@ -28,7 +28,7 @@ public sealed class LayoutAsset
     public double WidthM { get; set; }
 }
 
-/// <summary>A conveyor polyline in metres; drawing order = flow direction. Name is the AGVCONV name (CV001), empty for GraphicOnly.</summary>
+/// <summary>A conveyor polyline, segments in drawing units like LayoutPath (ExportOptions.ToModel converts); drawing order = flow direction. Name is the AGVCONV name (CV001), empty for GraphicOnly.</summary>
 public sealed class LayoutConveyor
 {
     public string Name { get; set; } = "";

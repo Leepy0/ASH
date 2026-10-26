@@ -26,6 +26,11 @@ public static class DrawingReader
                 var p = ReadPath(e, Conventions.KindOfLayer(layer));
                 if (p != null) layout.Paths.Add(p);
             }
+            else if (e is Polyline cpl && (Eq(layer, Conventions.LayerConv) || Eq(layer, Conventions.Layer3dConv)))
+            {
+                var conv = ReadConveyor(cpl, Eq(layer, Conventions.Layer3dConv));
+                if (conv != null) layout.Conveyors.Add(conv);
+            }
             else if (e is BlockReference br)
             {
                 string name = BlockName(br, tr);
@@ -80,6 +85,19 @@ public static class DrawingReader
         {
             Id = e.Handle.ToString(), Segments = segs,
             IsSpur = x?.IsSpur ?? layerKind.Spur, IsTwoWay = x?.IsTwoWay ?? layerKind.Two, IsCrab = x?.IsCrab ?? layerKind.Crab,
+        };
+    }
+
+    /// <summary>A conveyor polyline in drawing order (= flow); segments in drawing units like paths, the width (first segment's start width,
+    /// which the global width sets) in metres. AGV_CONV ones carry their AGVCONV name, AGV_3D_CONV ones are picture only.</summary>
+    public static LayoutConveyor? ReadConveyor(Polyline pl, bool graphicOnly)
+    {
+        var segs = Segments(pl);
+        if (segs == null || segs.Count == 0) return null;
+        return new LayoutConveyor
+        {
+            Name = graphicOnly ? "" : XData.ReadConv(pl)?.Name ?? "", GraphicOnly = graphicOnly, Segments = segs, Id = pl.Handle.ToString(),
+            WidthM = pl.NumberOfVertices > 0 ? Math.Abs(pl.GetStartWidthAt(0)) / DrawingUnits.PerMeter : 0,
         };
     }
 
