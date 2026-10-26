@@ -899,7 +899,9 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
             }
             sb.Append("</div><div class=\"box\"><h2>자재</h2><div class=\"scroll\"><table><tr><th>자재</th><th>그룹</th><th>흐름</th><th>형태</th><th>T/T(초)</th><th>용기당 수량(개)</th><th>호출 임계(용기)</th></tr>");
             foreach (var m in v.Input.Materials) sb.Append($"<tr><td>{H(m.Material)}</td><td>{H(m.Group)}</td><td>{(m.IsOutput ? "반출(Output)" : "공급")}</td><td>{H(m.Form.Length == 0 ? "Box" : m.Form)}</td><td class=\"num\">{F(m.TaktTime)}</td><td class=\"num\">{F(m.UnitsPerContainer)}</td><td class=\"num\">{F(m.CallThreshold)}</td></tr>");
-            sb.Append("</table></div></div>");
+            sb.Append("</table></div>");
+            if (v.Input.DisabledMaterials.Count > 0) sb.Append($"<p class=\"muted\">미사용 자재: {H(string.Join(", ", v.Input.DisabledMaterials))}</p>");
+            sb.Append("</div>");
         }
     }
 

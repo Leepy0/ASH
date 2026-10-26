@@ -4,6 +4,8 @@
 
 > **색 범례:** 파란색 = 헤더(1행), 회색 기울임 = 예시 행(3행), **연녹색(`E2EFDA`) = 입력이 필요 없는 칸**(자동 계산 수식 열, 메모·설명 열). 연녹색 칸은 건드리지 않는다. 수식 열(`CallThresholdTotal`, `UnloadThresholdTotal`)은 값을 덮어쓰면 수식이 사라지고, Settings의 `Description`은 모델에 쓰이지 않는 메모이다. 연녹색은 3행~1000행에 칠해지고, "양식 갱신"은 예전 파일에도 같은 색을 칠한다(Excel로만 쓸 수 있는 암호화 파일은 Excel이 같은 색을 칠한다).
 
+> **정렬:** 모든 시트의 모든 칸(헤더·설명·데이터)은 가운데 정렬이다. 열 전체에 걸어 두므로 나중에 입력하는 칸도 같고, "양식 갱신"이 옛 파일과 새로 붙인 열·행에도 적용한다.
+
 > **주의:** 3행의 예시 행은 회색 기울임으로 표시된다. 반드시 실제 값으로 바꾸거나 삭제해야 한다(그대로 두면 예시 자재 M001이 모델에 들어간다).
 
 ## Settings (키/값)
@@ -28,8 +30,9 @@
 |---|---|
 | AGV_Types | Type, Category(분류 메모), SpeedLoaded(m/s), SpeedLoadedCurve(m/s, 빈칸=직선), SpeedEmpty(m/s), SpeedEmptyCurve(m/s, 빈칸=직선), Accel(m/s²), Decel(m/s²), Capacity(용기 수), LoadTime(초), UnloadTime(초), MTBF(초, 0=없음), MTTR(초), Length(m), Width(m), Color, Kind(목록: Standard / Conveyor / Ant / Magnet), Asset(에셋 이름, 비워 둔다) |
 | AGV_Groups | Group, Type(AGV_Types 목록에서 선택, 여러 그룹이 같은 타입을 써도 된다), MinCount(≥1), MaxCount(≥MinCount), StandbyCPs(쉼표 구분), Dispatch(Nearest / FIFO), FinishCP(선택) |
-| Materials | Material, Station(공정명, 메모), Group(운반 그룹, AGV_Groups 목록), TaktTime(초, >0), UnitsPerCycle(소요 원수), UnitsPerContainer(용기당 자재 수량, ≥1), CallThreshold(호출 임계, 용기) + CallThresholdQty(호출 임계, 자재) → CallThresholdTotal(합계, 자동), UnloadThreshold(언로딩 임계, 용기) + UnloadThresholdQty(언로딩 임계, 자재) → UnloadThresholdTotal(합계, 자동), InitStock / SafetyStock(용기, `-` 또는 빈칸 = Settings 기본값), Form(목록: Box / Pallet / Trolley), LoadLength / LoadWidth / LoadHeight(m, `-` 또는 빈칸 = 형태별 기본값), Flow(목록: Supply / Output, 빈칸 = Supply) |
+| Materials | Material, Station(공정명, 메모), Group(운반 그룹, AGV_Groups 목록), TaktTime(초, >0), UnitsPerCycle(소요 원수), UnitsPerContainer(용기당 자재 수량, ≥1), CallThreshold(호출 임계, 용기) + CallThresholdQty(호출 임계, 자재) → CallThresholdTotal(합계, 자동), UnloadThreshold(언로딩 임계, 용기) + UnloadThresholdQty(언로딩 임계, 자재) → UnloadThresholdTotal(합계, 자동), InitStock / SafetyStock(용기, `-` 또는 빈칸 = Settings 기본값), Form(목록: Box / Pallet / Trolley), LoadLength / LoadWidth / LoadHeight(m, `-` 또는 빈칸 = 형태별 기본값), Flow(목록: Supply / Output, 빈칸 = Supply), Use(목록: Y / N, 빈칸 = Y. 아래 "자재 사용 여부") |
 | Routes | Material, SupplyFromCP, SupplyToCP, BufferCP(선택), ReturnFromCP(선택), ReturnToCP(선택), ExtraTime(초), BufferWaitSec(버퍼 대기 허용, 초, 빈칸 = 0, ≥0) |
+| Conveyors (선택) | Conveyor(CAD 컨베이어 이름), Material(소비 자재), ProductTakt(제품 투입 간격, 초, 빈칸 = 60), UnitsPerProduct(제품 1개당 자재 수량, 빈칸 = 1), Speed(m/s, 빈칸 = 0.3), Capacity(동시에 올라갈 제품 수, 빈칸 = 길이로 자동), ConsumeAt(소비 지점, 폴리선 시작에서 m, 빈칸 = 끝). 아래 "컨베이어" |
 
 ## 도면 값으로 채운 양식
 
@@ -62,7 +65,26 @@ U·W 모두 원래 파일을 `input.bak.<날짜_시각>.xlsx`로 먼저 복사�
 | AGV_Groups.Dispatch | Nearest / FIFO |
 | Materials.Group | AGV_Groups의 Group |
 | Materials.Form | Box / Pallet / Trolley |
+| Materials.Use | Y / N |
 | Routes.Material | Materials의 Material |
+| Conveyors.Material | Materials의 Material |
+
+## 자재 사용 여부 (Materials.Use)
+
+- `Use`가 `N`인 자재는 모델·검증·결과에서 빼고, 그 자재의 Routes 행도 함께 뺀다(Routes에는 따로 열이 없다. 자재당 Route가 1행이므로 자재를 끄면 Route도 꺼진다).
+- 값: `Y` / `N`(대소문자 무시), `예` / `아니오`, `1` / `0`. 빈칸은 사용. 그 밖의 값은 오류이고 시트·행·열을 알려 준다. 꺼진 행의 다른 칸은 읽지 않는다(비워도, 틀려도 된다).
+- 검증은 "미사용 자재 N개 제외: A, B" 정보 메시지를 한 건 낸다. 모든 자재가 N이면 오류이다. 꺼진 자재만 쓰던 CP는 "어떤 자재도 쓰지 않는 CP" 경고가 나올 수 있다(의도된 것). 꺼진 자재의 Route가 가리키는 CP는 도면 기준으로 모델에 남는다.
+- 엑셀에서 읽는 단계에서 거르므로 모델 생성, 입력 서명(`input.sig`), KPI, 서버 재실행, `input.cells.tsv` 스냅샷을 읽는 서버가 모두 같은 목록을 본다. Use를 바꾸면 서명이 바뀌므로 AGVMODEL로 모델을 다시 만든다. 서버 작업 화면의 입력 요약에는 자재 표 아래에 "미사용 자재: A, B"가 나온다.
+- 예전 양식에는 Use 열이 없고, 그때는 모두 사용한다. AGVEXCEL 갱신(U)이 열을 붙인다.
+
+## 컨베이어 (Conveyors 시트, 선택)
+
+CAD의 컨베이어(`AGV_CONV` 폴리선, `AGVCONV`로 이름을 붙인 것)가 자재를 소비하는 방식을 정한다. 시트는 비어 있어도 되고, 없어도 읽는다. 1행 헤더, 2행 설명, 3행부터 데이터이며 열은 머리글 이름으로 찾는다. 예시 행은 없다.
+
+- 한 행 = 컨베이어 하나. `Material`은 그 컨베이어가 소비하는 자재(Materials 목록에서 고른다). 한 자재를 컨베이어 둘이 소비할 수 없다.
+- 이 자재는 Materials의 `TaktTime`·`UnitsPerCycle`을 무시하고 `ProductTakt`·`UnitsPerProduct`를 쓴다(읽을 때 덮어쓰므로 Materials의 두 칸은 비워도 된다). 검증이 자재마다 정보 메시지로 알린다. 그래서 기대 소비량, 결품, 공급 상한 검증은 같은 식 그대로 컨베이어 값으로 계산된다.
+- Conveyors에 없는 자재는 지금처럼 Materials의 TaktTime으로 시간 소비한다.
+- 검증: 컨베이어 이름 중복, 이름·자재 비어 있음, Materials에 없는 자재(Use가 N인 자재의 컨베이어 행은 함께 빠진다), 자재 하나에 컨베이어 둘, `ProductTakt`·`UnitsPerProduct`·`Speed` ≤ 0, `Capacity` < 1(정수여야 함), `ConsumeAt` < 0은 오류이다. CAD에 그 이름의 컨베이어가 있는지는 여기서 보지 않는다.
 
 ## 생산 출하(Flow = Output)
 

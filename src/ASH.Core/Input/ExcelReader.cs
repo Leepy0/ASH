@@ -40,6 +40,20 @@ public static class ExcelReader
             double d = Num(col, def);
             return d == Math.Floor(d) ? (int)d : throw Err(col, $"정수가 아닙니다 ({d.ToString(Inv)})");
         }
+        /// <summary>A whole number if the cell has one; null when blank, absent column or "-".</summary>
+        public int? OptIntIfColumn(string col)
+        {
+            var d = OptNumIfColumn(col);
+            return d == null ? null : d == Math.Floor(d.Value) ? (int)d.Value : throw Err(col, $"정수가 아닙니다 ({d.Value.ToString(Inv)})");
+        }
+        /// <summary>Materials.Use: Y/N, 예/아니오, 1/0 (any case); blank or no such column = used.</summary>
+        public bool Use()
+        {
+            var s = StrIfColumn("Use").ToUpperInvariant();
+            if (s.Length == 0 || s == "Y" || s == "예" || s == "1") return true;
+            if (s == "N" || s == "아니오" || s == "0") return false;
+            throw Err("Use", $"Y/N이 아닙니다 ('{StrIfColumn("Use")}')");
+        }
         public bool Bool(string col)
         {
             var s = Str(col).ToUpperInvariant();
@@ -132,8 +146,20 @@ public static class ExcelReader
             p.Groups.Add(new AgvGroup(r.Str("Group"), r.Str("Type"), r.Int("MinCount"), r.Int("MaxCount"),
                 r.Str("StandbyCPs").Split(',').Select(s => s.Trim()).Where(s => s.Length > 0).ToList(), r.Str("Dispatch"), r.RowNum,
                 r.StrIfColumn("FinishCP") is { Length: > 0 } fin ? fin : null));
+        // Conveyors rows are read first: a conveyor-fed material gets TaktTime and UnitsPerCycle from them, so its Materials cells may be blank
+        foreach (var r in Rows(wb, "Conveyors", optional: true))
+            p.Conveyors.Add(new ConveyorInfo(r.Str("Conveyor"), r.Str("Material"), r.OptNumIfColumn("ProductTakt") ?? 60, r.OptNumIfColumn("UnitsPerProduct") ?? 1,
+                r.OptNumIfColumn("Speed") ?? 0.3, r.OptIntIfColumn("Capacity"), r.OptNumIfColumn("ConsumeAt"), r.RowNum));
+        var fed = new HashSet<string>(p.Conveyors.Select(c => c.Material));
         foreach (var r in Rows(wb, "Materials"))
         {
+            if (!r.Use())
+            {
+                var off = r.Str("Material");
+                if (off.Length > 0 && !p.DisabledMaterials.Contains(off)) p.DisabledMaterials.Add(off);
+                continue;
+            }
+            bool isFed = fed.Contains(r.Str("Material"));
             double per = r.Num("UnitsPerContainer");
             // a threshold is containers + units (either may be blank, not both), kept in containers as the model counts them
             double Threshold(string col)
@@ -142,12 +168,25 @@ public static class ExcelReader
                 if (box == null && qty == null) return r.Num(col); // throws "empty", naming the column
                 return (box ?? 0) + (qty ?? 0) / (per > 0 ? per : 1);
             }
-            p.Materials.Add(new MaterialInfo(r.Str("Material"), r.Str("Station"), r.Str("Group"), r.Num("TaktTime"), r.Num("UnitsPerCycle"),
+            p.Materials.Add(new MaterialInfo(r.Str("Material"), r.Str("Station"), r.Str("Group"), r.Num("TaktTime", isFed ? 60 : (double?)null), r.Num("UnitsPerCycle", isFed ? 1 : (double?)null),
                 per, Threshold("CallThreshold"), Threshold("UnloadThreshold"), r.OptNum("InitStock"), r.OptNum("SafetyStock"), false, r.RowNum, r.StrIfColumn("Form"), r.OptNumIfColumn("LoadLength"), r.OptNumIfColumn("LoadWidth"), r.OptNumIfColumn("LoadHeight"), r.StrIfColumn("Flow")));
         }
         foreach (var r in Rows(wb, "Routes"))
             p.Routes.Add(new Route(r.Str("Material"), r.Str("SupplyFromCP"), r.Str("SupplyToCP"), r.OptStr("BufferCP"),
                 r.OptStr("ReturnFromCP"), r.OptStr("ReturnToCP"), r.Num("ExtraTime", 0), r.RowNum, r.OptNumIfColumn("BufferWaitSec") ?? 0));
+        // a disabled material takes its Routes row and any Conveyors row with it
+        if (p.DisabledMaterials.Count > 0)
+        {
+            bool Off(string name) => p.DisabledMaterials.Contains(name) && !p.Materials.Any(m => m.Material == name);
+            p.Routes.RemoveAll(x => Off(x.Material));
+            p.Conveyors.RemoveAll(x => Off(x.Material));
+        }
+        // the Conveyors row replaces the takt clock of the material it feeds (the first row wins; the validator rejects a second)
+        foreach (var c in p.Conveyors)
+        {
+            int i = p.Materials.FindIndex(m => m.Material == c.Material && !m.ConveyorFed);
+            if (i >= 0) p.Materials[i] = p.Materials[i] with { TaktTime = c.ProductTakt, UnitsPerCycle = c.UnitsPerProduct, ConveyorFed = true };
+        }
         // the container goes back when the route has a return CP (an old EmptyReturn column is ignored: it could contradict the route)
         for (int i = 0; i < p.Materials.Count; i++)
         {

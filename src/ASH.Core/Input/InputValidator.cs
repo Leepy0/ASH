@@ -70,6 +70,8 @@ public static class InputValidator
         return f;
     }
 
+    static string F(double d) => d.ToString("0.##", CultureInfo.InvariantCulture);
+
     /// <summary>supplyLength (optional) enables the SupplyCapacity warnings.</summary>
     public static List<Finding> Validate(ProjectInput input, IReadOnlyCollection<string>? layoutCpNames, IReadOnlyDictionary<string, double>? supplyLength = null)
     {
@@ -114,6 +116,13 @@ public static class InputValidator
         Dups("AGV_Groups", input.Groups, g => g.Group, g => g.Row, "그룹");
         Dups("Materials", input.Materials, m => m.Material, m => m.Row, "자재");
         Dups("Stations", input.Stations, x => x.Station, x => x.Row, "공정");
+        Dups("Conveyors", input.Conveyors, c => c.Conveyor, c => c.Row, "컨베이어");
+
+        if (input.DisabledMaterials.Count > 0)
+        {
+            Warn("Materials", 0, -2, $"미사용 자재 {input.DisabledMaterials.Count}개 제외: {string.Join(", ", input.DisabledMaterials)}"); // information, not a problem
+            if (input.Materials.Count == 0) Err("Materials", 0, -2, "모든 자재의 Use가 N입니다. 사용할 자재가 하나는 있어야 합니다.");
+        }
 
         for (int i = 0; i < input.AgvTypes.Count; i++)
         {
@@ -188,6 +197,25 @@ public static class InputValidator
             if (cps == null) continue;
             foreach (var (col, cp) in new[] { ("SupplyFromCP", r.SupplyFromCP), ("SupplyToCP", r.SupplyToCP), ("BufferCP", r.BufferCP), ("ReturnFromCP", r.ReturnFromCP), ("ReturnToCP", r.ReturnToCP) })
                 if (!string.IsNullOrWhiteSpace(cp) && !cps.Contains(cp!)) Err("Routes", r.Row, i, $"{col} '{cp}'이(가) 레이아웃에 없습니다.");
+        }
+        for (int i = 0; i < input.Conveyors.Count; i++)
+        {
+            var c = input.Conveyors[i];
+            Blank("Conveyors", c.Row, i, "Conveyor", c.Conveyor);
+            Blank("Conveyors", c.Row, i, "Material", c.Material);
+            if (c.Material.Length > 0 && !mats.Contains(c.Material)) Err("Conveyors", c.Row, i, $"컨베이어 '{c.Conveyor}'의 Material '{c.Material}'이(가) Materials에 없습니다(Use가 N인 자재는 제외됨).");
+            var first = c.Material.Length == 0 ? -1 : input.Conveyors.FindIndex(x => x.Material == c.Material);
+            if (first >= 0 && first < i) Err("Conveyors", c.Row, i, $"자재 '{c.Material}'을(를) 컨베이어 '{input.Conveyors[first].Conveyor}'과(와) '{c.Conveyor}'이(가) 함께 소비합니다(자재당 컨베이어 1개).");
+            if (!(c.ProductTakt > 0)) Err("Conveyors", c.Row, i, $"컨베이어 '{c.Conveyor}'의 ProductTakt는 0보다 커야 합니다(비우면 60).");
+            if (!(c.UnitsPerProduct > 0)) Err("Conveyors", c.Row, i, $"컨베이어 '{c.Conveyor}'의 UnitsPerProduct는 0보다 커야 합니다(비우면 1).");
+            if (!(c.SpeedMps > 0)) Err("Conveyors", c.Row, i, $"컨베이어 '{c.Conveyor}'의 Speed는 0보다 커야 합니다(비우면 0.3).");
+            if (c.Capacity.HasValue && c.Capacity.Value < 1) Err("Conveyors", c.Row, i, $"컨베이어 '{c.Conveyor}'의 Capacity는 1 이상이어야 합니다(비우면 길이로 자동).");
+            if (c.ConsumeAtM.HasValue && !(c.ConsumeAtM.Value >= 0)) Err("Conveyors", c.Row, i, $"컨베이어 '{c.Conveyor}'의 ConsumeAt은 0 이상이어야 합니다(비우면 끝).");
+        }
+        foreach (var m in input.Materials.Where(m => m.ConveyorFed))
+        {
+            var c = input.Conveyors.First(x => x.Material == m.Material);
+            Warn("Materials", m.Row, input.Materials.IndexOf(m), $"자재 '{m.Material}': 컨베이어 '{c.Conveyor}'가 소비하므로 Materials의 TaktTime·UnitsPerCycle은 무시하고 Conveyors의 ProductTakt {F(c.ProductTakt)}초·UnitsPerProduct {F(c.UnitsPerProduct)}를 씁니다.");
         }
         for (int i = 0; i < input.Stations.Count; i++)
         {
