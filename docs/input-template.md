@@ -129,7 +129,7 @@ Stations·Ext 시트는 양식에서 뺐다(모델에 아무 영향이 없었다
 - 반복 실행(시드)마다 고장 시점이 달라진다. 수리 시간은 차량별 결과(고장 시간)에 따로 나오고, 작업 중 수리는 가동 시간에 포함된다.
 - SpeedEmpty: 빈 차 주행(상차하러 가는 길, 하차 뒤, 대기 위치 복귀, 데리러 오는 길, 귀가)을 이 속도로 달린다. 0이거나 적재 속도와 같으면 적재 속도.
 - Capacity: 한 번 호출 = 한 번 주행이고, 차량은 Capacity개 용기를 꽉 채워 싣고 간다(재고가 Capacity씩 늘어남). 호출 판단은 재고 + 이미 호출한 수량 기준.
-- 감지 거리(AutoMod 차량 `brakedist` / `stopdist`, 적재(Default)·공차(Empty) 두 상태 모두): 앞 차와의 직선거리가 `brakedist` 이하이면 감속을 시작하고 `stopdist`에서 선다(`brakedist` = 속도²/(2×감속) + `stopdist`). 속도²/(2×감속) + 0.5 m와 0.5 m로 쓰며 속도는 적재·공차 중 큰 값이다. 감속(Decel)이 0이면 양식 기본 감속 1 ft/s²(0.3048 m/s²)로 계산한다. 어떤 경우에도 `brakedist` ≥ `stopdist` ≥ 0.5 m(모델 단위로 환산)라서 0 m로 겹쳐 서지 않는다.
+- 감지 거리(AutoMod 차량 `brakedist` / `stopdist`, 적재(Default)·공차(Empty) 두 상태 모두. Default 줄 `0 b`가 값이고, Empty 줄 `1 a b`는 Default × a + b라서 `1 0`으로 써 Default와 같은 거리를 쓴다): 앞 차와의 직선거리가 `brakedist` 이하이면 감속을 시작하고 `stopdist`에서 선다(`brakedist` = 속도²/(2×감속) + `stopdist`). 속도²/(2×감속) + 0.5 m와 0.5 m로 쓰며 속도는 적재·공차 중 큰 값이다. 감속(Decel)이 0이면 양식 기본 감속 1 ft/s²(0.3048 m/s²)로 계산한다. 어떤 경우에도 `brakedist` ≥ `stopdist` ≥ 0.5 m(모델 단위로 환산)라서 0 m로 겹쳐 서지 않는다.
 - 병목 비교는 구역(block) 기준이다. 결과 화면·Excel의 block 지도와 "대기가 긴 block" 표로 본다(그룹별로 나누지 않음).
 
 ## block 그림 (0.25.0)
