@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Text.RegularExpressions;
 using ASH.Core.Dxf;
 using ASH.Core.Lite;
@@ -8,24 +8,10 @@ namespace ASH.Tests.Lite;
 public class LiteLayerTests
 {
     [Theory]
-    [InlineData("A-WALL", true)]
-    [InlineData("COLUMN", true)]
-    [InlineData("건물", true)]
-    [InlineData("설비_라인", true)]
-    [InlineData("0", true)]
-    [InlineData("GRID", true)]
-    [InlineData("DIM", false)]
-    [InlineData("A-ANNO-NOTE", false)]
-    [InlineData("mtext", false)]
-    [InlineData("Defpoints", false)]
-    [InlineData("치수", false)]
-    [InlineData("문자_1", false)]
-    [InlineData("해치", false)]
-    [InlineData("TITLE_BLOCK", false)]
-    [InlineData("표제란", false)]
-    [InlineData("AGV_PATH", false)]
-    [InlineData("agv_cp_load", false)]
-    public void KeepByDefault_Follows_Keywords(string layer, bool keep) => Assert.Equal(keep, LiteLayers.KeepByDefault(layer));
+    [InlineData("A-WALL", false)]
+    [InlineData("AGV_PATH", true)]
+    [InlineData("agv_cp_load", true)]
+    public void IsAsh_Matches_Ash_Layers(string layer, bool ash) => Assert.Equal(ash, LiteLayers.IsAsh(layer));
 
     [Fact]
     public void R12Names_Are_Legal_Unique_And_Stable()
@@ -210,7 +196,7 @@ public class LitePlanTests
         s.Items.Add(new LiteItem(new LiteLine("DIM", 123456, 45678, 124000, 46000), LiteFlags.None));
         s.Items.Add(new LiteItem(new LiteLine("OLD", 0, 0, 1, 1), LiteFlags.Hidden));
         s.Items.Add(new LiteItem(new LiteLine("WALL", 200000, 50000, 201000, 50000), LiteFlags.Xref));
-        s.Items.Add(new LiteItem(new LitePolyline("WALL", new[] { new LiteVertex(125000, 46000), new LiteVertex(126000, 46000), new LiteVertex(126000, 47000), new LiteVertex(125000, 47000) }, true), LiteFlags.Footprint));
+        s.Items.Add(new LiteItem(new LitePolyline("WALL", new[] { new LiteVertex(125000, 46000), new LiteVertex(126000, 46000), new LiteVertex(126000, 47000), new LiteVertex(125000, 47000) }, true), LiteFlags.Footprint, LiteTypes.Footprint));
         s.Solids3d = 1; s.XrefRefs = 1;
         LiteSource.Count(s.Removed, "해치", 7);
         LiteSource.Count(s.Before, "LINE", 3);
@@ -226,45 +212,48 @@ public class LitePlanTests
     public void Shift_Rounds_Down_To_A_Clean_Step(double min, int insUnits, double shift) => Assert.Equal(shift, LitePlan.Shift(min, insUnits), 9);
 
     [Fact]
-    public void Options_And_Layers_Select_Items_And_Shift_Follows_What_Is_Written()
+    public void Options_Types_And_MinSize_Select_Items_And_Shift_Follows_What_Is_Written()
     {
         var plan = new LitePlan(Sample());
-        Assert.Equal(new[] { "DIM", "OLD", "WALL" }, plan.Layers);
-        Assert.False(plan.DefaultOn("DIM"));
+        Assert.Equal(new[] { LiteTypes.Line, LiteTypes.Footprint }, plan.Types);
+        Assert.False(plan.DefaultOn(LiteTypes.Footprint));
         var o = new LiteOptions();
-        Assert.Equal(1, plan.Layer("WALL", o).Count);
-        Assert.Equal(0, plan.Layer("OLD", o).Count);
-        Assert.Equal(3, plan.Layer("WALL", o with { IncludeXref = true, Footprints = true }).Count);
-        Assert.Equal(1, plan.Layer("OLD", o with { SkipHidden = false }).Count);
+        Assert.Equal(2, plan.ByType(o)[LiteTypes.Line].Count); // WALL, DIM: hidden and xref out
+        Assert.Equal(4, plan.ByType(o with { IncludeXref = true, SkipHidden = false })[LiteTypes.Line].Count);
+        var big = o with { MinSize = plan.FromMm(1000) }; // the DIM line is 632 mm long
+        Assert.Equal(1, plan.ByType(big)[LiteTypes.Line].Count);
+        Assert.Equal(1, plan.Small(big));
 
-        var on = new[] { "WALL" };
+        var on = new[] { LiteTypes.Line, LiteTypes.Footprint };
         var sw = new StringWriter();
-        var r = plan.Write(sw, o with { Footprints = true }, on);
-        Assert.Equal(2, r.Entities);
+        var r = plan.Write(sw, big, on);
+        Assert.Equal(2, r.Entities); // WALL line + the 1414 mm footprint box
         Assert.Equal(123000, r.ShiftX); Assert.Equal(45000, r.ShiftY);
         var d = DxfLite.Read(new StringReader(sw.ToString()));
         Assert.Equal(1 + 4, d.Segs.Count);
         Assert.Contains(new DxfSeg(456, 678, 7000, 678, "WALL"), d.Segs);
+        Assert.DoesNotMatch(@"\n 3[0-9]\r?\n(?!0\.0\r?\n)", sw.ToString()); // every Z is 0
         // the estimate uses the provisional (all-geometry) shift, here 0, so its coordinates carry 3 more digits: a little high, never far off
-        Assert.InRange((double)sw.ToString().Length / plan.Total(o with { Footprints = true }, on), 0.8, 1.05);
+        Assert.InRange((double)sw.ToString().Length / plan.Total(big, on), 0.8, 1.05);
     }
 
     [Fact]
-    public void Report_Has_Origin_Removed_Counts_And_Layer_Table()
+    public void Report_Has_Origin_Removed_Counts_And_Type_Table()
     {
         var plan = new LitePlan(Sample());
-        var o = new LiteOptions(); var on = new[] { "WALL", "OLD" };
+        var o = new LiteOptions(MinSize: plan.FromMm(1000)); var on = new[] { LiteTypes.Line };
         var r = plan.Write(new StringWriter(), o, on);
         var w = new StringWriter();
         LiteReport.Write(w, plan, o, on, r, @"D:\p\a.dwg", 123456789, @"D:\p\lite\a_lite.dxf", 2000, new DateTime(2026, 10, 23, 9, 0, 0));
         var t = w.ToString();
-        Assert.Contains("OriginX\t-123000", t);
-        Assert.Contains("OriginY\t-45000", t);
-        Assert.Contains("해치\t7", t);
-        Assert.Contains("3D 솔리드·메시·서피스\t1 (제거)", t);
-        Assert.Contains("꺼진·동결 레이어의 선·곡선\t1", t);
-        Assert.Contains("선택 해제한 레이어의 선·곡선\t1", t); // DIM
-        Assert.Contains("DIM\tDIM\t켜짐\t아니오\t1\t", t);
+        Assert.Contains("OriginX	-123000", t);
+        Assert.Contains("OriginY	-45000", t);
+        Assert.Contains("해치	7", t);
+        Assert.Contains("3D 솔리드·메시·서피스	1 (제거)", t);
+        Assert.Contains("꺼진·동결 레이어의 선·곡선	1", t);
+        Assert.Contains("선택 해제한 종류의 선·곡선	1", t); // the footprint box
+        Assert.Contains("최소 크기 미만 (블록 안 포함)	1", t); // DIM
+        Assert.Contains("선	예	1	", t);
         Assert.Contains("INSUNITS 4 = mm", t);
         Assert.Contains("목표(5 MB 이하) 충족", t);
     }
@@ -291,11 +280,11 @@ public class LitePlanTests
         var watch = Stopwatch.StartNew();
         var plan = new LitePlan(s);
         var sw = new StringWriter();
-        var r = plan.Write(sw, new LiteOptions(), plan.Layers.ToList());
+        var r = plan.Write(sw, new LiteOptions(), plan.Types.ToList());
         watch.Stop();
         Assert.True(watch.Elapsed.TotalSeconds < 10, $"took {watch.Elapsed.TotalSeconds:0.0} s");
         Assert.Equal(6000, r.Entities);
-        long est = plan.Total(new LiteOptions(), plan.Layers.ToList());
+        long est = plan.Total(new LiteOptions(), plan.Types.ToList());
         Assert.InRange((double)sw.ToString().Length / est, 0.98, 1.02);
         var d = DxfLite.Read(new StringReader(sw.ToString()));
         Assert.False(d.Truncated);

@@ -44,9 +44,9 @@ static class Program
             d.ShowDialog();
             return 0;
         }
-        if (Array.IndexOf(args, "--lite") >= 0) // the AGVLITE dialog with made-up layers (about 12 MB checked, so the over-10 MB warning shows)
+        if (Array.IndexOf(args, "--lite") >= 0) // the AGVLITE dialog with made-up types (about 12 MB checked, so the over-10 MB warning shows)
         {
-            using var d = new ASH.Plugin.Ui.LiteDialog(new ASH.Core.Lite.LitePlan(LiteSample()), "공장A_레이아웃.dwg", @"lite\공장A_레이아웃_lite.dxf", 10) { StartPosition = FormStartPosition.Manual, Location = new Point(-2000, 0) };
+            using var d = new ASH.Plugin.Ui.LiteDialog(new ASH.Core.Lite.LitePlan(LiteSample()), "공장A_레이아웃.dwg", @"lite\공장A_레이아웃_lite.dxf", 10, 100) { StartPosition = FormStartPosition.Manual, Location = new Point(-2000, 0) };
             d.Shown += (s, e) =>
             {
                 Application.DoEvents();
@@ -91,7 +91,8 @@ static class Program
         {
             s.Layers[layer] = new ASH.Core.Lite.LiteLayerState(7, off, frozen);
             for (int i = 0; i < lines; i++)
-                s.Items.Add(new ASH.Core.Lite.LiteItem(new ASH.Core.Lite.LiteLine(layer, 1200000 + rnd.NextDouble() * 250000, 400000 + rnd.NextDouble() * 120000, 1200000 + rnd.NextDouble() * 250000, 400000 + rnd.NextDouble() * 120000), flags));
+                s.Items.Add(new ASH.Core.Lite.LiteItem(new ASH.Core.Lite.LiteLine(layer, 1200000 + rnd.NextDouble() * 250000, 400000 + rnd.NextDouble() * 120000, 1200000 + rnd.NextDouble() * 250000, 400000 + rnd.NextDouble() * 120000), flags,
+                    flags == ASH.Core.Lite.LiteFlags.Footprint ? ASH.Core.Lite.LiteTypes.Footprint : i % 5 == 0 ? ASH.Core.Lite.LiteTypes.Polyline : ASH.Core.Lite.LiteTypes.Line));
         }
         Add("A-WALL", 52000); Add("A-COLUMN", 9000); Add("설비_라인", 38000); Add("통로", 4000); Add("A-GRID", 1500);
         Add("A-DIM", 21000); Add("문자", 6000); Add("HATCH-FLOOR", 30000); Add("표제란", 2500); Add("AGV_PATH", 800);

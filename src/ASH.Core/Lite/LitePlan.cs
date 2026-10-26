@@ -11,14 +11,22 @@ namespace ASH.Core.Lite;
 [Flags]
 public enum LiteFlags { None = 0, Xref = 1, Footprint = 2, Hidden = 4 }
 
-public sealed record LiteItem(LiteEntity Entity, LiteFlags Flags);
+/// <summary>Type = the source entity's kind (LiteTypes), which the AGVLITE dialog selects by: an ellipse stays "타원" though it is written as a polyline.</summary>
+public sealed record LiteItem(LiteEntity Entity, LiteFlags Flags, string Type = LiteTypes.Line);
+
+/// <summary>The kinds AGVLITE keeps (everything else is always removed), in dialog order.</summary>
+public static class LiteTypes
+{
+    public const string Line = "선", Polyline = "폴리선", Arc = "호", Circle = "원", Ellipse = "타원", Footprint = "3D 외곽 상자";
+    public static readonly string[] Order = { Line, Polyline, Arc, Circle, Ellipse, Footprint };
+}
 
 public sealed record LiteLayerState(short Color, bool Off, bool Frozen);
 
-/// <summary>Defaults: xref contents out, 3D objects out (no footprint boxes), off/frozen layers out.</summary>
-public sealed record LiteOptions(bool IncludeXref = false, bool Footprints = false, bool SkipHidden = true)
+/// <summary>Defaults: xref contents out, off/frozen layers out. MinSize (drawing units): an item whose LiteBox.Size is smaller is removed, block contents included.</summary>
+public sealed record LiteOptions(bool IncludeXref = false, bool SkipHidden = true, double MinSize = 0)
 {
-    public bool Allows(LiteFlags f) => (IncludeXref || (f & LiteFlags.Xref) == 0) && (Footprints || (f & LiteFlags.Footprint) == 0) && (!SkipHidden || (f & LiteFlags.Hidden) == 0);
+    public bool Allows(LiteFlags f) => (IncludeXref || (f & LiteFlags.Xref) == 0) && (!SkipHidden || (f & LiteFlags.Hidden) == 0);
 }
 
 /// <summary>What AGVLITE read from the open drawing: every item it could keep (also those only some options keep), and counts for the report.</summary>
@@ -34,7 +42,7 @@ public sealed class LiteSource
     public int XrefRefs, Solids3d, Failures;
     /// <summary>The work budget ran out: the item list is partial.</summary>
     public bool Truncated;
-    /// <summary>Chord error used for ellipses, splines and stretched arcs (drawing units).</summary>
+    /// <summary>Chord error used for ellipses and stretched arcs (drawing units).</summary>
     public double Tolerance;
     public int InsUnits;
 
@@ -43,16 +51,17 @@ public sealed class LiteSource
 
 public sealed record LiteResult(double ShiftX, double ShiftY, LiteBox Extents, IReadOnlyDictionary<string, int> Written, int Entities);
 
-/// <summary>Size estimate and selection over a LiteSource. Each item's size is what LiteDxfWriter writes for it, measured once with the shift of all the geometry;
-/// the dialog then sums per layer and flag combination, so toggling layers and options costs nothing.</summary>
+/// <summary>Size estimate and selection over a LiteSource. Each item's bytes (what LiteDxfWriter writes for it, with the shift of all the geometry) and size are
+/// measured once; the dialog then re-sums them per type for each change of types, options or minimum size.</summary>
 public sealed class LitePlan
 {
     public LiteSource Source { get; }
     /// <summary>Original layer name -> R12 layer name, over every layer of the drawing.</summary>
     public IReadOnlyDictionary<string, string> Names { get; }
-    /// <summary>Layers that have at least one item, in name order.</summary>
-    public IReadOnlyList<string> Layers { get; }
-    readonly Dictionary<string, (int Count, long Bytes)[]> _buckets = new(StringComparer.Ordinal);
+    /// <summary>Types that have at least one item, in LiteTypes.Order.</summary>
+    public IReadOnlyList<string> Types { get; }
+    readonly long[] _bytes;
+    readonly double[] _size;
 
     public LitePlan(LiteSource src)
     {
@@ -60,41 +69,61 @@ public sealed class LitePlan
         Names = LiteLayers.R12Names(src.Layers.Keys.Concat(src.Items.Select(i => i.Entity.Layer)));
         var box = LiteBox.Of(src.Items.Select(i => i.Entity));
         double sx = box.IsEmpty ? 0 : Shift(box.MinX, src.InsUnits), sy = box.IsEmpty ? 0 : Shift(box.MinY, src.InsUnits);
-        foreach (var it in src.Items)
+        _bytes = new long[src.Items.Count];
+        _size = new double[src.Items.Count];
+        for (int i = 0; i < _bytes.Length; i++)
         {
-            var l = it.Entity.Layer;
-            if (!_buckets.TryGetValue(l, out var b)) _buckets[l] = b = new (int, long)[8];
-            var k = (int)it.Flags & 7;
-            b[k] = (b[k].Count + 1, b[k].Bytes + LiteDxfWriter.Bytes(it.Entity, Names[l], sx, sy));
+            var e = src.Items[i].Entity;
+            _bytes[i] = LiteDxfWriter.Bytes(e, Names[e.Layer], sx, sy);
+            _size[i] = LiteBox.Size(e);
         }
-        Layers = _buckets.Keys.OrderBy(x => x, StringComparer.Ordinal).ToList();
+        Types = src.Items.Select(i => i.Type).Distinct().OrderBy(t => Array.IndexOf(LiteTypes.Order, t) is var k && k < 0 ? int.MaxValue : k).ThenBy(t => t, StringComparer.Ordinal).ToList();
     }
 
-    /// <summary>Default check state of a layer: name heuristic, and it must have something to draw.</summary>
-    public bool DefaultOn(string layer) => LiteLayers.KeepByDefault(layer);
+    /// <summary>Default check state of a type: everything but the 3D footprint boxes (not a true plan projection).</summary>
+    public bool DefaultOn(string type) => type != LiteTypes.Footprint;
 
-    public (int Count, long Bytes) Layer(string layer, LiteOptions o)
+    /// <summary>Millimetres to drawing units, for the dialog's minimum size.</summary>
+    public double FromMm(double mm) => mm * 0.001 / UnitScale.FromInsUnits(Source.InsUnits);
+
+    bool Keeps(int i, LiteOptions o) => o.Allows(Source.Items[i].Flags) && _size[i] >= o.MinSize;
+
+    /// <summary>Count and bytes per type of what the options keep (every type of Types present).</summary>
+    public Dictionary<string, (int Count, long Bytes)> ByType(LiteOptions o)
     {
-        int n = 0; long bytes = 0;
-        if (_buckets.TryGetValue(layer, out var b))
-            for (int f = 0; f < 8; f++) if (o.Allows((LiteFlags)f)) { n += b[f].Count; bytes += b[f].Bytes; }
-        return (n, bytes);
+        var d = Types.ToDictionary(t => t, _ => (Count: 0, Bytes: 0L), StringComparer.Ordinal);
+        for (int i = 0; i < _bytes.Length; i++)
+            if (Keeps(i, o)) { var t = Source.Items[i].Type; var v = d[t]; d[t] = (v.Count + 1, v.Bytes + _bytes[i]); }
+        return d;
     }
 
-    public long Total(LiteOptions o, ICollection<string> on) =>
-        LiteDxfWriter.OverheadBytes(on.Count) + on.Sum(l => Layer(l, o).Bytes);
+    /// <summary>Items the flags keep but MinSize removes.</summary>
+    public int Small(LiteOptions o) => Enumerable.Range(0, _bytes.Length).Count(i => o.Allows(Source.Items[i].Flags) && _size[i] < o.MinSize);
 
-    /// <summary>The checked layers that weigh most, for the "over 10 MB" hint.</summary>
-    public List<(string Layer, long Bytes)> Biggest(LiteOptions o, ICollection<string> on, int n = 3) =>
-        on.Select(l => (Layer: l, Layer(l, o).Bytes)).Where(x => x.Bytes > 0).OrderByDescending(x => x.Bytes).Take(n).ToList();
+    public long Total(LiteOptions o, ICollection<string> on)
+    {
+        var set = new HashSet<string>(on, StringComparer.Ordinal);
+        var layers = new HashSet<string>(StringComparer.Ordinal);
+        long bytes = 0;
+        for (int i = 0; i < _bytes.Length; i++)
+            if (set.Contains(Source.Items[i].Type) && Keeps(i, o)) { bytes += _bytes[i]; layers.Add(Source.Items[i].Entity.Layer); }
+        return LiteDxfWriter.OverheadBytes(layers.Count) + bytes;
+    }
+
+    /// <summary>The checked types that weigh most, for the "over 10 MB" hint.</summary>
+    public List<(string Type, long Bytes)> Biggest(LiteOptions o, ICollection<string> on, int n = 3)
+    {
+        var d = ByType(o);
+        return on.Where(d.ContainsKey).Select(t => (Type: t, d[t].Bytes)).Where(x => x.Bytes > 0).OrderByDescending(x => x.Bytes).Take(n).ToList();
+    }
 
     public List<LiteEntity> Select(LiteOptions o, ICollection<string> on)
     {
         var set = new HashSet<string>(on, StringComparer.Ordinal);
-        return Source.Items.Where(i => o.Allows(i.Flags) && set.Contains(i.Entity.Layer)).Select(i => i.Entity).ToList();
+        return Enumerable.Range(0, _bytes.Length).Where(i => set.Contains(Source.Items[i].Type) && Keeps(i, o)).Select(i => Source.Items[i].Entity).ToList();
     }
 
-    /// <summary>Writes the checked layers as R12 DXF, moved so the lower left of what is written sits just above (0, 0).</summary>
+    /// <summary>Writes the checked types as R12 DXF (every Z is 0), moved so the lower left of what is written sits just above (0, 0).</summary>
     public LiteResult Write(TextWriter w, LiteOptions o, ICollection<string> on)
     {
         var ents = Select(o, on);
@@ -140,10 +169,12 @@ public static class LiteReport
         Row("경량 DXF", litePath);
         Row("경량 크기 (DXF R12)", $"{Mb(liteBytes)} ({liteBytes.ToString("N0", C)} bytes)");
         Row("대화상자의 예상 크기", Mb(plan.Total(o, on)));
-        Row("판정", liteBytes > 10L * 1048576 ? "10 MB 초과: AutoMod가 느리거나 멈출 수 있습니다. 큰 레이어를 더 끄세요" : liteBytes > 5L * 1048576 ? "5~10 MB: 열 수 있지만 목표(5 MB 이하)보다 큽니다" : "목표(5 MB 이하) 충족");
+        Row("판정", liteBytes > 10L * 1048576 ? "10 MB 초과: AutoMod가 느리거나 멈출 수 있습니다. 최소 크기를 키우거나 큰 종류를 더 끄세요" : liteBytes > 5L * 1048576 ? "5~10 MB: 열 수 있지만 목표(5 MB 이하)보다 큽니다" : "목표(5 MB 이하) 충족");
         Row("단위", Units(s.InsUnits));
-        Row("곡선 허용 오차", N(s.Tolerance) + " (도면 단위, 타원·스플라인·비균등 배율 블록의 원호)");
-        Row("옵션", $"외부참조 내용 포함: {YesNo(o.IncludeXref)} / 3D 외곽 사각형: {YesNo(o.Footprints)} / 꺼진·동결 레이어 제외: {YesNo(o.SkipHidden)}");
+        Row("곡선 허용 오차", N(s.Tolerance) + " (도면 단위, 타원·비균등 배율 블록의 원호)");
+        Row("옵션", $"외부참조 내용 포함: {YesNo(o.IncludeXref)} / 꺼진·동결 레이어 제외: {YesNo(o.SkipHidden)} / 최소 크기: {N(o.MinSize)} (도면 단위, 외곽 상자 대각선·선 길이)");
+        Row("남긴 종류", string.Join(", ", plan.Types.Where(on.Contains)));
+        Row("평면화", "모든 좌표의 Z = 0 (3D 폴리선·기울어진 객체는 평면에 투영)");
         Row("작업 한도", s.Truncated ? "도달: 블록 중첩·반복이 너무 많아 일부만 담았습니다" : "정상");
         Row("읽지 못한 엔티티", s.Failures.ToString(C));
 
@@ -161,15 +192,15 @@ public static class LiteReport
         foreach (var kv in s.Before) Row(kv.Key, kv.Value.ToString(C));
         Row("합계", s.Before.Values.Sum().ToString(C));
 
-        int xref = 0, foot = 0, hidden = 0, unchecked_ = 0, footWritten = 0;
+        int xref = 0, hidden = 0, small = 0, unchecked_ = 0, footWritten = 0;
         var set = new HashSet<string>(on, StringComparer.Ordinal);
         foreach (var it in s.Items)
         {
             var f = it.Flags;
             if ((f & LiteFlags.Xref) != 0 && !o.IncludeXref) xref++;
-            else if ((f & LiteFlags.Footprint) != 0 && !o.Footprints) foot++;
             else if ((f & LiteFlags.Hidden) != 0 && o.SkipHidden) hidden++;
-            else if (!set.Contains(it.Entity.Layer)) unchecked_++;
+            else if (!set.Contains(it.Type)) unchecked_++;
+            else if (LiteBox.Size(it.Entity) < o.MinSize) small++;
             else if ((f & LiteFlags.Footprint) != 0) footWritten++;
         }
         Section("제거한 항목 (블록 안은 삽입 수만큼)");
@@ -177,23 +208,20 @@ public static class LiteReport
         foreach (var kv in s.Removed) Row(kv.Key, kv.Value.ToString(C));
         Row("외부참조 삽입", s.XrefRefs + (o.IncludeXref ? " (내용 포함함)" : " (내용 제외)"));
         if (!o.IncludeXref) Row("외부참조 안의 선·곡선", xref.ToString(C));
-        Row("3D 솔리드·메시·서피스", s.Solids3d + (o.Footprints ? $" (외곽 사각형 {footWritten}개로 바꿈: 실제 투영이 아닌 범위 상자)" : " (제거)"));
+        Row("3D 솔리드·메시·서피스", s.Solids3d + (footWritten > 0 ? $" (외곽 사각형 {footWritten}개로 바꿈: 실제 투영이 아닌 범위 상자)" : " (제거)"));
         Row("꺼진·동결 레이어의 선·곡선", o.SkipHidden ? hidden.ToString(C) : "0 (포함함)");
-        Row("선택 해제한 레이어의 선·곡선", unchecked_.ToString(C));
+        Row("선택 해제한 종류의 선·곡선", unchecked_.ToString(C));
+        Row("최소 크기 미만 (블록 안 포함)", small.ToString(C));
 
         Section("경량 도면 엔티티");
         Row("종류", "개수");
         foreach (var kv in r.Written) Row(kv.Key, kv.Value.ToString(C));
         Row("합계", r.Entities.ToString(C));
 
-        Section("레이어");
-        Row("원본 레이어", "DXF 레이어", "상태", "포함", "엔티티", "예상 크기 (KB)", "기본 규칙");
-        foreach (var l in plan.Layers)
-        {
-            var (n, bytes) = plan.Layer(l, o);
-            var st = s.Layers.TryGetValue(l, out var ls) ? (ls.Frozen ? "동결" : ls.Off ? "꺼짐" : "켜짐") : "-";
-            Row(l, plan.Names[l], st, YesNo(set.Contains(l)), n.ToString(C), (bytes / 1024.0).ToString("0.0", C), plan.DefaultOn(l) ? "유지" : "제거");
-        }
+        Section("종류");
+        Row("종류", "포함", "엔티티 (최소 크기 이상)", "예상 크기 (KB)");
+        foreach (var kv in plan.ByType(o))
+            Row(kv.Key, YesNo(set.Contains(kv.Key)), kv.Value.Count.ToString(C), (kv.Value.Bytes / 1024.0).ToString("0.0", C));
     }
 
     /// <summary>INSUNITS as text plus the matching Scale. Geometry is never rescaled: ASH's Scale setting converts units.</summary>
