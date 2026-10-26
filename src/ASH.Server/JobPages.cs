@@ -441,7 +441,7 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
         sb.Append("<div class=\"kpis\">");
         sb.Append(Kpi("권장 AGV 총 대수", $"{total}<small>대</small>", $"시험 범위 {min}~{max}대", "blue", title: $"권장 AGV 총 {total}대"));
         sb.Append(Kpi("최대 가동률", top == null ? "-" : $"{P(top.Util)}<small>%</small>",
-            top == null ? "&nbsp;" : $"{H(top.Group)}", topOver ? "wn" : ""));
+            "&nbsp;", topOver ? "wn" : ""));
         sb.Append(Kpi("자재 품절 시간", v.Materials.Count == 0 ? "-" : $"{F(stop, "0")}<small>초</small>", v.Materials.Count == 0 ? "&nbsp;" : stop > 0 ? "<span class=\"sym r\">▲ 자재 품절 있음</span>" : "&nbsp;",
             v.Materials.Count == 0 ? "" : stop > 0 ? "bad" : "ok"));
         if (prices != null)
