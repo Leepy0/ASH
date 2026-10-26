@@ -39,7 +39,8 @@ public sealed class AutoModFilm(IConfiguration cfg) : IFilmAutoMod
 /// the ash_cal calibration mark and a recording window, is built and run once, F0 is measured (guide 10.4), and every cut is one AutoView run plus an ffmpeg finish.
 /// A cut that fails (or hangs past Film:CutTimeoutMin) fails alone. Scenes: one run with the event log, SceneFinder, &lt;job&gt;\scenes.json or scenes.delta&lt;d&gt;.json.
 /// </summary>
-public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore films, IFilmAutoMod am, IFilmRenderer renderer, IConfiguration cfg, ILogger<FilmWorker> logger)
+public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore films, IFilmAutoMod am, IFilmRenderer renderer, IConfiguration cfg, ILogger<FilmWorker> logger,
+    LimitWorker limits)
 {
     public const string ScenesRequest = "scenes-request.json";
     public const string CalSystem = "ash_cal";
@@ -84,7 +85,7 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
         }
     }
 
-    /// <summary>One piece of work between jobs: a waiting scene request, else the oldest queued film. False when there was nothing to do.</summary>
+    /// <summary>One piece of work between jobs: a waiting scene request, else a production limit step, else a cut preview, else the oldest queued film. False when there was nothing to do.</summary>
     public bool RunNext(CancellationToken stop)
     {
         foreach (var j in jobs.All())
@@ -98,6 +99,12 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
             _scenesDone[j.Id] = text;
             _busy = ScenesBusy;
             try { SceneRequest(j, req, text); } finally { _busy = null; }
+            return true;
+        }
+        if (limits.Next() is { } lj)
+        {
+            _busy = LimitWorker.Busy;
+            try { limits.RunStep(lj, stop); } finally { _busy = null; }
             return true;
         }
         if (Previews.TakeNext() is { } p)
@@ -607,18 +614,18 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
     {
         var total = counts.Values.Sum();
         if (input.Groups.All(g => counts[g.Group] == (j.Decided!.TryGetValue(g.Group, out var d) ? d : g.MinCount)) && AnalysisPages.MetricsOf(jobs, j) is { } m)
-            return $"권장 {total}대 · 가동률 {Pct(m.Util)} · 결품 {JobPages.F(m.Stop, "0")}초";
+            return $"권장 {total}대 · 가동률 {Pct(m.Util)} · 자재 품절 {JobPages.F(m.Stop, "0")}초";
         var v = JobView.For(jobs, j);
         var runs = v.RunCounts().Where(kv => input.Groups.All(g => (kv.Value.TryGetValue(g.Group, out var n) ? n : g.MinCount) == counts[g.Group])).Select(kv => kv.Key).ToHashSet();
         var rows = v.Rows.Where(x => runs.Contains(x.RunId)).ToList();
         static double Mean(IEnumerable<double> xs) { var l = xs.Where(x => !double.IsNaN(x)).ToList(); return l.Count == 0 ? double.NaN : l.Average(); }
         if (rows.Count > 0)
             return $"{total}대 · 가동률 {Pct(rows.GroupBy(x => x.Group).Select(g => Mean(g.Select(x => x.Utilization))).DefaultIfEmpty(double.NaN).Max())} · " +
-                   $"결품 {JobPages.F(Mean(rows.GroupBy(x => x.RunId).Select(g => g.Sum(x => x.StopTimeSec))), "0")}초";
+                   $"자재 품절 {JobPages.F(Mean(rows.GroupBy(x => x.RunId).Select(g => g.Sum(x => x.StopTimeSec))), "0")}초";
         try
         {
             var k = ASH.Core.Runner.Kpi.FromRun(ResultParser.Parse(o.ResultTsvPath!), null, input);
-            return $"{total}대 · 가동률 {Pct(k.Select(x => x.Utilization).DefaultIfEmpty(double.NaN).Max())} · 결품 {JobPages.F(k.Sum(x => x.StopTimeSec), "0")}초 · 이 실행 1회 값";
+            return $"{total}대 · 가동률 {Pct(k.Select(x => x.Utilization).DefaultIfEmpty(double.NaN).Max())} · 자재 품절 {JobPages.F(k.Sum(x => x.StopTimeSec), "0")}초 · 이 실행 1회 값";
         }
         catch (Exception e) when (e is IOException or InvalidDataException or ArgumentNullException) { return $"{total}대 · 이 실행 1회 값"; }
     }

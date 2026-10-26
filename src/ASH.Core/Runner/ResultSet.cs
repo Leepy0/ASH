@@ -38,11 +38,22 @@ public sealed record ConveyorResult(string Name, string Material, int Passed, do
 public sealed record ResultRow(string Kind, string Name, string Group, double[] Values);
 
 /// <summary>Typed rows of result.tsv. Deadlocks = value1 of the deadlock row, SimSec = value2 of the clock row.
-/// Rows keeps every data row in file order, including kinds not typed here.</summary>
+/// Rows keeps every data row in file order, including kinds not typed here (but not the dlock rows: block names are no values).
+/// DeadlockEvents = the dlock rows, one per episode in time order (empty for models built before them).</summary>
 public sealed record ResultSet(IReadOnlyList<MaterialResult> Materials, IReadOnlyList<GroupResult> Groups,
     IReadOnlyList<BlockResult> Blocks, int Deadlocks, double SimSec,
     IReadOnlyList<ResultRow> Rows,
-    IReadOnlyList<VehicleResult>? Vehicles = null, IReadOnlyList<MaterialStat>? MaterialStats = null, IReadOnlyList<ConveyorResult>? Conveyors = null);
+    IReadOnlyList<VehicleResult>? Vehicles = null, IReadOnlyList<MaterialStat>? MaterialStats = null, IReadOnlyList<ConveyorResult>? Conveyors = null,
+    IReadOnlyList<ASH.Core.Cause.DeadlockEvent>? DeadlockEvents = null,
+    IReadOnlyList<GroupTime>? GroupTimes = null);
+
+/// <summary>tsplit row: where the group's job time went, sums over its jobs after warmup (null for models built before it). Job = boarding to
+/// the Finish CP / standby arrival, the unpaid buffer hold left out; Free = its runs at free speed (distance / speed, curves at the straight
+/// speed); Stop = standing still (not turning) in its runs, sampled once a second; Handling = load, unload, extra; TurnSec = turning on the
+/// spot in its runs, sampled like Stop; BlockClaims = block -> claims by the group's vehicles in those runs (tblock rows; times the block's
+/// AvgWaitSec = the group's waits for it).</summary>
+public sealed record GroupTime(string Group, int Jobs, double JobSec, double FreeSec, double StopSec, double HandlingSec, double TurnSec,
+    IReadOnlyDictionary<string, int> BlockClaims);
 
 /// <summary>One data row of "Vehicle Statistics" in the .report: percent of total time and trips per state.</summary>
 public sealed record VehicleRow(double DeliveringPct, int DeliveringTrips, double RetrievingPct, int RetrievingTrips,

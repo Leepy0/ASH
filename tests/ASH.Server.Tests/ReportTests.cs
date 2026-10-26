@@ -32,7 +32,7 @@ public class ReportTests
         using var env = new JobEnv(); var (aid, jid) = await Make(env);
         var html = await env.Http.GetStringAsync($"/analyses/{aid}/report");
         Assert.Equal(5, Regex.Matches(html, "<section class=\"rs").Count); // cover+결론, 그룹, 자재, 병목, 영상: a page each when printed
-        foreach (var s in new[] { "<h1>라인 증설</h1>", "기준 버전 <b>A안 v1</b>", ">권장 대수<", ">최대 가동률<", ">결품<", "<h3>안별 결론</h3>", "<h2>그룹별 권장 대수</h2>",
+        foreach (var s in new[] { "<h1>라인 증설</h1>", "기준 버전 <b>A안 v1</b>", ">권장 대수<", ">최대 가동률<", ">자재 품절<", "<h3>안별 결론</h3>", "<h2>그룹별 권장 대수</h2>",
             "<h2>자재별 공급", "<h2>병목 지도", "<svg class=\"bm\"", "<div class=\"rk\">", "<h2>영상", $"<img src=\"/films/{FilmId}/files/thumb.jpg\"", $"/films/{FilmId}/files/c1.mp4\">c1.mp4</a>",
             "@page{size:A4 landscape", "break-before:page", ".side,.noprint", "onclick=\"window.print()\">PDF로 저장", $"href=\"/analyses/{aid}/report.pptx?job={jid}\"", $"href=\"/jobs/{jid}/files/report.xlsx\"" })
             Assert.Contains(s, html);

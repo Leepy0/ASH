@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using ASH.Core.Cause;
 
 namespace ASH.Core.Runner;
 
@@ -21,13 +22,17 @@ public static class ResultParser
         if (lines.Length == 0 || lines[0].TrimEnd('\r').Split('\t')[0] != "kind") throw new InvalidDataException("result.tsv: empty or no header");
         var mats = new List<MaterialResult>(); var groups = new List<GroupResult>(); var blocks = new List<BlockResult>();
         var rows = new List<ResultRow>();
-        var vehicles = new List<VehicleResult>(); var mstats = new List<MaterialStat>(); var convs = new List<ConveyorResult>();
+        var vehicles = new List<VehicleResult>(); var mstats = new List<MaterialStat>(); var convs = new List<ConveyorResult>(); var times = new List<GroupTime>();
+        var claims = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal); // group -> block -> claims (tblock rows)
+        Dictionary<string, int> Claims(string g) => claims.TryGetValue(g, out var d) ? d : claims[g] = new Dictionary<string, int>(StringComparer.Ordinal);
         int dead = 0; double sim = 0; bool clock = false;
+        var dlocks = new List<(double Ep, double T, DeadlockLink Link)>();
         for (var n = 1; n < lines.Length; n++)
         {
             if (lines[n].Trim().Length == 0) continue;
             var c = lines[n].TrimEnd('\r').Split('\t');
             if (c.Length < 3) throw new InvalidDataException($"result.tsv: line {n + 1}: {c.Length} column(s), need at least 3");
+            if (c[0] == "dlock") { dlocks.Add(Dlock(c, n + 1)); continue; } // block names in the value columns: not a ResultRow
             var vals = new double[c.Length - 3];
             for (var i = 0; i < vals.Length; i++)
             {
@@ -45,13 +50,33 @@ public static class ResultParser
                 case "vehicle": vehicles.Add(new VehicleResult(c[1], c[2], V(0), V(1), (int)V(2), V(3), (int)V(4), V(5),
                     vals.Length >= 11 ? new TimeSplit(V(3), V(0), V(6), V(7), V(8), V(9), V(10)) : null)); break;
                 case "matstat": mstats.Add(new MaterialStat(c[1], c[2], V(0), V(1), V(2), V(3), V(4), V(5), V(6), V(7))); break;
+                case "tsplit": times.Add(new GroupTime(c[1], (int)V(0), V(1), V(2), V(3), V(4), V(5), Claims(c[1]))); break;
+                case "tblock": Claims(c[2])[c[1]] = (int)V(0); break;
                 case "conveyor": convs.Add(new ConveyorResult(c[1], c[2], (int)V(0), V(1), V(2))); break;
                 case "deadlock": dead = (int)V(0); break;
                 case "clock": sim = V(1); clock = true; break;
             }
         }
         if (!clock) throw new InvalidDataException("result.tsv: no clock row (incomplete result)");
-        return new ResultSet(mats, groups, blocks, dead, sim, rows, vehicles, mstats, convs);
+        var events = dlocks.GroupBy(x => x.Ep).Select(g => new DeadlockEvent(g.Min(x => x.T), g.Select(x => x.Link).ToList())).OrderBy(e => e.AtSec).ToList();
+        return new ResultSet(mats, groups, blocks, dead, sim, rows, vehicles, mstats, convs, events, times.Count > 0 ? times : null);
+    }
+
+    /// <summary>dlock row (code_dlock.m): vehicle, group, time, episode, x, y (metres, empty = unknown), the block it waits for (or the CP where
+    /// the vehicle it waits for stands), the blocks it holds.</summary>
+    static (double Ep, double T, DeadlockLink Link) Dlock(string[] c, int line)
+    {
+        if (c.Length < 8) throw new InvalidDataException($"result.tsv: line {line}: dlock row has {c.Length} column(s), need at least 8");
+        double Num(int i, bool opt = false)
+        {
+            if (opt && c[i].Length == 0) return double.NaN;
+            var v = D(c[i]);
+            if (double.IsNaN(v)) throw new InvalidDataException($"result.tsv: line {line}: bad number '{c[i]}'");
+            return v;
+        }
+        // a CP prints with its system ("agv:L001"); a block name has none
+        var waits = c[7].Substring(c[7].LastIndexOf(':') + 1);
+        return (Num(4), Num(3), new DeadlockLink(c[1], c[2], waits, c.Skip(8).Where(x => x.Length > 0).ToList(), Num(5, true), Num(6, true)));
     }
 
     /// <summary>Parse without throwing: false + error message ("result.tsv: ...") when the file is unreadable or invalid.</summary>

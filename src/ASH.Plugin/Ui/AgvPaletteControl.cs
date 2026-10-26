@@ -129,7 +129,7 @@ public sealed class AgvPaletteControl : UserControl
             problems.BeginUpdate();
             problems.Items.Clear();
             foreach (var r in rows)
-                problems.Items.Add(new ListViewItem(new[] { r.Kind, r.Target, r.Message }) { Tag = r, ForeColor = Theme.Error, ToolTipText = r.Message });
+                problems.Items.Add(new ListViewItem(new[] { r.Kind, r.Target, r.Message }) { Tag = r, ForeColor = r.Warning ? Theme.Warning : Theme.Error, ToolTipText = r.Message });
             problems.EndUpdate();
         };
         tabs.TabPages.Add(Page("검증·내보내기", Theme.Section("도면 준비"), Theme.Make("도면 경량화", GlyphKind.Lite, "AGVLITE"),
@@ -299,7 +299,7 @@ public sealed class AgvPaletteControl : UserControl
         PaletteStatus.Objects = items => { all = items.ToList(); loaded = true; Apply(); };
 
         var top = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, BackColor = Theme.Panel, Padding = Padding.Empty };
-        top.Controls.AddRange(new Control[] { Theme.Caption("범주"), category, Theme.Caption("이름·정보로 거르기"), text, Theme.Make("목록 새로고침", GlyphKind.Search, "AGVFIND"), count });
+        top.Controls.AddRange(new Control[] { Theme.Caption("범주"), category, Theme.Caption("이름·정보 검색"), text, Theme.Make("목록 새로고침", GlyphKind.Search, "AGVFIND"), count });
         top.Layout += (o, e) =>
         {
             int w = top.ClientSize.Width;

@@ -42,6 +42,9 @@ public static class Theme
     /// <summary>Error text (problem list).</summary>
     public static readonly Color Error = Color.FromArgb(220, 38, 38);
 
+    /// <summary>Warning text (cause findings in the problem list).</summary>
+    public static readonly Color Warning = Color.FromArgb(180, 83, 9);
+
     // this PC's layer colour changes (ash.user.tsv), read once; ReloadLayerColors re-reads them after the colour dialog
     private static IReadOnlyDictionary<string, short> _layerColors = LoadLayerColors();
 

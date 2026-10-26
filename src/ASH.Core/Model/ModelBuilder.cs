@@ -64,7 +64,10 @@ public static class ModelBuilder
         foreach (var c in l.Cps.Where(c => c.Type == "standby" && c.Group.Length > 0)) { if (!standby.ContainsKey(c.Group)) standby[c.Group] = c.Name; }
         // standby lanes too short for the group's vehicles to queue in (the queue would reach back into a junction or a block)
         warnings.AddRange(ASH.Core.Layout.StandbyQueueCheck.Check(l, input, o.Scale));
-        var info = new LayoutInfo(l.Cps.Select(c => c.Name).ToList(), l.Blocks.Select(b => b.Name).ToList(), standby);
+        // CP positions in model metres (as ArcLayout reads them back) for the deadlock rows
+        var cpm = new Dictionary<string, Point2>();
+        foreach (var c in l.Cps) { var q = o.ToModel(c.Position); cpm[c.Name] = new Point2(q.X / o.UnitsPerMeter, q.Y / o.UnitsPerMeter); }
+        var info = new LayoutInfo(l.Cps.Select(c => c.Name).ToList(), l.Blocks.Select(b => b.Name).ToList(), standby, CpMetres: cpm);
 
         var agv = Path.Combine(arc, "agv.asy");
         var sys = AsyReader.ReadFile(agv);

@@ -357,7 +357,8 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
     }
 
     public static string Job(JobInfo j, JobView? v, string tab, string logTail, (int Ahead, DateTime? Start, TimeSpan? Typical) q, bool canCancel, IReadOnlyList<ASH.Core.Analysis.AnalysisInfo>? analyses = null,
-        IReadOnlyList<FilmInfo>? films = null, string? busy = null, int parallel = 1, IReadOnlyDictionary<string, PriceRow>? prices = null)
+        IReadOnlyList<FilmInfo>? films = null, string? busy = null, int parallel = 1, IReadOnlyDictionary<string, PriceRow>? prices = null,
+        JobStore? store = null)
     {
         var sb = new StringBuilder(PollSlots);
         sb.Append("<style>").Append(JobCss).Append("</style>");
@@ -417,7 +418,7 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
             case "detail": Detail(sb, j, v); break;
             case "input": InputTab(sb, j, v); break;
             case "files": FilesTab(sb, j, logTail); break;
-            default: Summary(sb, j, v, prices, canCancel); break;
+            default: Summary(sb, j, v, prices, canCancel); if (store != null) LimitPage.Section(sb, store, j, "/jobs/" + j.Id); break;
         }
         sb.Append("</div>");
         return Page($"ASH 작업 {j.Id}", sb.ToString(), j.Finished ? null : PollScript("/api/jobs/" + j.Id, new Dictionary<string, string> { [j.Id] = j.State }), nav: "analyses");
@@ -441,7 +442,7 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
         sb.Append(Kpi("권장 AGV 총 대수", $"{total}<small>대</small>", $"시험 범위 {min}~{max}대", "blue", title: $"권장 AGV 총 {total}대"));
         sb.Append(Kpi("최대 가동률", top == null ? "-" : $"{P(top.Util)}<small>%</small>",
             top == null ? "&nbsp;" : topOver ? $"<span class=\"sym o\">⚠ 경고: 상한 {Pct(v.UtilMax)} 초과</span> · {H(top.Group)}" : $"상한 {Pct(v.UtilMax)} · {H(top.Group)}", topOver ? "wn" : ""));
-        sb.Append(Kpi("결품 시간", v.Materials.Count == 0 ? "-" : $"{F(stop, "0")}<small>초</small>", v.Materials.Count == 0 ? "&nbsp;" : stop > 0 ? "<span class=\"sym r\">▲ 결품 있음</span>" : "<span class=\"sym\" style=\"color:var(--green)\">✓ 없음</span>",
+        sb.Append(Kpi("자재 품절 시간", v.Materials.Count == 0 ? "-" : $"{F(stop, "0")}<small>초</small>", v.Materials.Count == 0 ? "&nbsp;" : stop > 0 ? "<span class=\"sym r\">▲ 자재 품절 있음</span>" : "<span class=\"sym\" style=\"color:var(--green)\">✓ 없음</span>",
             v.Materials.Count == 0 ? "" : stop > 0 ? "bad" : "ok"));
         if (prices != null)
         {
@@ -486,7 +487,7 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
         }
         if (v.Materials.Count > 0)
         {
-            sb.Append("<div class=\"box\"><h2>자재별 리드타임·재고</h2><div class=\"scroll\"><table class=\"sort\"><thead><tr>").Append(Th("자재")).Append(Th("그룹")).Append(Th("공급/기대(회)")).Append(Th("결품 시간(초)"))
+            sb.Append("<div class=\"box\"><h2>자재별 리드타임·재고</h2><div class=\"scroll\"><table class=\"sort\"><thead><tr>").Append(Th("자재")).Append(Th("그룹")).Append(Th("공급/기대(회)")).Append(Th("자재 품절 시간(초)"))
               .Append(Th("호출→상차 평균/최대(초)")).Append(Th("호출→하차 평균/최대(초)")).Append(Th("재고 평균(용기)")).Append(Th("표준편차(용기)")).Append(Th("최소(용기)")).Append(Th("최대(용기)")).Append(Th("주의")).Append("</tr></thead><tbody>");
             foreach (var m in v.Materials)
                 sb.Append($"<tr><td>{H(MatLabel(v, m))}</td><td>{H(m.Group)}</td><td class=\"num\">{F(m.Supplies, "0.#")} / {F(m.Expected, "0.#")}</td><td class=\"num\">{F(m.StopSec, "0")}</td>" +
@@ -784,7 +785,7 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
         sb.Append("<div class=\"scroll\"><table class=\"sort\"><thead><tr>").Append(Th("실행"));
         foreach (var g in gs) sb.Append(Th(H(g.Group) + " 대수(대)"));
         sb.Append(Th("시드")).Append(Th("반복(회차)")).Append(Th("그룹")).Append(Th("판정")).Append(Th("가동률(%)")).Append(Th("최소 재고/안전재고(배)")).Append(Th("공급(회)"))
-          .Append(Th("기대 공급(회)")).Append(Th("결품 시간(초)")).Append(Th("교착(회)")).Append(Th("실행 시간(초)")).Append("<th>모델</th></tr></thead><tbody>");
+          .Append(Th("기대 공급(회)")).Append(Th("자재 품절 시간(초)")).Append(Th("교착(회)")).Append(Th("실행 시간(초)")).Append("<th>모델</th></tr></thead><tbody>");
         foreach (var r in v.Rows.Take(1000))
         {
             // the id spells out every group's count, which the columns after it already show; keep only the tail (seed, flags) and put the full id in the tooltip
@@ -813,7 +814,7 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
     /// <summary>The material's name in result tables, with "(반출)" for an Output flow.</summary>
     internal static string MatLabel(JobView v, MaterialView m) => IsOutput(v, m) ? m.Name + " (반출)" : m.Name;
     internal static bool AnyOutput(JobView v) => v.Input?.Materials.Any(m => m.IsOutput) == true;
-    internal const string OutputNote = "(반출) = Output 자재: 공급은 빈 용기를 가져다주고 풀 용기를 반출한 횟수, 결품은 빈 용기가 떨어져 생산이 멈춘 시간";
+    internal const string OutputNote = "(반출) = Output 자재: 공급은 빈 용기를 가져다주고 풀 용기를 반출한 횟수, 자재 품절은 빈 용기가 떨어져 생산이 멈춘 시간";
 
     internal static double PerContainer(JobView v, MaterialView m) => v.Input?.Materials.FirstOrDefault(x => x.Material == m.Name)?.UnitsPerContainer ?? double.NaN;
 

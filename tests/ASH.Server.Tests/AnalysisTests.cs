@@ -353,7 +353,7 @@ public class AnalysisPageTests
         var compare = html[html.IndexOf("버전 비교", StringComparison.Ordinal)..];
         compare = compare[..compare.IndexOf("</table>", StringComparison.Ordinal)];
         Assert.Contains("B안", compare); Assert.Contains("A안", compare);
-        Assert.Contains("G1 권장(대)", compare); Assert.Contains("교착(회)", compare); Assert.Contains("결품 합계(초)", compare);
+        Assert.Contains("G1 권장(대)", compare); Assert.Contains("교착(회)", compare); Assert.Contains("자재 품절 합계(초)", compare);
         Assert.Contains("<td class=\"num\">2", compare); // G1 recommended 2
         // the form returns to the analysis page
         var r = await env.Http.SendAsync(new HttpRequestMessage(HttpMethod.Post, $"/jobs/{id2}/select") { Content = new FormUrlEncodedContent(new[] { new KeyValuePair<string, string>("on", "0"), new KeyValuePair<string, string>("back", "/analyses/" + a.Id) }), Headers = { { "Origin", Ok } } });

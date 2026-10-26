@@ -533,7 +533,7 @@ function move(i,d){moveTo(i,i+d);}
 function del(i){var next=cuts.slice(),c=next.splice(i,1)[0];commit(next,function(){if(c.id===editId)cancelEdit();});}
 
 // ---- scene candidates (scenes.json from the conclusion run; other counts on request)
-var KINDS=['Stockout','DelaySpike','Bottleneck','Whole'],KL={Stockout:'결품',DelaySpike:'지연 급증',Bottleneck:'병목',Whole:'전체'};
+var KINDS=['Stockout','DelaySpike','Bottleneck','Whole'],KL={Stockout:'자재 품절',DelaySpike:'지연 급증',Bottleneck:'병목',Whole:'전체'};
 function g(o,k){return o[k]!==undefined?o[k]:o[k.charAt(0).toUpperCase()+k.slice(1)];}
 function scenesUrl(){return '/api/jobs/'+enc(D.job)+'/scenes?delta='+$('sd').value;}
 function loadScenes(){clearTimeout(pollT);var box=$('scenes'),d=+$('sd').value;box.textContent='불러오는 중…';

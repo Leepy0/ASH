@@ -144,7 +144,8 @@ public static class BlockGenerator
         return new Rect2(new Point2(a.Min(q => q.X), a.Min(q => q.Y)), new Point2(a.Max(q => q.X), a.Max(q => q.Y)));
     }
 
-    private static List<List<string>> OverlapGroups(List<LayoutBlock> bs, double minGap)
+    // also DeadlockRisk.Fix: blocks of a lock cycle with no room between them
+    internal static List<List<string>> OverlapGroups(List<LayoutBlock> bs, double minGap)
     {
         var parent = Enumerable.Range(0, bs.Count).ToArray();
         int Find(int x) { while (parent[x] != x) x = parent[x] = parent[parent[x]]; return x; }

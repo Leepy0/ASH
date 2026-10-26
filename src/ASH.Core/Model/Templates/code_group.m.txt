@@ -2,6 +2,10 @@
 begin {{SYS}}.{{TYPE}} vehicle initialization procedure
 	inc V_vehCount({{G}}) by 1
 	set theVehicle A_index to V_vehCount({{G}})
+	/* the model-wide vehicle number and the group: the deadlock watchdog (code_dlock.m) and the block claimed function (code_tsplit) */
+	set theVehicle A_vid to V_vehCount({{G}}) + {{VID_OFFSET}}
+	set theVehicle A_grp to {{G}}
+	set V_dlVeh(theVehicle A_vid) to theVehicle
 	/* stop {{STOP_M}} m before the vehicle ahead (feet, as the syntax help writes it): with a defined stop distance AutoMod works the brake distance out from speed and deceleration */
 	set theVehicle defined stop distance to {{STOP_FT}} ft
 	return true

@@ -62,7 +62,7 @@ document.querySelectorAll('a[data-me]').forEach(function(a){
         sb.Append($"<div class=\"head\"><h1>{(v.Me ? "내 작업" : "전체 작업")}</h1><nav class=\"segc\" aria-label=\"보기\">" +
             $"<a href=\"/?me=1{H(tagQuery)}\" data-me=\"1\"{(v.Me ? " class=\"on\" aria-current=\"true\"" : "")}>내 것</a>" +
             $"<a href=\"/?me=0{H(tagQuery)}\" data-me=\"0\"{(v.Me ? "" : " class=\"on\" aria-current=\"true\"")}>전체</a></nav>").Append(SaveScript);
-        sb.Append($"<span class=\"sp\"></span><form class=\"tagf\"><input type=\"hidden\" name=\"me\" value=\"{(v.Me ? 1 : 0)}\">{tagFilter}<button>거르기</button></form></div>");
+        sb.Append($"<span class=\"sp\"></span><form class=\"tagf\"><input type=\"hidden\" name=\"me\" value=\"{(v.Me ? 1 : 0)}\">{tagFilter}<button>검색</button></form></div>");
         sb.Append("<div class=\"lanes\">");
 
         // 1. 진행: the running job (or film) and the queue
@@ -94,7 +94,7 @@ document.querySelectorAll('a[data-me]').forEach(function(a){
             sb.Append($"<div class=\"card{(i == 0 ? " hot" : "")}\"><a class=\"t2\" href=\"/analyses/{H(c.AnalysisId)}\">{H(c.Name)}</a><div class=\"t4\">{H(c.Plan)} v{c.Version} · {Md(c.FinishedUtc)}</div>" +
                 $"<div class=\"t1\">{c.Total}<small>대</small></div><div class=\"t4\">권장 대수</div><div class=\"grp\">" +
                 $"<div{(over ? " class=\"wn\"" : "")}{(double.IsNaN(c.UtilMax) ? "" : $" title=\"{(over ? "경고: 가동률 상한" : "상한")} {Pct(c.UtilMax)}{(over ? " 초과" : "")}\"")}><b>{(over ? "⚠ " : "")}{Pct(double.IsNaN(c.Util) ? null : c.Util)}</b><small>최대 가동률</small></div>" +
-                $"<div{(stop ? " class=\"bad\"" : "")}><b>{(stop ? "▲ " : "")}{(double.IsNaN(c.Stop) ? "-" : F(c.Stop, "0") + "초")}</b><small>결품</small></div>" +
+                $"<div{(stop ? " class=\"bad\"" : "")}><b>{(stop ? "▲ " : "")}{(double.IsNaN(c.Stop) ? "-" : F(c.Stop, "0") + "초")}</b><small>자재 품절</small></div>" +
                 $"<div><b>{H(c.Block ?? "-")}</b><small>병목</small></div></div>" +
                 $"<div class=\"acts\"><a class=\"btn\" href=\"/analyses/{H(c.AnalysisId)}\">결론 보기</a><a class=\"btn pri\" href=\"/analyses/{H(c.AnalysisId)}/cuts?job={H(c.JobId)}\">영상 만들기</a></div></div>");
         }

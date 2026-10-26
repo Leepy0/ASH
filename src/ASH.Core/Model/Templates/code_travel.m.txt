@@ -1,0 +1,6 @@
+	/* a run outside the legs (to the pickup, home) measured for the time split like a leg */
+	set A_d0 to A_veh total distance traveled
+	set V_vT(A_vid) to 1
+	travel to {{SYS}}:{{TO}}
+	set V_vT(A_vid) to 0
+	inc A_jf by (A_veh total distance traveled - A_d0) / {{VEL}}

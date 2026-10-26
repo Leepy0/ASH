@@ -147,8 +147,8 @@ public class LogicGeneratorTests
         Assert.Contains("set A_hold to 0\n\tset A_bw to 0\n\tset A_ld to 0\n\tset A_dn to 0\n", s); // reset per job
         // loaded legs: buffer, unload, the empty container to ReturnTo (not the run to ReturnFrom)
         Assert.Equal(3, Regex.Matches(s, @"inc A_ld by ac - A_t0").Count);
-        Assert.Matches(@"travel to agv:U001\n\tset V_inLeg\(1\) to 0\n\tinc A_ld by ac - A_t0\n", s);
-        Assert.Matches(@"travel to agv:U001\n\tset V_inLeg\(3\) to 0\n\t/\*", s);
+        Assert.Matches(@"travel to agv:U001\n\tset V_vT\(A_vid\) to 0\n\tset V_inLeg\(1\) to 0\n\tinc A_ld by ac - A_t0\n", s);
+        Assert.Matches(@"travel to agv:U001\n\tset V_vT\(A_vid\) to 0\n\tset V_inLeg\(3\) to 0\n\t/\*", s);
         // the whole buffer wait (A_bw) next to the part left out (A_hold)
         Assert.Contains("\tset A_bw to ac\n\tset A_hold to ac\n\twhile V_stock(1) > V_unload(1) do begin", s);
         Assert.Contains("\tif A_hold < 0 then set A_hold to 0\n\tset A_bw to ac - A_bw\n", s);
@@ -167,7 +167,10 @@ public class LogicGeneratorTests
         Assert.Matches(@"travel to agv:S001\n(?:(?!inc A_dn)[\s\S])*?wait for A_rep - ac sec", s);
 
         var pm = LogicGenerator.BuildProcessModel(p, Layout, "Meters");
-        foreach (var v in new[] { "V_vLoad", "V_vHand", "V_vBufB", "V_vBufX", "V_vRep" }) Assert.Contains(pm.Vars, x => x.Name == v && x.Type == "Real");
+        // per-vehicle reals are packed into V_vR (trial licence: 200 entities); V_vLoad is the 5th block of vs = 3 slots
+        Assert.Contains(pm.Vars, x => x.Name == "V_vR" && x.Type == "Real");
+        Assert.DoesNotContain(pm.Vars, x => x.Name == "V_vLoad");
+        Assert.Contains("V_vR(12 + (1))", pm.LogicSource);
         foreach (var a in new[] { "A_bw", "A_ld", "A_dn" }) Assert.Contains(pm.Atts, x => x.Name == a);
     }
 
@@ -217,12 +220,28 @@ public class LogicGeneratorTests
         Assert.Contains("if V_vNextFail(A_vid) >= V_warmup then inc V_vDown(A_vid) by A_rep", t);
         Assert.Contains("if ac >= V_warmup then inc V_vDown(A_vid) by A_rep", t);
         // empty to the pickup and after the unload, loaded speed in between and before the load leaves
-        Assert.Contains("set A_veh defined velocity to 1.5\n\ttravel to agv:L001", t);
+        Assert.Contains("set A_veh defined velocity to 1.5\n\t/* a run outside the legs", t);
+        Assert.Matches(@"set V_vT\(A_vid\) to 1\n\ttravel to agv:L001\n", t);
+        // time split: empty runs at free speed 1.5, loaded legs at 1; one tsplit row per group, its sampler started at init
+        Assert.Contains("travel to agv:L001\n\tset V_vT(A_vid) to 0\n\tinc A_jf by (A_veh total distance traveled - A_d0) / 1.5\n", t);
+        Assert.Matches(@"agv:U001\n(.*\n){9}\tinc A_jf by \(A_veh total distance traveled - A_d0\) / 1\n", t);
+        Assert.Contains("print \"tsplit\\tG1\\tG1\\t\" V_gT(1) \"\\t\" V_gT(2) \"\\t\" V_gT(3) \"\\t\" V_gT(4) \"\\t\" V_gT(5) \"\\t\" V_gT(6) to V_out", t);
+        Assert.Contains("inc V_gT(4) by V_vT(A_vid + 3) - A_js0", t); // standing of G1, vehicles 1..3
+        // two groups, 5 vehicles: V_gT(k x 2 + group), block claims from k = 6 on (B2: k = 7); G2's turning sum = 5 x 2 + 2
+        var t2 = LogicGenerator.Render(TwoGroups(), Layout2 with { BlockNames = new[] { "B1", "B2" } });
+        Assert.Contains("if theBlock = B2 then inc V_gT(V_tmp + 14) by 1", t2);
+        Assert.Contains("if V_gT(16) > 0 then print \"tblock\\tB2\\tG2\\t\" V_gT(16) to V_out", t2);
+        Assert.Contains("inc V_gT(12) by V_vT(A_vid + 10) - A_jt0", t2);
+        Assert.Contains("set theVehicle A_vid to V_vehCount(2) + 3\n\tset theVehicle A_grp to 2", t2);
+        Assert.Contains("create 1 load of type L_ctl to P_tsplit", t);
+        Assert.Contains("while V_i <= 3 do begin", t);
+        Assert.Contains("begin agv block claimed function", t);
+        Assert.Contains("set theVehicle A_vid to V_vehCount(1) + 0", t);
         Assert.Contains("set A_veh defined velocity to specification\n\tif ac >= V_warmup then begin\n\t\ttabulate ac - A_tCall in T_pick_1", t);
         Assert.Contains("V_vDown(1) \"\\t\" V_vLoad(1) \"\\t\" V_vHand(1) \"\\t\" V_vBufB(1) \"\\t\" V_vBufX(1) \"\\t\" V_vRep(1) to V_out", t);
         var pm = LogicGenerator.BuildProcessModel(p, Layout, "Meters");
         Assert.Equal("RS_fail", Assert.Single(pm.RnStreams).Name);
-        Assert.Contains(pm.Vars, v => v.Name == "V_vDown");
+        Assert.Contains(pm.Vars, v => v.Name == "V_vR"); // V_vDown packed
     }
 
     [Fact]
@@ -255,6 +274,14 @@ public class LogicGeneratorTests
         Assert.Contains("travel to agv:U001", t);
         var bad = Sample(); bad.Routes[0] = bad.Routes[0] with { SupplyToCP = "X999" };
         Assert.Throws<ArgumentException>(() => LogicGenerator.Render(bad, Layout));
+    }
+
+    [Fact]
+    public void Pack_Folds_Scalars_And_Arrays_With_Offsets()
+    {
+        var map = new Dictionary<string, (string, int)> { ["V_dlJ"] = ("V_dlI(1)", -1), ["V_dlE"] = ("V_dlA", 6), ["V_vT"] = ("V_vR", 27) };
+        Assert.Equal("set V_dlA(6 + (V_dlI(1))) to V_vR(27 + (V_dlI(1) + 3)) /* V_dlA */ V_dlJx",
+            LogicGenerator.Pack("set V_dlE(V_dlJ) to V_vT(V_dlJ + 3) /* V_dlE */ V_dlJx", map));
     }
 
     [Fact]

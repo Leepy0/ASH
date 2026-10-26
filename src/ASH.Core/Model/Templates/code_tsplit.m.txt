@@ -1,0 +1,31 @@
+/* time split. Few entities (the trial licence counts them), so one array per kind: V_vT(vid) = 1 while the vehicle drives a measured run,
+   V_vT(vid + {{NV}}) = its standing s, V_vT(vid + {{NV2}}) = its turning s; V_gT holds the group sums and the block claims (LogicGenerator).
+   Every second, a vehicle inside a measured run that stands still adds a second of standing; turning on the spot is driving the route
+   needs, not standing (AutoMod's percent time in motion counts it as motion). V_i is free here: no wait inside the loop */
+begin P_tsplit arriving procedure
+	while 1 = 1 do begin
+		wait for 1 sec
+		set V_i to 1
+		while V_i <= {{NV}} do begin
+			if V_vT(V_i) = 1 then begin
+				if V_dlVeh(V_i) current velocity < 0.000001 then begin
+					if V_dlVeh(V_i) current rotation velocity < 0.000001 then inc V_vT(V_i + {{NV}}) by 1
+					else inc V_vT(V_i + {{NV2}}) by 1
+				end
+			end
+			inc V_i by 1
+		end
+	end
+end
+
+/* block claims per group in measured runs after warmup: with AutoMod's average wait per claim of each block they give the group's block
+   waits. A standing that ends in a claim is no measure: a vehicle queued behind a taken CP claims the block behind it at the same moment */
+begin {{SYS}} block claimed function
+	if V_vT(theVehicle A_vid) = 1 then begin
+		if ac >= V_warmup then begin
+			set V_tmp to theVehicle A_grp
+{{BLOCK_CLAIMS}}
+		end
+	end
+	return true
+end

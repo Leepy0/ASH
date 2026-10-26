@@ -124,6 +124,7 @@ public class ModelRunIntegrationTests
         Assert.True(V(blk, 1) > 0, "block passes"); // first real check of the 1x1 block template geometry
         Assert.Equal(3600, V(run.Rows.Single(x => x[0] == "clock"), 2), 3);
         Assert.Equal(0, V(run.Rows.Single(x => x[0] == "deadlock"), 1));
+        Assert.DoesNotContain(run.Rows, x => x[0] == "dlock"); // the watchdog runs (one block) and finds nothing
         Assert.DoesNotContain(run.Rows, x => x[0] == "blockgroup");
         var veh = run.Rows.Where(x => x[0] == "vehicle").ToList();
         Assert.Equal(3, veh.Count);
@@ -185,6 +186,39 @@ public class ModelRunIntegrationTests
         }
         var kpi = Kpi.FromRun(rs, null, input).Single();
         Assert.Equal(kpi.Utilization, active.Sum(x => x.Split!.Busy) / active.Sum(x => x.Split!.Window), 9); // busy share = the reported utilization
+        Cleanup(run.Work);
+    }
+
+    // the per-group time split (tsplit row) behind "why is it slow": one job = free-speed driving + standing (block / queue) + handling + the rest;
+    // three vehicles on the small loop with a short takt so they get in each other's way; topBlock: one capacity-1 block over the whole top side
+    // (buffer and unload CP inside), so vehicles wait at its edge for the one inside
+    [SkippableTheory]
+    [InlineData(false, "Meters")]
+    [InlineData(true, "Meters")]
+    [InlineData(true, "Millimeters")]
+    public void Time_Breakdown_Per_Group_Adds_Up_On_A_Congested_Loop(bool topBlock, string units)
+    {
+        Skip.If(AmHome is null, "ASH_AM_HOME not set");
+        var input = LogicGeneratorTests.Sample(takt: 15);
+        var run = BuildAndRun(input, new Dictionary<string, int> { ["G1"] = 3 }, units: units, layoutExtra: topBlock
+            ? l => l.Blocks.Add(new ASH.Core.Layout.LayoutBlock { Name = "B_top", Cap = 1, Rect = new Rect2(new Point2(-1, 9), new Point2(11, 11)) }) : null);
+        var rs = ResultParser.Parse(run.ResultTsvPath);
+        var b = Assert.Single(ASH.Core.Cause.TimeLossCauses.Breakdown(new ASH.Core.Cause.CauseContext(new ASH.Core.Layout.Layout(), input, rs)));
+        var t = rs.GroupTimes!.Single();
+        Console.WriteLine($"{b.Group}: {b.Jobs} jobs, job {b.JobSec:0.0} s = pure {b.PureSec:0.0} + block {b.BlockWaitSec:0.0} + queue {b.QueueSec:0.0} + handling {b.HandlingSec:0.0} + other {b.OtherSec:0.0}; " +
+                          $"raw: free {t.FreeSec / t.Jobs:0.0} turn {t.TurnSec / t.Jobs:0.0} standing {t.StopSec / t.Jobs:0.0}; claims {string.Join(" ", t.BlockClaims.Select(x => x.Key + " " + x.Value))}; " +
+                          string.Join(", ", rs.Blocks.Select(x => $"{x.Name} {x.Passes} x {x.AvgWaitSec:0.0} s")));
+        var active = rs.Vehicles!.Where(x => x.Index <= 3).ToList();
+        Assert.Equal(active.Sum(x => x.Jobs), b.Jobs);
+        Assert.Equal(b.JobSec, b.PureSec + b.BlockWaitSec + b.QueueSec + b.HandlingSec + b.OtherSec, 6);
+        Assert.Equal(20, b.HandlingSec, 6); // load 10 + unload 10
+        Assert.True(b.PureSec > 0 && b.BlockWaitSec >= 0 && b.QueueSec >= 0 && b.OtherSec >= 0, "every part in range");
+        Assert.True(b.PureSec <= b.JobSec - b.HandlingSec, "free speed is never slower than the actual runs");
+        Assert.True(t.BlockClaims["B_x1"] >= b.Jobs, "every job passes the corner block");
+        // free-speed time x speed (1 m/s) = the distance driven per job (no Finish CP: the run home is part of the job, no retrieving runs)
+        double perMetre = units == "Millimeters" ? 1000 : 1;
+        Assert.Equal(active.Sum(x => x.Distance) / perMetre / b.Jobs, t.FreeSec / t.Jobs, 1);
+        if (topBlock) Assert.True(b.BlockWaitSec > 10, "the vehicles wait at the edge of the top block");
         Cleanup(run.Work);
     }
 

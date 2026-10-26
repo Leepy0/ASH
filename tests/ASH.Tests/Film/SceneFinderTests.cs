@@ -19,7 +19,7 @@ public class SceneFinderTests
     public void Stockout_Window_With_Margin_At_Unload_Cp()
     {
         var s = Find(Ev(1200, "stockout", "M004", "", 0), Ev(2100, "stockin", "M004", "", 900)).Single(c => c.Kind == SceneKind.Stockout);
-        Assert.Equal("결품: M004", s.Title);
+        Assert.Equal("자재 품절: M004", s.Title);
         Assert.Equal(1140, s.StartSec); Assert.Equal(2160, s.EndSec);
         Assert.Equal((10, 30), (s.CenterX, s.CenterY));
         Assert.Equal(900, s.Severity);

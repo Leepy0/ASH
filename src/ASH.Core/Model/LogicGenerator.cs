@@ -4,13 +4,15 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using ASH.Core.Asy;
+using ASH.Core.Geometry;
 using ASH.Core.Input;
 
 namespace ASH.Core.Model;
 
-/// <summary>StandbyCpByGroup is the fallback standby CP for a group whose AgvGroup.StandbyCPs is empty.</summary>
+/// <summary>StandbyCpByGroup is the fallback standby CP for a group whose AgvGroup.StandbyCPs is empty.
+/// CpMetres = CP positions in model metres (like ArcLayout), for the dlock rows; null = positions left empty.</summary>
 public sealed record LayoutInfo(IReadOnlyList<string> CpNames, IReadOnlyList<string> BlockNames,
-    IReadOnlyDictionary<string, string> StandbyCpByGroup, string AgvSystemName = "agv");
+    IReadOnlyDictionary<string, string> StandbyCpByGroup, string AgvSystemName = "agv", IReadOnlyDictionary<string, Point2>? CpMetres = null);
 
 /// <summary>Seeding: params.txt seeds the init stocks; breakdowns (MTBF/MTTR) draw from RS_fail, whose seed is fixed at build time, so the
 /// logic skips (seed % 100) x 5000 samples at start and each replication gets its own stretch of the stream.</summary>
@@ -85,12 +87,17 @@ public static class LogicGenerator
             int gi = i + 1;
             var parkOk = string.Join("\n", StandbyOf(g, layout).Select(cp => $"\tif parkLoc = {sys}:{cp} then return true"));
             groupLogic.Append(Fill(Res("code_group.m.txt"), ("G", gi.ToString()), ("TYPE", Lit(g.Group)), ("SYS", sys), ("PARK_OK", parkOk),
+                ("VID_OFFSET", input.Groups.Take(i).Sum(x => x.MaxCount).ToString()),
                 ("STOP_M", ASH.Core.Export.LayoutExporter.StopGapM.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)),
                 ("STOP_FT", (ASH.Core.Export.LayoutExporter.StopGapM / 0.3048).ToString("0.####", System.Globalization.CultureInfo.InvariantCulture))));
             // value1 = the requested active count; Max - parked would count never-woken vehicles as active
             snap.Append($"\tprint \"group\\t{Lit(g.Group)}\\t{g.Group}\\t\" V_active({gi}) \"\\t0\\t0\\t0\\t0\\t0\\t0\\t0\" to V_out\n");
         }
 
+        // time split arrays (code_tsplit.m): V_vT = run flag | standing s | turning s per vehicle (nv each); V_gT(k * ng + g) = group sums
+        // k = 0 jobs, 1 job s, 2 free-speed s, 3 standing s, 4 load/unload/extra s, 5 turning s, then 6 + block index = block claims
+        int nv = input.Groups.Sum(x => x.MaxCount), ng = input.Groups.Count;
+        int GT(int k, int g) => k * ng + g;
         int nm = input.Materials.Count;
         var matLogic = new StringBuilder();
         var create = new StringBuilder();
@@ -110,10 +117,13 @@ public static class LogicGenerator
             bool speeds = t.SpeedEmpty > 0 && t.SpeedEmpty != t.SpeedLoaded;
             string emptySpeed = speeds ? $"\tset A_veh defined velocity to {N(t.SpeedEmpty * unitsPerMeter)}" : "";
             string loadedSpeed = speeds ? "\tset A_veh defined velocity to specification" : "";
+            // free speed of a run for the time split, model units/s: loaded legs at the loaded speed, empty ones at SpeedEmpty (when set)
+            string Vel(bool loaded) => N((loaded || t.SpeedEmpty <= 0 ? t.SpeedLoaded : t.SpeedEmpty) * unitsPerMeter);
+            string Travel(string to) => Fill(Res("code_travel.m.txt"), ("SYS", sys), ("TO", Cp(layout, to)), ("VEL", Vel(false))).TrimEnd('\n');
             // leg slot = mi for supply legs, mi + nm for return legs (a return can overlap the next supply of the same material)
             // loaded: the leg carries the supply or the empty container (A_ld = the job's loaded driving time)
             string Leg(string to, int slot, bool loaded = false) => Fill(Res("code_leg.m.txt"), ("M", mi.ToString()), ("SLOT", slot.ToString()), ("SYS", sys),
-                ("TO", Cp(layout, to)), ("NAME", Lit(m.Material)), ("FAIL", Fail("ac")), ("LOADED", loaded ? "\tinc A_ld by ac - A_t0\n" : ""));
+                ("TO", Cp(layout, to)), ("NAME", Lit(m.Material)), ("FAIL", Fail("ac")), ("LOADED", loaded ? "\tinc A_ld by ac - A_t0\n" : ""), ("VEL", Vel(loaded)));
             var legs = new StringBuilder();
             if (!string.IsNullOrEmpty(r.BufferCP))
             {
@@ -151,12 +161,17 @@ public static class LogicGenerator
                 + (m.EmptyReturn && !string.IsNullOrEmpty(r.ReturnToCP) ? t.UnloadTime : 0);
             matLogic.Append(Fill(Res("code_material.m.txt"), ("M", mi.ToString()), ("NAME", Lit(m.Material)), ("SYS", sys),
                 ("SET_TYPE", $"\tset load type to L_m{mi}"), ("EMPTY_TYPE", emptyType),
-                ("G", GroupIndex(input, m.Group).ToString()),
+                ("G", GroupIndex(input, m.Group).ToString()), ("NV", nv.ToString()), ("NV2", (2 * nv).ToString()),
+                ("GT_JOBS", GT(0, GroupIndex(input, m.Group)).ToString()), ("GT_JOB", GT(1, GroupIndex(input, m.Group)).ToString()),
+                ("GT_FREE", GT(2, GroupIndex(input, m.Group)).ToString()), ("GT_STOP", GT(3, GroupIndex(input, m.Group)).ToString()),
+                ("GT_HAND", GT(4, GroupIndex(input, m.Group)).ToString()), ("GT_TURN", GT(5, GroupIndex(input, m.Group)).ToString()),
                 ("FROM", Cp(layout, r.SupplyFromCP)), ("TO_CP", Cp(layout, r.SupplyToCP)), ("LOAD_TIME", N(t.LoadTime)), ("UNLOAD_TIME", N(t.UnloadTime)),
                 ("SUPPLY_LEGS", legs.ToString().TrimEnd('\n')), ("RETURN_LEGS", ret.ToString().TrimEnd('\n')),
                 ("FINISH", finish.TrimEnd('\n')), ("FINISH_AT_HOME", finishAtHome), ("HOME", home), ("VID_OFFSET", vidOffset.ToString()),
                 ("CAPACITY", Math.Max(1, t.Capacity).ToString()), ("FAIL_IDLE", Fail("V_vNextFail(A_vid)")), ("FAIL_LEG", Fail("ac")),
                 ("FAIL_HOME", Fail("ac", string.IsNullOrEmpty(g.FinishCP))), ("HANDLE", N(handle)),
+                // the run home is part of the job only without a Finish CP (busy ends there)
+                ("PICK_TRAVEL", Travel(r.SupplyFromCP)), ("HOME_TRAVEL", finishAtHome.Length > 0 ? Travel(home) : $"\ttravel to {sys}:{home}"),
                 ("EMPTY_SPEED", emptySpeed), ("LOADED_SPEED", loadedSpeed), ("AFTER_UNLOAD_SPEED", carriesOn ? "" : emptySpeed),
                 ("AFTER_UNLOAD_HIDE", carriesOn ? "" : Hide.TrimEnd('\n')), ("SPEC_SPEED", loadedSpeed),
                 // a conveyor-fed material is consumed by the products passing its use point (code_conv.m), not by this clock
@@ -191,6 +206,19 @@ public static class LogicGenerator
                 if (gt != null && gt.MTBF > 0 && gt.MTTR > 0) failInit.Append($"\tset V_vNextFail({vid}) to rn RS_fail e {N(gt.MTBF)}\n");
             }
         }
+        // time split per group (code_material, code_leg, code_tsplit), sums over the jobs after warmup: jobs, job s, free-speed s, standing s,
+        // load/unload/extra s, turning on the spot s; then a tblock row per block and group it claimed in measured runs (value1 = claims)
+        // (V_tmp = the claiming vehicle's group)
+        var claims = string.Join("\n", layout.BlockNames.Select((b, k) => $"\t\t\tif theBlock = {b} then inc V_gT(V_tmp + {GT(6 + k, 0)}) by 1"));
+        matLogic.Append(Fill(Res("code_tsplit.m.txt"), ("NV", nv.ToString()), ("NV2", (2 * nv).ToString()), ("SYS", sys), ("BLOCK_CLAIMS", claims)));
+        create.Append("\tcreate 1 load of type L_ctl to P_tsplit\n");
+        for (int i = 1; i <= ng; i++)
+        {
+            var g = Lit(input.Groups[i - 1].Group);
+            snap.Append($"\tprint \"tsplit\\t{g}\\t{g}\\t\" V_gT({GT(0, i)}) \"\\t\" V_gT({GT(1, i)}) \"\\t\" V_gT({GT(2, i)}) \"\\t\" V_gT({GT(3, i)}) \"\\t\" V_gT({GT(4, i)}) \"\\t\" V_gT({GT(5, i)}) to V_out\n");
+            for (int k = 0; k < layout.BlockNames.Count; k++)
+                snap.Append($"\tif V_gT({GT(6 + k, i)}) > 0 then print \"tblock\\t{Lit(layout.BlockNames[k])}\\t{g}\\t\" V_gT({GT(6 + k, i)}) to V_out\n");
+        }
         if (failInit.Length > 0)
             failInit.Insert(0, "\t/* RS_fail is seeded at build time: skipping a seed-dependent stretch of it gives each replication its own breakdowns */\n" +
                                "\tset V_i to (V_seed % 100) * 5000\n\twhile V_i > 0 do begin\n\t\tset V_x to RS_fail sample real\n\t\tdec V_i by 1\n\tend\n");
@@ -203,6 +231,12 @@ public static class LogicGenerator
         }
         foreach (var b in layout.BlockNames)
             snap.Append($"\tprint \"block\\t{Lit(b)}\\t\\t\" {b} total \"\\t\" {b} average waiting time \"\\t0\\t\" {b} utilization \"\\t0\\t0\\t0\\t0\" to V_out\n");
+        if (layout.BlockNames.Count > 0)
+        {
+            matLogic.Append(Dlock(input, layout, sys));
+            create.Append("\tcreate 1 load of type L_ctl to P_dlock\n");
+            snap.Append("\tset V_dlJ to 1\n\twhile V_dlJ <= V_dlN do begin\n\t\tprint V_dlRow(V_dlJ) to V_out\n\t\tinc V_dlJ by 1\n\tend\n");
+        }
         // conveyors (code_conv.m): each Conveyors row runs its own product line on the conveyor system, the first product at once;
         // row: products passed the end, seconds stopped at the use point for want of stock, seconds a product waited at the full entry (all after warmup)
         for (int k = 1; k <= input.Conveyors.Count; k++)
@@ -211,7 +245,7 @@ public static class LogicGenerator
             int mi = input.Materials.FindIndex(x => x.Material == c.Material) + 1;
             if (mi == 0) throw new ArgumentException($"컨베이어 '{c.Conveyor}'의 자재 '{c.Material}'이(가) Materials에 없습니다.");
             matLogic.Append(Fill(Res("code_conv.m.txt"), ("K", k.ToString()), ("CV", Lit(c.Conveyor)), ("M", mi.ToString()), ("NAME", Lit(c.Material)),
-                ("SYS", ConveyorAsyWriter.SystemName), ("TAKT", N(c.ProductTakt))));
+                ("SYS", ConveyorAsyWriter.SystemName)));
             create.Append($"\tcreate 1 load of type L_prod to P_cv_{k}\n");
             foreach (var (on, since, sum) in new[] { ("V_cvWait", "V_cvSince", "V_cvStop"), ("V_cvBlk", "V_cvT0", "V_cvLate") })
                 snap.Append($"\tif {on}({k}) = 1 then begin\n\t\tif {since}({k}) < V_warmup then set {since}({k}) to V_warmup\n" +
@@ -222,6 +256,98 @@ public static class LogicGenerator
         return Fill(Res("code.m.txt"), ("GROUP_COUNT", input.Groups.Count.ToString()), ("MATERIAL_COUNT", input.Materials.Count.ToString()),
             ("CREATE_CONSUMERS", create.ToString().TrimEnd('\n')), ("GROUP_LOGIC", groupLogic.ToString()), ("MATERIAL_LOGIC", matLogic.ToString()),
             ("SNAP_ROWS", snap.ToString().TrimEnd('\n')), ("FAIL_INIT", failInit.ToString().TrimEnd('\n')));
+    }
+
+    // Every AutoMod variable is an entity, and the trial licence stops at 200 (process and movement systems together): the templates keep readable
+    // names, and Pack folds the watchdog's scalars and arrays and the per-vehicle / time-split real arrays into a few arrays (BuildProcessModel declares those).
+    static readonly string[] DlInts = { "V_dlJ", "V_dlK", "V_dlU", "V_dlM", "V_dlN", "V_dlAny", "V_dlNew", "V_dlOld", "V_dlEp", "V_dlXy" };
+    static readonly string[] DlReals = { "V_dlX", "V_dlY", "V_dlT" };
+    static readonly string[] DlIntArrays = { "V_dlS", "V_dlW", "V_dlE", "V_dlC", "V_dlP", "V_dlOn" };
+    static readonly string[] DlStrArrays = { "V_dlName", "V_dlGrp", "V_dlKey", "V_dlKey2" };
+    /// <summary>Per-vehicle reals (vs each) and then V_vT (3 × vs) and V_gT (GtSize), all in V_vR.</summary>
+    static readonly string[] VehReals = { "V_vBusy", "V_vDist", "V_vNextFail", "V_vDown", "V_vLoad", "V_vHand", "V_vBufB", "V_vBufX", "V_vRep" };
+
+    static int GtSize(ProjectInput input, LayoutInfo layout) => Math.Max(2, (6 + layout.BlockNames.Count) * input.Groups.Count);
+    static int VehRealSize(int vs, int gt) => (VehReals.Length + 3) * vs + gt;
+
+    /// <summary>Readable name → (packed array, offset) or (packed scalar slot, -1).</summary>
+    static Dictionary<string, (string Into, int Off)> Packing(int vs, int gt)
+    {
+        var d = new Dictionary<string, (string, int)>(StringComparer.Ordinal);
+        for (int k = 0; k < DlInts.Length; k++) d[DlInts[k]] = ($"V_dlI({k + 1})", -1);
+        for (int k = 0; k < DlReals.Length; k++) d[DlReals[k]] = ($"V_dlR({k + 1})", -1);
+        for (int k = 0; k < DlIntArrays.Length; k++) d[DlIntArrays[k]] = ("V_dlA", k * vs);
+        for (int k = 0; k < DlStrArrays.Length; k++) d[DlStrArrays[k]] = ("V_dlStr", k * vs);
+        for (int k = 0; k < VehReals.Length; k++) d[VehReals[k]] = ("V_vR", k * vs);
+        d["V_vT"] = ("V_vR", VehReals.Length * vs);
+        d["V_gT"] = ("V_vR", (VehReals.Length + 3) * vs);
+        return d;
+    }
+
+    /// <summary>Renames by <paramref name="map"/>: a scalar becomes its slot, an array element NAME(expr) becomes INTO(offset + (expr)); a bare array name
+    /// (in a comment) becomes the packed array's name.</summary>
+    internal static string Pack(string code, IReadOnlyDictionary<string, (string Into, int Off)> map)
+    {
+        var sb = new StringBuilder(code.Length);
+        int i = 0;
+        while (i < code.Length)
+        {
+            int j = code.IndexOf("V_", i, StringComparison.Ordinal);
+            if (j < 0) { sb.Append(code, i, code.Length - i); break; }
+            int e = j + 2;
+            while (e < code.Length && (char.IsLetterOrDigit(code[e]) || code[e] == '_')) e++;
+            sb.Append(code, i, j - i);
+            var name = code.Substring(j, e - j);
+            bool word = j == 0 || !(char.IsLetterOrDigit(code[j - 1]) || code[j - 1] == '_');
+            if (!word || !map.TryGetValue(name, out var to)) { sb.Append(name); i = e; continue; }
+            if (to.Off < 0) { sb.Append(to.Into); i = e; continue; }
+            if (e < code.Length && code[e] == '(')
+            {
+                int depth = 0, c = e;
+                for (; c < code.Length; c++) { if (code[c] == '(') depth++; else if (code[c] == ')' && --depth == 0) break; }
+                var arg = Pack(code.Substring(e + 1, c - e - 1), map);
+                sb.Append(to.Into).Append('(').Append(to.Off == 0 ? arg : $"{to.Off} + ({arg})").Append(')');
+                i = c + 1;
+            }
+            else { sb.Append(to.Into); i = e; }
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>Most dlock rows a run keeps (one per vehicle per deadlock episode); later episodes still count in V_deadlock.</summary>
+    public const int DlockRows = 200;
+
+    /// <summary>The deadlock watchdog (code_dlock.m): names of the blocks and vehicles, per block its waiting list (as text) and a stuck holder,
+    /// per CP its position, per block the held check of the logged vehicle.</summary>
+    static string Dlock(ProjectInput input, LayoutInfo layout, string sys)
+    {
+        var bs = layout.BlockNames;
+        int vs = input.Groups.Sum(g => g.MaxCount);
+        var names = new StringBuilder(); var lists = new StringBuilder(); var xy = new StringBuilder(); var held = new StringBuilder();
+        for (int k = 1; k <= bs.Count; k++)
+        {
+            var b = Lit(bs[k - 1]);
+            names.Append($"\tset V_dlBn({k}) to \"{b}\"\n");
+            lists.Append($"\t\t\tset V_dlH({k}) to 0\n\t\t\tset V_dlWs({k}) to \"\"\n\t\t\tif {b} current waiting > 0 then begin\n\t\t\t\tprint {b} loads waiting to V_dlWs({k})\n" +
+                         $"\t\t\t\tfor each V_dlV in {b} vehicle list do begin\n\t\t\t\t\tif V_dlV A_vid > 0 then begin\n" +
+                         $"\t\t\t\t\t\tif V_dlS(V_dlV A_vid) = 1 then set V_dlH({k}) to V_dlV A_vid\n\t\t\t\t\tend\n\t\t\t\tend\n\t\t\tend\n");
+            held.Append($"\tfor each V_dlV in {b} vehicle list do begin\n\t\tif V_dlV = V_dlVeh(V_dlM) then print V_dlRow(V_dlN) \"\t{b}\" to V_dlRow(V_dlN)\n\tend\n");
+        }
+        int vid = 0;
+        foreach (var g in input.Groups)
+            for (int k = 1; k <= g.MaxCount; k++)
+            {
+                vid++;
+                // a waiting list prints its vehicles as "agv:VehClone of G1(2)" (seen in AutoMod 12.6), a plain vehicle as "agv:G1(2)"
+                names.Append($"\tset V_dlName({vid}) to \"{Lit(g.Type)}{k}\"\n\tset V_dlGrp({vid}) to \"{Lit(g.Group)}\"\n" +
+                             $"\tset V_dlKey({vid}) to \"of {g.Group}({k})\"\n\tset V_dlKey2({vid}) to \":{g.Group}({k})\"\n");
+            }
+        foreach (var kv in layout.CpMetres ?? new Dictionary<string, Point2>())
+            if (layout.CpNames.Contains(kv.Key))
+                xy.Append($"\tif V_dlLoc = {sys}:{kv.Key} then begin\n\t\tset V_dlX to {N(kv.Value.X)}\n\t\tset V_dlY to {N(kv.Value.Y)}\n\t\tset V_dlXy to 1\n\tend\n");
+        return Fill(Res("code_dlock.m.txt"), ("VS", Math.Max(1, vs).ToString()), ("NB", bs.Count.ToString()), ("ROWS", DlockRows.ToString()),
+            ("NAMES", names.ToString().TrimEnd('\n')), ("LISTS", lists.ToString().TrimEnd('\n')),
+            ("XY", xy.ToString().TrimEnd('\n')), ("HELD", held.ToString().TrimEnd('\n'))) + "\n";
     }
 
     /// <summary>AM dispatch for the load-centric logic. Scheduling lists are per location, not per vehicle type, so the lists hold every
@@ -262,7 +388,8 @@ public static class LogicGenerator
     /// UserExtSource holds the default hooks; the builder replaces it with the project's user_ext.m.</summary>
     public static ProcessModel BuildProcessModel(ProjectInput input, LayoutInfo layout, string units)
     {
-        var m = new ProcessModel { Units = units, LogicSource = Render(input, layout, ASH.Core.Settings.UnitScale.ModelUnitsPerMeter(units) ?? 1), UserExtSource = DefaultUserExt };
+        var m = new ProcessModel { Units = units, LogicSource = Pack(Render(input, layout, ASH.Core.Settings.UnitScale.ModelUnitsPerMeter(units) ?? 1),
+            Packing(Math.Max(1, input.Groups.Sum(g => g.MaxCount)), GtSize(input, layout))), UserExtSource = DefaultUserExt };
         int nm = input.Materials.Count;
         // arrays get at least 2 elements: AM mishandles 1-element arrays (seen with BLOCK n 1)
         int gs = Math.Max(2, input.Groups.Count), ms = Math.Max(2, nm);
@@ -304,13 +431,29 @@ public static class LogicGenerator
         foreach (var a in new[] { "A_tCall", "A_tPick", "A_ret", "A_fin", "A_rLast", "A_dLast", "A_rep", "A_hold", "A_bw", "A_ld", "A_dn" }) m.Atts.Add(new(a, "Real"));
         foreach (var a in new[] { "A_vid", "A_qty" }) m.Atts.Add(new(a, "Integer"));
         int vs = Math.Max(2, input.Groups.Sum(g => g.MaxCount));
-        m.Vars.Add(new("V_vBusy", "Real", vs)); m.Vars.Add(new("V_vDist", "Real", vs)); m.Vars.Add(new("V_vJobs", "Integer", vs));
-        m.Vars.Add(new("V_vNextFail", "Real", vs)); m.Vars.Add(new("V_vDown", "Real", vs));
-        foreach (var v in new[] { "V_vLoad", "V_vHand", "V_vBufB", "V_vBufX", "V_vRep" }) m.Vars.Add(new(v, "Real", vs));
+        m.Vars.Add(new("V_vJobs", "Integer", vs));
+        m.Vars.Add(new("V_vR", "Real", VehRealSize(vs, GtSize(input, layout)))); // Pack: V_vBusy .. V_vRep, V_vT, V_gT
+        // time split (code_tsplit.m, layout of the arrays in Render): few entities, the trial licence counts them
+        m.Procs.Add(new("P_tsplit"));
+        // V_vT and V_gT live in V_vR (Pack); the vehicles themselves: V_dlVeh (by A_vid, set at vehicle initialization)
+        foreach (var a in new[] { "A_d0", "A_jf", "A_js0", "A_jt0" }) m.Atts.Add(new(a, "Real"));
         // the seed is arbitrary: replications differ by the samples the logic skips at start (see the class summary)
         if (input.AgvTypes.Any(t => t.MTBF > 0 && t.MTTR > 0)) m.RnStreams.Add(new("RS_fail", 12345));
         for (int i = 1; i <= nm; i++) m.Tables.AddRange(new[] { $"T_pick_{i}", $"T_deliv_{i}", $"T_stock_{i}" });
         m.Funcs.AddRange(new[] { "F_ext_on_call", "F_ext_select_vehicle", "F_ext_before_unload", "F_ext_on_snap" });
+        // deadlock watchdog (code_dlock.m); V_dlVeh (by A_vid) is set at vehicle initialization even without blocks, code_tsplit reads it too
+        m.Vars.Add(new("V_dlVeh", "VehiclePtr", vs));
+        if (layout.BlockNames.Count > 0)
+        {
+            int nb = Math.Max(2, layout.BlockNames.Count);
+            m.Procs.Add(new("P_dlock")); m.Funcs.Add("F_dl_row");
+            m.Vars.Add(new("V_dlA", "Integer", DlIntArrays.Length * vs)); // Pack
+            m.Vars.Add(new("V_dlH", "Integer", nb)); m.Vars.Add(new("V_dlBn", "String", nb)); m.Vars.Add(new("V_dlWs", "String", nb));
+            m.Vars.Add(new("V_dlStr", "String", DlStrArrays.Length * vs));
+            m.Vars.Add(new("V_dlRow", "String", DlockRows));
+            m.Vars.Add(new("V_dlI", "Integer", DlInts.Length)); m.Vars.Add(new("V_dlR", "Real", DlReals.Length));
+            m.Vars.Add(new("V_dlV", "VehiclePtr")); m.Vars.Add(new("V_dlLoc", "Location"));
+        }
         int nc = input.Conveyors.Count;
         if (nc > 0)
         {

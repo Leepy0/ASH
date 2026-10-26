@@ -45,7 +45,7 @@ public static class SceneFinder
         {
             var pos = Pos(UnloadCp(g.Key));
             double? open = null;
-            void Add(double s, double e) => stock.Add(new SceneCandidate(SceneKind.Stockout, "결품: " + g.Key,
+            void Add(double s, double e) => stock.Add(new SceneCandidate(SceneKind.Stockout, "자재 품절: " + g.Key,
                 Clamp(s - StockMargin), Clamp(e + StockMargin), pos.X, pos.Y, e - s, $"{Hm(s)}~{Hm(e)} 재고 0 ({Sec(e - s)}초)"));
             foreach (var ev in g)
             {

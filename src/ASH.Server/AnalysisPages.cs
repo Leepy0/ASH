@@ -230,7 +230,7 @@ public static class AnalysisPages
             "<input type=\"text\" name=\"note\" maxlength=\"200\" placeholder=\"메모(선택)\" aria-label=\"메모\"><button class=\"primary\">만들기</button></form></details></div>");
         sb.Append($"<form class=\"lp-f\" action=\"{H(path)}\"><input type=\"hidden\" name=\"me\" value=\"{(l.Me ? 1 : 0)}\">" +
             $"<input type=\"search\" name=\"q\" value=\"{H(l.Q)}\" placeholder=\"이름·보낸 사람\" aria-label=\"검색\">" +
-            $"<details><summary>법인·제품군·라인</summary>{l.TagFilter}<button>거르기</button></details></form>");
+            $"<details><summary>법인·제품군·라인</summary>{l.TagFilter}<button>검색</button></details></form>");
         if (l.Running is { } run)
             sb.Append($"<a class=\"lr c-blue lr-now\" href=\"{H(run.Href ?? "/jobs/" + run.JobId)}\"><i class=\"dot\" aria-hidden=\"true\"></i><span class=\"t\"><span class=\"st\">지금 실행 중{(l.Queued > 0 ? $" · 대기 {l.Queued}건" : "")}</span>" +
                 $"<b>{H(run.Name ?? run.Title)}</b><span class=\"st\">{H(run.Sub ?? "")} · {Math.Round((run.Progress ?? 0) * 100):0}%</span></span></a>");
@@ -268,7 +268,7 @@ public static class AnalysisPages
 
     // ---------------------------------------------------------------- detail
 
-    static readonly (string Key, string Name)[] Tabs = { ("conclusion", "결론"), ("compare", "비교"), ("films", "영상"), ("status", "버전") };
+    static readonly (string Key, string Name)[] Tabs = { ("conclusion", "결론"), ("compare", "비교"), ("cause", "원인"), ("films", "영상"), ("status", "버전") };
 
     /// <summary>The tab to show: a known ?tab=, else 결론 when a version has a result, else 버전(status).</summary>
     public static string TabOf(AnalysisPageData d, string? tab) => Tabs.Any(t => t.Key == tab) ? tab! : d.Jobs.Any(Ok) ? "conclusion" : "status";
@@ -309,6 +309,7 @@ public static class AnalysisPages
         {
             case "conclusion": sb.Append("<div class=\"fill\">"); ConclusionTab(sb, d, q); sb.Append("</div>"); break;
             case "compare": CompareTab(sb, d, q); break;
+            case "cause": CausePages.Tab(sb, d, q); break;
             case "films": FilmsTab(sb, d); break;
             default: StatusTab(sb, d); break;
         }
@@ -380,8 +381,8 @@ public static class AnalysisPages
         sb.Append(Kpi("최대 가동률", top == null ? "-" : F(top.Util * 100, "0"), top == null ? "" : "%", over ? "orange" : "ink",
             top == null ? "" : over ? $"⚠ 경고: 상한 {F(v.UtilMax * 100, "0")}% 초과 · {H(top.Group)}" : $"✓ 상한 {F(v.UtilMax * 100, "0")}% 이하 · {H(top.Group)}", over ? "orange" : ""));
         var stop = m.Stop;
-        sb.Append(double.IsNaN(stop) ? Kpi("결품", "-", "", "ink", "")
-            : stop <= 0 ? Kpi("결품", "0", "초", "ink", "✓ 없음", "green") : Kpi("결품", F(stop, "0"), "초", "red", "⚠ 결품 있음", "red"));
+        sb.Append(double.IsNaN(stop) ? Kpi("자재 품절", "-", "", "ink", "")
+            : stop <= 0 ? Kpi("자재 품절", "0", "초", "ink", "✓ 없음", "green") : Kpi("자재 품절", F(stop, "0"), "초", "red", "⚠ 자재 품절", "red"));
         if (m.Investment is { AnyPriced: true } inv)
         {
             var o = other.M?.Investment is { AnyPriced: true } oi && oi.Currency == inv.Currency ? oi : null;
@@ -424,10 +425,14 @@ public static class AnalysisPages
                 $"<span class=\"pn\"><b>{H(p.Name)} v{pj.Version}{(pj.Selected ? " · 선정" : "")}</b><span>{Md(At(pj))}</span></span>" +
                 V(pm?.Total?.ToString(CultureInfo.InvariantCulture) ?? "-", "대", "권장", pj.Id == cur.Id ? "blue" : "") +
                 V(double.IsNaN(pu) ? "-" : F(pu * 100, "0"), "%", "가동률", pm != null && pu > pm.View.UtilMax ? "orange" : "") +
-                V(double.IsNaN(ps) ? "-" : F(ps, "0"), "초", "결품", double.IsNaN(ps) ? "" : ps > 0 ? "red" : "green") +
+                V(double.IsNaN(ps) ? "-" : F(ps, "0"), "초", "자재 품절", double.IsNaN(ps) ? "" : ps > 0 ? "red" : "green") +
                 (priced ? V(pm?.Investment is { AnyPriced: true } pi ? H(Money(pi.Total, pi.Currency)) : "-", "", "투자비") : "") + "</a>");
         }
-        sb.Append("</div></section></div>");
+        sb.Append("</div></section>");
+
+        // ---- 생산량 한계
+        LimitPage.Section(sb, d.Store, cur, $"/analyses/{a.Id}?tab=conclusion&job={cur.Id}");
+        sb.Append("</div>");
 
         // ---- 병목 지도
         // the map's own view: block wait, block occupancy, or path traffic (vehicles through each path, the busiest coloured)
@@ -458,7 +463,7 @@ public static class AnalysisPages
 
     // markers and labels are drawn in screen px inside a group scaled by "user units per px"; this keeps them the same size at any zoom or window size.
     // Wheel zooms at the cursor, drag pans (a drag never follows a marker link), double-click or 맞춤 goes back to the first view.
-    const string FitScript = @"<script>(function(){
+    internal const string FitScript = @"<script>(function(){
 function fit(){document.querySelectorAll('svg.bm').forEach(function(s){var m=s.getScreenCTM();if(!m||!m.a)return;var k=1/m.a;
  s.querySelectorAll('g.mk').forEach(function(g){g.setAttribute('transform','translate('+g.getAttribute('data-x')+' '+g.getAttribute('data-y')+') scale('+k+')');});});}
 document.querySelectorAll('svg.bm').forEach(function(s){
@@ -603,7 +608,7 @@ fit();addEventListener('resize',fit);})();</script>";
                 if (j.State == JobState.Failed) sb.Append($"<span class=\"state s-failed\">⚠ 실패</span><span class=\"bad\">{H((j.Error ?? "").Split('\n')[0].Trim())}</span>");
                 else if (!j.Finished || j.State == JobState.Cancelled) sb.Append(State(j));
                 else if (m?.Total is { } t)
-                    sb.Append($"<b>{t}대</b><span class=\"{(m.Util > m.View.UtilMax ? "wn" : "")}\">{(m.Util > m.View.UtilMax ? "⚠ " : "")}가동률 {Pc0(m.Util)}</span><span class=\"{(m.Stop > 0 ? "bad" : "")}\">결품 {(double.IsNaN(m.Stop) ? "-" : Num(m.Stop, "0"))}초</span>");
+                    sb.Append($"<b>{t}대</b><span class=\"{(m.Util > m.View.UtilMax ? "wn" : "")}\">{(m.Util > m.View.UtilMax ? "⚠ " : "")}가동률 {Pc0(m.Util)}</span><span class=\"{(m.Stop > 0 ? "bad" : "")}\">자재 품절 {(double.IsNaN(m.Stop) ? "-" : Num(m.Stop, "0"))}초</span>");
                 sb.Append($"<span class=\"t4\">{H(When(j.CreatedUtc))} · {H(j.Submitter)}{(j.VersionNote.Length > 0 ? " · " + H(j.VersionNote) : "")}</span><span class=\"sp\"></span>");
                 sb.Append(FileRoutes.ContinueLink(j)).Append(SelectForm(j, back)).Append($"<a class=\"btn\" href=\"/jobs/{H(j.Id)}\">열기</a></div>");
             }
@@ -820,7 +825,7 @@ fit();addEventListener('resize',fit);})();</script>";
         BlockView? Worst(Metrics m) => m.View.Blocks.Where(x => !double.IsNaN(x.AvgWaitSec)).OrderByDescending(x => x.AvgWaitSec).FirstOrDefault();
         Row("총 대수(대)", m => m.Total, m => m.Total?.ToString(CultureInfo.InvariantCulture) ?? "-");
         Row("최대 가동률(%)", m => Pv(m.Util), m => Pc(m.Util));
-        Row("결품 합계(초)", m => m.Stop, m => double.IsNaN(m.Stop) ? "-" : Num(m.Stop, "0"));
+        Row("자재 품절 합계(초)", m => m.Stop, m => double.IsNaN(m.Stop) ? "-" : Num(m.Stop, "0"));
         Row("교착(회)", m => m.View.Deadlocks, m => m.View.Deadlocks.ToString(CultureInfo.InvariantCulture));
         Row("최대 병목(block·초)", m => Worst(m)?.AvgWaitSec, m => Worst(m) is { } w ? $"{w.Name}·{Num(w.AvgWaitSec)}" : "-");
         if (d.Prices is { Count: > 0 })

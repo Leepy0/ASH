@@ -75,7 +75,7 @@ public class ManyGroupsTests
         using var _ = env;
         var html = await env.Http.GetStringAsync($"/analyses/{aid}?tab=compare&jobs={a.Id},{b.Id}");
         var table = html[html.IndexOf("<table>", StringComparison.Ordinal)..]; table = table[..table.IndexOf("</table>", StringComparison.Ordinal)];
-        foreach (var x in new[] { "총 대수(대)", "최대 가동률(%)", "결품 합계(초)", "교착(회)", "최대 병목(block·초)" }) Assert.Contains(x, table);
+        foreach (var x in new[] { "총 대수(대)", "최대 가동률(%)", "자재 품절 합계(초)", "교착(회)", "최대 병목(block·초)" }) Assert.Contains(x, table);
         Assert.DoesNotContain("권장(대)", table); Assert.DoesNotContain("<svg", html); // no grouped bar chart
         Assert.Equal(2 * 2, Regex.Matches(Grid(html), "class=\"num hc").Count); // G2, G3 × 2 versions
         Assert.Contains("title=\"G2 · B안 v1 · 3대 · 가동률 50%\">3</td>", Grid(html));
