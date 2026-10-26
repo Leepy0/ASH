@@ -15,7 +15,8 @@ public static class CameraScript
     /// Cut times are simulation seconds from <see cref="CutSpec.StartSec"/>; Hold records HoldSec, Move holds A for HoldASec, pans to B over MoveSec, holds B for HoldBSec (all simulation seconds).
     /// The scene height is taken as Hz = 0, so tall objects (vehicles, racks) may be clipped at high tilt.</summary>
     /// <param name="display">Extra display statements before the first time statement, e.g. "turn system ash_cal picture System off".</param>
-    public static string Build(CutSpec cut, double f0Metres, int width, int height, int fps, int quality, string movieFile, IEnumerable<string>? display = null)
+    /// <param name="legacy">AutoView before 14 (<see cref="AutoViewExe.IsLegacy"/>): AVI and no upvector, see <see cref="MovieSpec"/> and <see cref="View"/>.</param>
+    public static string Build(CutSpec cut, double f0Metres, int width, int height, int fps, int quality, string movieFile, IEnumerable<string>? display = null, bool legacy = false)
     {
         bool move = cut.Kind == CutKind.Move;
         if (move && cut.B == null) throw new ArgumentException("Move cut needs B", nameof(cut));
@@ -25,9 +26,7 @@ public static class CameraScript
         string V(Rect r)
         {
             var v = CameraMath.Frame(r, 1_000_000, f0Metres, width, height, cut.TiltDeg, cut.DirDeg, perspective: cut.Perspective, rollDeg: cut.RollDeg);
-            return $"view focus relative to world pos {N(v.FocusX, "0")}, {N(v.FocusY, "0")}, {N(v.FocusZ, "0")} " +
-                   $"camera relative to world pos {N(v.CamX, "0")}, {N(v.CamY, "0")}, {N(v.CamZ, "0")} " +
-                   $"upvector {N(v.UpX, "0.######")}, {N(v.UpY, "0.######")}, {N(v.UpZ, "0.######")} scale {N(v.Scale)}";
+            return View(v.FocusX, v.FocusY, v.FocusZ, v.CamX, v.CamY, v.CamZ, v.UpX, v.UpY, v.UpZ, v.Scale, legacy);
         }
 
         var sb = new StringBuilder();
@@ -38,12 +37,7 @@ public static class CameraScript
         L(cut.Perspective ? "perspective" : "orthogonal");
         L("solid"); L("grid off");
         foreach (var d in display ?? Array.Empty<string>()) L(d);
-        L("define movie spec");
-        L("format mp4");
-        L($"filename \"{movieFile}\"");
-        L($"width {width}"); L($"height {height}"); L($"quality {quality}"); L($"framespersec {fps}"); L("keyframefreq 30");
-        L($"saveframedir \"{movieFile}_frames\\\""); L("saveframes false");
-        L("end movie spec");
+        sb.Append(MovieSpec(movieFile, width, height, quality, fps, legacy));
 
         double t0 = cut.StartSec;
         L("time " + N(t0));
@@ -60,5 +54,32 @@ public static class CameraScript
         else L("time " + N(t0 + cut.HoldSec));
         L("generate movie");
         return sb.ToString();
+    }
+
+    /// <summary>"define movie spec … end movie spec" lines. 14.x: MP4 (AutoView adds .mp4; frames through saveframedir, guide 5.2).
+    /// Before 14: AVI, the only video format its grammar has besides MPEG/custom; the file name carries .avi as AutoView's own template writes it.</summary>
+    public static string MovieSpec(string movieFile, int width, int height, int quality, int fps, bool legacy)
+    {
+        var sb = new StringBuilder();
+        void L(string s) => sb.Append(s).Append('\n');
+        L("define movie spec");
+        if (legacy) { L("format avi"); L($"filename \"{movieFile}.avi\""); }
+        else { L("format mp4"); L($"filename \"{movieFile}\""); }
+        L($"width {width}"); L($"height {height}"); L($"quality {quality}"); L($"framespersec {fps}"); L("keyframefreq 30");
+        if (!legacy) { L($"saveframedir \"{movieFile}_frames\\\""); L("saveframes false"); }
+        L("end movie spec");
+        return sb.ToString();
+    }
+
+    /// <summary>One "view focus … camera …" line (micrometres). Before 14 there is no upvector: a camera straight above the focus (up vector in the plan)
+    /// is moved off the sight line by 1/1000 of its height against the wanted screen-up direction, so the plan view keeps its heading (0.06° of tilt);
+    /// a tilted view already says it by where the camera stands. Roll cannot be given there.</summary>
+    public static string View(double fx, double fy, double fz, double cx, double cy, double cz, double ux, double uy, double uz, double scale, bool legacy)
+    {
+        var focus = $"view focus relative to world pos {N(fx, "0")}, {N(fy, "0")}, {N(fz, "0")} ";
+        if (!legacy)
+            return focus + $"camera relative to world pos {N(cx, "0")}, {N(cy, "0")}, {N(cz, "0")} upvector {N(ux, "0.######")}, {N(uy, "0.######")}, {N(uz, "0.######")} scale {N(scale)}";
+        if (Math.Abs(uz) < 0.5) { var h = (cz - fz) * 1e-3; cx -= ux * h; cy -= uy * h; }
+        return focus + $"camera relative to world pos {N(cx, "0")}, {N(cy, "0")}, {N(cz, "0")} scale {N(scale)}";
     }
 }

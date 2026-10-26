@@ -21,6 +21,19 @@ public static class AutoViewExe
         return null;
     }
 
+    /// <summary>An AutoView before 14 (12.6 x32 aview.exe 12.6.1.12, 12.4): its camera script grammar has no MP4 format and no upvector
+    /// (rules read from the 12.6.1.12 binary: FORMAT AVI|MPEG|CUSTOM; camera/focus take only pos, relative to, scale). Unknown version: by name.</summary>
+    public static bool IsLegacy(string? aviewExe)
+    {
+        if (string.IsNullOrEmpty(aviewExe)) return false;
+        try
+        {
+            if (File.Exists(aviewExe) && System.Diagnostics.FileVersionInfo.GetVersionInfo(aviewExe).FileMajorPart is var major && major > 0) return major < 14;
+        }
+        catch (System.Exception e) when (e is IOException || e is System.UnauthorizedAccessException) { }
+        return string.Equals(Path.GetFileName(aviewExe), "aview.exe", System.StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>The paths that were looked at, for the message when none is found.</summary>
     public static string Candidates(string amHome) =>
         string.Join(" 또는 ", System.Array.ConvertAll(Names, n => Path.Combine(amHome, "bin", n)));

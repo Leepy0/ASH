@@ -52,11 +52,18 @@ public sealed class SendDialog : Form
             Add(_analysis);
             Add(_analysisName);
             Add(Theme.Caption(AnalysisNames.NameRuleHelp));
-            Add(Theme.Caption("태그 (새 분석일 때만): 법인 / 제품군 / 라인"));
-            foreach (var (box, pick) in new[] { (_corp, (Func<AnalysisSummary, string>)(a => a.Corp)), (_productLine, a => a.ProductLine), (_line, a => a.Line) })
+            Add(Theme.Caption("태그 (새 분석일 때만)"));
+            foreach (var (box, name, pick) in new[] { (_corp, "법인", (Func<AnalysisSummary, string>)(a => a.Corp)), (_productLine, "제품군", a => a.ProductLine), (_line, "라인", a => a.Line) })
             {
                 box.Items.AddRange(analyses.Select(pick).Where(v => v.Length > 0).Distinct().Cast<object>().ToArray());
-                Add(box);
+                // one row per tag, its name beside it, with a gap: the three boxes no longer read as one block
+                var row = new TableLayoutPanel { ColumnCount = 2, RowCount = 1, AutoSize = true, Margin = new Padding(0, 4, 0, 0), BackColor = Theme.Panel };
+                row.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 64));
+                row.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+                row.Controls.Add(new Label { Text = name, AutoSize = true, Anchor = AnchorStyles.Left, Margin = new Padding(2, 0, 0, 0) }, 0, 0);
+                box.Dock = DockStyle.Fill; box.Margin = Padding.Empty; box.AccessibleName = name;
+                row.Controls.Add(box, 1, 0);
+                Add(row);
             }
             Add(Theme.Section("안"));
             Add(_plan);
@@ -142,8 +149,8 @@ public sealed class SendDialog : Form
         DialogResult = DialogResult.OK;
     }
 
-    private static ComboBox Combo() => new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat, Margin = new Padding(0, 2, 0, 0) };
-    private static ComboBox TagBox() => new ComboBox { DropDownStyle = ComboBoxStyle.DropDown, AutoCompleteMode = AutoCompleteMode.SuggestAppend, AutoCompleteSource = AutoCompleteSource.ListItems, FlatStyle = FlatStyle.Flat, Margin = new Padding(0, 2, 0, 0), MaxLength = 100 };
+    private static ComboBox Combo() => new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.System, Margin = new Padding(0, 2, 0, 0) };
+    private static ComboBox TagBox() => new ComboBox { DropDownStyle = ComboBoxStyle.DropDown, AutoCompleteMode = AutoCompleteMode.SuggestAppend, AutoCompleteSource = AutoCompleteSource.ListItems, FlatStyle = FlatStyle.System, Margin = new Padding(0, 2, 0, 0), MaxLength = 100 };
     private static TextBox Box(int max) => new TextBox { BorderStyle = BorderStyle.FixedSingle, Margin = new Padding(0, 4, 0, 0), MaxLength = max };
 
     private static Button Flat(string text, Color back, Color fore)

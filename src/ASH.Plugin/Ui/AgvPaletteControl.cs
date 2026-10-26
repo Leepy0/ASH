@@ -162,7 +162,7 @@ public sealed class AgvPaletteControl : UserControl
     {
         var all = new List<FoundObject>();
         var loaded = false;
-        var category = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.Flat };
+        var category = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.System };
         category.Items.AddRange(ObjectIndex.Categories);
         category.SelectedIndex = 0;
         var text = Box("");
