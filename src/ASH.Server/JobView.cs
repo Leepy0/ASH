@@ -58,6 +58,8 @@ public sealed class JobView
     public IReadOnlyList<GroupView> Groups { get; private set; } = Array.Empty<GroupView>();
     public IReadOnlyDictionary<string, IReadOnlyList<CountPoint>> Curves { get; private set; } = new Dictionary<string, IReadOnlyList<CountPoint>>();
     public IReadOnlyList<BlockView> Blocks { get; private set; } = Array.Empty<BlockView>();
+    /// <summary>Path name -> vehicles that entered it (the AutoMod report's Guide Path Total), mean over the confirm runs; empty without reports.</summary>
+    public IReadOnlyDictionary<string, double> PathTraffic { get; private set; } = new Dictionary<string, double>();
     public ASH.Core.Layout.Layout? Layout { get; private set; }
     public IReadOnlyList<VehicleView> Vehicles { get; private set; } = Array.Empty<VehicleView>();
     public IReadOnlyList<GroupVehicleView> VehicleGroups { get; private set; } = Array.Empty<GroupVehicleView>();
@@ -155,6 +157,21 @@ public sealed class JobView
             if (!acc.TryGetValue(b.Name, out var l)) acc[b.Name] = l = new List<BlockResult>();
             l.Add(b);
         }
+        // path traffic from the confirm runs' reports (Guide Path Statistics), kept in paths.tsv once the run folders are purged
+        var traffic = new Dictionary<string, List<double>>(StringComparer.Ordinal);
+        foreach (var id in confirm)
+        {
+            var rep = Path.Combine(runs, id, job.Model + ".report");
+            if (!File.Exists(rep)) continue;
+            try { foreach (var kv in ResultParser.ParseReport(rep).PathTotals ?? new Dictionary<string, int>()) { if (!traffic.TryGetValue(kv.Key, out var tl)) traffic[kv.Key] = tl = new List<double>(); tl.Add(kv.Value); } }
+            catch (Exception e) when (e is IOException or InvalidDataException or FormatException) { }
+        }
+        var savedPaths = Path.Combine(store.JobDir(job.Id), JobRetention.PathsFile);
+        if (traffic.Count > 0) v.PathTraffic = traffic.ToDictionary(kv => kv.Key, kv => kv.Value.Average(), StringComparer.Ordinal);
+        else if (File.Exists(savedPaths))
+            v.PathTraffic = File.ReadAllLines(savedPaths).Skip(1).Select(x => x.Split('\t')).Where(t => t.Length >= 2 && double.TryParse(t[1], NumberStyles.Float, CultureInfo.InvariantCulture, out _))
+                .ToDictionary(t => t[0], t => double.Parse(t[1], NumberStyles.Float, CultureInfo.InvariantCulture), StringComparer.Ordinal);
+
         var saved = Path.Combine(store.JobDir(job.Id), JobRetention.BlocksFile);
         if (acc.Count == 0 && File.Exists(saved))
         {

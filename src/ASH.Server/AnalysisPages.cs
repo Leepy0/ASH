@@ -430,14 +430,17 @@ public static class AnalysisPages
         sb.Append("</div></section></div>");
 
         // ---- 병목 지도
-        bool occ = metric == "occ";
-        string Url(string? mt, string? map) => $"?tab=conclusion&amp;job={H(cur.Id)}{((mt ?? metric) == "occ" ? "&amp;metric=occ" : "")}{((map ?? q["map"].ToString()) == "all" ? "&amp;map=all" : "")}";
+        // the map's own view: block wait, block occupancy, or path traffic (vehicles through each path, the busiest coloured)
+        var view = q["metric"] == "traffic" ? "traffic" : metric;
+        bool occ = view == "occ", trf = view == "traffic";
+        string Url(string? mt, string? map) => $"?tab=conclusion&amp;job={H(cur.Id)}{((mt ?? view) is "occ" or "traffic" ? "&amp;metric=" + (mt ?? view) : "")}{((map ?? q["map"].ToString()) == "all" ? "&amp;map=all" : "")}";
+        string On(bool on) => on ? " class=\"on\"" : "";
         sb.Append("<section class=\"box mapb\"><div class=\"box-head\"><h3>병목 지도</h3>" +
-            $"<span class=\"segc\"><a href=\"{Url("wait", null)}\"{(occ ? "" : " class=\"on\"")}>평균 대기</a><a href=\"{Url("occ", null)}\"{(occ ? " class=\"on\"" : "")}>점유율</a></span></div>");
+            $"<span class=\"segc\"><a href=\"{Url("wait", null)}\"{On(!occ && !trf)}>평균 대기</a><a href=\"{Url("occ", null)}\"{On(occ)}>점유율</a><a href=\"{Url("traffic", null)}\"{On(trf)} title=\"경로마다 지나간 차량 수(보고서 Guide Path Total, 확인 실행 평균)\">통행량</a></span></div>");
         if (v.Layout == null) sb.Append("<div class=\"empty\">레이아웃을 읽지 못했습니다.</div>");
-        else BottleneckMap(sb, v, occ ? b => b.Utilization : b => b.AvgWaitSec, occ ? x => F(x * 100, "0") + "%" : x => F(x, x < 10 ? "0.#" : "0") + "초",
+        else BottleneckMap(sb, v, occ ? b => b.Utilization : b => b.AvgWaitSec, trf ? x => F(x, "#,0.#") + "대" : occ ? x => F(x * 100, "0") + "%" : x => F(x, x < 10 ? "0.#" : "0") + "초",
             q["map"] == "all", Url(null, "zoom"), Url(null, "all"), $"/jobs/{H(cur.Id)}?tab=detail",
-            b => $"/analyses/{H(a.Id)}/cuts?job={H(cur.Id)}&amp;add={H(Uri.EscapeDataString(CutEditorPage.AddBlock + b))}");
+            b => $"/analyses/{H(a.Id)}/cuts?job={H(cur.Id)}&amp;add={H(Uri.EscapeDataString(CutEditorPage.AddBlock + b))}", trf ? v.PathTraffic : null);
         sb.Append("</section></div>");
     }
 
@@ -483,19 +486,27 @@ fit();addEventListener('resize',fit);})();</script>";
 
     /// <summary>Paths, blocks shaded by the value, the top 5 blocks as numbered markers; zoomed to the hot blocks (minimap + 전체 toggle) unless
     /// <paramref name="whole"/>. The SVG fills its box (sized by the window), so a large drawing never makes the page larger. Beside it the ranked list.
-    /// <paramref name="cutHref"/> (block name -> cut editor link, HTML-encoded) makes each marker a link and adds "＋ 컷" to each ranked block.</summary>
+    /// <paramref name="cutHref"/> (block name -> cut editor link, HTML-encoded) makes each marker a link and adds "＋ 컷" to each ranked block.
+    /// <paramref name="traffic"/> (path name -> vehicles that entered it, the report's Guide Path Total): the paths are coloured and widened by it instead,
+    /// the blocks are only outlined, and the busiest paths are ranked and marked.</summary>
     internal static void BottleneckMap(StringBuilder sb, JobView v, Func<BlockView, double> value, Func<double, string> label, bool whole, string zoomHref, string allHref, string impactHref,
-        Func<string, string>? cutHref = null)
+        Func<string, string>? cutHref = null, IReadOnlyDictionary<string, double>? traffic = null)
     {
         var l = v.Layout!;
         sb.Append("<div class=\"mw\"><div class=\"mv\">");
         if (LayoutBounds(l) is not { } bb) { sb.Append("<div class=\"hint\" style=\"padding-top:40px\">그릴 경로가 없습니다.</div></div></div>"); return; }
-        var vals = v.Blocks.Where(b => !double.IsNaN(value(b))).ToDictionary(b => b.Name, value, StringComparer.Ordinal);
-        double hi = vals.Values.DefaultIfEmpty(0).Max();
-        var rects = l.Blocks.GroupBy(b => b.Name, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First().Rect, StringComparer.Ordinal);
-        var ranked = v.Blocks.Where(b => vals.TryGetValue(b.Name, out var x) && x > 0).OrderByDescending(b => vals[b.Name]).Take(5).ToList();
+        bool tr = traffic != null;
+        if (tr) cutHref = null; // a cut is made around a block
         (double X0, double X1, double Y0, double Y1) R(Rect2 r) => (Math.Min(r.Min.X, r.Max.X), Math.Max(r.Min.X, r.Max.X), Math.Min(r.Min.Y, r.Max.Y), Math.Max(r.Min.Y, r.Max.Y));
-        var zb = ZoomBox(bb, ranked.Take(3).Where(b => rects.ContainsKey(b.Name)).Select(b => R(rects[b.Name])).ToList());
+        IEnumerable<Point2> Pts(ASH.Core.Layout.LayoutPath p) { int n = p.Segments.Any(sg => sg is ArcSeg) ? 16 : 1; double len = p.Length; for (int i = 0; i <= n; i++) yield return p.PointAt(len * i / n); }
+        var rects = l.Blocks.GroupBy(b => b.Name, StringComparer.Ordinal).ToDictionary(g => g.Key, g => R(g.First().Rect), StringComparer.Ordinal);
+        // what is ranked and marked: blocks by the value, or paths by their traffic
+        var boxes = tr ? l.Paths.GroupBy(p => p.Name, StringComparer.Ordinal).ToDictionary(g => g.Key, g => { var q = Pts(g.First()).ToList(); return (X0: q.Min(t => t.X), X1: q.Max(t => t.X), Y0: q.Min(t => t.Y), Y1: q.Max(t => t.Y)); }, StringComparer.Ordinal) : rects;
+        var vals = tr ? traffic!.Where(kv => !double.IsNaN(kv.Value)).ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal)
+            : v.Blocks.Where(b => !double.IsNaN(value(b))).ToDictionary(b => b.Name, value, StringComparer.Ordinal);
+        double hi = vals.Values.DefaultIfEmpty(0).Max();
+        var ranked = vals.Where(kv => kv.Value > 0 && (!tr || boxes.ContainsKey(kv.Key))).OrderByDescending(kv => kv.Value).Take(5).Select(kv => kv.Key).ToList();
+        var zb = ZoomBox(bb, ranked.Take(3).Where(boxes.ContainsKey).Select(n => boxes[n]).ToList());
         double Area((double X0, double X1, double Y0, double Y1) b) => Math.Max(1e-9, b.X1 - b.X0) * Math.Max(1e-9, b.Y1 - b.Y0);
         var zoomed = Area(zb) < 0.8 * Area(bb);
         var box = whole || !zoomed ? bb : zb;
@@ -507,35 +518,34 @@ fit();addEventListener('resize',fit);})();</script>";
             double w = b.X1 - b.X0, h = b.Y1 - b.Y0, p = Math.Max(1e-6, 0.05 * Math.Max(w, h));
             return $"{F(b.X0 - bb.X0 - p, "0.###")} {F(bb.Y1 - b.Y1 - p, "0.###")} {F(w + 2 * p, "0.###")} {F(h + 2 * p, "0.###")}";
         }
-        string Paths(string stroke, string width)
-        {
-            var ps = new StringBuilder();
-            foreach (var p in l.Paths)
-            {
-                int n = p.Segments.Any(sg => sg is ArcSeg) ? 16 : 1; double len = p.Length;
-                ps.Append("<polyline points=\"");
-                for (int i = 0; i <= n; i++) { var pt = p.PointAt(len * i / n); ps.Append(X(pt.X)).Append(',').Append(Y(pt.Y)).Append(' '); }
-                ps.Append($"\" fill=\"none\" stroke=\"{stroke}\" stroke-width=\"{width}\" stroke-linecap=\"round\" vector-effect=\"non-scaling-stroke\"><title>{H(p.Name)}</title></polyline>");
-            }
-            return ps.ToString();
-        }
+        string Line(ASH.Core.Layout.LayoutPath p, string stroke, string width, string title) =>
+            "<polyline points=\"" + string.Join(" ", Pts(p).Select(pt => X(pt.X) + "," + Y(pt.Y))) +
+            $"\" fill=\"none\" stroke=\"{stroke}\" stroke-width=\"{width}\" stroke-linecap=\"round\" vector-effect=\"non-scaling-stroke\"><title>{H(title)}</title></polyline>";
+        string Paths(string stroke, string width) => string.Concat(l.Paths.Select(p => Line(p, stroke, width, p.Name)));
         double k0 = Math.Max(1e-6, (box.X1 - box.X0) * 1.1) / 700; // first guess of units per px until the script measures it
         sb.Append($"<svg class=\"bm\" viewBox=\"{ViewBox(box)}\" preserveAspectRatio=\"xMidYMid meet\" role=\"img\" aria-label=\"병목 지도\">");
         foreach (var b in l.Blocks)
         {
-            var r = R(b.Rect); var has = vals.TryGetValue(b.Name, out var val);
-            sb.Append($"<rect x=\"{X(r.X0)}\" y=\"{Y(r.Y1)}\" width=\"{F(r.X1 - r.X0, "0.###")}\" height=\"{F(r.Y1 - r.Y0, "0.###")}\" fill=\"{(has && val > 0 ? Heat(hi > 0 ? val / hi : 0) : "none")}\" fill-opacity=\"0.55\" " +
-                $"stroke=\"#c7c7cc\" stroke-width=\"1\" vector-effect=\"non-scaling-stroke\"><title>{H(b.Name)}: {H(has ? label(val) : "결과 없음")}</title></rect>");
+            var r = R(b.Rect); var has = !tr && vals.TryGetValue(b.Name, out var val) && val > 0;
+            var tip = tr ? "" : ": " + (vals.TryGetValue(b.Name, out var bv) ? label(bv) : "결과 없음");
+            sb.Append($"<rect x=\"{X(r.X0)}\" y=\"{Y(r.Y1)}\" width=\"{F(r.X1 - r.X0, "0.###")}\" height=\"{F(r.Y1 - r.Y0, "0.###")}\" fill=\"{(has ? Heat(hi > 0 ? vals[b.Name] / hi : 0) : "none")}\" fill-opacity=\"0.55\" " +
+                $"stroke=\"#c7c7cc\" stroke-width=\"1\" vector-effect=\"non-scaling-stroke\"><title>{H(b.Name + tip)}</title></rect>");
         }
-        sb.Append(Paths("#aeaeb2", "4"));
+        if (!tr) sb.Append(Paths("#aeaeb2", "4"));
+        else // quiet paths thin and grey under the busy ones, each coloured and widened by its share of the busiest
+            foreach (var p in l.Paths.OrderBy(p => vals.TryGetValue(p.Name, out var t) ? t : -1))
+            {
+                var has = vals.TryGetValue(p.Name, out var t) && t > 0;
+                sb.Append(Line(p, has ? Heat(t / hi) : "#d1d1d6", has ? F(3 + 7 * t / hi, "0.#") : "2", $"{p.Name}: {(has ? label(t) : "통행 없음")}"));
+            }
         string[] col = { "#d70015", "#ff9500", "#ffcc00", "#ffcc00", "#ffcc00" };
         for (int i = ranked.Count - 1; i >= 0; i--) // the first drawn last, on top
         {
-            var b = ranked[i];
-            if (!rects.TryGetValue(b.Name, out var rr)) continue;
-            var r = R(rr); string cx = X((r.X0 + r.X1) / 2), cy = Y((r.Y0 + r.Y1) / 2);
-            var text = $"{H(b.Name)} · {H(label(vals[b.Name]))}"; // H() would turn "·" into &#183;
-            if (cutHref != null) sb.Append($"<a href=\"{cutHref(b.Name)}\" aria-label=\"{H(b.Name)} 컷 만들기\">");
+            var name = ranked[i];
+            if (!boxes.TryGetValue(name, out var r)) continue;
+            string cx = X((r.X0 + r.X1) / 2), cy = Y((r.Y0 + r.Y1) / 2);
+            var text = $"{H(name)} · {H(label(vals[name]))}"; // H() would turn "·" into &#183;
+            if (cutHref != null) sb.Append($"<a href=\"{cutHref(name)}\" aria-label=\"{H(name)} 컷 만들기\">");
             sb.Append($"<g class=\"mk\" data-x=\"{cx}\" data-y=\"{cy}\" transform=\"translate({cx} {cy}) scale({F(k0, "0.######")})\"><title>{i + 1}. {text}</title>" +
                 $"<circle r=\"20\" fill=\"{col[i]}\" fill-opacity=\"0.25\"/><circle r=\"11\" fill=\"{col[i]}\"/>" +
                 $"<text y=\"4\" text-anchor=\"middle\" font-size=\"12\" font-weight=\"700\" fill=\"{(i < 2 ? "#fff" : "#1d1d1f")}\">{i + 1}</text>" +
@@ -548,17 +558,18 @@ fit();addEventListener('resize',fit);})();</script>";
             if (!whole)
                 sb.Append($"<svg class=\"mm\" viewBox=\"{ViewBox(bb)}\" preserveAspectRatio=\"xMidYMid meet\" aria-hidden=\"true\">{Paths("#c7c7cc", "1.5")}" +
                     $"<rect x=\"{X(zb.X0)}\" y=\"{Y(zb.Y1)}\" width=\"{F(zb.X1 - zb.X0, "0.###")}\" height=\"{F(zb.Y1 - zb.Y0, "0.###")}\" fill=\"#007aff\" fill-opacity=\"0.15\" stroke=\"#007aff\" stroke-width=\"1.5\" vector-effect=\"non-scaling-stroke\"/></svg>");
-            sb.Append($"<span class=\"segc\"><a href=\"{zoomHref}\"{(whole ? "" : " class=\"on\"")}>병목 주변</a><a href=\"{allHref}\"{(whole ? " class=\"on\"" : "")}>전체</a></span>");
+            sb.Append($"<span class=\"segc\"><a href=\"{zoomHref}\"{(whole ? "" : " class=\"on\"")}>{(tr ? "붐비는 곳" : "병목 주변")}</a><a href=\"{allHref}\"{(whole ? " class=\"on\"" : "")}>전체</a></span>");
         }
         sb.Append("</div><div class=\"rk\">");
-        if (ranked.Count == 0) sb.Append("<div class=\"t4\">병목 없음</div>");
+        if (ranked.Count == 0) sb.Append(tr ? "<div class=\"t4\">통행량 자료 없음(이 결과의 보고서에 경로 통계가 없음)</div>" : "<div class=\"t4\">병목 없음</div>");
         else
         {
             sb.Append("<ol>");
-            for (int i = 0; i < ranked.Count; i++) sb.Append($"<li><i>{i + 1}</i><span title=\"{H(ranked[i].Name)}\">{H(ranked[i].Name)}</span><b>{H(label(vals[ranked[i].Name]))}</b>" +
-                (cutHref != null && rects.ContainsKey(ranked[i].Name) ? $"<a class=\"btn\" href=\"{cutHref(ranked[i].Name)}\" title=\"이 블록을 찍는 새 컷을 영상 만들기에서 엽니다\" aria-label=\"{H(ranked[i].Name)} 컷 만들기\">＋ 컷</a>" : "") + "</li>");
+            for (int i = 0; i < ranked.Count; i++) sb.Append($"<li><i>{i + 1}</i><span title=\"{H(ranked[i])}\">{H(ranked[i])}</span><b>{H(label(vals[ranked[i]]))}</b>" +
+                (cutHref != null && rects.ContainsKey(ranked[i]) ? $"<a class=\"btn\" href=\"{cutHref(ranked[i])}\" title=\"이 블록을 찍는 새 컷을 영상 만들기에서 엽니다\" aria-label=\"{H(ranked[i])} 컷 만들기\">＋ 컷</a>" : "") + "</li>");
             sb.Append("</ol>");
         }
+        if (tr && vals.Count > 0) sb.Append($"<div class=\"t4\">통행량 = 확인 실행에서 그 경로에 들어간 차량 수의 평균(보고서 Guide Path Total) · 전체 {H(F(vals.Values.Sum(), "#,0"))}대</div>");
         sb.Append($"<a class=\"end\" href=\"{impactHref}\">영향표 전체 ›</a></div></div>").Append(FitScript);
     }
 

@@ -209,7 +209,7 @@ public static class JobReport
         int r = 2;
         foreach (var m in v.Materials)
         {
-            Put(ws, r, 1, m.Name); Put(ws, r, 2, m.Group); Put(ws, r, 3, m.Supplies, "0.#"); Put(ws, r, 4, m.Expected, "0.#"); Put(ws, r, 5, m.StopSec, "0.#");
+            Put(ws, r, 1, JobPages.MatLabel(v, m)); Put(ws, r, 2, m.Group); Put(ws, r, 3, m.Supplies, "0.#"); Put(ws, r, 4, m.Expected, "0.#"); Put(ws, r, 5, m.StopSec, "0.#");
             Put(ws, r, 6, m.PickAvg, "0.0"); Put(ws, r, 7, m.PickMax, "0.0"); Put(ws, r, 8, m.DelivAvg, "0.0"); Put(ws, r, 9, m.DelivMax, "0.0");
             Put(ws, r, 10, m.StockAvg, "0.0"); Put(ws, r, 11, m.StockStd, "0.0"); Put(ws, r, 12, m.StockMin, "0.#"); Put(ws, r, 13, m.StockMax, "0.#");
             Put(ws, r, 14, m.Safety, "0.##"); Put(ws, r, 15, m.Warn ? "주의" : "");
@@ -237,10 +237,10 @@ public static class JobReport
             foreach (var g in v.Input.Groups) { Put(ws, r, 1, g.Group); Put(ws, r, 2, g.Type); Put(ws, r, 3, g.MinCount); Put(ws, r, 4, g.MaxCount); r++; }
 
             r++; Title(ws, r++, "자재");
-            Header(ws, r++, "자재", "그룹", "형태", "T/T(초)", "용기당 수량(개)", "호출 임계(용기)");
+            Header(ws, r++, "자재", "그룹", "형태", "T/T(초)", "용기당 수량(개)", "호출 임계(용기)", "흐름");
             foreach (var m in v.Input.Materials)
             {
-                Put(ws, r, 1, m.Material); Put(ws, r, 2, m.Group); Put(ws, r, 3, m.Form); Put(ws, r, 4, m.TaktTime); Put(ws, r, 5, m.UnitsPerContainer); Put(ws, r, 6, m.CallThreshold);
+                Put(ws, r, 1, m.Material); Put(ws, r, 2, m.Group); Put(ws, r, 3, m.Form); Put(ws, r, 4, m.TaktTime); Put(ws, r, 5, m.UnitsPerContainer); Put(ws, r, 6, m.CallThreshold); Put(ws, r, 7, m.IsOutput ? "반출(Output)" : "공급");
                 r++;
             }
         }

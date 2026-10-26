@@ -270,6 +270,7 @@ document.querySelectorAll('table.sort').forEach(function(t){
     const string JobCss = @"
 .jh{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 4px}.jh h1{margin:0;font-size:22px}.jh .sp{flex:1}.jh form{margin:0}
 .jm{font-size:13px;color:var(--sub2);margin:0 0 8px}
+.fitrun{margin:0 0 12px;padding:10px 12px;background:var(--green-b);border-radius:10px}.fitrun .dl{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
 .jm .tag{margin-right:4px}
 .state[data-state]::before{margin-right:4px}.state[data-state].s-queued::before{content:'○'}.state[data-state].s-running::before{content:'▶'}.state[data-state].s-done::before{content:'✓'}.state[data-state].s-failed::before{content:'▲'}.state[data-state].s-cancelled::before{content:'■'}
 .kpis{margin-top:10px}.kpi .t3{margin-bottom:2px}.kpi .t4{margin-top:2px}.kpi.ok{--c:var(--green)}.kpi.bad{--c:var(--red)}.kpi.blue{--c:var(--blue)}.kpi .t2{color:var(--c,var(--ink))}
@@ -488,12 +489,12 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
             sb.Append("<div class=\"box\"><h2>자재별 리드타임·재고</h2><div class=\"scroll\"><table class=\"sort\"><thead><tr>").Append(Th("자재")).Append(Th("그룹")).Append(Th("공급/기대(회)")).Append(Th("결품 시간(초)"))
               .Append(Th("호출→상차 평균/최대(초)")).Append(Th("호출→하차 평균/최대(초)")).Append(Th("재고 평균(용기)")).Append(Th("표준편차(용기)")).Append(Th("최소(용기)")).Append(Th("최대(용기)")).Append(Th("주의")).Append("</tr></thead><tbody>");
             foreach (var m in v.Materials)
-                sb.Append($"<tr><td>{H(m.Name)}</td><td>{H(m.Group)}</td><td class=\"num\">{F(m.Supplies, "0.#")} / {F(m.Expected, "0.#")}</td><td class=\"num\">{F(m.StopSec, "0")}</td>" +
+                sb.Append($"<tr><td>{H(MatLabel(v, m))}</td><td>{H(m.Group)}</td><td class=\"num\">{F(m.Supplies, "0.#")} / {F(m.Expected, "0.#")}</td><td class=\"num\">{F(m.StopSec, "0")}</td>" +
                     $"<td class=\"num\">{F(m.PickAvg, "0.0")} / {F(m.PickMax, "0.0")}</td><td class=\"num\">{F(m.DelivAvg, "0.0")} / {F(m.DelivMax, "0.0")}</td>" +
                     $"<td class=\"num\">{F(m.StockAvg, "0.0")}</td><td class=\"num\">{F(m.StockStd, "0.0")}</td><td class=\"num\">{F(m.StockMin, "0.#")}</td><td class=\"num\">{F(m.StockMax, "0.#")}</td>" +
                     (m.Warn ? $"<td class=\"bad\" title=\"재고 평균 − 2σ {F(m.StockAvg - 2 * m.StockStd, "0.0")} &lt; 안전재고 {F(m.Safety)}\"><b>주의</b></td></tr>" : "<td></td></tr>"));
             sb.Append("</tbody></table></div><div class=\"t4\" title=\"호출→상차: 호출부터 상차 CP 도착까지. 호출→하차: 호출부터 하차 완료까지. 재고는 takt마다 한 번 잰 값, 최대·최소는 확인 실행 전체의 극값. 주의: 재고 평균 − 2σ가 안전재고보다 낮은 자재(경고일 뿐 판정에는 쓰이지 않음).\">" +
-                "재고는 takt마다 한 번 잰 값 · 주의 = 평균 − 2σ가 안전재고 미만(판정 제외)</div></div>");
+                "재고는 takt마다 한 번 잰 값 · 주의 = 평균 − 2σ가 안전재고 미만(판정 제외)</div>" + (AnyOutput(v) ? $"<div class=\"t4\">{H(OutputNote)}</div>" : "") + "</div>");
         }
         sb.Append(SortScript); // once for every sortable table above
         if (j.Warnings.Count > 0)
@@ -764,7 +765,21 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
         // one row per run and group; every group's count of the run is a column, so the list sorts by any of them
         var gs = v.Input.Groups;
         var counts = v.RunCounts();
+        // 적정: a run at exactly the recommended counts that passed for every group (a utilisation warning still passes), the one to open in AutoMod
+        int CountOf(string runId, ASH.Core.Input.AgvGroup g) => counts[runId].TryGetValue(g.Group, out var n) ? n : g.MinCount;
+        bool Fit(string runId) => j.Decided != null && counts.ContainsKey(runId)
+            && gs.All(g => CountOf(runId, g) == (j.Decided.TryGetValue(g.Group, out var d) ? d : g.MinCount))
+            && v.Rows.Where(x => x.RunId == runId).All(x => x.Ok || JobView.UtilOnly(x));
+        var fit = v.Rows.Select(x => x.RunId).Distinct().Where(Fit).ToList();
+        string Zip(string runId) => $"/jobs/{H(j.Id)}/runs/{Uri.EscapeDataString(runId)}/model.zip";
         sb.Append("<div class=\"box\"><div class=\"box-head\"><h2>실행 목록</h2><span class=\"t4\" title=\"받기: 그 실행의 모델과 조건(params.txt)을 zip으로 받아 AutoMod가 있는 PC에서 run.bat으로 창을 띄워 볼 수 있습니다.\">제목을 누르면 정렬 · 받기 = 모델 zip</span></div>");
+        if (fit.Count > 0)
+        {
+            var seedOf = v.Rows.GroupBy(x => x.RunId).ToDictionary(g2 => g2.Key, g2 => g2.First().Seed);
+            sb.Append($"<div class=\"fitrun\"><b>적정 대수 실행</b> <span class=\"t4\">권장 {H(string.Join(" · ", gs.Select(g => $"{g.Group} {(j.Decided!.TryGetValue(g.Group, out var d) ? d : g.MinCount)}대")))}, 판정 통과 · {fit.Count}개</span><div class=\"dl\">");
+            foreach (var id in fit) sb.Append($"<a class=\"btn\" href=\"{Zip(id)}\" download title=\"{H(id)}\">시드 {seedOf[id]} 모델 받기</a>");
+            sb.Append("</div></div>");
+        }
         sb.Append("<div class=\"scroll\"><table class=\"sort\"><thead><tr>").Append(Th("실행"));
         foreach (var g in gs) sb.Append(Th(H(g.Group) + " 대수(대)"));
         sb.Append(Th("시드")).Append(Th("반복(회차)")).Append(Th("그룹")).Append(Th("판정")).Append(Th("가동률(%)")).Append(Th("최소 재고/안전재고(배)")).Append(Th("공급(회)"))
@@ -774,12 +789,13 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
             // the id spells out every group's count, which the columns after it already show; keep only the tail (seed, flags) and put the full id in the tooltip
             var us = r.RunId.IndexOf('_');
             var warnOnly = JobView.UtilOnly(r);
-            sb.Append($"<tr{(r.Ok ? "" : warnOnly ? " class=\"ow\"" : " class=\"over\"")}><td title=\"{H(r.RunId)}\">{(us > 0 ? "…" + H(r.RunId[us..]) : H(r.RunId))}</td>");
+            var isFit = fit.Contains(r.RunId);
+            sb.Append($"<tr{(r.Ok ? "" : warnOnly ? " class=\"ow\"" : " class=\"over\"")}><td title=\"{H(r.RunId)}\">{(us > 0 ? "…" + H(r.RunId[us..]) : H(r.RunId))}{(isFit ? " <span class=\"tag green\" title=\"권장 대수 그대로이고 판정을 통과한 실행\">적정</span>" : "")}</td>");
             var c = counts[r.RunId];
             foreach (var g in gs) sb.Append($"<td class=\"num\">{(c.TryGetValue(g.Group, out var n) ? n : g.MinCount)}</td>");
             sb.Append($"<td class=\"num\">{r.Seed}</td><td class=\"num\">{r.Seed - v.Input.Settings.SeedBase + 1}</td><td>{H(r.Group)}</td><td class=\"{(r.Ok ? "ok" : warnOnly ? "wn" : "bad")}\">{(r.Ok ? "통과" : warnOnly ? "⚠ 경고: " + H(r.Reason) : H(r.Reason))}</td>" +
                 $"<td class=\"num\">{P(r.Utilization)}</td><td class=\"num\">{F(r.MinStockRatio)}</td><td class=\"num\">{r.Supplies}</td><td class=\"num\">{F(r.Expected, "0.#")}</td><td class=\"num\">{F(r.StopTimeSec, "0")}</td><td class=\"num\">{r.Deadlocks}</td><td class=\"num\">{F(r.DurationSec, "0")}</td>" +
-                $"<td><a href=\"/jobs/{H(j.Id)}/runs/{Uri.EscapeDataString(r.RunId)}/model.zip\" download>받기</a></td></tr>");
+                $"<td><a href=\"{Zip(r.RunId)}\" download>받기</a></td></tr>");
         }
         sb.Append("</tbody></table></div>").Append(SortScript);
         if (v.Rows.Count > 1000) sb.Append($"<div class=\"t4\">처음 1000행만 보여 주고 그 안에서 정렬합니다(전체 {v.Rows.Count}행은 summary.tsv로 받으세요).</div>");
@@ -791,6 +807,13 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
         v.Input == null || !(m.Trips > 0) ? double.NaN : (v.Input.Settings.SimLengthSec - v.Input.Settings.WarmupSec) / m.Trips;
 
     /// <summary>Parts per container of a material from the input; NaN when unknown.</summary>
+    /// <summary>The material is an Output flow (Materials.Flow): its supply is an empty container brought and the full one taken away.</summary>
+    internal static bool IsOutput(JobView v, MaterialView m) => v.Input?.Materials.FirstOrDefault(x => x.Material == m.Name)?.IsOutput == true;
+    /// <summary>The material's name in result tables, with "(반출)" for an Output flow.</summary>
+    internal static string MatLabel(JobView v, MaterialView m) => IsOutput(v, m) ? m.Name + " (반출)" : m.Name;
+    internal static bool AnyOutput(JobView v) => v.Input?.Materials.Any(m => m.IsOutput) == true;
+    internal const string OutputNote = "(반출) = Output 자재: 공급은 빈 용기를 가져다주고 풀 용기를 반출한 횟수, 결품은 빈 용기가 떨어져 생산이 멈춘 시간";
+
     internal static double PerContainer(JobView v, MaterialView m) => v.Input?.Materials.FirstOrDefault(x => x.Material == m.Name)?.UnitsPerContainer ?? double.NaN;
 
     /// <summary>상세 tab, one row per material: supply jobs, their interval and distance, lead time, stock in containers and in parts. Models built
@@ -804,10 +827,12 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
         {
             var per = PerContainer(v, m);
             string Three(double k, string f) => $"{F(m.StockAvg * k, f)} / {F(m.StockMin * k, f)} / {F(m.StockMax * k, f)}";
-            sb.Append($"<tr><td>{H(m.Name)}</td><td>{H(m.Group)}</td><td class=\"num\">{F(m.Trips, "0.#")}</td><td class=\"num\">{F(SupplyInterval(v, m), "0")}</td><td class=\"num\">{F(m.DistPerTrip, "0.#")}</td>" +
+            sb.Append($"<tr><td>{H(MatLabel(v, m))}</td><td>{H(m.Group)}</td><td class=\"num\">{F(m.Trips, "0.#")}</td><td class=\"num\">{F(SupplyInterval(v, m), "0")}</td><td class=\"num\">{F(m.DistPerTrip, "0.#")}</td>" +
                 $"<td class=\"num\">{F(m.DelivAvg, "0.0")}</td><td class=\"num\">{F(m.DelivMax, "0.0")}</td><td class=\"num\">{Three(1, "0.#")}</td><td class=\"num\">{Three(per, "0")}</td></tr>");
         }
-        sb.Append("</tbody></table></div></div>");
+        sb.Append("</tbody></table></div>");
+        if (AnyOutput(v)) sb.Append($"<div class=\"t4\">{H(OutputNote)}</div>");
+        sb.Append("</div>");
     }
 
     static string Curve(string group, int min, int max, IReadOnlyList<CountPoint> pts, double utilMax, int? decided)
@@ -872,8 +897,8 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
                 foreach (var t in curved) sb.Append($"<tr><td>{H(t.Type)}</td><td class=\"num\">{(t.SpeedLoadedCurve > 0 ? F(t.SpeedLoadedCurve!.Value) : "직선과 같음")}</td><td class=\"num\">{(t.SpeedEmptyCurve > 0 ? F(t.SpeedEmptyCurve!.Value) : "직선과 같음")}</td></tr>");
                 sb.Append("</table></div>");
             }
-            sb.Append("</div><div class=\"box\"><h2>자재</h2><div class=\"scroll\"><table><tr><th>자재</th><th>그룹</th><th>형태</th><th>T/T(초)</th><th>용기당 수량(개)</th><th>호출 임계(용기)</th></tr>");
-            foreach (var m in v.Input.Materials) sb.Append($"<tr><td>{H(m.Material)}</td><td>{H(m.Group)}</td><td>{H(m.Form.Length == 0 ? "Box" : m.Form)}</td><td class=\"num\">{F(m.TaktTime)}</td><td class=\"num\">{F(m.UnitsPerContainer)}</td><td class=\"num\">{F(m.CallThreshold)}</td></tr>");
+            sb.Append("</div><div class=\"box\"><h2>자재</h2><div class=\"scroll\"><table><tr><th>자재</th><th>그룹</th><th>흐름</th><th>형태</th><th>T/T(초)</th><th>용기당 수량(개)</th><th>호출 임계(용기)</th></tr>");
+            foreach (var m in v.Input.Materials) sb.Append($"<tr><td>{H(m.Material)}</td><td>{H(m.Group)}</td><td>{(m.IsOutput ? "반출(Output)" : "공급")}</td><td>{H(m.Form.Length == 0 ? "Box" : m.Form)}</td><td class=\"num\">{F(m.TaktTime)}</td><td class=\"num\">{F(m.UnitsPerContainer)}</td><td class=\"num\">{F(m.CallThreshold)}</td></tr>");
             sb.Append("</table></div></div>");
         }
     }

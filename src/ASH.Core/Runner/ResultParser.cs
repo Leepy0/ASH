@@ -105,7 +105,19 @@ public static class ResultParser
                 if (c.Length >= 9) blocks.Add(new BlockStat(c[0], I(c[1]), D(c[7]), D(c[8]), c.Length > 9 ? D(c[9]) : double.NaN)); // Av_Wait may be absent
             }
         }
-        return new ReportStats(types, blocks, raw);
+        var paths = new Dictionary<string, int>(StringComparer.Ordinal);
+        var pi = lines.FindIndex(l => l.Trim() == "Guide Path Statistics");
+        if (pi >= 0)
+        {
+            var i = pi + 1;
+            while (i < lines.Count && !lines[i].StartsWith("===")) i++;
+            for (i++; i < lines.Count && lines[i].Trim().Length > 0; i++)
+            {
+                var c = lines[i].Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries); // Name Total Cur Average Capacity Max Min Util Av_Time Av_Wait
+                if (c.Length >= 2 && int.TryParse(c[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var n)) paths[c[0]] = n;
+            }
+        }
+        return new ReportStats(types, blocks, raw, paths);
     }
 
 }

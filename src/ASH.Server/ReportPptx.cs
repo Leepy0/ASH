@@ -277,8 +277,8 @@ internal static class ReportPptx
         {
             var outs = mats.Where(m => m.StopSec > 0).OrderByDescending(m => m.StopSec).ToList();
             var longest = mats.OrderByDescending(m => m.DelivAvg).First();
-            var title = outs.Count > 0 ? $"{outs.Count}개 자재 결품 — {outs[0].Name} {F(outs[0].StopSec, "#,0")}초로 최대"
-                : $"결품 없음 — 리드 타임 최장 {longest.Name} 평균 {F(longest.DelivAvg, "0")}초 · 최대 {F(longest.DelivMax, "0")}초";
+            var title = outs.Count > 0 ? $"{outs.Count}개 자재 결품 — {MatLabel(v, outs[0])} {F(outs[0].StopSec, "#,0")}초로 최대"
+                : $"결품 없음 — 리드 타임 최장 {MatLabel(v, longest)} 평균 {F(longest.DelivAvg, "0")}초 · 최대 {F(longest.DelivMax, "0")}초";
             Materials(New("자재 공급", title), v, mats, outs);
         }
 
@@ -534,7 +534,7 @@ internal static class ReportPptx
     {
         var shown = mats.OrderByDescending(m => m.DelivAvg).Take(12).ToList();
         long cw = In(8.2);
-        var cats = shown.Select(m => m.Name).ToArray();
+        var cats = shown.Select(m => MatLabel(v, m)).ToArray();
         var px = LabelRoom(cats, 12, cw);
         var mx = shown.Max(m => double.IsNaN(m.DelivMax) ? m.DelivAvg : m.DelivMax) * 1.15;
         var c = new Chart(cats, new[]
@@ -559,7 +559,7 @@ internal static class ReportPptx
             long y = Top + (outs.Count == 0 ? i + 1 : i) * (chh + In(0.2));
             s.Box(x0, y, w, chh, bad ? "FCE8E6" : Panel, null, "roundRect");
             s.Box(x0, y + In(0.2), 38100, chh - In(0.4), bad ? Red : Blue);
-            s.Text(x0 + In(0.3), y + In(0.16), w - In(0.5), In(0.32), new[] { new Para(new[] { new Run(m.Name, 15, Ink, true), new Run("   " + m.Group, 12, Sub) }) });
+            s.Text(x0 + In(0.3), y + In(0.16), w - In(0.5), In(0.32), new[] { new Para(new[] { new Run(MatLabel(v, m), 15, Ink, true), new Run("   " + m.Group, 12, Sub) }) });
             s.Text(x0 + In(0.3), y + In(0.48), w - In(0.5), In(0.62), new[] { bad
                 ? new Para(new[] { new Run(F(m.StopSec, "#,0"), 32, Red, false, Num), new Run(" 초 결품", 14, Sub) })
                 : new Para(new[] { new Run(F(m.DelivAvg, "0"), 32, Ink, false, Num), new Run(" 초 평균", 14, Sub), new Run($"   최대 {F(m.DelivMax, "0")}초", 14, Ink, true) }) }, anchor: "b");

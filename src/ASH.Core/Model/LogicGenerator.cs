@@ -256,12 +256,14 @@ public static class LogicGenerator
             var d = LoadGeometry.DefaultSize(form);
             double len = mat.LoadLength ?? d.L, wid = mat.LoadWidth ?? d.W, hei = mat.LoadHeight ?? d.H;
             m.LoadTypes.Add($"L_m{i}");
-            var full = LoadGeometry.Build(form, false, len, wid, hei, units);
+            // L_m<i> rides the supply leg, L_m<i>e the return leg: full then empty, or for an Output flow an empty container out and the full one back
+            var out_ = mat.IsOutput;
+            var full = LoadGeometry.Build(form, out_, len, wid, hei, units);
             if (full != null) m.LoadGraphics[$"L_m{i}"] = full;
             if (mat.EmptyReturn)
             {
                 m.LoadTypes.Add($"L_m{i}e");
-                var empty = LoadGeometry.Build(form, true, len, wid, hei, units);
+                var empty = LoadGeometry.Build(form, !out_, len, wid, hei, units);
                 if (empty != null) m.LoadGraphics[$"L_m{i}e"] = empty;
             }
         }

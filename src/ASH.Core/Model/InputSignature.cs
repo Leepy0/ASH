@@ -27,7 +27,8 @@ public static class InputSignature
             else L("type", t.Type, t.SpeedLoaded, t.LoadTime, t.UnloadTime, t.Length, t.Width);
         // FinishCP only when set: models made before it existed keep their signature
         foreach (var g in p.Groups) { if (string.IsNullOrEmpty(g.FinishCP)) L("group", g.Group, g.Type, g.MaxCount, string.Join(",", g.StandbyCPs)); else L("group", g.Group, g.Type, g.MaxCount, string.Join(",", g.StandbyCPs), g.FinishCP); }
-        foreach (var m in p.Materials) L("material", m.Material, m.Group, m.EmptyReturn);
+        // Output swaps the container pictures in the logic; written only then, so models built before Flow keep their signature
+        foreach (var m in p.Materials) { if (m.IsOutput) L("material", m.Material, m.Group, m.EmptyReturn, "Output"); else L("material", m.Material, m.Group, m.EmptyReturn); }
         // BufferWaitSec only when set: models made before it existed keep their signature
         foreach (var r in p.Routes)
             if (r.BufferWaitSec > 0) L("route", r.Material, r.SupplyFromCP, r.SupplyToCP, r.BufferCP, r.ReturnFromCP, r.ReturnToCP, r.ExtraTime, r.BufferWaitSec);
