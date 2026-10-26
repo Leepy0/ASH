@@ -24,8 +24,12 @@ public interface IFilmRenderer
 
     /// <summary>join = false: mp4s[0] re-encoded for phones and PowerPoint (H.264, yuv420p, faststart) with captions[0] drawn at the bottom ("" = none).
     /// join = true: mp4s (same size, fps and codec) put one after another without re-encoding; captions are ignored.
+    /// <paramref name="seconds"/> &gt; 0 (not join): the frames are re-timed to last exactly that long at <paramref name="fps"/>, whatever rate the AutoView file claims.
     /// Returns <paramref name="outPath"/>; InvalidOperationException with ffmpeg's message on failure.</summary>
-    string Finish(IReadOnlyList<string> mp4s, IReadOnlyList<string> captions, string outPath, bool join, CancellationToken ct = default);
+    string Finish(IReadOnlyList<string> mp4s, IReadOnlyList<string> captions, string outPath, bool join, CancellationToken ct = default, double seconds = 0, int fps = 0);
+
+    /// <summary>Number of video frames in <paramref name="video"/>; 0 when it cannot be read.</summary>
+    int Frames(string video, CancellationToken ct = default);
 
     /// <summary>One JPEG (<paramref name="width"/> px wide) of <paramref name="mp4"/> at <paramref name="atSec"/>; InvalidOperationException with ffmpeg's message on failure.</summary>
     void Thumbnail(string mp4, string outJpg, double atSec, CancellationToken ct = default, int width = 320);
@@ -106,7 +110,7 @@ public sealed class AutoViewRenderer(string aviewExe, string? amHome, string ffm
         lock (dialogs) return new RenderResult(true, made, null, dialogs.ToArray());
     }
 
-    public string Finish(IReadOnlyList<string> mp4s, IReadOnlyList<string> captions, string outPath, bool join, CancellationToken ct = default)
+    public string Finish(IReadOnlyList<string> mp4s, IReadOnlyList<string> captions, string outPath, bool join, CancellationToken ct = default, double seconds = 0, int fps = 0)
     {
         if (mp4s.Count == 0 || (!join && mp4s.Count != 1)) throw new ArgumentException("join needs one or more files, a single finish exactly one", nameof(mp4s));
         var tmp = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(outPath))!, ".ff-" + Guid.NewGuid().ToString("N").Substring(0, 8));
@@ -123,7 +127,12 @@ public sealed class AutoViewRenderer(string aviewExe, string? amHome, string ffm
             }
             else
             {
+                // AutoView's frames are evenly spaced simulation samples: give them the rate that makes the cut last what was asked for (an older AutoView
+                // writes fewer frames, or claims another rate in its AVI), then resample to the film's fps
+                int n = seconds > 0 && fps > 0 ? Frames(mp4s[0], ct) : 0;
+                if (n > 0) args.AddRange(new[] { "-r", (n / seconds).ToString("0.######", System.Globalization.CultureInfo.InvariantCulture) });
                 args.AddRange(new[] { "-i", Path.GetFullPath(mp4s[0]) });
+                if (n > 0) args.AddRange(new[] { "-r", fps.ToString(System.Globalization.CultureInfo.InvariantCulture) });
                 var cap = captions.Count > 0 ? captions[0] : "";
                 var vf = "";
                 if (cap.Trim().Length > 0 && Font() is { } font)
@@ -144,6 +153,21 @@ public sealed class AutoViewRenderer(string aviewExe, string? amHome, string ffm
             return outPath;
         }
         finally { try { Directory.Delete(tmp, true); } catch (IOException) { } catch (UnauthorizedAccessException) { } }
+    }
+
+    public int Frames(string video, CancellationToken ct = default)
+    {
+        // a stream copy into the null muxer counts every frame; the last progress line holds the total
+        var r = Ffmpeg(new[] { "-hide_banner", "-nostdin", "-i", Path.GetFullPath(video), "-map", "0:v:0", "-c", "copy", "-f", "null", "-" },
+            Path.GetDirectoryName(Path.GetFullPath(video))!, TimeSpan.FromMinutes(5), ct);
+        return r.Exit == 0 ? ParseFrames(r.Err) : 0;
+    }
+
+    /// <summary>The last "frame=  N" of ffmpeg's progress output; 0 when there is none.</summary>
+    internal static int ParseFrames(string ffmpegErr)
+    {
+        var m = System.Text.RegularExpressions.Regex.Matches(ffmpegErr ?? "", @"frame=\s*(\d+)");
+        return m.Count == 0 ? 0 : int.Parse(m[m.Count - 1].Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
     }
 
     public void Thumbnail(string mp4, string outJpg, double atSec, CancellationToken ct = default, int width = 320)

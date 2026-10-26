@@ -16,7 +16,9 @@ public static class CameraScript
     /// The scene height is taken as Hz = 0, so tall objects (vehicles, racks) may be clipped at high tilt.</summary>
     /// <param name="display">Extra display statements before the first time statement, e.g. "turn system ash_cal picture System off".</param>
     /// <param name="legacy">AutoView before 14 (<see cref="AutoViewExe.IsLegacy"/>): AVI and no upvector, see <see cref="MovieSpec"/> and <see cref="View"/>.</param>
-    public static string Build(CutSpec cut, double f0Metres, int width, int height, int fps, int quality, string movieFile, IEnumerable<string>? display = null, bool legacy = false)
+    /// <param name="displayStep">Simulation seconds per frame at time scale 1 (guide 5.1: 0.5 on 14.5; FilmWorker measures it in the calibration render).</param>
+    public static string Build(CutSpec cut, double f0Metres, int width, int height, int fps, int quality, string movieFile, IEnumerable<string>? display = null, bool legacy = false,
+        double displayStep = 0.5)
     {
         bool move = cut.Kind == CutKind.Move;
         if (move && cut.B == null) throw new ArgumentException("Move cut needs B", nameof(cut));
@@ -33,7 +35,7 @@ public static class CameraScript
         void L(string s) => sb.Append(s).Append('\n');
         L("camera description");
         L("distance feet"); L("time seconds"); L("angle degree");
-        L("time scale " + N(CameraMath.TimeScale(cut.Speed, fps)));
+        L("time scale " + N(CameraMath.TimeScale(cut.Speed, fps, displayStep)));
         L(cut.Perspective ? "perspective" : "orthogonal");
         L("solid"); L("grid off");
         foreach (var d in display ?? Array.Empty<string>()) L(d);

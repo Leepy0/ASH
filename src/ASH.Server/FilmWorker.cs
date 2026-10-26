@@ -247,6 +247,13 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
     /// <summary>Render runs in a row that hit the time limit (worker thread only).</summary>
     int _timeouts;
 
+    /// <summary>Simulation seconds per AutoView frame at time scale 1, measured by each model's calibration render (guide 5.1: 0.5 on 14.5; an older
+    /// AutoView may differ, which made 10 s cuts come out as 5 s). Worker thread only.</summary>
+    double _step = 0.5;
+
+    /// <summary>Calibration renders span up to this many simulation seconds at time scale 1, so the frame count gives the display step.</summary>
+    const double CalSpan = 4;
+
     RenderResult Render(string work, string model, string script, TimeSpan timeout, CancellationToken stop)
     {
         var res = renderer.Render(work, model, script, timeout, stop);
@@ -386,7 +393,7 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
             var item = films.Get(f.Id)!.Items.First(i => i.JobId == j.Id && i.CutId == c.Id);
             Phase(c.Name);
             string script;
-            try { script = CameraScript.Build(c, f0, r.Width, r.Height, r.Fps, Quality, Path.Combine(work, $"cut{k + 1:00}"), new[] { CalOff }, Legacy); }
+            try { script = CameraScript.Build(c, f0, r.Width, r.Height, r.Fps, Quality, Path.Combine(work, $"cut{k + 1:00}"), new[] { CalOff }, Legacy, _step); }
             catch (ArgumentException e) { failed = true; SetItem(f, j.Id, c.Id, false, "카메라 스크립트를 만들 수 없는 컷입니다: " + e.Message); continue; } // a cut saved before validation tightened
             var res = Render(work, j.Model, script, CutTimeout, stop);
             if (res.Dialogs.Count > 0) say($"{label}: 대화상자 {string.Join(", ", res.Dialogs)}");
@@ -399,7 +406,11 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
             }
             if (res.Mp4!.EndsWith(".avi", StringComparison.OrdinalIgnoreCase)) say($"{label}: AutoView가 AVI를 만들었습니다(이전 AutoView 방식, 확인되지 않은 경로): ffmpeg로 MP4로 바꿉니다.");
             var caption = r.Caption && c.Caption ? $"{a?.Name ?? f.AnalysisName} · {label} · {c.Name}\n{Hms(c.StartSec)} · {kpi}" : "";
-            try { renderer.Finish(new[] { res.Mp4! }, new[] { caption }, Path.Combine(films.FilmDir(f.Id), item.Name), false, stop); SetItem(f, j.Id, c.Id, true, null); say($"{label}: {item.Name}"); Thumb(f, item.Name, say, stop); }
+            var frames = renderer.Frames(res.Mp4!, stop);
+            var want = c.VideoSeconds * r.Fps;
+            if (frames > 0 && Math.Abs(frames - want) > Math.Max(2, want * 0.1))
+                say($"{label}: {c.Name} AutoView 프레임 {frames}개(예상 {want:0}개) → 길이를 {c.VideoSeconds:0.#}초로 맞춥니다.");
+            try { renderer.Finish(new[] { res.Mp4! }, new[] { caption }, Path.Combine(films.FilmDir(f.Id), item.Name), false, stop, c.VideoSeconds, r.Fps); SetItem(f, j.Id, c.Id, true, null); say($"{label}: {item.Name}"); Thumb(f, item.Name, say, stop); }
             catch (Exception e) when (e is InvalidOperationException or IOException) { failed = true; SetItem(f, j.Id, c.Id, false, e.Message); }
         }
         if (failed) say($"{label}: 실패한 컷이 있어 작업 폴더를 남깁니다(기록·영상 원본은 지움): {work}");
@@ -456,7 +467,8 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
         stop.ThrowIfCancellationRequested();
 
         Phase("화면 배율 보정");
-        var f0 = Calibrate(work, j.Model, (cx, cy, lw, lh, Math.Sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0) + 2.5 * 2.5)), from + 1, width, height, say, warn, stop);
+        _step = 0.5;
+        var f0 = Calibrate(work, j.Model, (cx, cy, lw, lh, Math.Sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0) + 2.5 * 2.5)), from + 1, Math.Min(CalSpan, to - from - 1), width, height, say, warn, stop);
         return (f0, o);
     }
 
@@ -538,11 +550,12 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
         }
     }
 
-    /// <summary>F0 (metres) of this film model, guide 10.4: two one-frame renders at scale 1 with and without the ash_cal mark, F0 = H × Lc / p.
+    /// <summary>F0 (metres) of this film model, guide 10.4: two renders at scale 1 with and without the ash_cal mark, F0 = H × Lc / p (first frames).
+    /// The first render spans <paramref name="span"/> simulation seconds at time scale 1; its frame count sets <see cref="_step"/>.
     /// Each render has Film:CalibrationTimeoutMin (short: a stuck AutoView is reported in minutes, not after the cut limit).
     /// Falls back to the first guess 1.19 × the scene's 3D diagonal (a warning with the render's error and diagnostics in the log and on the film page)
     /// when the measurement fails, times out or is far off. A timeout counts towards the two-in-a-row rule: if AutoView is really stuck the first cut times out too and the film stops.</summary>
-    double Calibrate(string work, string model, (double Cx, double Cy, double Lw, double Lh, double Diag) scene, double t, int width, int height, Action<string> say,
+    double Calibrate(string work, string model, (double Cx, double Cy, double Lw, double Lh, double Diag) scene, double t, double span, int width, int height, Action<string> say,
         Action<string> warn, CancellationToken stop)
     {
         var guess = 1.19 * scene.Diag;
@@ -552,10 +565,18 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
             CameraScript.MovieSpec(movie, width, height, 100, 15, legacy) + string.Join("\n",
             "time " + t.ToString("0.###", C),
             CameraScript.View(scene.Cx * 1e6, scene.Cy * 1e6, 0, scene.Cx * 1e6, scene.Cy * 1e6, 30480000, 0, 1, 0, 1, legacy),
-            "record movie", "time " + (t + 1).ToString("0.###", C), "generate movie", "");
+            "record movie", "time " + (t + span).ToString("0.###", C), "generate movie", "");
         var on = Render(work, model, Script(false, Path.Combine(work, "cal_on")), CalTimeout, stop);
         var off = on.Ok ? Render(work, model, Script(true, Path.Combine(work, "cal_off")), CalTimeout, stop) : on;
         stop.ThrowIfCancellationRequested(); // a cancelled render is not a calibration failure
+        if (on.Ok)
+        {
+            // guide 5.1: frames = span / (step × time scale), time scale 1 here
+            var n = renderer.Frames(on.Mp4!, stop);
+            var step = n > 0 && span >= 2 ? span / n : 0;
+            if (step >= 0.1 && step <= 2.5) { _step = step; say($"AutoView 프레임 간격: 시뮬레이션 {step:0.###}초 (보정 {span:0.#}초 → {n}프레임)"); }
+            else say($"AutoView 프레임 간격을 재지 못해 0.5초로 둡니다(프레임 {n}개).");
+        }
         if ((on.TimedOut || off.TimedOut) && _timeouts >= 2) throw new AutoViewHungException();
         var why = on.Error ?? off.Error;
         (double W, double H)? px = null;

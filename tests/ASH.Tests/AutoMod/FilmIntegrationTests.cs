@@ -78,6 +78,17 @@ public class FilmIntegrationTests
         Assert.Equal("yuv420p", Ffprobe(final, "stream=pix_fmt"));
         var sec = double.Parse(Ffprobe(final, "format=duration")!, System.Globalization.CultureInfo.InvariantCulture);
         Assert.InRange(sec, 9, 11);
+        Assert.InRange(r.Frames(res.Mp4!), 148, 152); // guide 5.1: 300 s at 30x, 15 fps
+
+        // a display step that does not match this AutoView (here 1 s assumed, 0.5 s real) puts the wrong number of frames in the file (twice as many:
+        // 20 s instead of 10 s; an older AutoView with the opposite mismatch gave half, 5 s); Finish re-times them to the cut's 10 s
+        var off = r.Render(work, Model, CameraScript.Build(cut, 18, 1280, 720, 15, 80, Path.Combine(work, "cut02"), displayStep: 1.0), TimeSpan.FromMinutes(5), CancellationToken.None);
+        Assert.True(off.Ok, off.Error);
+        Assert.InRange(r.Frames(off.Mp4!), 298, 302);
+        var fixedLen = r.Finish(new[] { off.Mp4! }, new[] { "" }, Path.Combine(work, "retimed.mp4"), false, default, cut.VideoSeconds, 15);
+        Assert.InRange(double.Parse(Ffprobe(fixedLen, "format=duration")!, System.Globalization.CultureInfo.InvariantCulture), 9.5, 10.5);
+        Assert.InRange(r.Frames(fixedLen), 145, 155);
+
         var joined = r.Finish(new[] { final, final }, Array.Empty<string>(), Path.Combine(work, "joined.mp4"), true);
         Assert.InRange(double.Parse(Ffprobe(joined, "format=duration")!, System.Globalization.CultureInfo.InvariantCulture), 18, 22);
         if (Environment.GetEnvironmentVariable("ASH_KEEP_TEMP") != "1") Directory.Delete(work, true);

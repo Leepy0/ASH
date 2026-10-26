@@ -66,8 +66,17 @@ public sealed class FakeFilm : IFilmAutoMod, IFilmRenderer
         return new RenderResult(true, mp4, null, Array.Empty<string>());
     }
 
-    public string Finish(IReadOnlyList<string> mp4s, IReadOnlyList<string> captions, string outPath, bool join, CancellationToken ct = default)
+    /// <summary>What Frames reports for every video (0 = unknown, as a real ffmpeg failure).</summary>
+    public int FrameCount;
+
+    public int Frames(string video, CancellationToken ct = default) => FrameCount;
+
+    /// <summary>The (seconds, fps) each non-join Finish was asked to re-time to.</summary>
+    public readonly List<(double Seconds, int Fps)> Retimes = new();
+
+    public string Finish(IReadOnlyList<string> mp4s, IReadOnlyList<string> captions, string outPath, bool join, CancellationToken ct = default, double seconds = 0, int fps = 0)
     {
+        if (!join) lock (Retimes) Retimes.Add((seconds, fps));
         lock (Finishes) Finishes.Add((mp4s.ToList(), captions.ToList(), outPath, join));
         Assert.All(mp4s, m => Assert.True(File.Exists(m), m));
         File.WriteAllText(outPath, join ? "joined" : "mp4");
@@ -145,6 +154,7 @@ public class FilmTests
         Assert.All(f.Items, i => Assert.True(File.Exists(Path.Combine(dir, i.Name)), i.Name));
         var join = env.Film.Finishes.Single(x => x.Join);
         Assert.Equal(f.Items.Select(i => Path.Combine(dir, i.Name)), join.Mp4s);
+        Assert.All(env.Film.Retimes, x => Assert.True(x.Seconds > 0 && x.Fps > 0)); // every cut is re-timed to its own length
         Assert.True(f.JoinedOk); Assert.Equal(Path.Combine(dir, f.Joined!), join.Out);
 
         // one film model per version: built from a copy with the drawing slot, the ash_cal mark and only the cuts' window recorded
