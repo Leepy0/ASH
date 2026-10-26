@@ -240,7 +240,16 @@ sc start ASH.Server
 
 1. **ffmpeg** — libx264와 drawtext(libfreetype)가 들어 있는 최신 빌드(gyan.dev의 full/essentials 등). 서버 서비스 계정의 `PATH`에 두거나 `Film:FfmpegPath`에 전체 경로를 적는다. AutoView도 MP4 변환에 PATH의 ffmpeg를 쓰므로, 전체 경로를 적으면 서버가 그 폴더를 AutoView 실행 환경의 PATH에 붙여 준다. 확인: `ffmpeg -hide_banner -encoders | findstr libx264`, `ffmpeg -hide_banner -filters | findstr drawtext` (둘 다 한 줄 이상 나와야 한다).
 2. **AutoView** — AutoMod 폴더의 `bin` 안에서 찾는다: AutoMod 12.6 이상은 `aview64.exe`, 12.4는 `aview.exe`(둘 다 있으면 `aview64.exe`). 다른 곳에 있으면 `Film:AviewExe`에 전체 경로를 적는다. AutoView 라이선스가 모델 실행과 같은 라이선스를 쓰므로 서버 PC에서 AutoMod 라이선스가 AutoView도 허용하는지 확인한다.
-3. **서비스 세션 렌더 확인(최초 1회)** — AutoView가 서비스(세션 0, 로그온 없음)에서 화면 없이 그려지는지는 PC마다 다를 수 있다. 영상을 한 편 만들어 완료되는지 본다. 컷이 "AutoView가 MP4를 만들지 않았습니다"로 실패하면 AutoView가 서비스에서 그리지 못하는 것이니 둘 중 하나를 쓴다. (a) 서비스를 로그온 가능한 계정으로 바꾸고(`sc config ASH.Server obj= ".\<계정>" password= "<암호>"`) 서버 PC에 그 계정이 로그온해 둔다. (b) 서비스 대신 작업 스케줄러에 `ASH.Server.exe`를 "사용자가 로그온한 경우에만 실행"으로 등록한다(자동 업데이트·복구 설정은 서비스일 때만 동작).
+3. **로그온 세션 대리 실행기(필수, 0.26.0)** — 서비스는 계정과 상관없이 세션 0(화면 없음)에서 돌아 AutoView가 그리지 못한다(진단 `서버 세션 0`, `보이는 창 없음`, 프레임 JPG 0개). 그래서 서비스는 그대로 두고 AutoView 렌더만 로그온한 사용자 세션의 `ASH.Server.exe --film-helper`가 한다. 영상용 계정으로 서버 PC에 로그온해 **관리자 권한 명령 프롬프트**에서 한 번 등록한다:
+   ```
+   "C:\Program Files\ASH.Server\ASH.Server.exe" --install-film-helper
+   ```
+   - 다른 계정을 쓰려면 끝에 `도메인\계정`을 붙인다. 등록은 ① 그 계정에 `Jobs:Dir` 수정 권한(icacls, AutoView가 서비스가 만든 작업 폴더에 써야 함)과 설치 폴더 읽기·실행 권한(관리자 전용으로 잠근 폴더의 exe를 실행해야 함. 그래서 이 계정은 `appsettings.json`의 관리자 암호도 읽을 수 있으니 영상 전용 계정을 쓴다) ② 작업 스케줄러 `ASH.FilmHelper`(로그온할 때, 사용자가 로그온한 경우에만, 보통 권한) ③ 지금 바로 시작을 한다. 해제: `--uninstall-film-helper`.
+   - 서비스와 대리 실행기는 `Jobs:Dirilm-helper\`의 파일로 주고받는다(`heartbeat.txt` 2초마다, 요청 `req-*.json`, 결과 `res-*.json`, 기록 `helper.log`). 대리 실행기는 AutoView·AutoMod·ffmpeg 경로를 `appsettings.json`에서 직접 읽고 `Jobs:Dir` 안의 폴더만 다룬다.
+   - 대리 실행기가 없으면 서비스가 `schtasks /Run`으로 한 번 깨우고 30초 기다린다. 그래도 없으면 컷이 "로그온 세션의 AutoView 대리 실행기가 돌고 있지 않습니다"로 바로 실패한다(2분 동안 다시 기다리지 않음).
+   - 서버 자동 업데이트로 exe가 바뀌면 대리 실행기는 하던 렌더를 마치고 끝나고, 다음 렌더 때 서비스가 새 exe로 다시 깨운다.
+   - 그 계정은 로그온을 유지한다(재부팅 뒤 자동 로그온이 필요하면 전용 계정에만 설정). 원격 데스크톱 연결을 끊거나 화면을 잠그면 그리지 못할 수 있으니, 원격으로 들어갔다면 로그오프하지 말고 콘솔로 돌려놓고 나온다.
+   - 서버를 서비스가 아니라 로그온한 콘솔에서 실행하면(세션 1 이상) 대리 실행기 없이 직접 그린다.
 4. 컷 하나가 `Film:CutTimeoutMin`(기본 20분)을 넘으면 AutoView를 끊고 그 컷만 실패한다. 영상 페이지 `/films/{id}`에 컷별 상태와 `film.log`가 나온다. F0(화면 배율 기준값)는 영상마다 자동 보정 컷(1프레임 렌더 2번)으로 정한다. 보정 렌더 한 번의 제한은 `Film:CalibrationTimeoutMin`(기본 3분)이다. 넘으면 영상을 멈추지 않고 추정값으로 계속하며, 영상 페이지에 "주의: 화면 배율 보정 실패, 추정값 사용 — <진단>" 경고가 붙는다. AutoView가 정말 멈춘 상태면 바로 다음 컷도 시간 초과가 되고, 연속 2회 시간 초과 규칙으로 영상이 멈춘다("AutoView가 응답하지 않아 중단했습니다").
 5. **대화상자 자동 클릭** — AutoView가 띄우는 창 가운데 제목에 `Film:DialogTitles`(쉼표 구분, 제목의 일부, 대소문자 무시)가 든 창의 OK(한글 Windows는 `확인`)를 누른다. 취소는 누르지 않는다. 기본값은 `Attention,비디오 압축,Video Compression`이다. AutoView 12.4는 동영상을 만들 때 `Attention!`("…Your AVI file will be generated…") 다음에 Windows의 `비디오 압축`(영문 Windows: `Video Compression`, 압축 프로그램 Microsoft Video 1) 창을 띄운다. 0.19.1까지는 `Attention`만 눌러 이 둘째 창에서 멈춘 것으로 보인다("화면 배율 보정 중 시간 제한 초과", 서버 화면 사진으로 확인). 다른 창에 걸리면 아래 진단의 `창 "제목"`을 보고 그 제목을 더한다(재시작 없이 다음 렌더부터 적용).
 6. **AutoView 12.4(AVI)** — 12.4는 MP4가 아니라 AVI를 만든다. 서버는 `<컷>.mp4`가 없으면 `<컷>.avi`, 그것도 없으면 그 실행 동안 작업 폴더에 새로 생긴 AVI(12.4 창에는 `model.avi`로 나옴)를 받아 ffmpeg로 MP4(H.264 yuv420p)로 바꾼다. `film.log`에 "AutoView가 AVI를 만들었습니다"가 남는다. **이 AVI 경로는 12.4가 없는 개발 PC에서 확인하지 못했다**(14.5의 AVI 출력은 빈 화면이었다). 12.4 서버에서 영상을 한 편 만들어 화면이 제대로 나오는지, 크기가 요청한 해상도(예: 1280×720)인지 확인한다. 12.4가 영상 크기 설정을 무시하고 640×480으로 만들면 컷의 화면 범위와 F0 보정이 어긋날 수 있다. 12.4의 `aview.exe`가 `-n`(스크립트 끝나면 종료) 옵션을 받는지도 확인되지 않았다. 바로 끝나면 진단의 `출력 "…"`(AutoView의 표준 출력)과 `aviewout.dat`를 본다.
@@ -259,7 +268,7 @@ sc start ASH.Server
 |---|---|
 | `AutoView <경로> (버전 …)` | 실제로 실행한 AutoView. 12.4면 `aview.exe`. 버전이 "정보 없음"이면 다른 파일이다. |
 | `창 "제목" [클래스] 버튼 … 내용 "…" (exe)` | 끊을 때 AutoView(와 자식 프로세스)에 떠 있던 창. 대화상자 제목을 `Film:DialogTitles`에 더한다. `보이는 창 없음`이면 창 없이 멈춘 것(서비스 세션 등). |
-| `서버 세션 0(서비스: 화면 없음)` | 서버가 서비스(세션 0)로 돈다. 3번의 로그온 계정 실행을 쓴다. |
+| `서버 세션 0(서비스: 화면 없음)` | 대리 실행기를 거치지 않고 서비스가 직접 그렸다. 3번의 `--install-film-helper`로 등록한다. 대리 실행기를 거친 렌더는 그 계정의 세션 번호(1 이상)가 나온다. |
 | `aviewerr.dat "…"` | 카메라 스크립트 오류(그 버전의 AutoView가 모르는 문장 등). |
 | `aviewout.dat "…"` | AutoView의 스크립트 해석 기록 끝부분. |
 | `<컷>.mp4 있음/없음`, `avi …` | AutoView가 만든 동영상. |
