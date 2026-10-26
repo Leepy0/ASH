@@ -14,7 +14,9 @@ public sealed record AnalysisPageData(AnalysisInfo A, IReadOnlyList<JobInfo> Job
 
 /// <summary>The left list of the analysis pages: rows (in progress first), whether only mine are shown, the search text, the tag selects,
 /// the list's own query (me, q, tags) that row links keep, the unclassified count and every film (for the "영상 만드는 중" stage).</summary>
-public sealed record AnalysisListData(IReadOnlyList<AnalysisRow> Rows, bool Me, string Q, string TagFilter, string Keep, int Unclassified, IReadOnlyList<FilmInfo> Films);
+/// <summary>Running = what the home page's 진행 lane shows (a job, also one not filed in an analysis, or a film), pinned above the list.</summary>
+public sealed record AnalysisListData(IReadOnlyList<AnalysisRow> Rows, bool Me, string Q, string TagFilter, string Keep, int Unclassified, IReadOnlyList<FilmInfo> Films,
+    RunningCard? Running = null, int Queued = 0);
 
 public static class AnalysisPages
 {
@@ -68,7 +70,9 @@ public static class AnalysisPages
         else
         {
             sb.Append($"<div class=\"crumb\"><a href=\"/analyses/{H(a.Id)}?tab=status\">{H(a.Name)}</a> › {H(p.Name)} › v{j.Version}{(j.VersionNote.Length > 0 ? " · " + H(j.VersionNote) : "")}{(j.Selected ? " <span class=\"tag\">선정</span>" : "")}</div>");
-            sb.Append("<div class=\"mini\">").Append(MoveForm(j, analyses, "/jobs/" + j.Id, "옮기기")).Append(SelectForm(j, "/jobs/" + j.Id)).Append("</div>");
+            sb.Append("<div class=\"mini\">").Append(MoveForm(j, analyses, "/jobs/" + j.Id, "옮기기")).Append(SelectForm(j, "/jobs/" + j.Id));
+            if (Ok(j)) sb.Append($"<a class=\"btn\" href=\"/analyses/{H(a.Id)}/cuts?job={H(j.Id)}\">◐ 이 버전으로 영상 만들기</a>");
+            sb.Append("</div>");
             sb.Append("<div class=\"help\">다른 안으로 옮기면 그 안의 다음 버전이 됩니다.</div>");
         }
         sb.Append("</div>");
@@ -162,6 +166,7 @@ public static class AnalysisPages
 .lr:hover{background:var(--gray-b)}.lr.on{background:var(--blue);color:#fff}.lr.on .st{color:#fff}.lr.on .dot{background:#fff}
 .lr .dot{width:8px;height:8px;border-radius:50%;background:var(--c);flex:none}.lr .t{flex:1;min-width:0}
 .lr .t b{display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.lr .st{font-size:13px;color:var(--sub2)}.lr em{font-style:normal;font-weight:700;font-size:15px}
+.lr-now{background:var(--blue-b);border-top:1px solid var(--line)}.lr-now .st:first-child{font-size:12px;font-weight:600;color:var(--blue-d)}
 .lp-x{display:block;padding:12px 14px;border-top:1px solid var(--line);font-size:13px;color:var(--sub2);text-decoration:none}
 .dp{min-height:0;overflow:auto;padding:16px 24px 20px;display:flex;flex-direction:column}.dp>*{flex:none}.dp>.fill{flex:1}
 .hint{margin:auto;text-align:center;color:var(--sub2)}
@@ -186,6 +191,7 @@ public static class AnalysisPages
 .mv svg.bm{position:absolute;inset:0;width:100%;height:100%}
 .mv svg.mm{position:absolute;top:10px;right:10px;width:150px;height:96px;background:#fff;border:1px solid var(--line2);border-radius:8px}
 .mv .segc{position:absolute;left:10px;bottom:10px}
+.mv .zb{position:absolute;right:10px;bottom:10px;display:flex;gap:4px}.mv .zb button{min-height:32px;min-width:36px;padding:0 10px;background:#fff;border:1px solid var(--line2)}
 .rk{width:220px;flex:none;display:flex;flex-direction:column}.rk ol{list-style:none;margin:0;padding:0}
 .rk li{display:flex;align-items:center;gap:8px;min-height:36px;border-bottom:1px solid var(--line)}.rk li span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .rk li i{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-style:normal;font-size:12px;font-weight:700;background:var(--gray-b);color:var(--sub2);flex:none}
@@ -225,6 +231,9 @@ public static class AnalysisPages
         sb.Append($"<form class=\"lp-f\" action=\"{H(path)}\"><input type=\"hidden\" name=\"me\" value=\"{(l.Me ? 1 : 0)}\">" +
             $"<input type=\"search\" name=\"q\" value=\"{H(l.Q)}\" placeholder=\"이름·보낸 사람\" aria-label=\"검색\">" +
             $"<details><summary>법인·제품군·라인</summary>{l.TagFilter}<button>거르기</button></details></form>");
+        if (l.Running is { } run)
+            sb.Append($"<a class=\"lr c-blue lr-now\" href=\"{H(run.Href ?? "/jobs/" + run.JobId)}\"><i class=\"dot\" aria-hidden=\"true\"></i><span class=\"t\"><span class=\"st\">지금 실행 중{(l.Queued > 0 ? $" · 대기 {l.Queued}건" : "")}</span>" +
+                $"<b>{H(run.Name ?? run.Title)}</b><span class=\"st\">{H(run.Sub ?? "")} · {Math.Round((run.Progress ?? 0) * 100):0}%</span></span></a>");
         var rows = l.Q.Length == 0 ? l.Rows : l.Rows.Where(r => r.Name.Contains(l.Q, StringComparison.OrdinalIgnoreCase) || r.Submitters.Any(s => s.Contains(l.Q, StringComparison.OrdinalIgnoreCase))).ToList();
         sb.Append("<nav class=\"lp-l\">");
         if (rows.Count == 0) sb.Append("<div class=\"empty\" style=\"margin:14px\">분석 없음</div>");
@@ -277,8 +286,8 @@ public static class AnalysisPages
         var report = $"/analyses/{id}/report"; // the report page offers PDF, PowerPoint and Excel
         if (cur == null) sb.Append($"<a class=\"btn\" href=\"/analyses/{id}/cuts\">컷 편집</a>");
         else if (d.Films.Any(f => f.State == JobState.Done))
-            sb.Append($"<a class=\"btn\" href=\"/analyses/{id}?tab=films\">◐ 영상 보기</a><a class=\"btn pri\" href=\"{report}\">✓ 보고서 받기</a>");
-        else sb.Append($"<a class=\"btn\" href=\"{report}\">✓ 보고서 받기</a><a class=\"btn pri\" href=\"/analyses/{id}/cuts\">◐ 영상 만들기</a>");
+            sb.Append($"<a class=\"btn\" href=\"/analyses/{id}?tab=films\">◐ 영상 보기</a><a class=\"btn\" href=\"/analyses/{id}/cuts?job={H(cur.Id)}\">영상 만들기</a><a class=\"btn pri\" href=\"{report}\">✓ 보고서 받기</a>");
+        else sb.Append($"<a class=\"btn\" href=\"{report}\">✓ 보고서 받기</a><a class=\"btn pri\" href=\"/analyses/{id}/cuts?job={H(cur.Id)}\">◐ 영상 만들기</a>");
         sb.Append("</div><div class=\"tb\"><nav class=\"segc\" aria-label=\"보기\">");
         foreach (var (k, name) in Tabs)
         {
@@ -444,10 +453,33 @@ public static class AnalysisPages
         return (cx - w / 2, cx + w / 2, cy - h / 2, cy + h / 2);
     }
 
-    // markers and labels are drawn in screen px inside a group scaled by "user units per px"; this keeps them the same size at any zoom or window size
-    const string FitScript = "<script>(function(){function fit(){document.querySelectorAll('svg.bm').forEach(function(s){var m=s.getScreenCTM();if(!m||!m.a)return;var k=1/m.a;" +
-        "s.querySelectorAll('g.mk').forEach(function(g){g.setAttribute('transform','translate('+g.getAttribute('data-x')+' '+g.getAttribute('data-y')+') scale('+k+')');});});}" +
-        "fit();addEventListener('resize',fit);})();</script>";
+    // markers and labels are drawn in screen px inside a group scaled by "user units per px"; this keeps them the same size at any zoom or window size.
+    // Wheel zooms at the cursor, drag pans (a drag never follows a marker link), double-click or 맞춤 goes back to the first view.
+    const string FitScript = @"<script>(function(){
+function fit(){document.querySelectorAll('svg.bm').forEach(function(s){var m=s.getScreenCTM();if(!m||!m.a)return;var k=1/m.a;
+ s.querySelectorAll('g.mk').forEach(function(g){g.setAttribute('transform','translate('+g.getAttribute('data-x')+' '+g.getAttribute('data-y')+') scale('+k+')');});});}
+document.querySelectorAll('svg.bm').forEach(function(s){
+ if(s.dataset.zoom)return;s.dataset.zoom='1';
+ var b0=s.getAttribute('viewBox').split(' ').map(Number),v=b0.slice(),d=null,moved=false;
+ function set(){s.setAttribute('viewBox',v.join(' '));fit();}
+ function at(x,y){var m=s.getScreenCTM();if(!m)return{x:v[0]+v[2]/2,y:v[1]+v[3]/2};var p=s.createSVGPoint();p.x=x;p.y=y;return p.matrixTransform(m.inverse());}
+ function zoom(f,c){var w=v[2]*f;if(w>b0[2]*4)f=b0[2]*4/v[2];if(w<b0[2]/40)f=b0[2]/40/v[2];v=[c.x-(c.x-v[0])*f,c.y-(c.y-v[1])*f,v[2]*f,v[3]*f];set();}
+ function mid(){var r=s.getBoundingClientRect();return at(r.left+r.width/2,r.top+r.height/2);}
+ s.style.cursor='grab';s.style.touchAction='none';
+ s.addEventListener('wheel',function(e){e.preventDefault();zoom(e.deltaY<0?1/1.25:1.25,at(e.clientX,e.clientY));},{passive:false});
+ s.addEventListener('pointerdown',function(e){if(e.button!==0)return;var m=s.getScreenCTM();d={x:e.clientX,y:e.clientY,v:v.slice(),k:m&&m.a?1/m.a:1};moved=false;});
+ s.addEventListener('pointermove',function(e){if(!d)return;var dx=e.clientX-d.x,dy=e.clientY-d.y;if(!moved&&Math.abs(dx)+Math.abs(dy)<4)return;
+  if(!moved){moved=true;s.setPointerCapture(e.pointerId);s.style.cursor='grabbing';}v=[d.v[0]-dx*d.k,d.v[1]-dy*d.k,v[2],v[3]];set();});
+ function up(){d=null;s.style.cursor='grab';}
+ s.addEventListener('pointerup',up);s.addEventListener('pointercancel',up);
+ s.addEventListener('click',function(e){if(moved){e.preventDefault();e.stopPropagation();moved=false;}},true);
+ s.addEventListener('dblclick',function(){v=b0.slice();set();});
+ var bar=document.createElement('div');bar.className='zb';
+ [['＋','확대',function(){zoom(1/1.5,mid());}],['－','축소',function(){zoom(1.5,mid());}],['맞춤','처음 보기로',function(){v=b0.slice();set();}]].forEach(function(t){
+  var b=document.createElement('button');b.type='button';b.textContent=t[0];b.title=t[1];b.setAttribute('aria-label','지도 '+t[1]);b.addEventListener('click',t[2]);bar.appendChild(b);});
+ s.parentNode.appendChild(bar);
+});
+fit();addEventListener('resize',fit);})();</script>";
 
     /// <summary>Paths, blocks shaded by the value, the top 5 blocks as numbered markers; zoomed to the hot blocks (minimap + 전체 toggle) unless
     /// <paramref name="whole"/>. The SVG fills its box (sized by the window), so a large drawing never makes the page larger. Beside it the ranked list.

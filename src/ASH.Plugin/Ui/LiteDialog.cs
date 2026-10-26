@@ -8,8 +8,8 @@ using ASH.Core.Lite;
 
 namespace ASH.Plugin.Ui;
 
-/// <summary>AGVLITE's choices: which layers go into the lite DXF (each with its entity count and estimated size), the options, and the curve tolerance.
-/// Counts and sizes follow the options live; the total turns amber over 5 MB and red over 10 MB with the heaviest checked layers named. Touches no ZWCAD type.</summary>
+/// <summary>AGVLITE's choices: which entity types go into the lite DXF (each with its entity count and estimated size), the minimum size, the options, and the curve tolerance.
+/// Counts and sizes follow the options live; the total turns amber over 5 MB and red over 10 MB with the heaviest checked types named. Touches no ZWCAD type.</summary>
 public sealed class LiteDialog : Form
 {
     private const long Target = 5L * 1048576, Limit = 10L * 1048576;
@@ -18,16 +18,16 @@ public sealed class LiteDialog : Form
 
     private readonly LitePlan _plan;
     private readonly ListView _list;
-    private readonly CheckBox _xref, _foot, _hidden;
-    private readonly NumericUpDown _tol;
+    private readonly CheckBox _xref, _hidden;
+    private readonly NumericUpDown _tol, _min;
     private readonly Label _total, _warn;
     private bool _loading = true;
 
-    public LiteOptions Options => new LiteOptions(_xref.Checked, _foot.Checked, _hidden.Checked);
-    public List<string> Layers => _list.Items.Cast<ListViewItem>().Where(i => i.Checked).Select(i => (string)i.Tag).ToList();
+    public LiteOptions Options => new LiteOptions(_xref.Checked, _hidden.Checked, _plan.FromMm((double)_min.Value));
+    public List<string> Types => _list.Items.Cast<ListViewItem>().Where(i => i.Checked).Select(i => (string)i.Tag).ToList();
     public double ToleranceMm => (double)_tol.Value;
 
-    public LiteDialog(LitePlan plan, string drawing, string output, double toleranceMm, LiteOptions? initial = null, ICollection<string>? checkedLayers = null)
+    public LiteDialog(LitePlan plan, string drawing, string output, double toleranceMm, double minSizeMm, LiteOptions? initial = null, ICollection<string>? checkedTypes = null)
     {
         _plan = plan;
         var o = initial ?? new LiteOptions();
@@ -43,7 +43,7 @@ public sealed class LiteDialog : Form
         ClientSize = new Size(600, 740);
 
         var info = new Label { AutoSize = true, MaximumSize = new Size(568, 0), Font = HintFont, ForeColor = Theme.Muted, Margin = new Padding(2, 8, 0, 0),
-            Text = $"{drawing}  →  {output}\n원본 도면은 바꾸지 않습니다. 읽은 선·곡선 {src.Items.Count:N0}개 · 문자·해치·치수 등 {src.Removed.Values.Sum():N0}개는 항상 제외" };
+            Text = $"{drawing}  →  {output}\n원본 도면은 바꾸지 않습니다. 블록 안까지 풀어 읽은 선·곡선 {src.Items.Count:N0}개 · 점·솔리드·문자·속성 정의·지시선·스플라인·구름형 리비전·구성선·치수·해치 등 {src.Removed.Values.Sum():N0}개는 항상 제외 · 모든 좌표 Z = 0" };
         var problems = new List<string>();
         if (src.Truncated) problems.Add("작업 한도에 도달해 도면 일부만 읽었습니다(블록 중첩·반복이 너무 많음). 결과가 빠질 수 있습니다.");
         if (src.Failures > 0) problems.Add($"읽지 못한 엔티티 {src.Failures:N0}개는 건너뜁니다.");
@@ -52,21 +52,17 @@ public sealed class LiteDialog : Form
         _list = new ListView
         {
             View = View.Details, CheckBoxes = true, FullRowSelect = true, MultiSelect = false, HideSelection = true, HeaderStyle = ColumnHeaderStyle.Nonclickable,
-            BorderStyle = BorderStyle.FixedSingle, BackColor = Color.White, Font = Theme.Base, Height = 250, Margin = new Padding(0, 2, 0, 2), ShowItemToolTips = true,
+            BorderStyle = BorderStyle.FixedSingle, BackColor = Color.White, Font = Theme.Base, Height = 140, Margin = new Padding(0, 2, 0, 2), ShowItemToolTips = true,
         };
-        _list.Columns.Add("레이어", 280);
-        _list.Columns.Add("상태", 64);
+        _list.Columns.Add("종류", 344);
         _list.Columns.Add("엔티티", 90, HorizontalAlignment.Right);
         _list.Columns.Add("예상 MB", 90, HorizontalAlignment.Right);
-        foreach (var l in plan.Layers)
-        {
-            var st = src.Layers.TryGetValue(l, out var s) ? (s.Frozen ? "동결" : s.Off ? "꺼짐" : "") : "";
-            _list.Items.Add(new ListViewItem(new[] { l, st, "", "" })
+        foreach (var t in plan.Types)
+            _list.Items.Add(new ListViewItem(new[] { t, "", "" })
             {
-                Tag = l, Checked = checkedLayers != null ? checkedLayers.Contains(l) : plan.DefaultOn(l),
-                ToolTipText = $"DXF 레이어 이름: {plan.Names[l]}" + (plan.DefaultOn(l) ? "" : " · 이름 규칙상 기본 제외(치수·문자·해치·주석·표제 또는 AGV_ 레이어)"),
+                Tag = t, Checked = checkedTypes != null ? checkedTypes.Contains(t) : plan.DefaultOn(t),
+                ToolTipText = t == LiteTypes.Footprint ? "3D 솔리드·메시·서피스의 범위 상자(GeometricExtents). 실제 평면 투영이 아닙니다." : "블록 안의 것도 포함. 최소 크기 미만은 빠집니다.",
             });
-        }
         _list.ItemChecked += (s, e) => Recount(false);
 
         LinkLabel Link(string text, Action act)
@@ -87,23 +83,27 @@ public sealed class LiteDialog : Form
             return c;
         }
         _xref = Opt($"외부참조 내용 포함  (외부참조 {src.XrefRefs}개 삽입)", o.IncludeXref);
-        _foot = Opt($"3D 객체를 외곽 사각형으로 남기기  (3D {src.Solids3d}개)", o.Footprints);
-        var footHint = Hint("실제 평면 투영이 아니라 각 3D 객체의 범위 상자(GeometricExtents)를 그린 사각형입니다. 끄면 3D 객체는 빠집니다.");
+        _min = new NumericUpDown { Minimum = 0m, Maximum = 100000m, DecimalPlaces = 0, Increment = 10m, Width = 80, Value = (decimal)Math.Max(0, Math.Min(100000, minSizeMm)), Margin = new Padding(0, 2, 6, 0) };
+        _min.ValueChanged += (s, e) => Recount(true);
+        var minRow = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Margin = new Padding(0, 2, 0, 0) };
+        minRow.Controls.Add(new Label { Text = "최소 크기 (mm)", AutoSize = true, Margin = new Padding(2, 5, 8, 0) });
+        minRow.Controls.Add(_min);
+        var minHint = Hint("선은 길이, 그 밖의 객체는 외곽 상자 대각선이 이보다 작으면 지웁니다. 블록 안에 중첩된 것도 삽입 배율을 적용해 판단합니다. 0 = 지우지 않음.");
         _hidden = Opt("꺼진·동결 레이어 제외", o.SkipHidden);
         _tol = new NumericUpDown { Minimum = 0.1m, Maximum = 1000m, DecimalPlaces = 1, Increment = 1m, Width = 80, Value = (decimal)Math.Max(0.1, Math.Min(1000, toleranceMm)), Margin = new Padding(0, 2, 6, 0) };
         var tolRow = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Margin = new Padding(0, 6, 0, 0) };
         tolRow.Controls.Add(new Label { Text = "곡선 허용 오차 (mm)", AutoSize = true, Margin = new Padding(2, 5, 8, 0) });
         tolRow.Controls.Add(_tol);
-        var tolHint = Hint("타원·스플라인과 늘어난 블록의 원호를 선분으로 바꿀 때의 최대 오차. 바꾸면 '만들기' 뒤에 도면을 다시 읽습니다(예상 크기는 지금 값 기준).");
+        var tolHint = Hint("타원과 늘어난 블록의 원호를 선분으로 바꿀 때의 최대 오차. 바꾸면 '만들기' 뒤에 도면을 다시 읽습니다(예상 크기는 지금 값 기준).");
 
         _total = new Label { AutoSize = true, Font = new Font("Segoe UI", 11f, FontStyle.Bold), Margin = new Padding(2, 10, 0, 0) };
         _warn = new Label { AutoSize = true, MaximumSize = new Size(568, 0), Margin = new Padding(2, 2, 0, 0) };
 
         var flow = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true, Padding = new Padding(16, 4, 16, 8), BackColor = Theme.Panel };
-        flow.Controls.AddRange(new Control[] { info, problem, Theme.Section("레이어  (체크한 레이어만 경량 도면에 들어갑니다)"), links, _list,
-            Theme.Section("옵션"), _xref, _foot, footHint, _hidden, tolRow, tolHint, _total, _warn });
+        flow.Controls.AddRange(new Control[] { info, problem, Theme.Section("종류  (체크한 종류만 경량 도면에 들어갑니다)"), links, _list, minRow, minHint,
+            Theme.Section("옵션"), _xref, _hidden, tolRow, tolHint, _total, _warn });
         _list.Width = 568;
-        _list.Resize += (s, e) => _list.Columns[0].Width = Math.Max(120, _list.ClientSize.Width - 64 - 90 - 90);
+        _list.Resize += (s, e) => _list.Columns[0].Width = Math.Max(120, _list.ClientSize.Width - 90 - 90);
 
         var ok = Flat("만들기", Theme.Accent, Color.White);
         var cancel = Flat("취소", Theme.Panel, Theme.Text);
@@ -112,7 +112,7 @@ public sealed class LiteDialog : Form
         cancel.DialogResult = DialogResult.Cancel;
         ok.Click += (s, e) =>
         {
-            if (Layers.Count == 0) { MessageBox.Show(this, "레이어를 하나 이상 체크하세요.", Text, MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+            if (Types.Count == 0) { MessageBox.Show(this, "종류를 하나 이상 체크하세요.", Text, MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
             DialogResult = DialogResult.OK;
         };
         var bar = new Panel { Dock = DockStyle.Bottom, Height = 54, BackColor = Theme.Bg };
@@ -136,28 +136,29 @@ public sealed class LiteDialog : Form
         if (_loading) return;
         var o = Options;
         _list.BeginUpdate();
-        if (rows)
+        var by = rows ? _plan.ByType(o) : null;
+        if (by != null)
             foreach (ListViewItem i in _list.Items)
             {
-                var (n, bytes) = _plan.Layer((string)i.Tag, o);
-                i.SubItems[2].Text = n.ToString("N0", CultureInfo.InvariantCulture);
-                i.SubItems[3].Text = Mb(bytes);
+                var (n, bytes) = by[(string)i.Tag];
+                i.SubItems[1].Text = n.ToString("N0", CultureInfo.InvariantCulture);
+                i.SubItems[2].Text = Mb(bytes);
                 i.ForeColor = n == 0 ? Theme.Muted : Theme.Text;
             }
         _list.EndUpdate();
-        var on = Layers;
+        var on = Types;
         long total = _plan.Total(o, on);
-        _total.Text = $"예상 크기: {Mb(total)} MB  ·  레이어 {on.Count}/{_list.Items.Count}개";
+        _total.Text = $"예상 크기: {Mb(total)} MB  ·  종류 {on.Count}/{_list.Items.Count}개  ·  작아서 지움 {_plan.Small(o):N0}개";
         _total.ForeColor = total > Limit ? Red : total > Target ? Amber : Green;
         if (total > Limit)
         {
-            var big = _plan.Biggest(o, on).Select(b => $"{b.Layer} ({Mb(b.Bytes)} MB)");
-            _warn.Text = "10 MB를 넘습니다. AutoMod가 느려지거나 멈출 수 있습니다(목표 5 MB 이하). 끄기 후보: " + string.Join(", ", big);
+            var big = _plan.Biggest(o, on).Select(b => $"{b.Type} ({Mb(b.Bytes)} MB)");
+            _warn.Text = "10 MB를 넘습니다. AutoMod가 느려지거나 멈출 수 있습니다(목표 5 MB 이하). 최소 크기를 키우거나 끄기 후보: " + string.Join(", ", big);
             _warn.ForeColor = Red;
         }
         else
         {
-            _warn.Text = total > Target ? "목표(5 MB 이하)보다 큽니다. 열 수는 있지만 큰 레이어를 더 꺼 보세요." : "목표(5 MB 이하) 안입니다.";
+            _warn.Text = total > Target ? "목표(5 MB 이하)보다 큽니다. 열 수는 있지만 최소 크기를 키워 보세요." : "목표(5 MB 이하) 안입니다.";
             _warn.ForeColor = total > Target ? Amber : Theme.Muted;
         }
     }

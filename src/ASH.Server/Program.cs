@@ -7,6 +7,8 @@ using ASH.Core.Runner;
 using static ASH.Server.Routes;
 
 if (args.Length > 0 && args[0] is "--install" or "--uninstall") return ServiceCommand.Run(install: args[0] == "--install");
+if (args.Length > 0 && args[0] == FilmHelper.Arg) return FilmHelper.RunHelper();
+if (args.Length > 0 && args[0] is FilmHelper.InstallArg or FilmHelper.UninstallArg) return FilmHelper.Install(args[0] == FilmHelper.InstallArg, args.Length > 1 ? args[1] : null);
 
 // content root = exe folder (as a service the working directory is system32; from a console it may be anywhere)
 var builder = WebApplication.CreateBuilder(new WebApplicationOptions { Args = args, ContentRootPath = AppContext.BaseDirectory });
@@ -31,7 +33,8 @@ builder.Services.AddSingleton<IJobRunner, AutoModJobRunner>();
 builder.Services.AddSingleton(sp => new FilmStore(sp.GetRequiredService<JobStore>().Dir, sp.GetRequiredService<ILoggerFactory>().CreateLogger<FilmStore>()));
 builder.Services.AddSingleton<IFilmAutoMod, AutoModFilm>();
 // AutoView program, AutoMod folder and ffmpeg are read from the settings at each film run (see LiveFilmRenderer)
-builder.Services.AddSingleton<ASH.Core.Film.IFilmRenderer>(sp => new LiveFilmRenderer(sp.GetRequiredService<IConfiguration>()));
+builder.Services.AddSingleton<ASH.Core.Film.IFilmRenderer>(sp => new LiveFilmRenderer(sp.GetRequiredService<IConfiguration>(),
+    new FilmHelper.Client(FilmHelper.DirOf(sp.GetRequiredService<JobStore>().Dir), FilmHelper.Wake, TimeSpan.FromSeconds(30))));
 builder.Services.AddSingleton<FilmWorker>();
 builder.Services.AddSingleton<JobWorker>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<JobWorker>());
@@ -121,7 +124,7 @@ static ServerPages.StatusData StatusOf(HttpContext ctx)
     var sp = ctx.RequestServices;
     var js = sp.GetRequiredService<JobStore>();
     return new(sp.GetRequiredService<ReleaseStore>(), sp.GetRequiredService<GitHubSync>(), sp.GetRequiredService<ServerUpdater>(),
-        sp.GetRequiredService<RunnerStore>(), js.All(), Queue(js, sp.GetRequiredService<FilmWorker>()), WorkerOn(sp.GetRequiredService<IConfiguration>()));
+        sp.GetRequiredService<RunnerStore>(), js.All(), Queue(js, sp.GetRequiredService<FilmWorker>()), WorkerOn(sp.GetRequiredService<IConfiguration>()), sp.GetRequiredService<AnalysisStore>().All());
 }
 
 // ---- admin pages: settings (appsettings.json) and service restart ----
@@ -191,11 +194,40 @@ app.MapPost("/admin/restart", async (HttpContext ctx, ReleaseStore rs, AdminSess
     return Html(ServerPages.Message("서비스 다시 시작", "<div class=\"msg ok\">다시 시작하는 중입니다. 15초 뒤 홈으로 이동합니다. 열리지 않으면 잠시 뒤 새로 고치세요(결과: 서버 폴더 update\\apply.log).</div>", "/"));
 });
 
-app.MapGet("/admin/jobs", (HttpContext ctx, ReleaseStore rs, AdminSessions sessions, JobStore js, FilmWorker fw, IConfiguration cfg) =>
+app.MapGet("/admin/jobs", (HttpContext ctx, ReleaseStore rs, AdminSessions sessions, JobStore js, FilmWorker fw, IConfiguration cfg, AnalysisStore st) =>
 {
     ctx.Response.Headers.CacheControl = "no-store";
     if (!rs.UploadsEnabled || !(HeaderAdmin(ctx, rs) || CookieAdmin(ctx, sessions))) return Html(ServerPages.Login(rs.UploadsEnabled, back: "/admin/jobs", title: "작업 대기열"), rs.UploadsEnabled ? 401 : 403);
-    return Html(JobPages.List(js.All(), Queue(js, fw), WorkerOn(cfg)));
+    var all = ctx.Request.Query["archived"] == "1";
+    return Html(JobPages.List(js.All().Where(j => all || !j.Archived).ToList(), Queue(js, fw), WorkerOn(cfg), admin: true, archived: all, archivedCount: js.All().Count(j => j.Archived), analyses: st.All()));
+});
+// 작업 대기열 buttons: cancel a queued/running job, put a finished one away (or back), delete a finished one with its folder
+app.MapPost("/admin/jobs/{id}/{act}", (string id, string act, HttpContext ctx, ReleaseStore rs, AdminSessions sessions, JobStore js, JobWorker worker) =>
+{
+    if (DenyPost(ctx, rs, sessions) is { } deny) return deny;
+    if (!JobStore.IsValidId(id) || js.Get(id) is not { } j) return Msg(404, "작업이 없습니다.");
+    var back = ctx.Request.Query["archived"] == "1" ? "/admin/jobs?archived=1" : "/admin/jobs";
+    switch (act)
+    {
+        case "cancel":
+            js.Update(id, x =>
+            {
+                if (x.Finished) return;
+                x.CancelRequested = true;
+                if (x.State == JobState.Queued) { x.State = JobState.Cancelled; x.FinishedUtc = DateTime.UtcNow; x.Error = "관리자가 실행 전에 취소했습니다."; }
+            });
+            worker.CancelRunning(id);
+            break;
+        case "archive": case "unarchive":
+            if (!j.Finished) return Msg(409, "대기 중이거나 실행 중인 작업은 보관할 수 없습니다. 먼저 취소하세요.");
+            js.Update(id, x => x.Archived = act == "archive");
+            break;
+        case "delete":
+            if (!js.Delete(id)) return Msg(409, "대기 중이거나 실행 중인 작업은 지울 수 없습니다. 먼저 취소하세요.");
+            break;
+        default: return Msg(404, "없는 명령입니다.");
+    }
+    return Results.Redirect(back);
 });
 app.MapGet("/jobs", () => Results.Redirect("/admin/jobs", permanent: true));
 

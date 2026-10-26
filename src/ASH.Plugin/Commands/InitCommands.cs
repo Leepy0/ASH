@@ -26,10 +26,11 @@ public sealed class InitCommands
             using (doc.LockDocument())
             using (var tr = doc.Database.TransactionManager.StartTransaction())
             {
-                int made = Init(doc.Database, tr);
+                int made = Init(doc.Database, tr, out var fixedDefs);
+                int recolored = ByLayerOnAshLayers(doc.Database, tr);
                 var missing = MissingCpTags(doc.Database, tr);
                 tr.Commit();
-                ed.WriteMessage($"\nASH 양식 초기화: 새로 만든 항목 {made}개.");
+                ed.WriteMessage($"\nASH 양식 초기화: 새로 만든 항목 {made}개, 레이어 색·블록 정의 복구 {fixedDefs}개, 색을 ByLayer로 되돌린 객체 {recolored}개.");
                 Ui.PaletteStatus.Set($"AGVINIT 완료: 새 항목 {made}개" + (missing.Count > 0 ? ", CP 어트리뷰트 누락 경고" : ""));
                 if (missing.Count > 0)
                     ed.WriteMessage($"\n경고: 기존 {Conventions.CpBlockName} 블록 정의에 어트리뷰트 {string.Join(", ", missing)}이(가) 없습니다. 블록 정의를 고치거나 지운 뒤 AGVINIT을 다시 실행하세요.");
@@ -42,11 +43,11 @@ public sealed class InitCommands
         }
     }
 
-    /// <summary>Creates missing layers, block definitions and the ASH regapp. Returns how many items were created.</summary>
-    public static int Init(Database db, Transaction tr)
+    /// <summary>ACI "ByLayer": block contents on layer 0 and ASH objects take their colour from the layer.</summary>
+    internal const short ByLayer = 256;
+
+    static List<(string Name, short Color)> AshLayers()
     {
-        int made = 0;
-        var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
         var layers = new List<(string Name, short Color)>
         {
             (Conventions.LayerPath, (short)3), (Conventions.LayerPathSpur, (short)2), (Conventions.LayerPathTwo, (short)4), (Conventions.LayerPathCrab, (short)30),
@@ -54,9 +55,30 @@ public sealed class InitCommands
             (Conventions.LayerCp, (short)1), (Conventions.LayerBlock, (short)5), (Conventions.LayerStation, (short)6),
         };
         foreach (var t in ASH.Core.Traffic.CpTypes.All) layers.Add((Conventions.LayerCpFor(t), ASH.Core.Traffic.CpTypes.ColorIndex(t)));
-        foreach (var (name, color) in layers)
+        return layers;
+    }
+
+    /// <summary>Creates missing layers, block definitions and the ASH regapp. Returns how many items were created.</summary>
+    public static int Init(Database db, Transaction tr) => Init(db, tr, out _);
+
+    /// <summary>Also puts back what a drawing saved earlier may carry (<paramref name="fixedDefs"/>): an ASH layer with another colour, and ASH block
+    /// definitions whose contents are not on layer 0 ByLayer (then the arrow, CP and block symbols ignore their layer's colour).</summary>
+    public static int Init(Database db, Transaction tr, out int fixedDefs)
+    {
+        int made = 0;
+        fixedDefs = 0;
+        var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);
+        foreach (var (name, color) in AshLayers())
         {
-            if (lt.Has(name)) continue;
+            if (lt.Has(name))
+            {
+                var l = (LayerTableRecord)tr.GetObject(lt[name], OpenMode.ForRead);
+                if (l.Color.IsByAci && l.Color.ColorIndex == color) continue;
+                l.UpgradeOpen();
+                l.Color = Color.FromColorIndex(ColorMethod.ByAci, color);
+                fixedDefs++;
+                continue;
+            }
             if (!lt.IsWriteEnabled) lt.UpgradeOpen();
             var r = new LayerTableRecord { Name = name, Color = Color.FromColorIndex(ColorMethod.ByAci, color) };
             lt.Add(r);
@@ -103,12 +125,40 @@ public sealed class InitCommands
             b(new Line(new Point3d(-0.3, 0, 0), new Point3d(-0.1, -0.15, 0)));
         });
 
+        foreach (var name in new[] { Conventions.CpBlockName, Conventions.StationBlockName, Conventions.BlockBlockName, Conventions.DirBlockName, Conventions.DirTwoBlockName })
+            if (bt.Has(name))
+                foreach (ObjectId id in (BlockTableRecord)tr.GetObject(bt[name], OpenMode.ForRead))
+                    if (tr.GetObject(id, OpenMode.ForRead) is Entity e && (e.Layer != "0" || e.ColorIndex != ByLayer))
+                    {
+                        e.UpgradeOpen();
+                        e.Layer = "0";
+                        e.ColorIndex = ByLayer;
+                        fixedDefs++;
+                    }
+
         var rat = (RegAppTable)tr.GetObject(db.RegAppTableId, OpenMode.ForRead);
         if (!rat.Has(Conventions.AppName)) { XData.EnsureRegApp(db, tr); made++; }
         return made;
     }
 
-    // An AGV_CP definition made outside ASH may lack tags; Init never rewrites an existing definition.
+    /// <summary>AGVINIT only (it walks model space): paths, arrows, CPs, blocks and their attributes on ASH layers with a fixed colour go back to ByLayer.</summary>
+    private static int ByLayerOnAshLayers(Database db, Transaction tr)
+    {
+        var ash = new HashSet<string>(AshLayers().Select(l => l.Name), StringComparer.OrdinalIgnoreCase);
+        int n = 0;
+        void Fix(Entity e) { if (e.ColorIndex == ByLayer) return; e.UpgradeOpen(); e.ColorIndex = ByLayer; n++; }
+        foreach (var id in DrawingReader.ModelSpace(db, tr, OpenMode.ForRead))
+        {
+            if (!(tr.GetObject(id, OpenMode.ForRead) is Entity e) || !ash.Contains(e.Layer)) continue;
+            Fix(e);
+            if (e is BlockReference br)
+                foreach (ObjectId aid in br.AttributeCollection)
+                    if (tr.GetObject(aid, OpenMode.ForRead) is AttributeReference ar) Fix(ar);
+        }
+        return n;
+    }
+
+    // An AGV_CP definition made outside ASH may lack tags; Init never rewrites an existing definition's attributes.
     private static List<string> MissingCpTags(Database db, Transaction tr)
     {
         var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
@@ -127,7 +177,7 @@ public sealed class InitCommands
         tr.AddNewlyCreatedDBObject(b, true);
         fill(e =>
         {
-            e.Layer = "0"; // ByLayer geometry on 0 takes the colour of the layer the reference is inserted on
+            e.Layer = "0"; e.ColorIndex = ByLayer; // ByLayer geometry on 0 takes the colour of the layer the reference is inserted on
             try { b.AppendEntity(e); } catch { e.Dispose(); throw; }
             tr.AddNewlyCreatedDBObject(e, true);
         });

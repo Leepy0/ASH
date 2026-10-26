@@ -66,6 +66,8 @@ public sealed class JobInfo
     public int Version { get; set; }
     public string VersionNote { get; set; } = "";
     public bool Selected { get; set; }
+    /// <summary>Put away by an admin: left out of the 작업 대기열 list (its data, analysis and archive entries stay).</summary>
+    public bool Archived { get; set; }
 
     [JsonIgnore] public bool Finished => State is JobState.Done or JobState.Failed or JobState.Cancelled;
     [JsonIgnore] public TimeSpan? Duration => StartedUtc is { } s ? (FinishedUtc ?? DateTime.UtcNow) - s : null;
@@ -104,11 +106,14 @@ public sealed class JobStore
         }
     }
 
-    public static JobStore Create(IConfiguration cfg, ILogger log)
+    public static JobStore Create(IConfiguration cfg, ILogger log) => new(DirFrom(cfg), log);
+
+    /// <summary>Jobs:Dir with environment variables expanded (the film helper reads the same folder).</summary>
+    public static string DirFrom(IConfiguration cfg)
     {
         var dir = cfg["Jobs:Dir"];
         if (string.IsNullOrWhiteSpace(dir)) dir = "%ProgramData%/ASH.Server/jobs";
-        return new JobStore(Path.GetFullPath(Environment.ExpandEnvironmentVariables(dir)), log);
+        return Path.GetFullPath(Environment.ExpandEnvironmentVariables(dir));
     }
 
     public string JobDir(string id) => Path.Combine(Dir, id);
@@ -146,6 +151,19 @@ public sealed class JobStore
             try { Write(j); } catch (IOException e) { _log.LogWarning("job.json 저장 실패 {Id}: {Error}", id, e.Message); }
             return true;
         }
+    }
+
+    /// <summary>Removes a finished job and its folder; false when it is missing or still queued or running (cancel it first).</summary>
+    public bool Delete(string id)
+    {
+        lock (_gate)
+        {
+            if (!_jobs.TryGetValue(id, out var j) || !j.Finished) return false;
+            _jobs.Remove(id);
+        }
+        try { Directory.Delete(JobDir(id), true); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { _log.LogWarning("작업 폴더를 다 지우지 못했습니다 {Id}: {Error}", id, e.Message); }
+        return true;
     }
 
     /// <summary>A copy, so a page can render it while the worker changes the original.</summary>

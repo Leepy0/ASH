@@ -19,7 +19,6 @@ internal static class FilePages
 .fbar+.empty{margin-top:14px}
 .tbl{padding:0;overflow:auto}.tbl table{width:100%}
 .tbl td{white-space:nowrap}.tbl td.nm{white-space:normal}
-.tbl .chips{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
 .tbl .dl{display:flex;gap:6px;flex-wrap:wrap}
 .tbl .dl .btn{min-height:34px;padding:0 10px;font-size:13px}
 .fcount{margin:8px 2px 0}
@@ -28,7 +27,6 @@ internal static class FilePages
     public static string Files(FileRoutes.FileQuery f, JobStore js, AnalysisStore an)
     {
         var analyses = an.All();
-        var byId = analyses.ToDictionary(a => a.Id, StringComparer.Ordinal);
         var all = FileRoutes.Search(f, js.All().Where(j => j.Finished).ToList(), analyses, id => FileIndex.Ensure(js, id));
         var sb = new System.Text.StringBuilder(Style);
         sb.Append("<form method=\"get\" action=\"/files\" class=\"box fbar\"><h1>보관함</h1>")
@@ -42,16 +40,11 @@ internal static class FilePages
           .Append("<th>파일</th><th>이어서</th></tr></thead><tbody>");
         foreach (var j in all.Take(Max))
         {
-            var a = j.AnalysisId != null && byId.TryGetValue(j.AnalysisId, out var x) ? x : null;
-            var title = a != null ? $"{a.Name} › {a.Plans.FirstOrDefault(p => p.Id == j.PlanId)?.Name ?? "?"} v{j.Version}" : $"(미분류) {(j.Project.Length > 0 ? j.Project : j.Id)} / {j.Plan}";
-            // matching codes first, then the first three; the rest collapse into "외 n"
-            var mats = FileIndex.Ensure(js, j.Id).OrderBy(m => m.Contains(f.Material, StringComparison.CurrentCultureIgnoreCase) ? 0 : 1).ToList();
-            var chips = mats.Count == 0 ? "" : "<div class=\"chips\">" + string.Concat(mats.Take(3).Select(m => $"<span class=\"tag gray\">{H(m)}</span>")) +
-                (mats.Count > 3 ? $"<span class=\"tag gray\">외 {mats.Count - 3}</span>" : "") + "</div>";
+            var title = JobPages.JobName(j, analyses);
             var hasCells = j.Files.Any(fl => fl.Path == CellDump.FileName);
             var proj = js.ProjectDir(j.Id);
             string Dl(string name, string label, bool ok) => ok ? $"<a class=\"btn\" href=\"/jobs/{H(j.Id)}/files/{name}\">{label}</a>" : $"<span class=\"btn dis\">{label}</span>";
-            sb.Append($"<tr><td class=\"nm\"><a href=\"/jobs/{H(j.Id)}\">{H(title)}</a>{chips}</td><td class=\"t4\">{H(SeoulTime.Text(j.CreatedUtc))}</td><td>{H(j.Submitter)}</td><td>{H(j.Model)}</td>")
+            sb.Append($"<tr><td class=\"nm\"><a href=\"/jobs/{H(j.Id)}\">{H(title)}</a></td><td class=\"t4\">{H(SeoulTime.Text(j.CreatedUtc))}</td><td>{H(j.Submitter)}</td><td>{H(j.Model)}</td>")
               .Append("<td><div class=\"dl\">").Append(Dl("input.xlsx", "xlsx", hasCells)).Append(Dl("drawing.dxf", "dxf", File.Exists(Path.Combine(proj, "drawing.dxf"))))
               .Append(Dl("drawing.dwg", "dwg", File.Exists(Path.Combine(proj, "drawing.dwg")))).Append("</div></td>")
               .Append("<td>").Append(Dl("continue.zip", "이어서 작업(zip)", hasCells)).Append("</td></tr>");

@@ -143,6 +143,7 @@ public static class CutEditorPage
 .ce-name{text-align:center;padding:10px 0 8px;border-bottom:1px solid var(--line)}
 .ce-name input{border:0;text-align:center;font-size:18px;font-weight:700;max-width:none;padding:2px 4px;min-height:30px}
 .ce-name input:hover{background:var(--gray-b)}.ce-name input::placeholder{color:var(--gray);font-weight:600}
+.ce-mode{display:flex;width:100%;margin-bottom:8px}.ce-mode button{flex:1;justify-content:center;padding:0 6px}.ce-mode button:disabled{opacity:.5;cursor:default}
 .ce-kind{display:flex;width:100%;margin:12px 0 4px}.ce-kind button{flex:1;justify-content:center;padding:0 6px}
 .ir{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:4px 10px;min-height:44px;border-top:1px solid var(--line);padding:5px 0}
 .ce-kind+.ir{border-top:0}
@@ -211,7 +212,7 @@ ol.cl{list-style:none;margin:0;padding:0;display:flex;gap:12px}
  </section>
  <aside class="ce-side">
   <section class="box ce-insp" id="form" aria-label="컷 설정">
-   <div class="ce-name"><div class="t4" id="formTitle">새 컷</div><label for="name" class="vh">이름</label><input type="text" id="name" maxlength="60" placeholder="컷 이름(예: 입구 대기열)"></div>
+   <div class="ce-name"><div class="segc ce-mode" role="group" aria-label="편집 모드"><button type="button" id="modeNew" class="on" aria-pressed="true" title="지금 폼의 값으로 새 컷을 만듭니다">＋ 새 컷 추가</button><button type="button" id="modeEdit" aria-pressed="false" disabled title="아래 리스트에서 컷을 누르면 그 컷을 수정합니다">✎ 수정</button></div><div class="t4" id="formTitle">새 컷</div><label for="name" class="vh">이름</label><input type="text" id="name" maxlength="60" placeholder="컷 이름(예: 입구 대기열)"></div>
    <div class="segc ce-kind" role="group" aria-label="컷 종류"><button type="button" data-k="Hold" class="on" aria-pressed="true">구역 고정</button><button type="button" data-k="Move" aria-pressed="false">A → B 이동</button><button type="button" data-k="Whole" aria-pressed="false">전체</button></div>
    <div class="ir"><label for="start">시작</label><div class="iv"><input type="text" id="start" value="{START}" inputmode="numeric" aria-describedby="startEnd"></div><span class="u full" id="startEnd"></span></div>
    <div id="holdSet"><div class="ir"><label for="dur">시뮬레이션 길이</label><div class="iv"><input type="number" id="dur" min="1" value="600"><span class="u">초</span></div></div></div>
@@ -231,7 +232,7 @@ ol.cl{list-style:none;margin:0;padding:0;display:flex;gap:12px}
    <details class="fold" id="vdFold"><summary>대수 <span id="vdSum"></span></summary>
     <div class="ir"><label for="vd">대수 변경</label><div class="iv"><input type="number" id="vd" min="-20" max="20" value="0"><span class="u">대(0 = 결론 대수)</span></div></div>
    </details>
-   <div class="ce-btns"><button type="button" class="btn pri" id="save">리스트에 추가</button><button type="button" class="btn" id="cancel" hidden>편집 취소</button></div>
+   <div class="ce-btns"><button type="button" class="btn pri" id="save">리스트에 추가</button><button type="button" class="btn" id="saveNew" hidden title="수정한 값을 이 컷에 덮어쓰지 않고 새 컷으로 리스트 끝에 더합니다">새 컷으로 추가</button><button type="button" class="btn" id="cancel" hidden>편집 취소</button></div>
    <div class="st" id="msg" role="status"></div><div><button type="button" class="btn" id="reload" hidden>컷 리스트 다시 불러오기</button></div>
    <div class="ce-pv" id="pvBox" hidden><button type="button" class="btn" id="pvBtn" title="이 컷의 첫 장면을 AutoView로 1장 그립니다(저장 전 값 그대로). 작업 대기열에서 차례가 오면 모델을 한 번 돌리므로 몇 분 걸릴 수 있습니다.">미리보기</button>
     <div class="st" id="pvMsg" role="status"></div><figure id="pvFig" hidden><img id="pvImg" alt="AutoView 미리보기"><figcaption class="t4" id="pvCap"></figcaption></figure></div>
@@ -443,13 +444,19 @@ function commit(next,ok){
 $('save').onclick=function(){var c=fromForm();if(!c)return;var next=cuts.slice(),i=next.findIndex(function(x){return x.id===c.id;});
   if(i>=0)next[i]=c;else next.push(c);commit(next,function(){cancelEdit();$('name').value='';});};
 $('cancel').onclick=function(){cancelEdit();say('');};
-function cancelEdit(){editId=null;hint='';$('formTitle').textContent='새 컷';$('save').textContent='리스트에 추가';$('cancel').hidden=true;render();loadPv();}
+$('saveNew').onclick=function(){var c=fromForm();if(!c)return;c.id=newId();commit(cuts.concat([c]),function(){cancelEdit();$('name').value='';});};
+$('modeNew').onclick=function(){if(!editId)return;cancelEdit();$('name').value='';say('새 컷 추가 모드입니다. 구역과 설정은 방금 보던 컷 값에서 시작합니다.');};
+// the mode switch shows which save "저장" does: a new cut, or the cut picked in the list
+function modeUi(){var e=!!editId,n=$('modeNew'),m=$('modeEdit'),i=cuts.findIndex(function(c){return c.id===editId;});
+  n.classList.toggle('on',!e);n.setAttribute('aria-pressed',!e);m.classList.toggle('on',e);m.setAttribute('aria-pressed',e);m.disabled=!e;
+  m.textContent=e?'✎ '+(i+1)+'번 컷 수정':'✎ 수정';$('saveNew').hidden=!e;}
+function cancelEdit(){editId=null;hint='';$('formTitle').textContent='새 컷';$('save').textContent='리스트에 추가';$('cancel').hidden=true;modeUi();render();loadPv();}
 function fill(c){order=['video','speed','sim'];$('name').value=c.name;$('start').value=hms(c.startSec);
   zones.A=rect(c.a);zones.B=c.b?rect(c.b):null;setKind(c.kind,true);
   if(c.kind!=='Move')$('dur').value=c.holdSec;else{$('holdA').value=c.holdASec;$('moveS').value=c.moveSec;$('holdB').value=c.holdBSec;}
   setSpeed(c.speed);setTilt(c.tiltDeg);setDir(c.dirDeg);setRoll(c.rollDeg||0);persp=!!c.perspective;$('persp').checked=persp;$('cap').checked=!!c.caption;$('vd').value=c.vehicleDelta||0;applyView();}
 function edit(i){var c=cuts[i];editId=c.id;hint='';fill(c);$('formTitle').textContent=(i+1)+'번 컷 수정';
-  $('save').textContent='수정 저장';$('cancel').hidden=false;setPreview(true);render();calc();say('');loadPv();
+  $('save').textContent='수정 저장';$('cancel').hidden=false;modeUi();setPreview(true);render();calc();say('');loadPv();
   if(window.innerWidth<=1000)$('form').scrollIntoView({block:'start'});}
 
 // ---- view copy / paste: {tilt, dir, roll, perspective, zone?} as JSON text; kept in this browser too, since the clipboard API needs https

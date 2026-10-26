@@ -127,7 +127,7 @@ public static class ReportPages
 @page{size:A4 landscape;margin:10mm}
 @media print{
 html,body{height:auto;background:#fff;display:block}main{margin:0;height:auto;overflow:visible;padding:0}
-.side,.noprint,.mv .segc,.rk .end,#reload-bar,#net{display:none!important}
+.side,.noprint,.mv .segc,.mv .zb,.rk .end,#reload-bar,#net{display:none!important}
 .rp{max-width:none}.rs{border:0;border-radius:0;padding:0;margin:0;break-before:page}.rs:first-child{break-before:auto}
 tr{break-inside:avoid}thead{display:table-header-group}.kpi,.rf>div{break-inside:avoid}
 *{-webkit-print-color-adjust:exact;print-color-adjust:exact}a{color:inherit;text-decoration:none}}

@@ -75,6 +75,14 @@ public struct LiteBox
         return b;
     }
 
+    /// <summary>AGVLITE's size of one entity: the diagonal of its box, which is a line's length.</summary>
+    public static double Size(LiteEntity e)
+    {
+        var b = Empty;
+        e.Extend(ref b);
+        return b.IsEmpty ? 0 : Math.Sqrt((b.MaxX - b.MinX) * (b.MaxX - b.MinX) + (b.MaxY - b.MinY) * (b.MaxY - b.MinY));
+    }
+
     /// <summary>Arc end points plus every axis crossing (0, 90, 180, 270 degrees) inside the sweep (radians, may be negative).</summary>
     internal static void AddArc(ref LiteBox b, double cx, double cy, double r, double startRad, double sweepRad)
     {
