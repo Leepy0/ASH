@@ -42,11 +42,11 @@ public class LimitTests
         env.Film.Result = r => Result(r, r.Input.Materials[0].TaktTime >= takt / 1.25);
         var back = $"/analyses/{aid}?tab=conclusion&job={j.Id}";
         var before = await env.Http.GetStringAsync(back);
-        Assert.Contains("<h3>생산량 한계</h3>", before);
+        Assert.Contains("<h3>생산량 한계 (T/T)</h3>", before);
         Assert.Contains($"action=\"/jobs/{j.Id}/limit\"", before);
 
         var page = await (await Post(env, $"/jobs/{j.Id}/limit", back)).Content.ReadAsStringAsync();
-        Assert.Contains("<h3>생산량 한계</h3>", page); // back on the analysis page
+        Assert.Contains("<h3>생산량 한계 (T/T)</h3>", page); // back on the analysis page
         var info = await JobEnv.Until(() => LimitWorker.Read(env.Store, j.Id) is { Done: true } x ? x : null);
 
         Assert.Null(info.Error);

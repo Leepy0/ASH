@@ -38,7 +38,6 @@ public static class ReportPages
         var cur = done.FirstOrDefault(j => j.Id == jobId) ?? AnalysisPages.Pick(done);
         if (cur == null || AnalysisPages.MetricsOf(d.Store, cur, d.Prices) is not { } m) return null;
         var v = m.View; var input = v.Input!;
-        var lim = F(v.UtilMax * 100, "0");
         bool OverUtil(double u, JobView w) => !double.IsNaN(u) && u > w.UtilMax;
 
         // ---- the numbers (as the 결론 tab shows them)
@@ -46,8 +45,8 @@ public static class ReportPages
         var top = v.Groups.Where(g => !double.IsNaN(g.Util)).OrderByDescending(g => g.Util).FirstOrDefault();
         var over = top != null && Over(top, v.UtilMax);
         kpis.Add(top == null ? new("최대 가동률", "-", "", "ink", "")
-            : new("최대 가동률", F(top.Util * 100, "0"), "%", over ? "orange" : "ink", over ? $"⚠ 경고: 상한 {lim}% 초과 · {top.Group}" : $"✓ 상한 {lim}% 이하 · {top.Group}", over ? "orange" : ""));
-        kpis.Add(double.IsNaN(m.Stop) ? new("자재 품절", "-", "", "ink", "") : m.Stop <= 0 ? new("자재 품절", "0", "초", "ink", "✓ 없음", "green") : new("자재 품절", F(m.Stop, "0"), "초", "red", "⚠ 자재 품절", "red"));
+            : new("최대 가동률", F(top.Util * 100, "0"), "%", over ? "orange" : "ink", ""));
+        kpis.Add(double.IsNaN(m.Stop) ? new("자재 품절", "-", "", "ink", "") : m.Stop <= 0 ? new("자재 품절", "0", "초", "ink", "") : new("자재 품절", F(m.Stop, "0"), "초", "red", "⚠ 자재 품절", "red"));
         if (m.Investment is { AnyPriced: true } inv)
         {
             var s = AnalysisPages.Money(inv.Total, inv.Currency);
