@@ -16,6 +16,35 @@ public class UserSettingsTests
         Assert.Equal("ServerUrl\thttp://srv:5080\r\n", File.ReadAllText(p));
     }
 
+    [Fact] public void LayerColors_RoundTrip_Beside_The_Other_Keys()
+    {
+        var p = Tmp();
+        new UserSettings("http://srv:5080", 0.5, "AGV_PATH=1;AGV_CP_STANDBY=30").Save(p);
+        var u = UserSettings.Load(p);
+        Assert.Equal("AGV_PATH=1;AGV_CP_STANDBY=30", u.LayerColors);
+        Assert.Equal("http://srv:5080", u.ServerUrl);
+        Assert.Equal(0.5, u.FilletRadiusM);
+        Assert.Contains("LayerColors\tAGV_PATH=1;AGV_CP_STANDBY=30\r\n", File.ReadAllText(p));
+    }
+
+    [Fact] public void LayerColors_Default_Writes_No_Line_And_Bad_Text_Is_Normalised()
+    {
+        var p = Tmp();
+        new UserSettings("http://a:1").Save(p);
+        Assert.DoesNotContain("LayerColors", File.ReadAllText(p));
+        Assert.Equal("", UserSettings.Load(p).LayerColors);
+        new UserSettings("http://a:1", 0, "junk;AGV_DIR=8;AGV_PATH=300;agv_block=1").Save(p); // AGV_DIR=8 is the default, AGV_PATH=300 is no colour
+        Assert.Equal("AGV_BLOCK=1", UserSettings.Load(p).LayerColors);
+    }
+
+    [Fact] public void LayerColors_Survive_Saving_Another_Key()
+    {
+        var p = Tmp();
+        new UserSettings("", 0, "AGV_PATH=1").Save(p);
+        (UserSettings.Load(p) with { ServerUrl = "http://x:2" }).Save(p);
+        Assert.Equal("AGV_PATH=1", UserSettings.Load(p).LayerColors);
+    }
+
     [Fact] public void Load_Ignores_Unknown_Keys_And_Blank_Lines()
     {
         var p = Tmp();

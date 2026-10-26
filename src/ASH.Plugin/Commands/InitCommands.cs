@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using ASH.Core.Layout;
+using ASH.Core.Settings;
 using ASH.Plugin.Cad;
 using ZwSoft.ZwCAD.ApplicationServices;
 using ZwSoft.ZwCAD.Colors;
@@ -49,18 +51,14 @@ public sealed class InitCommands
     /// <summary>ACI "ByBlock": the contents of ASH block definitions (on layer 0) take the colour of the reference. That is its layer's colour while the reference is ByLayer, and the grey of the group view (F1) when it sets one.</summary>
     internal const short ByBlock = 0;
 
+    /// <summary>Every ASH layer with its colour: the defaults of ASH.Core.Layout.LayerColors with this PC's changes (ash.user.tsv) on top, so the colour reset
+    /// that every ASH command does keeps the user's colours. Read each time: the colour dialog may have changed them.</summary>
     static List<(string Name, short Color)> AshLayers()
     {
-        var layers = new List<(string Name, short Color)>
-        {
-            (Conventions.LayerPath, (short)3), (Conventions.LayerPathSpur, (short)2), (Conventions.LayerPathTwo, (short)4), (Conventions.LayerPathCrab, (short)30),
-            (Conventions.LayerDir, (short)8),
-            (Conventions.LayerCp, (short)1), (Conventions.LayerBlock, (short)5), (Conventions.LayerStation, (short)6),
-            (Conventions.LayerConv, (short)94), (Conventions.Layer3dConv, (short)96),
-            (Conventions.Layer3d, (short)9), (Conventions.Layer3dWall, (short)8), (Conventions.Layer3dFence, (short)40),
-        };
-        foreach (var t in ASH.Core.Traffic.CpTypes.All) layers.Add((Conventions.LayerCpFor(t), ASH.Core.Traffic.CpTypes.ColorIndex(t)));
-        return layers;
+        IReadOnlyDictionary<string, short> overrides;
+        try { overrides = LayerColors.Parse(UserSettings.Load(UserSettings.DefaultPath).LayerColors); }
+        catch (System.Exception) { overrides = new Dictionary<string, short>(); } // unreadable user file: the defaults
+        return LayerColors.Merge(overrides).Select(c => (c.Layer, c.Color)).ToList();
     }
 
     /// <summary>Creates missing layers, block definitions and the ASH regapp. Returns how many items were created.</summary>

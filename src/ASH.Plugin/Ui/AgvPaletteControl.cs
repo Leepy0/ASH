@@ -46,16 +46,22 @@ public sealed class AgvPaletteControl : UserControl
         prefix.TextChanged += (o, e) => { s.Prefix = prefix.Text.Trim(); ShowType(); };
         cap.Leave += (o, e) => { cap.Text = CpTypes.FormatCap(s.Cap); ShowType(); }; // show the value AGVCP will actually use
         ShowType();
-        // one button per TYPE, glyph in the type's colour; the type is set only once AGVCP was really sent (not while a command blocks it)
+        // one button per TYPE in CpTypes.PaletteOrder (a work pair per row), glyph in the type's layer colour; the type is set only once AGVCP was really sent (not while a command blocks it)
         // fixed height, width from Page's stretch (AutoSize would shrink the columns to the text)
-        var place = new TableLayoutPanel { ColumnCount = 2, RowCount = (CpTypes.All.Length + 1) / 2, Height = (CpTypes.All.Length + 1) / 2 * 38, Margin = Padding.Empty };
+        // two-line labels (type over Korean name): the row height follows the font, so Windows scaling cannot clip the text
+        int rowH = 2 * TextRenderer.MeasureText("가", Theme.Base).Height + 8;
+        var place = new TableLayoutPanel { ColumnCount = 2, RowCount = (CpTypes.PaletteOrder.Length + 1) / 2, Height = (CpTypes.PaletteOrder.Length + 1) / 2 * rowH, Margin = Padding.Empty };
         place.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         place.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        for (int i = 0; i < place.RowCount; i++) place.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
-        foreach (var t in CpTypes.All)
+        for (int i = 0; i < place.RowCount; i++) place.RowStyles.Add(new RowStyle(SizeType.Absolute, rowH));
+        var cpButtons = new Dictionary<string, Button>();
+        foreach (var t in CpTypes.PaletteOrder)
         {
             var b = Theme.Make(t, GlyphKind.Cp, "");
+            b.Text = " " + t + "\n " + CpTypes.Korean(t);
+            b.Padding = new Padding(4, 0, 0, 0); // a two-line label in half a palette: every pixel counts
             b.Image = Glyphs.Draw(GlyphKind.Cp, 20, Theme.CpColor(t));
+            cpButtons[t] = b;
             b.Dock = DockStyle.Fill;
             b.Margin = new Padding(0, 0, 2, 2);
             new ToolTip().SetToolTip(b, $"{t} CP 배치 · 이름 {AutoNamer.PatternFor(t)} (AGVCP)");
@@ -75,6 +81,14 @@ public sealed class AgvPaletteControl : UserControl
         // standby → load → unload → rtnload → rtnunload → finish in one go; takes the GROUP below, leaves the TYPE buttons' state alone
         var route = Theme.Make("루트 순서 배치", GlyphKind.Path, "AGVCPROUTE");
         new ToolTip().SetToolTip(route, "standby → load → unload → rtnload → rtnunload → finish 순서로 CP 배치 (AGVCPROUTE)");
+        // the colour dialog (AGVLAYERCOLOR) changed a layer colour: repaint the glyphs and the hint
+        Action recolor = () =>
+        {
+            foreach (var kv in cpButtons) kv.Value.Image = Glyphs.Draw(GlyphKind.Cp, 20, Theme.CpColor(kv.Key));
+            ShowType();
+        };
+        Theme.LayerColorsChanged += recolor;
+        Disposed += (o, e) => Theme.LayerColorsChanged -= recolor;
         tabs.TabPages.Add(Page("CP", Theme.Section("CP 배치  (TYPE별 버튼)"), place, route, hint,
             Theme.Caption("traffic CP는 교통제어 탭에서 block과 함께 자동 생성"),
             Theme.Section("CP 속성"), detailed,
@@ -101,6 +115,7 @@ public sealed class AgvPaletteControl : UserControl
 
         var settings = Theme.Make("설정 열기", GlyphKind.Settings, "");
         settings.Click += (o, e) => Commands.ExportCommands.OpenSettings();
+        var layerColors = Theme.Make("레이어 색상", GlyphKind.Settings, "AGVLAYERCOLOR"); // the command shows the dialog and recolours the drawing
 
         var checkResult = Theme.Caption("마지막 검사 결과: -");
         var problems = Grid(("문제", 120), ("대상", 64), ("내용", 160));
@@ -114,7 +129,7 @@ public sealed class AgvPaletteControl : UserControl
             problems.BeginUpdate();
             problems.Items.Clear();
             foreach (var r in rows)
-                problems.Items.Add(new ListViewItem(new[] { r.Kind, r.Target, r.Message }) { Tag = r, ForeColor = Theme.CpColor("traffic"), ToolTipText = r.Message });
+                problems.Items.Add(new ListViewItem(new[] { r.Kind, r.Target, r.Message }) { Tag = r, ForeColor = Theme.Error, ToolTipText = r.Message });
             problems.EndUpdate();
         };
         tabs.TabPages.Add(Page("검증·내보내기", Theme.Section("도면 준비"), Theme.Make("도면 경량화", GlyphKind.Lite, "AGVLITE"),
@@ -123,7 +138,7 @@ public sealed class AgvPaletteControl : UserControl
             // "모델 생성" also does what "내보내기" did (AGVEXPORT is still a command): <Model>.arc, and <Model>.dir when this PC has AutoMod
             Theme.Section("모델"), Theme.Make("Excel 양식", GlyphKind.Excel, "AGVEXCEL"), Theme.Make("모델 생성", GlyphKind.Model, "AGVMODEL"), Theme.Make("빌드·실행", GlyphKind.Run, "AGVRUN"),
             Theme.Make("서버로 보내기", GlyphKind.Send, "AGVSEND"), Theme.Make("결과 올리기", GlyphKind.Send, "AGVRESULTUP"),
-            Theme.Section("설정"), settings));
+            Theme.Section("설정"), settings, layerColors));
 
         var finder = FinderPage(tabs);
         tabs.TabPages.Add(finder);
