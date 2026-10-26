@@ -65,6 +65,22 @@ public class CameraScriptTests
     }
 
     [Fact]
+    public void Legacy_AutoView_Gets_Avi_And_No_Upvector_With_The_Plan_Heading_Kept()
+    {
+        // AutoView 12.6.1.12's grammar (read from its binary): FORMAT AVI|MPEG|CUSTOM, camera/focus take pos, relative to and scale only
+        var s = CameraScript.Build(Hold(a: new Rect(0, 0, 2, 2)), 81, 1280, 720, 15, 80, @"C:\job\cut01", legacy: true);
+        Assert.Contains("format avi\n", s); Assert.Contains("filename \"C:\\job\\cut01.avi\"\n", s);
+        Assert.DoesNotContain("mp4", s); Assert.DoesNotContain("upvector", s); Assert.DoesNotContain("saveframe", s);
+        // plan view, north up: the camera stands 1/1000 of its height south of the focus, so screen-up is +Y without an upvector
+        Assert.Contains("view focus relative to world pos 1000000, 1000000, 0 camera relative to world pos 1000000, 969520, 30480000 scale ", s);
+        // east up: the camera moves west instead
+        var e = CameraScript.Build(Hold(a: new Rect(0, 0, 2, 2)) with { DirDeg = 90 }, 81, 1280, 720, 15, 80, @"C:\job\cut01", legacy: true);
+        Assert.Contains("camera relative to world pos 969520, 1000000, 30480000 scale ", e);
+        Assert.Equal(Build(Hold()), CameraScript.Build(Hold(), 81, 1280, 720, 15, 80, @"C:\job\cut01", legacy: false)); // 14.x unchanged
+        Assert.True(AutoViewExe.IsLegacy(@"C:\nowhere\aview.exe")); Assert.False(AutoViewExe.IsLegacy(@"C:\nowhere\aview64.exe")); Assert.False(AutoViewExe.IsLegacy(null));
+    }
+
+    [Fact]
     public void Roll_Changes_Only_The_Upvector_And_Zero_Keeps_The_Old_Script()
     {
         Assert.Equal(Build(Hold()), Build(Hold() with { RollDeg = 0 }));
