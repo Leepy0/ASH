@@ -66,7 +66,7 @@ public sealed class LiteDialog : Form
                 Tag = t, Checked = checkedTypes != null ? checkedTypes.Contains(t) : plan.DefaultOn(t),
                 ToolTipText = t == LiteTypes.Footprint ? "3D 솔리드·메시·서피스의 범위 상자(GeometricExtents). 실제 평면 투영이 아닙니다."
                     : t == LiteTypes.Spline ? "기본은 지웁니다. 다른 CAD에서 가져온 장비 블록의 외곽이 스플라인이면 켜세요(곡선 허용 오차로 나눈 선으로 남김)."
-                    : "블록 안의 것도 포함. 최소 크기 미만은 빠집니다(이어진 선은 묶음 전체 크기로 판단).",
+                    : "최소 크기 미만은 빠집니다. 블록은 외곽 상자가 작으면 통째로, 크면 안의 것을 같은 기준으로(이어진 선은 묶음 전체 크기로) 판단.",
             });
         _list.ItemChecked += (s, e) => Recount(false);
 
@@ -93,7 +93,7 @@ public sealed class LiteDialog : Form
         var minRow = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Margin = new Padding(0, 2, 0, 0) };
         minRow.Controls.Add(new Label { Text = "최소 크기 (mm)", AutoSize = true, Margin = new Padding(2, 5, 8, 0) });
         minRow.Controls.Add(_min);
-        var minHint = Hint("외곽 상자 대각선이 이보다 작으면 지웁니다. 끝점이 이어진 선·호·열린 폴리선은 묶음 전체 크기로 판단해, 짧은 조각으로 그린 큰 외곽은 남깁니다. 블록 안에 중첩된 것도 삽입 배율을 적용해 판단합니다. 0 = 지우지 않음.");
+        var minHint = Hint("외곽 상자 대각선이 이보다 작으면 지웁니다. 끝점이 이어진 선·호·열린 폴리선은 묶음 전체 크기로 판단해, 짧은 조각으로 그린 큰 외곽은 남깁니다. 블록은 외곽 상자가 이보다 작으면 통째로 지우고, 크면 안의 것을 같은 기준으로 판단합니다(중첩 블록도 단계마다). 0 = 지우지 않음.");
         _hidden = Opt("꺼진·동결 레이어 제외", o.SkipHidden);
         _tol = new NumericUpDown { Minimum = 0.1m, Maximum = 1000m, DecimalPlaces = 1, Increment = 1m, Width = 80, Value = (decimal)Math.Max(0.1, Math.Min(1000, toleranceMm)), Margin = new Padding(0, 2, 6, 0) };
         var tolRow = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Margin = new Padding(0, 6, 0, 0) };

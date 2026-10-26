@@ -11,8 +11,9 @@ namespace ASH.Core.Lite;
 [Flags]
 public enum LiteFlags { None = 0, Xref = 1, Footprint = 2, Hidden = 4 }
 
-/// <summary>Type = the source entity's kind (LiteTypes), which the AGVLITE dialog selects by: an ellipse stays "타원" though it is written as a polyline.</summary>
-public sealed record LiteItem(LiteEntity Entity, LiteFlags Flags, string Type = LiteTypes.Line);
+/// <summary>Type = the source entity's kind (LiteTypes), which the AGVLITE dialog selects by: an ellipse stays "타원" though it is written as a polyline.
+/// Block = box diagonal of the smallest block insert it sits in (infinity in model space), so a block smaller than the minimum size goes as a whole.</summary>
+public sealed record LiteItem(LiteEntity Entity, LiteFlags Flags, string Type = LiteTypes.Line, double Block = double.PositiveInfinity);
 
 /// <summary>The kinds AGVLITE keeps (everything else is always removed), in dialog order.</summary>
 public static class LiteTypes
@@ -47,6 +48,16 @@ public sealed class LiteSource
     public int InsUnits;
 
     public static void Count(IDictionary<string, int> d, string key, int n = 1) => d[key] = (d.TryGetValue(key, out var v) ? v : 0) + n;
+
+    /// <summary>Items from <paramref name="start"/> on are one block insert's contents (nested ones included): stamp them with its box diagonal.</summary>
+    public void CloseBlock(int start)
+    {
+        var b = LiteBox.Empty;
+        for (int i = start; i < Items.Count; i++) Items[i].Entity.Extend(ref b);
+        double d = b.Diagonal;
+        for (int i = start; i < Items.Count; i++)
+            if (d < Items[i].Block) Items[i] = Items[i] with { Block = d };
+    }
 }
 
 public sealed record LiteResult(double ShiftX, double ShiftY, LiteBox Extents, IReadOnlyDictionary<string, int> Written, int Entities);
@@ -77,10 +88,11 @@ public sealed class LitePlan
             _bytes[i] = LiteDxfWriter.Bytes(e, Names[e.Layer], sx, sy);
         }
         ChainSizes(src.Items, Math.Max(src.Tolerance, 1e-9), _size);
+        for (int i = 0; i < _size.Length; i++) _size[i] = Math.Min(_size[i], src.Items[i].Block); // a small block goes whole, whatever its pieces chain to
         Types = src.Items.Select(i => i.Type).Distinct().OrderBy(t => Array.IndexOf(LiteTypes.Order, t) is var k && k < 0 ? int.MaxValue : k).ThenBy(t => t, StringComparer.Ordinal).ToList();
     }
 
-    /// <summary>The size the minimum-size rule judges item <paramref name="i"/> by (see <see cref="ChainSizes"/>).</summary>
+    /// <summary>The size the minimum-size rule judges item <paramref name="i"/> by: its chain (see <see cref="ChainSizes"/>), or its block if that is smaller.</summary>
     public double SizeOf(int i) => _size[i];
 
     /// <summary>Size of each item for the minimum-size rule: the box diagonal of the chain it belongs to. Lines, arcs and open polylines whose end points
@@ -128,8 +140,7 @@ public sealed class LitePlan
         }
         for (int i = 0; i < n; i++)
         {
-            var b = boxes[Find(i)];
-            size[i] = b.IsEmpty ? 0 : Math.Sqrt((b.MaxX - b.MinX) * (b.MaxX - b.MinX) + (b.MaxY - b.MinY) * (b.MaxY - b.MinY));
+            size[i] = boxes[Find(i)].Diagonal;
         }
     }
 

@@ -196,7 +196,9 @@ public sealed class LiteCommands
                 if (_path.Contains(ins.Btr)) { LiteSource.Count(_src.Removed, "자기 자신을 포함하는 블록 (순환)"); continue; }
                 if (depth + 1 > MaxDepth) { LiteSource.Count(_src.Removed, $"블록 중첩 {MaxDepth}단계 초과"); continue; }
                 _path.Add(ins.Btr);
+                int start = _src.Items.Count;
                 Walk(Geo(ins.Btr), ins.Xf.Then(xf), layer, flags | (ins.Xref ? LiteFlags.Xref : LiteFlags.None), depth + 1, parentFrozen || Frozen(layer));
+                _src.CloseBlock(start);
                 _path.Remove(ins.Btr);
                 if (_src.Truncated) return;
             }

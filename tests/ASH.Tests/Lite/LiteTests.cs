@@ -212,6 +212,34 @@ public class LitePlanTests
     public void Shift_Rounds_Down_To_A_Clean_Step(double min, int insUnits, double shift) => Assert.Equal(shift, LitePlan.Shift(min, insUnits), 9);
 
     [Fact]
+    public void A_Block_Smaller_Than_The_Minimum_Goes_Whole_And_A_Big_One_Is_Judged_Inside()
+    {
+        var s = new LiteSource { InsUnits = 4, Tolerance = 1 };
+        s.Layers["0"] = new LiteLayerState(7, false, false);
+        void Line(double x1, double y1, double x2, double y2) => s.Items.Add(new LiteItem(new LiteLine("0", x1, y1, x2, y2), LiteFlags.None));
+        Line(0, 0, 5000, 0);                       // model space wall, touching the small block below
+        int big = s.Items.Count;                   // big block: 3000 frame + nested 300 x 300 block + lone 50 detail
+        Line(10000, 0, 13000, 0);
+        int small = s.Items.Count;
+        Line(10000, 500, 10300, 500); Line(10300, 500, 10300, 800);
+        s.CloseBlock(small);
+        Line(12000, 1000, 12050, 1000);
+        s.CloseBlock(big);
+        int tiny = s.Items.Count;                  // 40 block chained to the wall
+        Line(5000, 0, 5040, 0);
+        s.CloseBlock(tiny);
+        var plan = new LitePlan(s);
+        Assert.Equal(double.PositiveInfinity, s.Items[0].Block);
+        Assert.Equal(Math.Sqrt(3000 * 3000 + 1000 * 1000), s.Items[big].Block, 6);
+        Assert.Equal(Math.Sqrt(300 * 300 + 300 * 300), s.Items[small].Block, 6);
+        Assert.Equal(3000, plan.SizeOf(big), 6);
+        Assert.Equal(Math.Sqrt(300 * 300 + 300 * 300), plan.SizeOf(small + 1), 6);
+        Assert.Equal(50, plan.SizeOf(small + 2), 6);
+        Assert.Equal(40, plan.SizeOf(tiny), 6);     // chains to the 5040 wall but its block is 40
+        Assert.Equal(5040, plan.SizeOf(0), 6);
+    }
+
+    [Fact]
     public void ChainSizes_Judges_A_Big_Outline_Of_Short_Pieces_As_A_Whole()
     {
         var items = new List<LiteItem>();
