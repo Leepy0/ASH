@@ -50,4 +50,6 @@ public sealed record TypeStats(IReadOnlyList<VehicleRow> Vehicles, VehicleRow? A
 /// <summary>Row of "Block Statistics": Util is the fraction of time the block was occupied.</summary>
 public sealed record BlockStat(string Name, int Total, double Util, double AvTime, double AvWait);
 
-public sealed record ReportStats(IReadOnlyDictionary<string, TypeStats> Types, IReadOnlyList<BlockStat> Blocks, IReadOnlyList<string> RawLines);
+/// <summary>PathTotals = "Guide Path Statistics": path name -> vehicles that entered it during the run (empty when the report has no such table).</summary>
+public sealed record ReportStats(IReadOnlyDictionary<string, TypeStats> Types, IReadOnlyList<BlockStat> Blocks, IReadOnlyList<string> RawLines,
+    IReadOnlyDictionary<string, int>? PathTotals = null);

@@ -14,6 +14,7 @@ public sealed class JobRetention(JobStore store, IConfiguration cfg, ILogger<Job
 {
     public const string BlocksFile = "blocks.tsv";
     public const string StatsFile = "stats.tsv";
+    public const string PathsFile = "paths.tsv";
 
     int KeepDays => Math.Max(0, cfg.GetValue("Jobs:KeepRunsDays", 30));
 
@@ -56,6 +57,8 @@ public sealed class JobRetention(JobStore store, IConfiguration cfg, ILogger<Job
                     string.Join("\t", b.Name, b.Utilization.ToString("R", inv), b.AvgWaitSec.ToString("R", inv), b.Passes.ToString("R", inv)))));
         }
         if (view.Vehicles.Count > 0 || view.Materials.Count > 0) File.WriteAllLines(Path.Combine(store.JobDir(j.Id), StatsFile), JobView.StatsLines(view));
+        if (view.PathTraffic.Count > 0)
+            File.WriteAllLines(Path.Combine(store.JobDir(j.Id), PathsFile), new[] { "path\ttotal" }.Concat(view.PathTraffic.Select(kv => kv.Key + "\t" + kv.Value.ToString("R", CultureInfo.InvariantCulture))));
         long freed = 0;
         void Del(string path)
         {
