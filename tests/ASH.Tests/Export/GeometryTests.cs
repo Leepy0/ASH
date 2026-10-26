@@ -250,6 +250,24 @@ public class GeometryTests
         Assert.Contains("set load type to L_m1e", m.LogicSource);
     }
 
+    [Fact]
+    public void Output_Flow_Takes_An_Empty_Container_Out_And_Brings_The_Full_One_Back()
+    {
+        var supply = ASH.Core.Model.LogicGenerator.BuildProcessModel(LogicGeneratorTests(), ASH.Tests.Model.LogicGeneratorTests.Layout, "Meters");
+        var p = LogicGeneratorTests();
+        p.Materials[0] = p.Materials[0] with { Flow = "output" };
+        var output = ASH.Core.Model.LogicGenerator.BuildProcessModel(p, ASH.Tests.Model.LogicGeneratorTests.Layout, "Meters");
+        // the same two load types and logic; only the pictures change places
+        Assert.Equal(supply.LoadGraphics["L_m1"], output.LoadGraphics["L_m1e"]);
+        Assert.Equal(supply.LoadGraphics["L_m1e"], output.LoadGraphics["L_m1"]);
+        Assert.Equal(supply.LogicSource, output.LogicSource);
+        // the input signature changes only for an Output material (models built before Flow keep theirs)
+        Assert.NotEqual(InputSignature.Compute(LogicGeneratorTests()), InputSignature.Compute(p));
+        var plain = LogicGeneratorTests(); plain.Materials[0] = plain.Materials[0] with { Flow = "Supply" };
+        Assert.Equal(InputSignature.Compute(LogicGeneratorTests()), InputSignature.Compute(plain));
+        Assert.Equal(MaterialFlows.Output, MaterialFlows.Normalize(" OUTPUT ")); Assert.Equal(MaterialFlows.Supply, MaterialFlows.Normalize("")); Assert.Null(MaterialFlows.Normalize("반출"));
+    }
+
     static ProjectInput LogicGeneratorTests()
     {
         var p = ASH.Tests.Model.LogicGeneratorTests.Sample();

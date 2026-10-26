@@ -40,6 +40,18 @@ public class KindAndFormTests
     }
 
     [Fact]
+    public void Flow_Is_Checked_And_An_Output_Without_A_Return_Leg_Is_Warned()
+    {
+        ProjectInput With(string flow, bool ret) { var p = Good("Standard", "Box"); p.Materials[0] = p.Materials[0] with { Flow = flow, EmptyReturn = ret }; return p; }
+        Assert.Empty(InputValidator.Validate(With("output", true), Cps));
+        Assert.Empty(InputValidator.Validate(With("", false), Cps)); // blank = Supply
+        var bad = Assert.Single(InputValidator.Validate(With("반출", true), Cps));
+        Assert.Equal(FindingCode.InputError, bad.Code); Assert.Contains("Output", bad.Message);
+        var w = Assert.Single(InputValidator.Validate(With("Output", false), Cps)); // nowhere to take the full container
+        Assert.Equal(FindingCode.InputWarning, w.Code); Assert.Contains("ReturnToCP", w.Message);
+    }
+
+    [Fact]
     public void Unknown_Kind_Or_Form_Is_An_Error_With_The_Choices()
     {
         var k = Assert.Single(Check("Hover", "Box"));

@@ -91,7 +91,7 @@ public static class ReportPages
             var per = PerContainer(v, x);
             string Three(double k, string f) => $"{F(x.StockAvg * k, f)} / {F(x.StockMin * k, f)} / {F(x.StockMax * k, f)}";
             var stop = x.StopSec > 0;
-            mats.Rows.Add((new[] { x.Name, x.Group, F(x.Trips, "0.#"), F(SupplyInterval(v, x), "0"), $"{F(x.DelivAvg, "0.0")} / {F(x.DelivMax, "0.0")}",
+            mats.Rows.Add((new[] { MatLabel(v, x), x.Group, F(x.Trips, "0.#"), F(SupplyInterval(v, x), "0"), $"{F(x.DelivAvg, "0.0")} / {F(x.DelivMax, "0.0")}",
                 (stop ? "⚠ " : "") + F(x.StopSec, "0"), Three(1, "0.#"), Three(per, "0") }, stop ? "fail" : ""));
         }
 

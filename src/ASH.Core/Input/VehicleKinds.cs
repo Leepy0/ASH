@@ -5,6 +5,22 @@ using System.Linq;
 namespace ASH.Core.Input;
 
 /// <summary>What a material is shipped as. Empty in the workbook means Box.</summary>
+/// <summary>Materials.Flow: Supply (default) = the line consumes the material and a vehicle brings it; Output = the line fills containers: a vehicle brings
+/// an empty one (the supply leg) and takes the full one away (the return leg). The model is the same; only the container pictures are swapped and the
+/// pages say 반출 and that a stockout means production stopped for want of an empty container.</summary>
+public static class MaterialFlows
+{
+    public const string Supply = "Supply", Output = "Output";
+    public static readonly string[] All = { Supply, Output };
+
+    /// <summary>The canonical name (case-insensitive; empty = Supply), or null when it is not a flow.</summary>
+    public static string? Normalize(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return Supply;
+        return All.FirstOrDefault(f => string.Equals(f, value!.Trim(), StringComparison.OrdinalIgnoreCase));
+    }
+}
+
 public static class MaterialForms
 {
     public const string Box = "Box", Pallet = "Pallet", Trolley = "Trolley";

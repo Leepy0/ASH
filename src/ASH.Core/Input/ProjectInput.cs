@@ -29,7 +29,11 @@ public sealed record AgvGroup(string Group, string Type, int MinCount, int MaxCo
 
 public sealed record MaterialInfo(string Material, string Station, string Group, double TaktTime, double UnitsPerCycle,
     double UnitsPerContainer, double CallThreshold, double UnloadThreshold, double? InitStock, double? SafetyStock, bool EmptyReturn, int Row = 0, string Form = "",
-    double? LoadLength = null, double? LoadWidth = null, double? LoadHeight = null);
+    double? LoadLength = null, double? LoadWidth = null, double? LoadHeight = null, string Flow = "")
+{
+    /// <summary>Flow is Output (an unknown value is reported by the validator and treated as Supply).</summary>
+    public bool IsOutput => MaterialFlows.Normalize(Flow) == MaterialFlows.Output;
+}
 
 public sealed record Route(string Material, string SupplyFromCP, string SupplyToCP, string? BufferCP,
     string? ReturnFromCP, string? ReturnToCP, double ExtraTime, int Row = 0, double BufferWaitSec = 0);

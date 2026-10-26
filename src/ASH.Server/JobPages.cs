@@ -488,12 +488,12 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
             sb.Append("<div class=\"box\"><h2>자재별 리드타임·재고</h2><div class=\"scroll\"><table class=\"sort\"><thead><tr>").Append(Th("자재")).Append(Th("그룹")).Append(Th("공급/기대(회)")).Append(Th("결품 시간(초)"))
               .Append(Th("호출→상차 평균/최대(초)")).Append(Th("호출→하차 평균/최대(초)")).Append(Th("재고 평균(용기)")).Append(Th("표준편차(용기)")).Append(Th("최소(용기)")).Append(Th("최대(용기)")).Append(Th("주의")).Append("</tr></thead><tbody>");
             foreach (var m in v.Materials)
-                sb.Append($"<tr><td>{H(m.Name)}</td><td>{H(m.Group)}</td><td class=\"num\">{F(m.Supplies, "0.#")} / {F(m.Expected, "0.#")}</td><td class=\"num\">{F(m.StopSec, "0")}</td>" +
+                sb.Append($"<tr><td>{H(MatLabel(v, m))}</td><td>{H(m.Group)}</td><td class=\"num\">{F(m.Supplies, "0.#")} / {F(m.Expected, "0.#")}</td><td class=\"num\">{F(m.StopSec, "0")}</td>" +
                     $"<td class=\"num\">{F(m.PickAvg, "0.0")} / {F(m.PickMax, "0.0")}</td><td class=\"num\">{F(m.DelivAvg, "0.0")} / {F(m.DelivMax, "0.0")}</td>" +
                     $"<td class=\"num\">{F(m.StockAvg, "0.0")}</td><td class=\"num\">{F(m.StockStd, "0.0")}</td><td class=\"num\">{F(m.StockMin, "0.#")}</td><td class=\"num\">{F(m.StockMax, "0.#")}</td>" +
                     (m.Warn ? $"<td class=\"bad\" title=\"재고 평균 − 2σ {F(m.StockAvg - 2 * m.StockStd, "0.0")} &lt; 안전재고 {F(m.Safety)}\"><b>주의</b></td></tr>" : "<td></td></tr>"));
             sb.Append("</tbody></table></div><div class=\"t4\" title=\"호출→상차: 호출부터 상차 CP 도착까지. 호출→하차: 호출부터 하차 완료까지. 재고는 takt마다 한 번 잰 값, 최대·최소는 확인 실행 전체의 극값. 주의: 재고 평균 − 2σ가 안전재고보다 낮은 자재(경고일 뿐 판정에는 쓰이지 않음).\">" +
-                "재고는 takt마다 한 번 잰 값 · 주의 = 평균 − 2σ가 안전재고 미만(판정 제외)</div></div>");
+                "재고는 takt마다 한 번 잰 값 · 주의 = 평균 − 2σ가 안전재고 미만(판정 제외)</div>" + (AnyOutput(v) ? $"<div class=\"t4\">{H(OutputNote)}</div>" : "") + "</div>");
         }
         sb.Append(SortScript); // once for every sortable table above
         if (j.Warnings.Count > 0)
@@ -791,6 +791,13 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
         v.Input == null || !(m.Trips > 0) ? double.NaN : (v.Input.Settings.SimLengthSec - v.Input.Settings.WarmupSec) / m.Trips;
 
     /// <summary>Parts per container of a material from the input; NaN when unknown.</summary>
+    /// <summary>The material is an Output flow (Materials.Flow): its supply is an empty container brought and the full one taken away.</summary>
+    internal static bool IsOutput(JobView v, MaterialView m) => v.Input?.Materials.FirstOrDefault(x => x.Material == m.Name)?.IsOutput == true;
+    /// <summary>The material's name in result tables, with "(반출)" for an Output flow.</summary>
+    internal static string MatLabel(JobView v, MaterialView m) => IsOutput(v, m) ? m.Name + " (반출)" : m.Name;
+    internal static bool AnyOutput(JobView v) => v.Input?.Materials.Any(m => m.IsOutput) == true;
+    internal const string OutputNote = "(반출) = Output 자재: 공급은 빈 용기를 가져다주고 풀 용기를 반출한 횟수, 결품은 빈 용기가 떨어져 생산이 멈춘 시간";
+
     internal static double PerContainer(JobView v, MaterialView m) => v.Input?.Materials.FirstOrDefault(x => x.Material == m.Name)?.UnitsPerContainer ?? double.NaN;
 
     /// <summary>상세 tab, one row per material: supply jobs, their interval and distance, lead time, stock in containers and in parts. Models built
@@ -804,10 +811,12 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
         {
             var per = PerContainer(v, m);
             string Three(double k, string f) => $"{F(m.StockAvg * k, f)} / {F(m.StockMin * k, f)} / {F(m.StockMax * k, f)}";
-            sb.Append($"<tr><td>{H(m.Name)}</td><td>{H(m.Group)}</td><td class=\"num\">{F(m.Trips, "0.#")}</td><td class=\"num\">{F(SupplyInterval(v, m), "0")}</td><td class=\"num\">{F(m.DistPerTrip, "0.#")}</td>" +
+            sb.Append($"<tr><td>{H(MatLabel(v, m))}</td><td>{H(m.Group)}</td><td class=\"num\">{F(m.Trips, "0.#")}</td><td class=\"num\">{F(SupplyInterval(v, m), "0")}</td><td class=\"num\">{F(m.DistPerTrip, "0.#")}</td>" +
                 $"<td class=\"num\">{F(m.DelivAvg, "0.0")}</td><td class=\"num\">{F(m.DelivMax, "0.0")}</td><td class=\"num\">{Three(1, "0.#")}</td><td class=\"num\">{Three(per, "0")}</td></tr>");
         }
-        sb.Append("</tbody></table></div></div>");
+        sb.Append("</tbody></table></div>");
+        if (AnyOutput(v)) sb.Append($"<div class=\"t4\">{H(OutputNote)}</div>");
+        sb.Append("</div>");
     }
 
     static string Curve(string group, int min, int max, IReadOnlyList<CountPoint> pts, double utilMax, int? decided)
@@ -872,8 +881,8 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
                 foreach (var t in curved) sb.Append($"<tr><td>{H(t.Type)}</td><td class=\"num\">{(t.SpeedLoadedCurve > 0 ? F(t.SpeedLoadedCurve!.Value) : "직선과 같음")}</td><td class=\"num\">{(t.SpeedEmptyCurve > 0 ? F(t.SpeedEmptyCurve!.Value) : "직선과 같음")}</td></tr>");
                 sb.Append("</table></div>");
             }
-            sb.Append("</div><div class=\"box\"><h2>자재</h2><div class=\"scroll\"><table><tr><th>자재</th><th>그룹</th><th>형태</th><th>T/T(초)</th><th>용기당 수량(개)</th><th>호출 임계(용기)</th></tr>");
-            foreach (var m in v.Input.Materials) sb.Append($"<tr><td>{H(m.Material)}</td><td>{H(m.Group)}</td><td>{H(m.Form.Length == 0 ? "Box" : m.Form)}</td><td class=\"num\">{F(m.TaktTime)}</td><td class=\"num\">{F(m.UnitsPerContainer)}</td><td class=\"num\">{F(m.CallThreshold)}</td></tr>");
+            sb.Append("</div><div class=\"box\"><h2>자재</h2><div class=\"scroll\"><table><tr><th>자재</th><th>그룹</th><th>흐름</th><th>형태</th><th>T/T(초)</th><th>용기당 수량(개)</th><th>호출 임계(용기)</th></tr>");
+            foreach (var m in v.Input.Materials) sb.Append($"<tr><td>{H(m.Material)}</td><td>{H(m.Group)}</td><td>{(m.IsOutput ? "반출(Output)" : "공급")}</td><td>{H(m.Form.Length == 0 ? "Box" : m.Form)}</td><td class=\"num\">{F(m.TaktTime)}</td><td class=\"num\">{F(m.UnitsPerContainer)}</td><td class=\"num\">{F(m.CallThreshold)}</td></tr>");
             sb.Append("</table></div></div>");
         }
     }

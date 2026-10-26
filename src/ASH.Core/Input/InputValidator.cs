@@ -154,6 +154,8 @@ public static class InputValidator
             if (m.Group.Length > 0 && !groups.Contains(m.Group)) Err("Materials", m.Row, i, $"자재 '{m.Material}'의 Group '{m.Group}'이(가) AGV_Groups에 없습니다.");
             foreach (var (col, v) in new[] { ("LoadLength", m.LoadLength), ("LoadWidth", m.LoadWidth), ("LoadHeight", m.LoadHeight) })
                 if (v.HasValue && !(v.Value > 0)) Err("Materials", m.Row, i, $"자재 '{m.Material}'의 {col}은(는) 0보다 커야 합니다(비우면 형태별 기본값).");
+            if (MaterialFlows.Normalize(m.Flow) == null) Err("Materials", m.Row, i, $"자재 '{m.Material}'의 Flow '{m.Flow}'은(는) 알 수 없습니다. (Supply = 공급, Output = 빈 용기 공급 + 풀 용기 반출)");
+            else if (m.IsOutput && !m.EmptyReturn) Warn("Materials", m.Row, i, $"자재 '{m.Material}'은(는) Output(반출)인데 Routes에 ReturnFromCP/ReturnToCP가 없어 풀 용기를 가져가지 않습니다. 풀 용기를 내려놓을 곳(창고·다음 공정)을 ReturnToCP에 넣으세요.");
             var form = MaterialForms.Normalize(m.Form);
             if (form == null) Err("Materials", m.Row, i, $"자재 '{m.Material}'의 Form '{m.Form}'은(는) 알 수 없습니다. ({string.Join(" / ", MaterialForms.All)})");
             else

@@ -28,7 +28,7 @@
 |---|---|
 | AGV_Types | Type, Category(분류 메모), SpeedLoaded(m/s), SpeedLoadedCurve(m/s, 빈칸=직선), SpeedEmpty(m/s), SpeedEmptyCurve(m/s, 빈칸=직선), Accel(m/s²), Decel(m/s²), Capacity(용기 수), LoadTime(초), UnloadTime(초), MTBF(초, 0=없음), MTTR(초), Length(m), Width(m), Color, Kind(목록: Standard / Conveyor / Ant / Magnet), Asset(에셋 이름, 비워 둔다) |
 | AGV_Groups | Group, Type(AGV_Types 목록에서 선택, 여러 그룹이 같은 타입을 써도 된다), MinCount(≥1), MaxCount(≥MinCount), StandbyCPs(쉼표 구분), Dispatch(Nearest / FIFO), FinishCP(선택) |
-| Materials | Material, Station(공정명, 메모), Group(운반 그룹, AGV_Groups 목록), TaktTime(초, >0), UnitsPerCycle(소요 원수), UnitsPerContainer(용기당 자재 수량, ≥1), CallThreshold(호출 임계, 용기) + CallThresholdQty(호출 임계, 자재) → CallThresholdTotal(합계, 자동), UnloadThreshold(언로딩 임계, 용기) + UnloadThresholdQty(언로딩 임계, 자재) → UnloadThresholdTotal(합계, 자동), InitStock / SafetyStock(용기, `-` 또는 빈칸 = Settings 기본값), Form(목록: Box / Pallet / Trolley), LoadLength / LoadWidth / LoadHeight(m, `-` 또는 빈칸 = 형태별 기본값) |
+| Materials | Material, Station(공정명, 메모), Group(운반 그룹, AGV_Groups 목록), TaktTime(초, >0), UnitsPerCycle(소요 원수), UnitsPerContainer(용기당 자재 수량, ≥1), CallThreshold(호출 임계, 용기) + CallThresholdQty(호출 임계, 자재) → CallThresholdTotal(합계, 자동), UnloadThreshold(언로딩 임계, 용기) + UnloadThresholdQty(언로딩 임계, 자재) → UnloadThresholdTotal(합계, 자동), InitStock / SafetyStock(용기, `-` 또는 빈칸 = Settings 기본값), Form(목록: Box / Pallet / Trolley), LoadLength / LoadWidth / LoadHeight(m, `-` 또는 빈칸 = 형태별 기본값), Flow(목록: Supply / Output, 빈칸 = Supply) |
 | Routes | Material, SupplyFromCP, SupplyToCP, BufferCP(선택), ReturnFromCP(선택), ReturnToCP(선택), ExtraTime(초), BufferWaitSec(버퍼 대기 허용, 초, 빈칸 = 0, ≥0) |
 
 ## 도면 값으로 채운 양식
@@ -63,6 +63,16 @@ U·W 모두 원래 파일을 `input.bak.<날짜_시각>.xlsx`로 먼저 복사�
 | Materials.Group | AGV_Groups의 Group |
 | Materials.Form | Box / Pallet / Trolley |
 | Routes.Material | Materials의 Material |
+
+## 생산 출하(Flow = Output)
+
+빈 용기를 라인에 가져다주고 풀 용기를 창고나 다음 공정으로 가져가는 흐름은 Materials의 Flow를 `Output`으로 하고 Routes를 이렇게 넣는다.
+- SupplyFromCP = 빈 용기 보관 위치, SupplyToCP = 라인(빈 용기 하차), ReturnFromCP = 라인(풀 용기 상차), ReturnToCP = 창고·다음 공정(풀 용기 하차).
+- TaktTime = 용기 하나가 차는 시간, 호출 임계 = 라인에 남은 빈 용기 수.
+- 계산은 공급과 같다(빈 용기를 "소비"하는 것으로 본다). 다른 점은 그림과 표시뿐이다: 공급 구간에 빈 용기, 회수 구간에 풀 용기 그림이 나오고, 결과 표의 자재 이름에 "(반출)"이 붙는다. 반출 자재의 공급 횟수 = 빈 용기 전달·풀 용기 반출 횟수, 결품 = 빈 용기가 떨어져 생산이 멈춘 시간.
+- ReturnFromCP/ReturnToCP가 없으면 풀 용기를 가져가지 않으므로 경고가 나온다.
+- 풀 용기가 라인 옆에 쌓이는 한도(출하 버퍼)와 빈 용기·풀 용기를 따로 나르는 운영은 반영하지 않는다. 교환(빈 용기 내려놓고 풀 용기 싣기) 운영에 맞는다.
+- Output으로 바꾸면 입력 서명이 달라지므로 AGVMODEL로 모델을 다시 만든다(그림이 로직에 들어감). 예전 양식은 AGVEXCEL 갱신(U)으로 Flow 열이 생긴다.
 
 ## 임계값과 빈 용기 회수
 
