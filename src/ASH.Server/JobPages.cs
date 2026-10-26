@@ -281,7 +281,7 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
 /* warning (over the utilization limit only): orange, not the red of a failure */
 .kpi.wn{--c:var(--orange)}.wn,.sym.o{color:var(--orange)}tr.ow td{background:var(--orange-b)}.bar.o i{background:var(--orange)}
 .box table{width:100%}.box table.gt{width:auto}.gt th,.gt td{text-align:center}.gt th button{text-align:center}.box h2{margin-top:0}.box .t4{margin-top:6px}
-.maps{display:flex;flex-wrap:wrap;gap:18px}
+.maps{display:flex;flex-wrap:wrap;gap:18px}.zw{position:relative}.zw .zb{position:absolute;right:8px;bottom:30px;display:flex;gap:4px}.zw .zb button{min-height:32px;min-width:36px;padding:0 10px;background:#fff;border:1px solid var(--line2)}
 .curves{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px}.curves svg{width:100%;height:auto;border-radius:10px}
 .files{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:8px}.files .row{font-size:14px}.files .row .t>div{font-family:Consolas,monospace;font-size:14px}
 .jt td{padding:11px 10px}
@@ -441,8 +441,8 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
         sb.Append("<div class=\"kpis\">");
         sb.Append(Kpi("권장 AGV 총 대수", $"{total}<small>대</small>", $"시험 범위 {min}~{max}대", "blue", title: $"권장 AGV 총 {total}대"));
         sb.Append(Kpi("최대 가동률", top == null ? "-" : $"{P(top.Util)}<small>%</small>",
-            top == null ? "&nbsp;" : topOver ? $"<span class=\"sym o\">⚠ 경고: 상한 {Pct(v.UtilMax)} 초과</span> · {H(top.Group)}" : $"상한 {Pct(v.UtilMax)} · {H(top.Group)}", topOver ? "wn" : ""));
-        sb.Append(Kpi("자재 품절 시간", v.Materials.Count == 0 ? "-" : $"{F(stop, "0")}<small>초</small>", v.Materials.Count == 0 ? "&nbsp;" : stop > 0 ? "<span class=\"sym r\">▲ 자재 품절 있음</span>" : "<span class=\"sym\" style=\"color:var(--green)\">✓ 없음</span>",
+            top == null ? "&nbsp;" : $"{H(top.Group)}", topOver ? "wn" : ""));
+        sb.Append(Kpi("자재 품절 시간", v.Materials.Count == 0 ? "-" : $"{F(stop, "0")}<small>초</small>", v.Materials.Count == 0 ? "&nbsp;" : stop > 0 ? "<span class=\"sym r\">▲ 자재 품절 있음</span>" : "&nbsp;",
             v.Materials.Count == 0 ? "" : stop > 0 ? "bad" : "ok"));
         if (prices != null)
         {
@@ -495,7 +495,7 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
                     $"<td class=\"num\">{F(m.StockAvg, "0.0")}</td><td class=\"num\">{F(m.StockStd, "0.0")}</td><td class=\"num\">{F(m.StockMin, "0.#")}</td><td class=\"num\">{F(m.StockMax, "0.#")}</td>" +
                     (m.Warn ? $"<td class=\"bad\" title=\"재고 평균 − 2σ {F(m.StockAvg - 2 * m.StockStd, "0.0")} &lt; 안전재고 {F(m.Safety)}\"><b>주의</b></td></tr>" : "<td></td></tr>"));
             sb.Append("</tbody></table></div><div class=\"t4\" title=\"호출→상차: 호출부터 상차 CP 도착까지. 호출→하차: 호출부터 하차 완료까지. 재고는 takt마다 한 번 잰 값, 최대·최소는 확인 실행 전체의 극값. 주의: 재고 평균 − 2σ가 안전재고보다 낮은 자재(경고일 뿐 판정에는 쓰이지 않음).\">" +
-                "재고는 takt마다 한 번 잰 값 · 주의 = 평균 − 2σ가 안전재고 미만(판정 제외)</div>" + (AnyOutput(v) ? $"<div class=\"t4\">{H(OutputNote)}</div>" : "") + "</div>");
+                "재고는 takt마다 한 번 잰 값 · 주의 = 평균 − 2σ가 안전재고 미만(판정 제외)</div>" + "</div>");
         }
         sb.Append(SortScript); // once for every sortable table above
         if (j.Warnings.Count > 0)
@@ -508,9 +508,9 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
         if (v.Layout == null) { sb.Append("<p class=\"muted\">레이아웃을 읽지 못했습니다.</p></div>"); return; }
         if (v.Blocks.Count == 0) sb.Append("<p class=\"muted\">교통제어 block 결과가 없습니다. 경로만 그립니다.</p>");
         sb.Append("<div class=\"maps\">");
-        sb.Append("<div>").Append(Map(v, "block 점유율(%)", b => b.Utilization, x => Pct(x))).Append("</div>");
-        sb.Append("<div>").Append(Map(v, "block 평균 대기(초)", b => b.AvgWaitSec, x => F(x, "0.0") + "초")).Append("</div>");
-        sb.Append("</div></div>");
+        sb.Append("<div class=\"zw\">").Append(ZoomSvg(Map(v, "block 점유율(%)", b => b.Utilization, x => Pct(x)))).Append("</div>");
+        sb.Append("<div class=\"zw\">").Append(ZoomSvg(Map(v, "block 평균 대기(초)", b => b.AvgWaitSec, x => F(x, "0.0") + "초"))).Append("</div>");
+        sb.Append("</div>").Append(AnalysisPages.FitScript).Append("</div>");
         if (v.Blocks.Count > 0)
         {
             sb.Append("<div class=\"box\"><h2>대기가 긴 block</h2><div class=\"scroll\"><table><tr><th>block</th><th>평균 대기(초)</th><th>점유율(%)</th><th>통과 수(회)</th></tr>");
@@ -674,6 +674,9 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
 
     /// <summary>Paths in grey, blocks coloured by a value (highest = red), CPs as dots. Model coordinates, y up.
     /// <paramref name="bounds"/> and <paramref name="hiValue"/> replace this view's own extent and colour maximum, so several maps can share one scale.</summary>
+    /// <summary>Marks the map svg for AnalysisPages.FitScript (wheel zoom, drag pan, 맞춤).</summary>
+    static string ZoomSvg(string html) => html.Replace("<svg ", "<svg class=\"bm\" ", StringComparison.Ordinal);
+
     internal static string Map(JobView v, string title, Func<BlockView, double> value, Func<double, string> label, double w = 520, double h = 360, bool topLabels = false,
         (double X0, double X1, double Y0, double Y1)? bounds = null, double? hiValue = null)
     {
@@ -812,9 +815,8 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
     /// <summary>The material is an Output flow (Materials.Flow): its supply is an empty container brought and the full one taken away.</summary>
     internal static bool IsOutput(JobView v, MaterialView m) => v.Input?.Materials.FirstOrDefault(x => x.Material == m.Name)?.IsOutput == true;
     /// <summary>The material's name in result tables, with "(반출)" for an Output flow.</summary>
-    internal static string MatLabel(JobView v, MaterialView m) => IsOutput(v, m) ? m.Name + " (반출)" : m.Name;
+    internal static string MatLabel(JobView v, MaterialView m) => m.Name;
     internal static bool AnyOutput(JobView v) => v.Input?.Materials.Any(m => m.IsOutput) == true;
-    internal const string OutputNote = "(반출) = Output 자재: 공급은 빈 용기를 가져다주고 풀 용기를 반출한 횟수, 자재 품절은 빈 용기가 떨어져 생산이 멈춘 시간";
 
     internal static double PerContainer(JobView v, MaterialView m) => v.Input?.Materials.FirstOrDefault(x => x.Material == m.Name)?.UnitsPerContainer ?? double.NaN;
 
@@ -833,7 +835,6 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
                 $"<td class=\"num\">{F(m.DelivAvg, "0.0")}</td><td class=\"num\">{F(m.DelivMax, "0.0")}</td><td class=\"num\">{Three(1, "0.#")}</td><td class=\"num\">{Three(per, "0")}</td></tr>");
         }
         sb.Append("</tbody></table></div>");
-        if (AnyOutput(v)) sb.Append($"<div class=\"t4\">{H(OutputNote)}</div>");
         sb.Append("</div>");
     }
 
@@ -868,12 +869,27 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
 
     static void InputTab(StringBuilder sb, JobInfo j, JobView? v)
     {
-        sb.Append("<div class=\"box\"><h2>이 결과를 만든 입력</h2><div class=\"scroll\"><table>");
-        sb.Append($"<tr><th>작업</th><td>{H(j.Id)}</td></tr><tr><th>프로젝트 / 안</th><td>{H(j.Project)} / {H(j.Plan)}</td></tr><tr><th>모델</th><td>{H(j.Model)}</td></tr>");
-        sb.Append($"<tr><th>보낸 사람</th><td>{H(j.Submitter)} ({H(j.Ip)})</td></tr><tr><th>보낸 시각 / 시작 / 끝(서울)</th><td>{H(When(j.CreatedUtc))} / {H(When(j.StartedUtc))} / {H(When(j.FinishedUtc))}</td></tr>");
         if (v?.Input is { } inp)
         {
-            var s = inp.Settings;
+            sb.Append("<div class=\"box\"><h2>그룹</h2><div class=\"scroll\"><table><tr><th>그룹</th><th>타입</th><th>최소(대)</th><th>최대(대)</th><th>대기 CP</th></tr>");
+            foreach (var g in inp.Groups) sb.Append($"<tr><td>{H(g.Group)}</td><td>{H(g.Type)}</td><td class=\"num\">{g.MinCount}</td><td class=\"num\">{g.MaxCount}</td><td>{H(string.Join(", ", g.StandbyCPs))}</td></tr>");
+            sb.Append("</table></div></div>");
+            var used = inp.Groups.Select(g => g.Type).ToHashSet();
+            sb.Append("<div class=\"box\"><h2>AGV 타입</h2><div class=\"scroll\"><table><tr><th>타입</th><th>에셋</th><th>적재 직선(m/s)</th><th>공차 직선(m/s)</th><th>적재 곡선(m/s)</th><th>공차 곡선(m/s)</th></tr>");
+            foreach (var t in inp.AgvTypes.Where(t => used.Contains(t.Type)))
+                sb.Append($"<tr><td>{H(t.Type)}</td><td>{H(string.IsNullOrWhiteSpace(t.Asset) ? "기본 그림" : t.Asset)}</td><td class=\"num\">{F(t.SpeedLoaded)}</td><td class=\"num\">{F(t.SpeedEmpty > 0 ? t.SpeedEmpty : t.SpeedLoaded)}</td>" +
+                    $"<td class=\"num\">{(t.SpeedLoadedCurve > 0 ? F(t.SpeedLoadedCurve!.Value) : "직선과 같음")}</td><td class=\"num\">{(t.SpeedEmptyCurve > 0 ? F(t.SpeedEmptyCurve!.Value) : "직선과 같음")}</td></tr>");
+            sb.Append("</table></div></div>");
+            sb.Append("<div class=\"box\"><h2>자재</h2><div class=\"scroll\"><table><tr><th>자재</th><th>그룹</th><th>흐름</th><th>형태</th><th>T/T(초)</th><th>용기당 수량(개)</th><th>호출 임계(용기)</th></tr>");
+            foreach (var m in inp.Materials) sb.Append($"<tr><td>{H(m.Material)}</td><td>{H(m.Group)}</td><td>{(m.IsOutput ? "반출(Output)" : "공급")}</td><td>{H(m.Form.Length == 0 ? "Box" : m.Form)}</td><td class=\"num\">{F(m.TaktTime)}</td><td class=\"num\">{F(m.UnitsPerContainer)}</td><td class=\"num\">{F(m.CallThreshold)}</td></tr>");
+            sb.Append("</table></div>");
+            if (inp.DisabledMaterials.Count > 0) sb.Append($"<p class=\"muted\">미사용 자재: {H(string.Join(", ", inp.DisabledMaterials))}</p>");
+            sb.Append("</div>");
+        }
+        sb.Append("<div class=\"box\"><h2>설정</h2><div class=\"scroll\"><table>");
+        if (v?.Input is { } inp2)
+        {
+            var s = inp2.Settings;
             sb.Append($"<tr><th>반복 / 시드 시작</th><td>{s.Replications}회 / {s.SeedBase} (탐색 중 반복 {j.InitialReps}회)</td></tr>");
             sb.Append($"<tr><th>시뮬레이션 / 워밍업</th><td>{F(s.SimLengthSec / 3600)}시간 / {F(s.WarmupSec / 3600)}시간</td></tr>");
             sb.Append($"<tr><th>가동률 상한 / 안전재고</th><td>{Pct(s.UtilMax)} / {F(s.SafetyStock)}용기</td></tr>");
@@ -882,29 +898,13 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
         }
         else if (v?.InputError != null) sb.Append($"<tr><th>입력</th><td class=\"bad\">▲ {H(v.InputError)}</td></tr>");
         sb.Append("</table></div></div>");
-        sb.Append("<div class=\"box\"><h2>올린 파일 (SHA-256)</h2><div class=\"scroll\"><table><tr><th>파일</th><th>크기(바이트)</th><th>SHA-256</th></tr>");
+        sb.Append("<div class=\"box\"><h2>작업</h2><div class=\"scroll\"><table>");
+        sb.Append($"<tr><th>작업</th><td>{H(j.Id)}</td></tr><tr><th>프로젝트 / 안</th><td>{H(j.Project)} / {H(j.Plan)}</td></tr><tr><th>모델</th><td>{H(j.Model)}</td></tr>");
+        sb.Append($"<tr><th>보낸 사람</th><td>{H(j.Submitter)} ({H(j.Ip)})</td></tr><tr><th>보낸 시각 / 시작 / 끝(서울)</th><td>{H(When(j.CreatedUtc))} / {H(When(j.StartedUtc))} / {H(When(j.FinishedUtc))}</td></tr>");
+        sb.Append("</table></div></div>");
+        sb.Append("<div class=\"box\"><h2>올린 파일</h2><div class=\"scroll\"><table><tr><th>파일</th><th>크기(바이트)</th><th>SHA-256</th></tr>");
         foreach (var f in j.Files) sb.Append($"<tr><td>{H(f.Path)}</td><td class=\"num\">{f.Size:N0}</td><td><code>{H(f.Sha256)}</code></td></tr>");
         sb.Append("</table></div></div>");
-        if (v?.Input != null)
-        {
-            sb.Append("<div class=\"box\"><h2>그룹</h2><div class=\"scroll\"><table><tr><th>그룹</th><th>타입</th><th>최소(대)</th><th>최대(대)</th><th>대기 CP</th></tr>");
-            foreach (var g in v.Input.Groups) sb.Append($"<tr><td>{H(g.Group)}</td><td>{H(g.Type)}</td><td class=\"num\">{g.MinCount}</td><td class=\"num\">{g.MaxCount}</td><td>{H(string.Join(", ", g.StandbyCPs))}</td></tr>");
-            sb.Append("</table></div></div><div class=\"box\"><h2>AGV 타입</h2><div class=\"scroll\"><table><tr><th>타입</th><th>에셋</th></tr>");
-            foreach (var t in v.Input.AgvTypes) sb.Append($"<tr><td>{H(t.Type)}</td><td>{H(string.IsNullOrWhiteSpace(t.Asset) ? "기본 그림" : t.Asset)}</td></tr>");
-            var curved = v.Input.AgvTypes.Where(t => t.SpeedLoadedCurve > 0 || t.SpeedEmptyCurve > 0).ToList();
-            sb.Append("</table></div>");
-            if (curved.Count > 0)
-            {
-                sb.Append("<h2 style=\"margin-top:18px\">곡선 속도</h2><div class=\"scroll\"><table><tr><th>타입</th><th>적재 곡선(m/s)</th><th>공차 곡선(m/s)</th></tr>");
-                foreach (var t in curved) sb.Append($"<tr><td>{H(t.Type)}</td><td class=\"num\">{(t.SpeedLoadedCurve > 0 ? F(t.SpeedLoadedCurve!.Value) : "직선과 같음")}</td><td class=\"num\">{(t.SpeedEmptyCurve > 0 ? F(t.SpeedEmptyCurve!.Value) : "직선과 같음")}</td></tr>");
-                sb.Append("</table></div>");
-            }
-            sb.Append("</div><div class=\"box\"><h2>자재</h2><div class=\"scroll\"><table><tr><th>자재</th><th>그룹</th><th>흐름</th><th>형태</th><th>T/T(초)</th><th>용기당 수량(개)</th><th>호출 임계(용기)</th></tr>");
-            foreach (var m in v.Input.Materials) sb.Append($"<tr><td>{H(m.Material)}</td><td>{H(m.Group)}</td><td>{(m.IsOutput ? "반출(Output)" : "공급")}</td><td>{H(m.Form.Length == 0 ? "Box" : m.Form)}</td><td class=\"num\">{F(m.TaktTime)}</td><td class=\"num\">{F(m.UnitsPerContainer)}</td><td class=\"num\">{F(m.CallThreshold)}</td></tr>");
-            sb.Append("</table></div>");
-            if (v.Input.DisabledMaterials.Count > 0) sb.Append($"<p class=\"muted\">미사용 자재: {H(string.Join(", ", v.Input.DisabledMaterials))}</p>");
-            sb.Append("</div>");
-        }
     }
 
     static void FilesTab(StringBuilder sb, JobInfo j, string logTail)
