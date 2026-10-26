@@ -13,21 +13,7 @@ public static class TrafficCpGenerator
     /// <summary>Path distances where the path goes from outside to inside the rect. insideOnly = never leaves the rect.</summary>
     internal static List<double> Entries(LayoutPath path, Rect2 rect, double tol, out bool insideOnly)
     {
-        var edges = new[]
-        {
-            new LineSeg(rect.Min, new Point2(rect.Max.X, rect.Min.Y)), new LineSeg(new Point2(rect.Max.X, rect.Min.Y), rect.Max),
-            new LineSeg(rect.Max, new Point2(rect.Min.X, rect.Max.Y)), new LineSeg(new Point2(rect.Min.X, rect.Max.Y), rect.Min),
-        };
-        var cuts = new List<double> { 0 };
-        double off = 0;
-        foreach (var s in path.Segments)
-        {
-            foreach (var e in edges)
-                foreach (var pt in Intersections.SegSeg(s, e, tol)) cuts.Add(off + s.DistanceAlong(pt));
-            off += s.Length;
-            cuts.Add(off);
-        }
-        cuts.Sort();
+        var cuts = Cuts(path, rect, tol);
         var res = new List<double>();
         bool? prevInside = null, firstInside = null; insideOnly = true;
         for (int i = 0; i + 1 < cuts.Count; i++)
@@ -43,6 +29,41 @@ public static class TrafficCpGenerator
         if (firstInside == true && OnBoundary(rect, path.Start, tol)) res.Insert(0, 0);
         if (prevInside == false && OnBoundary(rect, path.End, tol)) res.Add(path.Length);
         return res;
+    }
+
+    /// <summary>Path distance ranges (from, to) inside the rect, in drawing order.</summary>
+    internal static List<(double From, double To)> Spans(LayoutPath path, Rect2 rect, double tol)
+    {
+        var cuts = Cuts(path, rect, tol);
+        var res = new List<(double From, double To)>();
+        for (int i = 0; i + 1 < cuts.Count; i++)
+        {
+            if (cuts[i + 1] - cuts[i] < 1e-9 || !rect.Contains(path.PointAt((cuts[i] + cuts[i + 1]) / 2))) continue;
+            if (res.Count > 0 && cuts[i] - res[res.Count - 1].To < 1e-9) res[res.Count - 1] = (res[res.Count - 1].From, cuts[i + 1]);
+            else res.Add((cuts[i], cuts[i + 1]));
+        }
+        return res;
+    }
+
+    /// <summary>Sorted path distances where the path starts, ends or crosses the rect's edges.</summary>
+    static List<double> Cuts(LayoutPath path, Rect2 rect, double tol)
+    {
+        var edges = new[]
+        {
+            new LineSeg(rect.Min, new Point2(rect.Max.X, rect.Min.Y)), new LineSeg(new Point2(rect.Max.X, rect.Min.Y), rect.Max),
+            new LineSeg(rect.Max, new Point2(rect.Min.X, rect.Max.Y)), new LineSeg(new Point2(rect.Min.X, rect.Max.Y), rect.Min),
+        };
+        var cuts = new List<double> { 0 };
+        double off = 0;
+        foreach (var s in path.Segments)
+        {
+            foreach (var e in edges)
+                foreach (var pt in Intersections.SegSeg(s, e, tol)) cuts.Add(off + s.DistanceAlong(pt));
+            off += s.Length;
+            cuts.Add(off);
+        }
+        cuts.Sort();
+        return cuts;
     }
 
     /// <summary>A two-way path is entered from both ends, so its traffic CPs are placed for travel in each direction.</summary>
