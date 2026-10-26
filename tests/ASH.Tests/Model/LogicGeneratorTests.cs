@@ -237,6 +237,15 @@ public class LogicGeneratorTests
     }
 
     [Fact]
+    public void Every_Vehicle_Stops_Half_A_Metre_Behind_The_One_Ahead()
+    {
+        // the syntax help's own example: a vehicle initialization sets the defined stop distance (AutoMod then derives the brake distance)
+        var t = LogicGenerator.Render(Sample(), Layout);
+        var init = t.Substring(t.IndexOf("begin agv.G1 vehicle initialization procedure", StringComparison.Ordinal));
+        Assert.Contains("\tset theVehicle defined stop distance to 1.6404 ft\n", init.Substring(0, init.IndexOf("\nend", StringComparison.Ordinal)));
+    }
+
+    [Fact]
     public void Render_Uses_Route_Cp_Names()
     {
         var t = LogicGenerator.Render(Sample(), Layout);
