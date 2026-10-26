@@ -4,13 +4,15 @@ using System.IO;
 using System.Linq;
 using System.Text;
 using ASH.Core.Asy;
+using ASH.Core.Geometry;
 using ASH.Core.Input;
 
 namespace ASH.Core.Model;
 
-/// <summary>StandbyCpByGroup is the fallback standby CP for a group whose AgvGroup.StandbyCPs is empty.</summary>
+/// <summary>StandbyCpByGroup is the fallback standby CP for a group whose AgvGroup.StandbyCPs is empty.
+/// CpMetres = CP positions in model metres (like ArcLayout), for the dlock rows; null = positions left empty.</summary>
 public sealed record LayoutInfo(IReadOnlyList<string> CpNames, IReadOnlyList<string> BlockNames,
-    IReadOnlyDictionary<string, string> StandbyCpByGroup, string AgvSystemName = "agv");
+    IReadOnlyDictionary<string, string> StandbyCpByGroup, string AgvSystemName = "agv", IReadOnlyDictionary<string, Point2>? CpMetres = null);
 
 /// <summary>Seeding: params.txt seeds the init stocks; breakdowns (MTBF/MTTR) draw from RS_fail, whose seed is fixed at build time, so the
 /// logic skips (seed % 100) x 5000 samples at start and each replication gets its own stretch of the stream.</summary>
@@ -85,6 +87,7 @@ public static class LogicGenerator
             int gi = i + 1;
             var parkOk = string.Join("\n", StandbyOf(g, layout).Select(cp => $"\tif parkLoc = {sys}:{cp} then return true"));
             groupLogic.Append(Fill(Res("code_group.m.txt"), ("G", gi.ToString()), ("TYPE", Lit(g.Group)), ("SYS", sys), ("PARK_OK", parkOk),
+                ("VID0", input.Groups.Take(i).Sum(x => x.MaxCount).ToString()),
                 ("STOP_M", ASH.Core.Export.LayoutExporter.StopGapM.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)),
                 ("STOP_FT", (ASH.Core.Export.LayoutExporter.StopGapM / 0.3048).ToString("0.####", System.Globalization.CultureInfo.InvariantCulture))));
             // value1 = the requested active count; Max - parked would count never-woken vehicles as active
@@ -203,6 +206,12 @@ public static class LogicGenerator
         }
         foreach (var b in layout.BlockNames)
             snap.Append($"\tprint \"block\\t{Lit(b)}\\t\\t\" {b} total \"\\t\" {b} average waiting time \"\\t0\\t\" {b} utilization \"\\t0\\t0\\t0\\t0\" to V_out\n");
+        if (layout.BlockNames.Count > 0)
+        {
+            matLogic.Append(Dlock(input, layout, sys));
+            create.Append("\tcreate 1 load of type L_ctl to P_dlock\n");
+            snap.Append("\tset V_dlJ to 1\n\twhile V_dlJ <= V_dlN do begin\n\t\tprint V_dlRow(V_dlJ) to V_out\n\t\tinc V_dlJ by 1\n\tend\n");
+        }
         // conveyors (code_conv.m): each Conveyors row runs its own product line on the conveyor system, the first product at once;
         // row: products passed the end, seconds stopped at the use point for want of stock, seconds a product waited at the full entry (all after warmup)
         for (int k = 1; k <= input.Conveyors.Count; k++)
@@ -222,6 +231,42 @@ public static class LogicGenerator
         return Fill(Res("code.m.txt"), ("GROUP_COUNT", input.Groups.Count.ToString()), ("MATERIAL_COUNT", input.Materials.Count.ToString()),
             ("CREATE_CONSUMERS", create.ToString().TrimEnd('\n')), ("GROUP_LOGIC", groupLogic.ToString()), ("MATERIAL_LOGIC", matLogic.ToString()),
             ("SNAP_ROWS", snap.ToString().TrimEnd('\n')), ("FAIL_INIT", failInit.ToString().TrimEnd('\n')));
+    }
+
+    /// <summary>Most dlock rows a run keeps (one per vehicle per deadlock episode); later episodes still count in V_deadlock.</summary>
+    public const int DlockRows = 200;
+
+    /// <summary>The deadlock watchdog (code_dlock.m): names of the blocks and vehicles, per block its waiting list (as text) and a stuck holder,
+    /// per CP its position, per block the held check of the logged vehicle.</summary>
+    static string Dlock(ProjectInput input, LayoutInfo layout, string sys)
+    {
+        var bs = layout.BlockNames;
+        int vs = input.Groups.Sum(g => g.MaxCount);
+        var names = new StringBuilder(); var lists = new StringBuilder(); var xy = new StringBuilder(); var held = new StringBuilder();
+        for (int k = 1; k <= bs.Count; k++)
+        {
+            var b = Lit(bs[k - 1]);
+            names.Append($"\tset V_dlBn({k}) to \"{b}\"\n");
+            lists.Append($"\t\t\tset V_dlH({k}) to 0\n\t\t\tset V_dlWs({k}) to \"\"\n\t\t\tif {b} current waiting > 0 then begin\n\t\t\t\tprint {b} loads waiting to V_dlWs({k})\n" +
+                         $"\t\t\t\tfor each V_dlV in {b} vehicle list do begin\n\t\t\t\t\tif V_dlV A_dlv > 0 then begin\n" +
+                         $"\t\t\t\t\t\tif V_dlS(V_dlV A_dlv) = 1 then set V_dlH({k}) to V_dlV A_dlv\n\t\t\t\t\tend\n\t\t\t\tend\n\t\t\tend\n");
+            held.Append($"\tfor each V_dlV in {b} vehicle list do begin\n\t\tif V_dlV = V_dlVeh(V_dlM) then print V_dlRow(V_dlN) \"\t{b}\" to V_dlRow(V_dlN)\n\tend\n");
+        }
+        int vid = 0;
+        foreach (var g in input.Groups)
+            for (int k = 1; k <= g.MaxCount; k++)
+            {
+                vid++;
+                // a waiting list prints its vehicles as "agv:VehClone of G1(2)" (seen in AutoMod 12.6), a plain vehicle as "agv:G1(2)"
+                names.Append($"\tset V_dlName({vid}) to \"{Lit(g.Type)}{k}\"\n\tset V_dlGrp({vid}) to \"{Lit(g.Group)}\"\n" +
+                             $"\tset V_dlKey({vid}) to \"of {g.Group}({k})\"\n\tset V_dlKey2({vid}) to \":{g.Group}({k})\"\n");
+            }
+        foreach (var kv in layout.CpMetres ?? new Dictionary<string, Point2>())
+            if (layout.CpNames.Contains(kv.Key))
+                xy.Append($"\tif V_dlLoc = {sys}:{kv.Key} then begin\n\t\tset V_dlX to {N(kv.Value.X)}\n\t\tset V_dlY to {N(kv.Value.Y)}\n\t\tset V_dlXy to 1\n\tend\n");
+        return Fill(Res("code_dlock.m.txt"), ("VS", Math.Max(1, vs).ToString()), ("NB", bs.Count.ToString()), ("ROWS", DlockRows.ToString()),
+            ("NAMES", names.ToString().TrimEnd('\n')), ("LISTS", lists.ToString().TrimEnd('\n')),
+            ("XY", xy.ToString().TrimEnd('\n')), ("HELD", held.ToString().TrimEnd('\n'))) + "\n";
     }
 
     /// <summary>AM dispatch for the load-centric logic. Scheduling lists are per location, not per vehicle type, so the lists hold every
@@ -311,6 +356,21 @@ public static class LogicGenerator
         if (input.AgvTypes.Any(t => t.MTBF > 0 && t.MTTR > 0)) m.RnStreams.Add(new("RS_fail", 12345));
         for (int i = 1; i <= nm; i++) m.Tables.AddRange(new[] { $"T_pick_{i}", $"T_deliv_{i}", $"T_stock_{i}" });
         m.Funcs.AddRange(new[] { "F_ext_on_call", "F_ext_select_vehicle", "F_ext_before_unload", "F_ext_on_snap" });
+        // deadlock watchdog (code_dlock.m); A_dlv / V_dlVeh are set at vehicle initialization even without blocks
+        m.Atts.Add(new("A_dlv", "Integer"));
+        m.Vars.Add(new("V_dlVeh", "VehiclePtr", vs));
+        if (layout.BlockNames.Count > 0)
+        {
+            int nb = Math.Max(2, layout.BlockNames.Count);
+            m.Procs.Add(new("P_dlock")); m.Funcs.Add("F_dl_row");
+            foreach (var v in new[] { "V_dlS", "V_dlW", "V_dlE", "V_dlC", "V_dlP", "V_dlOn" }) m.Vars.Add(new(v, "Integer", vs));
+            m.Vars.Add(new("V_dlH", "Integer", nb)); m.Vars.Add(new("V_dlBn", "String", nb)); m.Vars.Add(new("V_dlWs", "String", nb));
+            foreach (var v in new[] { "V_dlName", "V_dlGrp", "V_dlKey", "V_dlKey2" }) m.Vars.Add(new(v, "String", vs));
+            m.Vars.Add(new("V_dlRow", "String", DlockRows));
+            foreach (var v in new[] { "V_dlJ", "V_dlK", "V_dlU", "V_dlM", "V_dlN", "V_dlAny", "V_dlNew", "V_dlOld", "V_dlEp", "V_dlXy" }) m.Vars.Add(new(v, "Integer"));
+            m.Vars.Add(new("V_dlX", "Real")); m.Vars.Add(new("V_dlY", "Real")); m.Vars.Add(new("V_dlT", "Real"));
+            m.Vars.Add(new("V_dlV", "VehiclePtr")); m.Vars.Add(new("V_dlLoc", "Location"));
+        }
         int nc = input.Conveyors.Count;
         if (nc > 0)
         {

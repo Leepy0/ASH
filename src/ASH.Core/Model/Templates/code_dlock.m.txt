@@ -1,0 +1,114 @@
+/* deadlock watchdog: every 10 s. A vehicle is stuck when it stands with somewhere to go (one loading or parked has no next location).
+   A stuck vehicle waits for the holder of the block whose waiting list names it (blocks' "loads waiting", printed: its items are vehicle clones
+   that no pointer variable takes), else for the stuck vehicle standing at its next CP. Following waits-for back to the start is a deadlock;
+   seen on two ticks in a row it is logged, one dlock row per vehicle in it, once per episode (until it clears).
+   Vehicles are numbered 1..{{VS}} over all groups (A_dlv, set at vehicle initialization); blocks 1..{{NB}} in V_dlBn. */
+begin P_dlock arriving procedure
+{{NAMES}}
+	while 1 = 1 do begin
+		wait for 10 sec
+		set V_dlAny to 0
+		set V_dlJ to 1
+		while V_dlJ <= {{VS}} do begin
+			set V_dlW(V_dlJ) to 0
+			set V_dlE(V_dlJ) to 0
+			set V_dlP(V_dlJ) to V_dlC(V_dlJ)
+			set V_dlC(V_dlJ) to 0
+			set V_dlS(V_dlJ) to 0
+			if V_dlVeh(V_dlJ) <> null then begin
+				if V_dlVeh(V_dlJ) current velocity = 0 and V_dlVeh(V_dlJ) next location <> null then begin
+					set V_dlS(V_dlJ) to 1
+					set V_dlAny to 1
+				end
+			end
+			inc V_dlJ by 1
+		end
+		if V_dlAny = 1 then begin
+{{LISTS}}
+			set V_dlJ to 1
+			while V_dlJ <= {{VS}} do begin
+				if V_dlS(V_dlJ) = 1 then begin
+					set V_dlK to 1
+					while V_dlK <= {{NB}} do begin
+						if V_dlWs(V_dlK) <> "" then begin
+							if V_dlWs(V_dlK) index(V_dlKey(V_dlJ)) <= V_dlWs(V_dlK) length then set V_dlW(V_dlJ) to V_dlK
+							if V_dlWs(V_dlK) index(V_dlKey2(V_dlJ)) <= V_dlWs(V_dlK) length then set V_dlW(V_dlJ) to V_dlK
+						end
+						inc V_dlK by 1
+					end
+					if V_dlW(V_dlJ) > 0 then set V_dlE(V_dlJ) to V_dlH(V_dlW(V_dlJ))
+					else begin
+						set V_dlK to 1
+						while V_dlK <= {{VS}} do begin
+							if V_dlK <> V_dlJ and V_dlS(V_dlK) = 1 then begin
+								if V_dlVeh(V_dlK) current location = V_dlVeh(V_dlJ) next location then set V_dlE(V_dlJ) to V_dlK
+							end
+							inc V_dlK by 1
+						end
+					end
+				end
+				inc V_dlJ by 1
+			end
+			set V_dlJ to 1
+			while V_dlJ <= {{VS}} do begin
+				if V_dlE(V_dlJ) > 0 and V_dlC(V_dlJ) = 0 then begin
+					/* V_dlE points only at stuck vehicles; a chain that runs into someone else's cycle ends after {{VS}} steps */
+					set V_dlU to V_dlE(V_dlJ)
+					set V_dlK to 0
+					while V_dlU > 0 and V_dlU <> V_dlJ and V_dlK < {{VS}} do begin
+						set V_dlU to V_dlE(V_dlU)
+						inc V_dlK by 1
+					end
+					if V_dlU = V_dlJ then begin
+						set V_dlNew to 0
+						set V_dlOld to 1
+						set V_dlK to 1
+						while V_dlK = 1 or V_dlU <> V_dlJ do begin
+							set V_dlC(V_dlU) to 1
+							if V_dlOn(V_dlU) = 0 then set V_dlNew to 1
+							if V_dlP(V_dlU) = 0 then set V_dlOld to 0
+							set V_dlU to V_dlE(V_dlU)
+							set V_dlK to 0
+						end
+						if V_dlNew = 1 and V_dlOld = 1 then begin
+							inc V_dlEp by 1
+							set V_dlT to ac - 10
+							set V_dlK to 1
+							while V_dlK = 1 or V_dlU <> V_dlJ do begin
+								set V_dlOn(V_dlU) to 1
+								set V_dlM to V_dlU
+								set V_tmp to F_dl_row()
+								set V_dlU to V_dlE(V_dlU)
+								set V_dlK to 0
+							end
+						end
+					end
+				end
+				inc V_dlJ by 1
+			end
+		end
+		/* an episode ends for a vehicle once it is out of every cycle */
+		set V_dlJ to 1
+		while V_dlJ <= {{VS}} do begin
+			if V_dlC(V_dlJ) = 0 then set V_dlOn(V_dlJ) to 0
+			inc V_dlJ by 1
+		end
+	end
+end
+
+/* row of vehicle V_dlM: dlock, name, group, time first seen, episode, x, y (metres at the last CP it passed; empty when not known),
+   the block it waits for (or the CP, when it waits for a vehicle there), the blocks it holds... */
+begin F_dl_row function
+	if V_dlN >= {{ROWS}} then return true
+	inc V_dlN by 1
+	set V_dlLoc to V_dlVeh(V_dlM) current location
+	set V_dlXy to 0
+{{XY}}
+	print "dlock\t" V_dlName(V_dlM) "\t" V_dlGrp(V_dlM) "\t" V_dlT "\t" V_dlEp to V_dlRow(V_dlN)
+	if V_dlXy = 1 then print V_dlRow(V_dlN) "\t" V_dlX "\t" V_dlY to V_dlRow(V_dlN)
+	else print V_dlRow(V_dlN) "\t\t" to V_dlRow(V_dlN)
+	if V_dlW(V_dlM) > 0 then print V_dlRow(V_dlN) "\t" V_dlBn(V_dlW(V_dlM)) to V_dlRow(V_dlN)
+	else print V_dlRow(V_dlN) "\t" V_dlVeh(V_dlM) next location to V_dlRow(V_dlN)
+{{HELD}}
+	return true
+end

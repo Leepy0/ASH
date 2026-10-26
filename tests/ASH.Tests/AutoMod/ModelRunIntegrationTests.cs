@@ -124,6 +124,7 @@ public class ModelRunIntegrationTests
         Assert.True(V(blk, 1) > 0, "block passes"); // first real check of the 1x1 block template geometry
         Assert.Equal(3600, V(run.Rows.Single(x => x[0] == "clock"), 2), 3);
         Assert.Equal(0, V(run.Rows.Single(x => x[0] == "deadlock"), 1));
+        Assert.DoesNotContain(run.Rows, x => x[0] == "dlock"); // the watchdog runs (one block) and finds nothing
         Assert.DoesNotContain(run.Rows, x => x[0] == "blockgroup");
         var veh = run.Rows.Where(x => x[0] == "vehicle").ToList();
         Assert.Equal(3, veh.Count);
