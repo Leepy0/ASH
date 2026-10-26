@@ -27,13 +27,11 @@ public static class StaticDrawing
         var upm = new ExportOptions(Units: units).UnitsPerMeter;
         var hidden = new HashSet<string>(hiddenLayers ?? new string[0], StringComparer.OrdinalIgnoreCase); // IReadOnlySet does not exist on netstandard2.0
         var segs = drawingInModelMetres.Segs.Where(s => !hidden.Contains(s.Layer)).ToList();
-        var amoPath = Path.Combine(arcDir, "model.amo");
         var asyPath = Path.Combine(arcDir, systemName + ".asy");
-        var Link = "STATIC name " + systemName + "\n\tSYSPOS endx 1\n";
         if (segs.Count == 0) // nothing to draw: undo an earlier call so the model has no stale drawing
         {
             if (File.Exists(asyPath)) File.Delete(asyPath);
-            if (File.Exists(amoPath)) File.WriteAllText(amoPath, File.ReadAllText(amoPath).Replace(Link, ""), new UTF8Encoding(false));
+            Link(arcDir, systemName, false);
             return;
         }
 
@@ -58,11 +56,24 @@ public static class StaticDrawing
         foreach (var r in runs) L("    (Polyline (" + string.Join(" ", r.Select(p => $"({N(p.X)} {N(p.Y)} 0)")) + "))");
         L("  ))"); L("))"); L("#HMF END"); sb.Append("end");
         File.WriteAllText(asyPath, sb.ToString(), new UTF8Encoding(false));
+        Link(arcDir, systemName, true);
+    }
 
+    /// <summary>Adds (once) or removes the `STATIC name &lt;system&gt;` / `\tSYSPOS endx 1` lines in model.amo, before the PROCSYS line (guide 11.2 position a).
+    /// InvalidDataException when adding to a model.amo without PROCSYS.</summary>
+    public static void Link(string arcDir, string systemName, bool on)
+    {
+        var amoPath = Path.Combine(arcDir, "model.amo");
+        var link = "STATIC name " + systemName + "\n\tSYSPOS endx 1\n";
+        if (!on)
+        {
+            if (File.Exists(amoPath)) File.WriteAllText(amoPath, File.ReadAllText(amoPath).Replace(link, ""), new UTF8Encoding(false));
+            return;
+        }
         var amo = File.ReadAllText(amoPath);
-        if (amo.Contains(Link)) return;
+        if (amo.Contains(link)) return;
         var m = Regex.Match(amo, "^PROCSYS ", RegexOptions.Multiline);
         if (!m.Success) throw new InvalidDataException("model.amo에 PROCSYS 줄이 없습니다: " + amoPath);
-        File.WriteAllText(amoPath, amo.Insert(m.Index, Link), new UTF8Encoding(false));
+        File.WriteAllText(amoPath, amo.Insert(m.Index, link), new UTF8Encoding(false));
     }
 }

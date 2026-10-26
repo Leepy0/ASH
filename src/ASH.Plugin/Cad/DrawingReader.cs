@@ -43,7 +43,21 @@ public static class DrawingReader
                     layout.Stations.Add(new LayoutStation { Name = Get(Attributes(br, tr), "NAME"), Position = Xy(br.Position) });
                 else if (Eq(layer, Conventions.LayerBlock) && Eq(name, Conventions.BlockBlockName))
                     blockTags.Add((Xy(br.Position), Attributes(br, tr), br.Handle.ToString()));
+                else if (name.StartsWith(Conventions.Asset3dBlockPrefix, StringComparison.OrdinalIgnoreCase)
+                    && Array.IndexOf(AssetKinds.Blocks, name.Substring(Conventions.Asset3dBlockPrefix.Length).ToUpperInvariant()) >= 0)
+                    // any layer; the block is drawn in metres and AGV3D scales it by PerMeter, so scale / PerMeter = multiple of the base size
+                    layout.Assets.Add(new LayoutAsset
+                    {
+                        Kind = name.Substring(Conventions.Asset3dBlockPrefix.Length).ToUpperInvariant(), X = br.Position.X, Y = br.Position.Y,
+                        RotDeg = br.Rotation * 180 / Math.PI, Sx = Math.Abs(br.ScaleFactors.X) / DrawingUnits.PerMeter, Sy = Math.Abs(br.ScaleFactors.Y) / DrawingUnits.PerMeter,
+                    });
             }
+            else if ((Eq(layer, Conventions.Layer3dWall) || Eq(layer, Conventions.Layer3dFence)) && Segments(e) is { Count: > 0 } segs)
+                layout.Assets.Add(new LayoutAsset
+                {
+                    Kind = Eq(layer, Conventions.Layer3dWall) ? AssetKinds.Wall : AssetKinds.Fence, Segments = segs,
+                    WidthM = e is Polyline wpl && wpl.NumberOfVertices > 0 ? wpl.GetStartWidthAt(0) / DrawingUnits.PerMeter : 0, // global width sets every vertex's
+                });
             else if (Eq(layer, Conventions.LayerBlock) && e is Polyline pl && pl.Closed && pl.NumberOfVertices >= 3)
                 rects.Add((pl, pl.Handle.ToString()));
         }

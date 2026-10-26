@@ -159,6 +159,21 @@ public sealed class InitCommands
             b(new Line(new Point3d(-0.08, 0.12, 0), new Point3d(-0.08, -0.12, 0)));
         });
 
+        // 3D asset symbols (design §8.2): the 3D shape's plan outline at its base size (metres) and a Korean label; AGV3D inserts them on AGV_3D
+        foreach (var kind in ASH.Core.Layout.AssetKinds.Blocks)
+            made += Def(db, tr, bt, Conventions.Asset3dBlockPrefix + kind, b =>
+            {
+                var f = ASH.Core.Cel.AssetShapes.Footprint(kind)!.Value;
+                var pl = new Polyline { Closed = true };
+                pl.AddVertexAt(0, new Point2d(f.MinX, f.MinY), 0, 0, 0);
+                pl.AddVertexAt(1, new Point2d(f.MaxX, f.MinY), 0, 0, 0);
+                pl.AddVertexAt(2, new Point2d(f.MaxX, f.MaxY), 0, 0, 0);
+                pl.AddVertexAt(3, new Point2d(f.MinX, f.MaxY), 0, 0, 0);
+                b(pl);
+                b(new DBText { Position = new Point3d(f.MinX + 0.05, f.MinY + 0.05, 0), Height = Math.Min(0.25, (f.MaxY - f.MinY) * 0.3),
+                    TextString = ASH.Core.Cel.AssetShapes.Label(kind), TextStyleId = Asset3dCommands.KoreanTextStyle(db, tr) });
+            });
+
         var rat = (RegAppTable)tr.GetObject(db.RegAppTableId, OpenMode.ForRead);
         if (!rat.Has(Conventions.AppName)) { XData.EnsureRegApp(db, tr); made++; }
         return made;

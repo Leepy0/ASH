@@ -296,4 +296,35 @@ public class ServerAssemblyTests
         Assert.EndsWith("autorep\n", ModelAmoWriter.Render("x", "Meters", 1, new[] { "agv" }, d));
         Assert.Contains("autorep autoview", ModelAmoWriter.Render("x", "Meters", 1, new[] { "agv" }, d, autoView: true));
     }
+
+    // 3D assets (design §8.3): assets.tsv in metres, ash_3d.asy + STATIC line in the model units; a rebuild without assets leaves neither behind
+    [Fact]
+    public void Assets_Go_To_Assets_Tsv_And_The_Ash_3d_Static_System()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "ash_mb_" + Guid.NewGuid().ToString("N"));
+        var input = LogicGeneratorTests.Sample();
+        var l = Loop();
+        l.Assets.Add(new ASH.Core.Layout.LayoutAsset { Kind = "RACK", X = 2, Y = 4, RotDeg = 90, Sx = 2, Sy = 1 });
+        l.Assets.Add(new ASH.Core.Layout.LayoutAsset { Kind = "WALL", WidthM = 0.3, Segments = { new LineSeg(new Point2(0, -2), new Point2(10, -2)) } });
+        var o = new ExportOptions(Units: "Millimeters", Groups: new[] { new VehicleGroupSpec("G1", "G1", 3, 1.0, 1, 1) });
+        var r = ModelBuilder.Build(new ModelBuildRequest(dir, "m", input, l, o), null, TimeSpan.FromSeconds(1));
+        var tsv = File.ReadAllLines(Path.Combine(r.ArcDir, "assets.tsv"));
+        Assert.Equal("kind\tx\ty\trot\tsx\tsy\twidth\tsegments", tsv[0]);
+        Assert.Equal("RACK\t2\t4\t90\t2\t1\t0\t", tsv[1]);
+        Assert.Equal("WALL\t0\t0\t0\t1\t1\t0.3\tL 0 -2 10 -2", tsv[2]);
+        var asy = File.ReadAllText(Path.Combine(r.ArcDir, "ash_3d.asy"));
+        Assert.Contains("\ttemplate Millimeters\n", asy);
+        Assert.Contains("1 1 0 1 1 rack1\n2000  4000  0\n0 0 0 90\n", asy);
+        Assert.Contains("1 1 0 1 1 wall2\n", asy);
+        var amo = File.ReadAllText(Path.Combine(r.ArcDir, "model.amo"));
+        var at = amo.IndexOf("STATIC name ash_3d\n\tSYSPOS endx 1\n");
+        Assert.True(at > 0 && at < amo.IndexOf("PROCSYS name m~"), amo);
+
+        l.Assets.Clear();
+        r = ModelBuilder.Build(new ModelBuildRequest(dir, "m", input, l, o), null, TimeSpan.FromSeconds(1));
+        Assert.Single(File.ReadAllLines(Path.Combine(r.ArcDir, "assets.tsv")));
+        Assert.False(File.Exists(Path.Combine(r.ArcDir, "ash_3d.asy")));
+        Assert.DoesNotContain("ash_3d", File.ReadAllText(Path.Combine(r.ArcDir, "model.amo")));
+        Directory.Delete(dir, true);
+    }
 }

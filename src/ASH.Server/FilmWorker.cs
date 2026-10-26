@@ -428,7 +428,8 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
             {
                 DxfDrawing d;
                 using (var rd = new StreamReader(dxf, Encoding.UTF8)) d = DxfLite.ToModel(DxfLite.Read(rd), ModelFrame.Read(frame));
-                var segs = d.Segs.Where(s => new[] { s.X1, s.Y1, s.X2, s.Y2 }.All(double.IsFinite)).ToList();
+                // AGV_3D* plan symbols and wall/fence lines are drawn in 3D by the model's ash_3d system; their 2D lines would only clutter the floor
+                var segs = d.Segs.Where(s => new[] { s.X1, s.Y1, s.X2, s.Y2 }.All(double.IsFinite) && !s.Layer.StartsWith("AGV_3D", StringComparison.OrdinalIgnoreCase)).ToList();
                 StaticDrawing.AddTo(arc, d with { Segs = segs }, units, null);
                 pts.AddRange(segs.SelectMany(s => new[] { (s.X1, s.Y1), (s.X2, s.Y2) }));
                 say($"도면 선 {segs.Count}개");
