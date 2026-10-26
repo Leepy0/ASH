@@ -61,13 +61,17 @@ begin P_supply_{{M}} arriving procedure
 	set A_bw to 0
 	set A_ld to 0
 	set A_dn to 0
+	set A_jf to 0
+	set A_js0 to V_vT(A_vid + {{NV}})
+	set A_jt0 to V_vT(A_vid + {{NV2}})
+	set V_vPtr(A_vid) to A_veh
 	/* a vehicle that came over from elsewhere to take this load: AutoMod counts that run as retrieving; the share since its last pickup is this job's */
 	set V_x to (A_veh percent time retrieving) / 100 * ac
 	set A_ret to V_x - A_veh A_rLast
 	set A_veh A_rLast to V_x
 {{FAIL_IDLE}}
 {{EMPTY_SPEED}}
-	travel to {{SYS}}:{{FROM}}
+{{PICK_TRAVEL}}
 {{FAIL_LEG}}
 {{LOADED_SPEED}}
 	if ac >= V_warmup then begin
@@ -93,7 +97,7 @@ begin P_supply_{{M}} arriving procedure
 {{RETURN_LEGS}}
 {{FINISH}}
 	/* home first, always: the next job starts from the standby CP */
-	travel to {{SYS}}:{{HOME}}
+{{HOME_TRAVEL}}
 {{FAIL_HOME}}
 {{FINISH_AT_HOME}}
 {{SPEC_SPEED}}
@@ -111,6 +115,13 @@ begin P_supply_{{M}} arriving procedure
 		inc V_vDist(A_vid) by V_x - A_veh A_dLast
 		inc V_mDist({{M}}) by V_x - A_veh A_dLast
 		inc V_mJobs({{M}}) by 1
+		/* time split per group (tsplit row): job time, its runs at free speed, standing in them, the fixed waits, turning on the spot */
+		inc V_gT({{GT_JOBS}}) by 1
+		inc V_gT({{GT_JOB}}) by A_fin - A_tPick - A_hold
+		inc V_gT({{GT_FREE}}) by A_jf
+		inc V_gT({{GT_STOP}}) by V_vT(A_vid + {{NV}}) - A_js0
+		inc V_gT({{GT_HAND}}) by {{HANDLE}}
+		inc V_gT({{GT_TURN}}) by V_vT(A_vid + {{NV2}}) - A_jt0
 	end
 	set A_veh A_dLast to A_veh total distance traveled
 	send to die

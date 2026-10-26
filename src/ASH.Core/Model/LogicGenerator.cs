@@ -88,12 +88,17 @@ public static class LogicGenerator
             var parkOk = string.Join("\n", StandbyOf(g, layout).Select(cp => $"\tif parkLoc = {sys}:{cp} then return true"));
             groupLogic.Append(Fill(Res("code_group.m.txt"), ("G", gi.ToString()), ("TYPE", Lit(g.Group)), ("SYS", sys), ("PARK_OK", parkOk),
                 ("VID0", input.Groups.Take(i).Sum(x => x.MaxCount).ToString()),
+                ("VID_OFFSET", input.Groups.Take(i).Sum(x => x.MaxCount).ToString()),
                 ("STOP_M", ASH.Core.Export.LayoutExporter.StopGapM.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)),
                 ("STOP_FT", (ASH.Core.Export.LayoutExporter.StopGapM / 0.3048).ToString("0.####", System.Globalization.CultureInfo.InvariantCulture))));
             // value1 = the requested active count; Max - parked would count never-woken vehicles as active
             snap.Append($"\tprint \"group\\t{Lit(g.Group)}\\t{g.Group}\\t\" V_active({gi}) \"\\t0\\t0\\t0\\t0\\t0\\t0\\t0\" to V_out\n");
         }
 
+        // time split arrays (code_tsplit.m): V_vT = run flag | standing s | turning s per vehicle (nv each); V_gT(k * ng + g) = group sums
+        // k = 0 jobs, 1 job s, 2 free-speed s, 3 standing s, 4 load/unload/extra s, 5 turning s, then 6 + block index = block claims
+        int nv = input.Groups.Sum(x => x.MaxCount), ng = input.Groups.Count;
+        int GT(int k, int g) => k * ng + g;
         int nm = input.Materials.Count;
         var matLogic = new StringBuilder();
         var create = new StringBuilder();
@@ -113,10 +118,13 @@ public static class LogicGenerator
             bool speeds = t.SpeedEmpty > 0 && t.SpeedEmpty != t.SpeedLoaded;
             string emptySpeed = speeds ? $"\tset A_veh defined velocity to {N(t.SpeedEmpty * unitsPerMeter)}" : "";
             string loadedSpeed = speeds ? "\tset A_veh defined velocity to specification" : "";
+            // free speed of a run for the time split, model units/s: loaded legs at the loaded speed, empty ones at SpeedEmpty (when set)
+            string Vel(bool loaded) => N((loaded || t.SpeedEmpty <= 0 ? t.SpeedLoaded : t.SpeedEmpty) * unitsPerMeter);
+            string Travel(string to) => Fill(Res("code_travel.m.txt"), ("SYS", sys), ("TO", Cp(layout, to)), ("VEL", Vel(false))).TrimEnd('\n');
             // leg slot = mi for supply legs, mi + nm for return legs (a return can overlap the next supply of the same material)
             // loaded: the leg carries the supply or the empty container (A_ld = the job's loaded driving time)
             string Leg(string to, int slot, bool loaded = false) => Fill(Res("code_leg.m.txt"), ("M", mi.ToString()), ("SLOT", slot.ToString()), ("SYS", sys),
-                ("TO", Cp(layout, to)), ("NAME", Lit(m.Material)), ("FAIL", Fail("ac")), ("LOADED", loaded ? "\tinc A_ld by ac - A_t0\n" : ""));
+                ("TO", Cp(layout, to)), ("NAME", Lit(m.Material)), ("FAIL", Fail("ac")), ("LOADED", loaded ? "\tinc A_ld by ac - A_t0\n" : ""), ("VEL", Vel(loaded)));
             var legs = new StringBuilder();
             if (!string.IsNullOrEmpty(r.BufferCP))
             {
@@ -154,12 +162,17 @@ public static class LogicGenerator
                 + (m.EmptyReturn && !string.IsNullOrEmpty(r.ReturnToCP) ? t.UnloadTime : 0);
             matLogic.Append(Fill(Res("code_material.m.txt"), ("M", mi.ToString()), ("NAME", Lit(m.Material)), ("SYS", sys),
                 ("SET_TYPE", $"\tset load type to L_m{mi}"), ("EMPTY_TYPE", emptyType),
-                ("G", GroupIndex(input, m.Group).ToString()),
+                ("G", GroupIndex(input, m.Group).ToString()), ("NV", nv.ToString()), ("NV2", (2 * nv).ToString()),
+                ("GT_JOBS", GT(0, GroupIndex(input, m.Group)).ToString()), ("GT_JOB", GT(1, GroupIndex(input, m.Group)).ToString()),
+                ("GT_FREE", GT(2, GroupIndex(input, m.Group)).ToString()), ("GT_STOP", GT(3, GroupIndex(input, m.Group)).ToString()),
+                ("GT_HAND", GT(4, GroupIndex(input, m.Group)).ToString()), ("GT_TURN", GT(5, GroupIndex(input, m.Group)).ToString()),
                 ("FROM", Cp(layout, r.SupplyFromCP)), ("TO_CP", Cp(layout, r.SupplyToCP)), ("LOAD_TIME", N(t.LoadTime)), ("UNLOAD_TIME", N(t.UnloadTime)),
                 ("SUPPLY_LEGS", legs.ToString().TrimEnd('\n')), ("RETURN_LEGS", ret.ToString().TrimEnd('\n')),
                 ("FINISH", finish.TrimEnd('\n')), ("FINISH_AT_HOME", finishAtHome), ("HOME", home), ("VID_OFFSET", vidOffset.ToString()),
                 ("CAPACITY", Math.Max(1, t.Capacity).ToString()), ("FAIL_IDLE", Fail("V_vNextFail(A_vid)")), ("FAIL_LEG", Fail("ac")),
                 ("FAIL_HOME", Fail("ac", string.IsNullOrEmpty(g.FinishCP))), ("HANDLE", N(handle)),
+                // the run home is part of the job only without a Finish CP (busy ends there)
+                ("PICK_TRAVEL", Travel(r.SupplyFromCP)), ("HOME_TRAVEL", finishAtHome.Length > 0 ? Travel(home) : $"\ttravel to {sys}:{home}"),
                 ("EMPTY_SPEED", emptySpeed), ("LOADED_SPEED", loadedSpeed), ("AFTER_UNLOAD_SPEED", carriesOn ? "" : emptySpeed),
                 ("AFTER_UNLOAD_HIDE", carriesOn ? "" : Hide.TrimEnd('\n')), ("SPEC_SPEED", loadedSpeed),
                 // a conveyor-fed material is consumed by the products passing its use point (code_conv.m), not by this clock
@@ -193,6 +206,19 @@ public static class LogicGenerator
                             $"\"\\t\" V_vLoad({vid}) \"\\t\" V_vHand({vid}) \"\\t\" V_vBufB({vid}) \"\\t\" V_vBufX({vid}) \"\\t\" V_vRep({vid}) to V_out\n");
                 if (gt != null && gt.MTBF > 0 && gt.MTTR > 0) failInit.Append($"\tset V_vNextFail({vid}) to rn RS_fail e {N(gt.MTBF)}\n");
             }
+        }
+        // time split per group (code_material, code_leg, code_tsplit), sums over the jobs after warmup: jobs, job s, free-speed s, standing s,
+        // load/unload/extra s, turning on the spot s; then a tblock row per block and group it claimed in measured runs (value1 = claims)
+        // (V_tmp = the claiming vehicle's group)
+        var claims = string.Join("\n", layout.BlockNames.Select((b, k) => $"\t\t\tif theBlock = {b} then inc V_gT(V_tmp + {GT(6 + k, 0)}) by 1"));
+        matLogic.Append(Fill(Res("code_tsplit.m.txt"), ("NV", nv.ToString()), ("NV2", (2 * nv).ToString()), ("SYS", sys), ("BLOCK_CLAIMS", claims)));
+        create.Append("\tcreate 1 load of type L_ctl to P_tsplit\n");
+        for (int i = 1; i <= ng; i++)
+        {
+            var g = Lit(input.Groups[i - 1].Group);
+            snap.Append($"\tprint \"tsplit\\t{g}\\t{g}\\t\" V_gT({GT(0, i)}) \"\\t\" V_gT({GT(1, i)}) \"\\t\" V_gT({GT(2, i)}) \"\\t\" V_gT({GT(3, i)}) \"\\t\" V_gT({GT(4, i)}) \"\\t\" V_gT({GT(5, i)}) to V_out\n");
+            for (int k = 0; k < layout.BlockNames.Count; k++)
+                snap.Append($"\tif V_gT({GT(6 + k, i)}) > 0 then print \"tblock\\t{Lit(layout.BlockNames[k])}\\t{g}\\t\" V_gT({GT(6 + k, i)}) to V_out\n");
         }
         if (failInit.Length > 0)
             failInit.Insert(0, "\t/* RS_fail is seeded at build time: skipping a seed-dependent stretch of it gives each replication its own breakdowns */\n" +
@@ -352,6 +378,11 @@ public static class LogicGenerator
         m.Vars.Add(new("V_vBusy", "Real", vs)); m.Vars.Add(new("V_vDist", "Real", vs)); m.Vars.Add(new("V_vJobs", "Integer", vs));
         m.Vars.Add(new("V_vNextFail", "Real", vs)); m.Vars.Add(new("V_vDown", "Real", vs));
         foreach (var v in new[] { "V_vLoad", "V_vHand", "V_vBufB", "V_vBufX", "V_vRep" }) m.Vars.Add(new(v, "Real", vs));
+        // time split (code_tsplit.m, layout of the arrays in Render): few entities, the trial licence counts them
+        m.Procs.Add(new("P_tsplit"));
+        m.Vars.Add(new("V_vPtr", "VehiclePtr", vs)); m.Vars.Add(new("V_vT", "Real", 3 * vs));
+        m.Vars.Add(new("V_gT", "Real", Math.Max(2, (6 + layout.BlockNames.Count) * input.Groups.Count)));
+        foreach (var a in new[] { "A_d0", "A_jf", "A_js0", "A_jt0" }) m.Atts.Add(new(a, "Real"));
         // the seed is arbitrary: replications differ by the samples the logic skips at start (see the class summary)
         if (input.AgvTypes.Any(t => t.MTBF > 0 && t.MTTR > 0)) m.RnStreams.Add(new("RS_fail", 12345));
         for (int i = 1; i <= nm; i++) m.Tables.AddRange(new[] { $"T_pick_{i}", $"T_deliv_{i}", $"T_stock_{i}" });
