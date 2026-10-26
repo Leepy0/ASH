@@ -259,9 +259,12 @@ public class LayoutExporterTests
         var w = new StringWriter(); AsyWriter.Write(LayoutExporter.ToAgvs(l, o), w); return w.ToString().Split('\n');
     }
     [Fact] public void Export_Writes_OldBlockClaim_By_Default() =>
-        Assert.Contains(Lines(G), x => x.Trim() == "ALTERNATE NONE ignore OldBlockClaim ResumeSpeedWhenClaimed");
+        Assert.Contains(Lines(G), x => x.Trim() == "ALTERNATE NONE OldBlockClaim ResumeSpeedWhenClaimed");
     [Fact] public void Export_Without_ClaimBlockOnNextCp_Omits_OldBlockClaim() =>
-        Assert.Contains(Lines(G with { ClaimBlockOnNextCp = false }), x => x.Trim() == "ALTERNATE NONE ignore ResumeSpeedWhenClaimed");
+        Assert.Contains(Lines(G with { ClaimBlockOnNextCp = false }), x => x.Trim() == "ALTERNATE NONE ResumeSpeedWhenClaimed");
+    // no "ignore": with it AutoMod's vehicles do not sense one another, so brake/stop distance stayed 0 in the run (checked in AutoMod)
+    [Fact] public void Vehicles_Sense_One_Another() =>
+        Assert.DoesNotContain(Lines(G), x => x.Contains("ALTERNATE") && x.Contains(" ignore"));
     [Fact] public void Vehicle_Rotate_Rate_Comes_From_Spec() =>
         Assert.Contains(Lines(new ExportOptions(Groups: new[]{ new VehicleGroupSpec("G1","Tug",1,1.0,2,1, 45) })), x => x.Trim() == "rotate\t0 45 Seconds");
     [Fact] public void Empty_Load_Rotate_Line_Stays_Inherit_Form() =>
