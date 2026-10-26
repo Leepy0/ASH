@@ -75,7 +75,7 @@ public sealed class SettingsDialog : Form
         {
             if (key == null) { Span(Theme.Section(label)); continue; }
             Control box = key == "Units"
-                ? new ComboBox { Items = { "Meters", "Feet" }, DropDownStyle = ComboBoxStyle.DropDown, FlatStyle = FlatStyle.Flat }
+                ? new ComboBox { Items = { "Meters", "Feet" }, DropDownStyle = ComboBoxStyle.DropDown, FlatStyle = FlatStyle.System }
                 : new TextBox { BorderStyle = BorderStyle.FixedSingle, ReadOnly = key == "Groups" };
             box.Text = values[key];
             box.Dock = DockStyle.Fill;
