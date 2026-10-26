@@ -84,7 +84,9 @@ public static class LogicGenerator
             var g = input.Groups[i];
             int gi = i + 1;
             var parkOk = string.Join("\n", StandbyOf(g, layout).Select(cp => $"\tif parkLoc = {sys}:{cp} then return true"));
-            groupLogic.Append(Fill(Res("code_group.m.txt"), ("G", gi.ToString()), ("TYPE", Lit(g.Group)), ("SYS", sys), ("PARK_OK", parkOk)));
+            groupLogic.Append(Fill(Res("code_group.m.txt"), ("G", gi.ToString()), ("TYPE", Lit(g.Group)), ("SYS", sys), ("PARK_OK", parkOk),
+                ("STOP_M", ASH.Core.Export.LayoutExporter.StopGapM.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture)),
+                ("STOP_FT", (ASH.Core.Export.LayoutExporter.StopGapM / 0.3048).ToString("0.####", System.Globalization.CultureInfo.InvariantCulture))));
             // value1 = the requested active count; Max - parked would count never-woken vehicles as active
             snap.Append($"\tprint \"group\\t{Lit(g.Group)}\\t{g.Group}\\t\" V_active({gi}) \"\\t0\\t0\\t0\\t0\\t0\\t0\\t0\" to V_out\n");
         }
