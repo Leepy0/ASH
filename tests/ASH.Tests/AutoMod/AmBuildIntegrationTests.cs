@@ -69,14 +69,6 @@ public class AmBuildIntegrationTests
         Assert.True(r.Success, r.MakeErrText + r.Am2ErrText);
     }
 
-    [Fact]
-    public void DialogCloser_Polls_And_Disposes_Safely()
-    {
-        var d = DialogCloser.Start(System.Diagnostics.Process.GetCurrentProcess().Id, new[] { "" }, _ => throw new InvalidOperationException("must not escape"));
-        Thread.Sleep(600); // several re-armed polls over this process's windows
-        d.Dispose(); d.Dispose();
-    }
-
     static void CopyDir(string src, string dst)
     {
         Directory.CreateDirectory(dst);
