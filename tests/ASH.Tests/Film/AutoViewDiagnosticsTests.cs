@@ -10,6 +10,16 @@ public class AutoViewDiagnosticsTests
 {
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int MessageBoxW(System.IntPtr h, string text, string caption, uint type);
 
+    // here, not beside the build tests: its "" title matches every window of this process, and run in parallel it clicked the message box
+    // of the test below (tests of one class run one after another)
+    [Fact]
+    public void DialogCloser_Polls_And_Disposes_Safely()
+    {
+        var d = DialogCloser.Start(System.Diagnostics.Process.GetCurrentProcess().Id, new[] { "" }, _ => throw new InvalidOperationException("must not escape"));
+        Thread.Sleep(600); // several re-armed polls over this process's windows
+        d.Dispose(); d.Dispose();
+    }
+
     // a dialog AutoView might show (OK/Cancel, "확인"/"취소" on Korean Windows like 12.4's 비디오 압축), opened by this process: the diagnostics list it
     // with its buttons and text, and a title from Film:DialogTitles gets it clicked with OK, never Cancel
     [Fact]
