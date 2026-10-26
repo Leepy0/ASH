@@ -78,13 +78,12 @@ public static class DrawingWriter
         return new[] { s };
     }
 
-    /// <summary>Deletes every direction arrow and inserts one at each path segment midpoint: a single arrow along travel, a double-headed one on two-way paths.</summary>
+    /// <summary>Deletes every direction arrow and inserts one at each path segment midpoint, shaped by the path type (<see cref="Conventions.DirBlockFor"/>).</summary>
     public static void RefreshDirectionArrows(Database db, Transaction tr)
     {
         foreach (var id in DrawingReader.ModelSpace(db, tr, OpenMode.ForRead))
             if (tr.GetObject(id, OpenMode.ForRead) is BlockReference br && !br.IsErased &&
-                (DrawingReader.Eq(br.Layer, Conventions.LayerDir) || DrawingReader.Eq(DrawingReader.BlockName(br, tr), Conventions.DirBlockName)
-                 || DrawingReader.Eq(DrawingReader.BlockName(br, tr), Conventions.DirTwoBlockName)))
+                (DrawingReader.Eq(br.Layer, Conventions.LayerDir) || Conventions.DirBlockNames.Any(n => DrawingReader.Eq(DrawingReader.BlockName(br, tr), n))))
             {
                 br.UpgradeOpen();
                 br.Erase();
@@ -99,7 +98,7 @@ public static class DrawingWriter
                 // ArrowSize meters, but at most 80% of the piece so arrows on short arcs do not pile up
                 double lenM = s.Length / DrawingUnits.PerMeter, sizeM = Math.Min(DrawingUnits.ArrowMeters, 0.8 * lenM);
                 if (sizeM <= 0) continue;
-                InsertBlock(db, tr, p.IsTwoWay ? Conventions.DirTwoBlockName : Conventions.DirBlockName, Conventions.LayerDir, mid, ang, null, sizeM / Conventions.ArrowDefMeters);
+                InsertBlock(db, tr, Conventions.DirBlockFor(p.IsSpur, p.IsTwoWay, p.IsCrab), Conventions.LayerDir, mid, ang, null, sizeM / Conventions.ArrowDefMeters);
             }
     }
 

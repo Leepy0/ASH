@@ -18,8 +18,8 @@ ZWCAD가 설치된 PC에서 실행한다. 각 항목에 결과(OK/NG), 날짜, Z
 | 항목 | 결과 | 날짜 | ZWCAD 버전 | 메모 |
 |---|---|---|---|---|
 | T11-1 `NETLOAD`로 `ASH.Plugin.dll` 로드, 오류 없음 | | | | |
-| T11-2 `AGVINIT` → 레이어 패널에 `AGV_PATH`, `AGV_PATH_SPUR`, `AGV_PATH_TWO`, `AGV_PATH_CRAB`, `AGV_DIR`, `AGV_CP`, `AGV_BLOCK`, `AGV_STATION` 8개(색 3,2,4,30,8,1,5,6), 블록 `AGV_DIR`와 `AGV_DIR2` | | | | |
-| T12-1b `AGVPATH` → 종류 선택 "[단방향(O)/양방향(T)/지선(S)/크랩(C)] <단방향>"에서 각각 그린 뒤 레이어가 `AGV_PATH`/`_TWO`/`_SPUR`/`_CRAB`이고 명령줄에 "경로 P00x 추가 (양방향)"처럼 종류가 나옴. 양방향은 양쪽 화살표, 나머지는 한쪽 화살표 | | | | |
+| T11-2 `AGVINIT` → 레이어 패널에 `AGV_PATH`, `AGV_PATH_SPUR`, `AGV_PATH_TWO`, `AGV_PATH_CRAB`, `AGV_DIR`, `AGV_CP`, `AGV_BLOCK`, `AGV_STATION` 8개(색 3,2,4,30,8,1,5,6), 블록 `AGV_DIR`, `AGV_DIR2`, `AGV_DIR_SPUR`, `AGV_DIR_CRAB` | | | | |
+| T12-1b `AGVPATH` → 종류 선택 "[단방향(O)/양방향(T)/지선(S)/크랩(C)] <단방향>"에서 각각 그린 뒤 레이어가 `AGV_PATH`/`_TWO`/`_SPUR`/`_CRAB`이고 명령줄에 "경로 P00x 추가 (양방향)"처럼 종류가 나옴. 화살표 모양: 단방향 → 한쪽 화살표, 양방향 → 양쪽 화살표, 지선 → 머리에 막대, 크랩 → 몸통에 가로 눈금 두 개 | | | | |
 | T12-1c `AGVPTYPE`(리본 "경로 종류", 팔레트 "경로 종류 변경") → 경로 선택 후 종류 지정 → 레이어·화살표가 바뀌고, `AGVEXPORT` 뒤 `agv.asy`의 `GPATH`에 `two`/`spur`/`crab`이 해당 경로에만 붙음(지선에 `crab`이 자동으로 붙지 않음) | | | | |
 | T12-1d 방향표가 너무 작지 않음: 기본 2 m. `ash.settings.tsv`에 `ArrowSize<탭>5`를 넣고 아무 편집 명령 실행 → 5 m로 바뀜. 짧은 원호 조각에서는 조각 길이의 80%로 줄어 겹치지 않음 | | | | |
 | T11-3 `AGV_CP` 블록 정의에 어트리뷰트 4개(NAME TYPE GROUP CAP). STATION이 들어 있던 예전 도면의 블록은 그대로 쓸 수 있음 | | | | |
