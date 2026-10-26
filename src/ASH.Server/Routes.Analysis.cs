@@ -142,9 +142,9 @@ internal static partial class Routes
             var q = ctx.Request.Query;
             var tags = FileRoutes.FileQuery.From(q);
             var films = fs.All();
-            var v = HomeView.Build(st.All(), js.All(), films, null, Queue(js, fw), WorkerOn(cfg), JobProgress.Parallel(cfg), ClientIp(ctx), q["me"] == "1", DateTime.UtcNow, tags);
+            var v = HomeView.Build(st.All(), js.All(), films, films.FirstOrDefault(f => f.State == JobState.Running), Queue(js, fw), WorkerOn(cfg), JobProgress.Parallel(cfg), ClientIp(ctx), q["me"] == "1", DateTime.UtcNow, tags);
             var keep = string.Join("&", new[] { "me", "q", "corp", "productLine", "line" }.Where(k => q[k].ToString().Trim().Length > 0).Select(k => k + "=" + Uri.EscapeDataString(q[k].ToString().Trim())));
-            return new(v.InProgress.Concat(v.Finished).ToList(), v.Me, q["q"].ToString().Trim(), FileRoutes.TagFilterHtml(tags, st), keep, v.Unclassified, films);
+            return new(v.InProgress.Concat(v.Finished).ToList(), v.Me, q["q"].ToString().Trim(), FileRoutes.TagFilterHtml(tags, st), keep, v.Unclassified, films, v.Running, v.QueuedCount);
         }
 
         app.MapGet("/analyses", (HttpContext ctx, JobStore js, AnalysisStore st, FilmStore fs, FilmWorker fw, IConfiguration cfg) =>

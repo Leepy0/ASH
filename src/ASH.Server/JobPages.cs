@@ -302,7 +302,8 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
     static string Kpi(string label, string value, string sub, string cls = "", string vcls = "t1", string? title = null) =>
         $"<div class=\"kpi {cls}\"{(title == null ? "" : $" title=\"{title}\"")}><div class=\"t3\">{label}</div><div class=\"{vcls}\">{value}</div><div class=\"t4\">{sub}</div></div>";
 
-    public static string List(IReadOnlyList<JobInfo> jobs, (int Ahead, DateTime? Start, TimeSpan? Typical) q, bool workerEnabled)
+    public static string List(IReadOnlyList<JobInfo> jobs, (int Ahead, DateTime? Start, TimeSpan? Typical) q, bool workerEnabled, bool admin = false, bool archived = false, int archivedCount = 0,
+        IReadOnlyList<ASH.Core.Analysis.AnalysisInfo>? analyses = null)
     {
         var sb = new StringBuilder("<style>" + JobCss + "</style><div class=\"jh\"><h1>작업 대기열</h1></div>");
         if (!workerEnabled) sb.Append("<div class=\"msg bad\" role=\"alert\">▲ <b>이 서버는 작업을 실행하지 않습니다</b>(Jobs:WorkerEnabled=false)</div>");
@@ -312,29 +313,44 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
           .Append(Kpi("지금 보내면 시작 예상", q.Start is { } s ? H(SeoulTime.Text(s)) : "-", "&nbsp;", "", "t2"))
           .Append("</div>");
         sb.Append("<div class=\"t4\" style=\"margin:8px 0 0\" title=\"작업은 ZWCAD의 ASH에서 서버로 보내기로 올립니다. 먼저 온 순서로 하나씩 실행합니다.\">ZWCAD의 ASH에서 \"서버로 보내기\"로 올린 작업</div>");
+        if (admin)
+            sb.Append($"<p class=\"t4\" style=\"margin:6px 0 0\">{(archived ? $"보관한 작업 {archivedCount}건 포함 · <a href=\"/admin/jobs\">보관한 작업 숨기기</a>" : $"보관한 작업 {archivedCount}건은 숨김 · <a href=\"/admin/jobs?archived=1\">함께 보기</a>")}</p>");
         sb.Append("<div class=\"box\">");
-        JobTable(sb, jobs, true);
+        JobTable(sb, jobs, true, admin ? (archived ? "?archived=1" : "") : null, analyses);
         sb.Append("</div>");
         if (jobs.Count > 0) sb.Append(SortScript);
         return Page("ASH 작업 대기열", sb.ToString(), nav: "admin");
     }
 
+    /// <summary>A job as people know it: "분석 › 안 vN" (the analysis pages' wording), else "(미분류) 프로젝트 / 안" for a job filed in no analysis.</summary>
+    internal static string JobName(JobInfo j, IReadOnlyList<ASH.Core.Analysis.AnalysisInfo>? analyses) =>
+        analyses?.FirstOrDefault(a => a.Id == j.AnalysisId) is { } a ? $"{a.Name} › {a.Plans.FirstOrDefault(p => p.Id == j.PlanId)?.Name ?? j.Plan} v{j.Version}"
+            : $"(미분류) {(j.Project.Length > 0 ? j.Project : j.Model)} / {j.Plan}";
+
     /// <summary>The job table of /jobs, also the "최근 작업" box of the home page. <paramref name="sort"/>: header buttons sort the rows (the page must carry <see cref="SortScript"/>).</summary>
-    internal static void JobTable(StringBuilder sb, IReadOnlyList<JobInfo> jobs, bool sort = false)
+    /// <remarks><paramref name="adminBack"/> (non-null on the admin queue, the query to come back to) adds the 관리 column: 취소, 보관/보관 해제, 삭제.</remarks>
+    internal static void JobTable(StringBuilder sb, IReadOnlyList<JobInfo> jobs, bool sort = false, string? adminBack = null, IReadOnlyList<ASH.Core.Analysis.AnalysisInfo>? analyses = null)
     {
+        string Act(JobInfo j, string act, string label, string? confirm = null) =>
+            $"<form method=\"post\" action=\"/admin/jobs/{H(j.Id)}/{act}{H(adminBack)}\" class=\"mini\" style=\"display:inline\"{(confirm != null ? $" onsubmit=\"return confirm('{H(confirm)}')\"" : "")}><button{(act == "delete" ? " class=\"del\"" : "")}>{label}</button></form>";
         sort &= jobs.Count > 0; // the "no jobs" row has no cells to sort by
         string Head(string label) => sort ? Th(label) : $"<th>{label}</th>";
         sb.Append(sort ? "<div class=\"scroll\"><table class=\"sort jt\"><thead><tr>" : "<div class=\"scroll\"><table><tr>")
-          .Append(Head("작업")).Append(Head("상태")).Append(Head("프로젝트 / 안")).Append(Head("모델")).Append(Head("보낸 사람")).Append("<th>보낸 시각(서울)</th>").Append(Head("실행(회)")).Append(Head("권장 총 대수(대)"))
+          .Append(Head("작업")).Append(Head("상태")).Append(Head("보낸 사람")).Append("<th>보낸 시각(서울)</th>").Append(Head("실행(회)")).Append(Head("권장 총 대수(대)"))
+          .Append(adminBack != null ? "<th>관리</th>" : "")
           .Append(sort ? "</tr></thead><tbody>" : "</tr>");
         foreach (var j in jobs)
         {
             var total = j.Decided?.Values.Sum();
-            sb.Append($"<tr><td><a href=\"/jobs/{H(j.Id)}\">{H(j.Id)}</a></td><td>{Tag(j)}{(j.Phase != null ? " " + H(j.Phase) : "")}</td><td>{H(j.Project)} / {H(j.Plan)}</td><td>{H(j.Model)}</td>" +
+            sb.Append($"<tr><td><a href=\"/jobs/{H(j.Id)}\" title=\"작업 번호 {H(j.Id)}\">{H(JobName(j, analyses))}</a></td><td>{Tag(j)}{(j.Phase != null ? " " + H(j.Phase) : "")}</td>" +
                 $"<td>{H(j.Submitter)} <span class=\"muted\">{H(j.Ip)}</span></td><td>{H(When(j.CreatedUtc))}</td><td class=\"num\">{j.RunsDone}{(j.RunsFailed > 0 ? $" <span class=\"bad\">▲ 실패 {j.RunsFailed}</span>" : "")}</td>" +
-                $"<td class=\"num\">{(total is { } n ? n.ToString(CultureInfo.InvariantCulture) : "-")}</td></tr>");
+                $"<td class=\"num\">{(total is { } n ? n.ToString(CultureInfo.InvariantCulture) : "-")}</td>");
+            if (adminBack != null)
+                sb.Append("<td style=\"white-space:nowrap\">").Append(!j.Finished ? Act(j, "cancel", j.State == JobState.Queued ? "대기 취소" : "실행 취소", $"{j.Id} 작업을 취소할까요?")
+                    : Act(j, j.Archived ? "unarchive" : "archive", j.Archived ? "보관 해제" : "보관") + " " + Act(j, "delete", "삭제", $"{j.Id} 작업과 그 폴더(결과·업로드·로그)를 지웁니다. 되돌릴 수 없습니다. 지울까요?")).Append("</td>");
+            sb.Append("</tr>");
         }
-        if (jobs.Count == 0) sb.Append("<tr><td colspan=\"8\" class=\"muted\">아직 작업이 없습니다.</td></tr>");
+        if (jobs.Count == 0) sb.Append($"<tr><td colspan=\"{(adminBack != null ? 7 : 6)}\" class=\"muted\">아직 작업이 없습니다.</td></tr>");
         sb.Append(sort ? "</tbody></table></div>" : "</table></div>");
     }
 
@@ -345,7 +361,7 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
         sb.Append("<style>").Append(JobCss).Append("</style>");
         if (analyses != null) AnalysisPages.JobHeader(sb, j, analyses);
         // header: title + state tag + the one blue next action
-        sb.Append($"<div class=\"jh\"><h1>{H(j.Project)} / {H(j.Plan)} <span class=\"muted\">· 모델 {H(j.Model)}</span></h1>");
+        sb.Append($"<div class=\"jh\"><h1>{H(JobName(j, analyses))}</h1>");
         sb.Append($"<span class=\"state s-{H(j.State)}\" data-state=\"job.state\" data-field=\"job.statetext\">{H(JobState.Korean(j.State))}</span>");
         if (j.Source == JobSource.Local) sb.Append("<span class=\"tag gray\" title=\"ash-run으로 돌린 결과를 올린 것입니다. 서버에서 다시 실행하지 않았습니다.\">내 PC에서 실행한 결과</span>");
         sb.Append("<span class=\"sp\"></span>");

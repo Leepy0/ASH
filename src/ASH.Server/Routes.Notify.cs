@@ -24,7 +24,7 @@ internal static partial class Routes
                 foreach (var j in jobs.Where(j => j.Finished && Fresh(j.FinishedUtc) && Mine.Is(j, ip, names)))
                 {
                     var a = j.AnalysisId == null ? null : st.Get(j.AnalysisId);
-                    var name = a == null ? $"{j.Project} / {j.Plan}" : $"{a.Name} › {a.Plans.FirstOrDefault(p => p.Id == j.PlanId)?.Name ?? j.Plan} v{j.Version}";
+                    var name = JobPages.JobName(j, a == null ? null : new[] { a });
                     var (title, body) = j.State switch
                     {
                         JobState.Done => ($"✓ 완료: {name}", j.Decided is { Count: > 0 } d ? $"권장 {d.Values.Sum()}대" : ""),

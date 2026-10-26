@@ -9,7 +9,7 @@ namespace ASH.Server;
 public static class ServerPages
 {
     public sealed record StatusData(ReleaseStore Releases, GitHubSync GitHub, ServerUpdater Updater, RunnerStore Runner, IReadOnlyList<JobInfo> Jobs,
-        (int Ahead, DateTime? Start, TimeSpan? Typical) Queue, bool WorkerOn);
+        (int Ahead, DateTime? Start, TimeSpan? Typical) Queue, bool WorkerOn, IReadOnlyList<ASH.Core.Analysis.AnalysisInfo>? Analyses = null);
 
     static string Card(string label, string big, string sub, string cls = "") =>
         $"<div class=\"card\"><div class=\"sub\">{label}</div><div class=\"big {cls}\">{big}</div><div class=\"sub\">{sub}</div></div>";
@@ -64,14 +64,14 @@ public static class ServerPages
 
         sb.Append(Card("지금 실행", running == null ? "없음" : State(running),
             running == null ? (d.WorkerOn ? "작업 실행 켜짐" : "<span class=\"bad\">작업 실행 꺼짐</span>")
-                : $"<a href=\"/jobs/{H(running.Id)}\">{H(running.Project)} / {H(running.Plan)}</a>{(running.Phase != null ? " · " + H(running.Phase) : "")} · 실행 {running.RunsDone}회"));
+                : $"<a href=\"/jobs/{H(running.Id)}\">{H(JobName(running, d.Analyses))}</a>{(running.Phase != null ? " · " + H(running.Phase) : "")} · 실행 {running.RunsDone}회"));
         sb.Append(Card("대기", $"{queued}건", d.Queue.Typical is { } t ? $"보통 한 작업 {Dur(t)}" + (d.Queue.Start is { } st ? $" · 시작 예상 {H(SeoulTime.Text(st))}" : "") : "먼저 온 순서로 하나씩"));
         sb.Append(Card("ASH 배포 버전", cur == null ? "-" : H(cur.Version), cur == null ? "게시된 버전이 없습니다." : "게시 " + H(SeoulTime.FromIso(cur.Published))));
         sb.Append(Card("서버 프로그램", H(u.Current), H(u.LastResult)));
         sb.Append("</div>");
 
         sb.Append("<section class=\"box\"><div class=\"box-head\"><h2>최근 작업</h2><a href=\"/admin/jobs\">작업 대기열(관리자) →</a></div>");
-        JobTable(sb, d.Jobs.Take(5).ToList());
+        JobTable(sb, d.Jobs.Take(5).ToList(), analyses: d.Analyses);
         sb.Append("</section>");
         return sb.ToString();
     }
