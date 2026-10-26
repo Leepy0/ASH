@@ -48,6 +48,16 @@ public class AssetShapesTests
     }
 
     [Fact]
+    public void Footprint_Bounds_The_Plan_Of_The_Base_Size()
+    {
+        var z = AssetShapes.Footprint(AssetKinds.Zone)!.Value;                                   // the turned cross stays inside the 3 x 2 m border
+        Assert.Equal((-1.55, -1.05, 1.55, 1.05), (Math.Round(z.MinX, 9), Math.Round(z.MinY, 9), Math.Round(z.MaxX, 9), Math.Round(z.MaxY, 9)));
+        var r = AssetShapes.Footprint(AssetKinds.RobotM)!.Value;                                 // the arm reaches +x
+        Assert.True(r.MaxX > 1.2 && r.MinX > -0.5, r.ToString());
+        Assert.Null(AssetShapes.Footprint(AssetKinds.Wall));
+    }
+
+    [Fact]
     public void Wall_Is_One_Box_Per_Segment_Turned_Along_It()
     {
         var c = AssetShapes.Cell(Line(AssetKinds.Wall, new LineSeg(new Point2(0, 0), new Point2(10, 0)), new LineSeg(new Point2(10, 0), new Point2(10, 4))), 1)!;

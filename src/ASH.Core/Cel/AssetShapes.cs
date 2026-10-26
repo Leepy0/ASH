@@ -85,6 +85,25 @@ public static class AssetShapes
         }
     }
 
+    /// <summary>Korean name of a block kind (palette, AGV3D prompts, block labels); the kind itself for others.</summary>
+    public static string Label(string kind) => kind switch
+    {
+        AssetKinds.RobotL => "로봇(대)", AssetKinds.RobotM => "로봇(중)", AssetKinds.RobotS => "로봇(소)", AssetKinds.Rack => "랙", AssetKinds.Machine => "설비",
+        AssetKinds.Column => "기둥", AssetKinds.Charger => "충전기", AssetKinds.Bench => "작업대", AssetKinds.Door => "출입문", AssetKinds.Zone => "바닥 표시", _ => kind,
+    };
+
+    /// <summary>Plan bounding box (metres, asset frame) of a block kind at its base size, for the 2D symbol; null for a kind that is not a block kind.</summary>
+    public static (double MinX, double MinY, double MaxX, double MaxY)? Footprint(string kind)
+    {
+        var ps = Parts(kind, 1, 1);
+        if (ps == null) return null;
+        double C(AssetPart p) => Math.Abs(Math.Cos(p.RotZ * Math.PI / 180));
+        double S(AssetPart p) => Math.Abs(Math.Sin(p.RotZ * Math.PI / 180));
+        double Hx(AssetPart p) => p.Radius > 0 ? p.Radius : (p.Dx * C(p) + p.Dy * S(p)) / 2; // half extents of a box turned about its centre
+        double Hy(AssetPart p) => p.Radius > 0 ? p.Radius : (p.Dx * S(p) + p.Dy * C(p)) / 2;
+        return (ps.Min(p => p.X - Hx(p)), ps.Min(p => p.Y - Hy(p)), ps.Max(p => p.X + Hx(p)), ps.Max(p => p.Y + Hy(p)));
+    }
+
     static AssetPart B(string n, int c, double x, double y, double z, double dx, double dy, double h, double rz = 0) => new AssetPart(n, c, x, y, z, dx, dy, h, rz);
     static AssetPart C(string n, int c, double x, double y, double z, double r, double h, double rx = 0) => new AssetPart(n, c, x, y, z, 0, 0, h, 0, r, rx);
 

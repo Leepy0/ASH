@@ -81,6 +81,20 @@ public sealed class AgvPaletteControl : UserControl
         tabs.TabPages.Add(Page("교통제어", Theme.Section("자동 생성"),
             Theme.Make("block 자동 생성", GlyphKind.Block, "AGVBLOCKAUTO"), Theme.Make("블록 채번", GlyphKind.BlockNum, "AGVBLOCKNUM"), Theme.Make("교통제어 자동 생성", GlyphKind.Traffic, "AGVTRAFFIC")));
 
+        // 3D picture assets (design 2026-10-26 §8): the kind goes to AGV3D as its keyword answer
+        var kind3d = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.System };
+        kind3d.Items.AddRange(AssetKinds.Blocks.Select(k => (object)ASH.Core.Cel.AssetShapes.Label(k)).ToArray());
+        kind3d.SelectedIndex = 0;
+        var place3d = Theme.Make("배치", GlyphKind.Block, "");
+        place3d.Click += (o, e) => AgvPalette.Send("AGV3D " + AssetKinds.Blocks[Math.Max(0, kind3d.SelectedIndex)].Replace("_", "")); // AGV3D keyword: kind without '_'
+        tabs.TabPages.Add(Page("3D", Theme.Section("3D 배치"), Theme.Caption("종류"), kind3d, place3d,
+            Theme.Caption("크기: 블록 X/Y 배율 (1 = 기본 크기)"),
+            Theme.Section("선으로 그리는 3D (레이어에 그리기)"),
+            Theme.Caption($"벽: {Conventions.Layer3dWall}\n  선·폴리선, 폴리선 폭 = 두께"),
+            Theme.Caption($"안전 펜스: {Conventions.Layer3dFence}"),
+            Theme.Caption($"컨베이어 그림: {Conventions.Layer3dConv}"),
+            Theme.Section("컨베이어"), Theme.Make("컨베이어 이름 붙이기", GlyphKind.Path, "AGVCONV")));
+
         var settings = Theme.Make("설정 열기", GlyphKind.Settings, "");
         settings.Click += (o, e) => Commands.ExportCommands.OpenSettings();
 
