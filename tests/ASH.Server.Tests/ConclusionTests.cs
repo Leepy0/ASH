@@ -57,6 +57,17 @@ public class ConclusionTests
         Assert.DoesNotContain("<h3>묶음:", sb.ToString()); Assert.Contains("<b>권장 2대</b>", sb.ToString());
     }
 
+    [Fact] public async Task Conclusion_Kpis_Have_No_Limit_Or_None_Line_And_The_Limit_Box_Is_Collapsed()
+    {
+        using var env = new JobEnv(); var a = await env.WaitFinished(await env.SendFiled("라인 증설", "A안"));
+        var aid = env.Factory.Services.GetRequiredService<AnalysisStore>().All().Single().Id;
+        var html = await env.Http.GetStringAsync($"/analyses/{aid}?tab=conclusion&job={a.Id}");
+        Assert.DoesNotContain("✓ 상한", html); Assert.DoesNotContain("✓ 없음", html); Assert.DoesNotContain("경고: 상한 75% 초과 ·", html);
+        Assert.Matches(@"<details><summary><h3>생산량 한계 \(T/T\)</h3>", html);
+        Assert.DoesNotContain("<details open", html);
+        Assert.Contains(".cg .gbox{flex:none", html); // the group box sizes to its rows
+    }
+
     [Fact] public async Task Conclusion_Tab_Defaults_To_Selected_Version_And_Lists_Per_Plan()
     {
         using var env = new JobEnv(); var a = await env.WaitFinished(await env.SendFiled("라인 증설", "A안")); var b = await env.WaitFinished(await env.SendFiled("라인 증설", "B안"));

@@ -31,7 +31,8 @@ public static class DeadlockCauses
             var holders = e.Links.Where(k => !double.IsNaN(k.X) && !double.IsNaN(k.Y))
                 .SelectMany(k => k.Holds.Where(waited.Contains).Select(b => (new Point2(k.X, k.Y), b)));
             var fix = blocks.Count > 0 ? DeadlockRisk.Fix(c, blocks, e.Links.Select(k => k.WaitsFor).FirstOrDefault(known.Contains), holders) : "";
-            res.Add(new CauseItem(CauseKinds.Deadlock, 2, "교착 " + names, names, detail, fix, e.AtSec, x, y));
+            res.Add(new CauseItem(CauseKinds.Deadlock, 2, "교착 " + names, names, detail, fix, e.AtSec, x, y,
+                e.Links.SelectMany(k => k.Holds.Append(k.WaitsFor)).Concat(blocks).Distinct().ToList()));
         }
         return res;
     }

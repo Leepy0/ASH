@@ -103,6 +103,7 @@ public class DeadlockTests
     public void Blocks_Without_Room_Between_Are_Merged_Else_Room_Before_The_Waited_Block()
     {
         Assert.Equal("B005·B007 병합", Assert.Single(DeadlockCauses.Find(Ctx(Two(0.2), Event))).Fix);
+        Assert.Equal(new[] { "B005", "B007" }, Assert.Single(DeadlockCauses.Find(Ctx(Two(0.2), Event))).Refs!.OrderBy(n => n));
         // 3 m apart (more than 1.5 + 2 x 0.5): no merge; room before the block the first vehicle waits for
         Assert.Equal("대기 자리 확보 B007 앞", Assert.Single(DeadlockCauses.Find(Ctx(Two(3), Event))).Fix);
         // a stop CP 2 m outside (more than a vehicle length) is no reason
@@ -116,7 +117,7 @@ public class DeadlockTests
         var cpOnly = new DeadlockEvent(50, new[] { new DeadlockLink("V1", "G1", "C2", new string[0], 1, 0), new DeadlockLink("V2", "G1", "C1", new string[0], 3, 0) });
         var item = Assert.Single(DeadlockCauses.Find(Ctx(Two(3), cpOnly)));
         Assert.Equal("교착 C1·C2", item.Title);
-        Assert.Equal("", item.Fix);
+        Assert.Equal("", item.Fix); Assert.Equal(new[] { "C1", "C2" }, item.Refs!.OrderBy(n => n));
         Assert.Equal(2, item.X!.Value, 6); // the vehicles' positions when no block is involved
     }
 

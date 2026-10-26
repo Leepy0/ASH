@@ -22,6 +22,26 @@ public class CompareTests
         Assert.Contains("버전을 2개 이상 고르세요", await env.Http.GetStringAsync($"/analyses/{aid}?tab=compare&jobs={a.Id}"));
     }
 
+    [Fact] public async Task Compare_Tab_Has_Detail_Cards_And_Marks_Best_And_Worst_Only_When_Values_Differ()
+    {
+        using var env = new JobEnv(); var a = await env.WaitFinished(await env.SendFiled("라인 증설", "A안")); var b = await env.WaitFinished(await env.SendFiled("라인 증설", "B안"));
+        var aid = env.Factory.Services.GetRequiredService<AnalysisStore>().All().Single().Id;
+        var html = await env.Http.GetStringAsync($"/analyses/{aid}?tab=compare&jobs={a.Id},{b.Id}");
+        foreach (var s in new[] { "<h3>생산량 한계 (T/T)", "원인 수", "자재 품절(초)", "리드타임 평균(초)", "리드타임 최대(초)", "최소 재고", "공급 부족(실제/예상)", "block 대기 상위(초)" }) Assert.Contains(s, html);
+        Assert.DoesNotContain("결품", html);
+        var cells = new[] { new CompareDetail.Cell(3, ""), new CompareDetail.Cell(1, ""), new CompareDetail.Cell(null, ""), new CompareDetail.Cell(2, "") };
+        Assert.Equal(new[] { "worst", "best", null, "" }, CompareDetail.Marks(cells, false));
+        Assert.Equal(new[] { "best", "worst", null, "" }, CompareDetail.Marks(cells, true));
+        Assert.All(CompareDetail.Marks(new[] { new CompareDetail.Cell(2, ""), new CompareDetail.Cell(2, "") }, false), Assert.Null);
+    }
+
+    [Fact] public void Limit_Takt_Is_One_Number_Or_A_Range()
+    {
+        Assert.Equal("54.5초", LimitPage.Takt(new[] { 60.0 }, 10));
+        Assert.Equal("48~60초", LimitPage.Takt(new[] { 60.0, 75.0 }, 25));
+        Assert.Equal("", LimitPage.Takt(Array.Empty<double>(), 10));
+    }
+
     [Fact] public async Task Compare_Tab_Has_An_Investment_Row_Only_With_Prices()
     {
         var (env, aid, ids) = await Three(new[] { 10.0, 10.0 });

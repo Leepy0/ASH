@@ -122,6 +122,11 @@ public static class CausePages
 .cz-r.on .cz-n{background:var(--blue);color:#fff}.cz-w{color:var(--sub2)}.cz-d{color:var(--sub2);flex:1 1 200px;min-width:0}
 .cz-f{color:var(--ink);flex:1 1 200px;min-width:0}.cz-f em{font-style:normal;font-weight:600;color:var(--blue-d);margin-right:4px}
 .cz-t{font-variant-numeric:tabular-nums;flex:none}.cz-r form{margin:0;flex:none}.cz-r .btn{min-height:28px;padding:0 10px;font-size:13px}
+.cz-r.cz-ex{cursor:pointer}.cz-c{width:14px;flex:none;color:var(--sub2);font-weight:700;transition:transform .15s}.cz-r.open .cz-c{transform:rotate(90deg)}
+.cz-x{display:none;flex:1 1 100%;gap:12px;align-items:flex-start;flex-wrap:wrap;padding:6px 0 4px;cursor:default}.cz-r.open .cz-x{display:flex}
+.cz-nm{display:flex;flex-direction:column;gap:4px;min-width:120px}.cz-nm .chip{font-size:13px;white-space:nowrap}
+.cz-k{display:inline-block;width:14px;height:6px;border-radius:3px;margin-right:6px;vertical-align:middle}.cz-k.p{background:#007aff}.cz-k.c{background:#d70015;width:8px;height:8px;border-radius:50%}.cz-k.b{background:none;border:2px solid #ff9500;width:12px;height:8px;border-radius:2px}
+.cz-s{width:320px;height:240px;max-width:100%;background:var(--bg,#fff);border:1px solid var(--line);border-radius:6px}
 .cm{cursor:pointer}.cm .rg{stroke:none}.cm.on .rg{stroke:#007aff;stroke-width:4;fill-opacity:.4}
 .czb th,.czb td{padding:6px 8px;text-align:center}.czb th:first-child,.czb td:first-child{text-align:left}
 @media(max-width:1300px){.cz.map{grid-template-columns:minmax(0,1fr)}.cz-m{position:static}}
@@ -131,7 +136,9 @@ public static class CausePages
 var rows=document.querySelectorAll('.cz-r[data-i]'),mk=document.querySelectorAll('.cm');
 function pick(i,scroll){rows.forEach(function(r){r.classList.toggle('on',r.dataset.i===i);});mk.forEach(function(m){m.classList.toggle('on',m.dataset.i===i);});
  if(scroll){var r=document.querySelector('.cz-r[data-i=""'+i+'""]');if(r)r.scrollIntoView({block:'nearest'});}}
-rows.forEach(function(r){r.addEventListener('click',function(e){if(e.target.closest('button,a'))return;pick(r.dataset.i,false);});});
+document.querySelectorAll('.cz-r').forEach(function(r){r.addEventListener('click',function(e){if(e.target.closest('button,a,form,.cz-x'))return;
+ if(r.dataset.i)pick(r.dataset.i,false);
+ if(r.dataset.ex){var o=r.classList.toggle('open');r.setAttribute('aria-expanded',o);}});});
 mk.forEach(function(m){m.addEventListener('click',function(){pick(m.dataset.i,true);});});})();</script>";
 
     static readonly string[] SevColor = { "gray", "orange", "red" }, SevText = { "참고", "주의", "심각" };
@@ -160,7 +167,7 @@ mk.forEach(function(m){m.addEventListener('click',function(){pick(m.dataset.i,tr
                 var g = items.Where(i => i.Kind == k).ToList();
                 if (g.Count == 0) continue;
                 sb.Append($"<h3>{H(GroupNames.TryGetValue(k, out var gn) ? gn : k)}<span>{g.Count}</span></h3><ul>");
-                foreach (var i in g) Row(sb, analysisId, jobId, i, nums.TryGetValue(i, out var n) ? n : 0);
+                foreach (var i in g) Row(sb, analysisId, jobId, i, nums.TryGetValue(i, out var n) ? n : 0, layout);
                 sb.Append("</ul>");
             }
             sb.Append("</section>");
@@ -176,10 +183,12 @@ mk.forEach(function(m){m.addEventListener('click',function(){pick(m.dataset.i,tr
         sb.Append("</div>").Append(Script);
     }
 
-    static void Row(StringBuilder sb, string analysisId, string jobId, CauseItem i, int n)
+    static void Row(StringBuilder sb, string analysisId, string jobId, CauseItem i, int n, ASH.Core.Layout.Layout? layout)
     {
         var sev = Math.Clamp(i.Severity, 0, 2);
-        sb.Append($"<li class=\"cz-r\"{(n > 0 ? $" data-i=\"{n}\"" : "")}>" +
+        var refs = Resolve(layout, i.Refs);
+        sb.Append($"<li class=\"cz-r{(refs != null ? " cz-ex" : "")}\"{(n > 0 ? $" data-i=\"{n}\"" : "")}{(refs != null ? " data-ex=\"1\" aria-expanded=\"false\"" : "")}>" +
+            (refs != null ? "<span class=\"cz-c\" aria-hidden=\"true\">›</span>" : "") +
             (n > 0 ? $"<span class=\"cz-n\" aria-hidden=\"true\">{n}</span>" : "") +
             $"<span class=\"tag {SevColor[sev]}\">{SevText[sev]}</span><b>{H(i.Title)}</b>" +
             (i.Where.Length > 0 ? $"<span class=\"cz-w\">{H(i.Where)}</span>" : "") +
@@ -191,7 +200,74 @@ mk.forEach(function(m){m.addEventListener('click',function(){pick(m.dataset.i,tr
                 $"<input type=\"hidden\" name=\"job\" value=\"{H(jobId)}\"><input type=\"hidden\" name=\"name\" value=\"{H(i.Title)}\">" +
                 $"<input type=\"hidden\" name=\"x\" value=\"{F(i.X!.Value, "0.###")}\"><input type=\"hidden\" name=\"y\" value=\"{F(i.Y!.Value, "0.###")}\"><input type=\"hidden\" name=\"at\" value=\"{F(t, "0.#")}\">" +
                 "<button class=\"btn\" title=\"이 장면의 컷을 만들고 영상 만들기를 엽니다\">영상 컷</button></form>");
+        if (refs != null) Detail(sb, layout!, refs.Value);
         sb.Append("</li>");
+    }
+
+    // ---------------------------------------------------------------- accordion detail
+
+    /// <summary>The layout objects a finding's Refs name (paths, CPs, blocks); null when none resolves.</summary>
+    internal static (List<ASH.Core.Layout.LayoutPath> Paths, List<ASH.Core.Layout.LayoutCp> Cps, List<ASH.Core.Layout.LayoutBlock> Blocks)? Resolve(ASH.Core.Layout.Layout? l, IReadOnlyList<string>? refs)
+    {
+        if (l == null || refs == null || refs.Count == 0) return null;
+        var set = new HashSet<string>(refs);
+        var r = (Paths: l.Paths.Where(p => set.Contains(p.Name)).ToList(), Cps: l.Cps.Where(c => set.Contains(c.Name)).ToList(), Blocks: l.Blocks.Where(b => set.Contains(b.Name)).ToList());
+        return r.Paths.Count + r.Cps.Count + r.Blocks.Count == 0 ? null : r;
+    }
+
+    static List<ASH.Core.Geometry.Point2> Sample(ASH.Core.Layout.LayoutPath path)
+    {
+        int steps = path.Segments.Any(s => s is ASH.Core.Geometry.ArcSeg) ? 16 : 1; double len = path.Length;
+        return Enumerable.Range(0, steps + 1).Select(k => path.PointAt(len * k / steps)).ToList();
+    }
+
+    /// <summary>Names and a small map zoomed to the referenced objects: their paths thick blue, CPs as labelled dots, blocks outlined; other paths nearby thin grey.</summary>
+    static void Detail(StringBuilder sb, ASH.Core.Layout.Layout l, (List<ASH.Core.Layout.LayoutPath> Paths, List<ASH.Core.Layout.LayoutCp> Cps, List<ASH.Core.Layout.LayoutBlock> Blocks) r)
+    {
+        var pts = new List<ASH.Core.Geometry.Point2>();
+        var psamp = r.Paths.Select(p => (p, Sample(p))).ToList();
+        foreach (var (_, s) in psamp) pts.AddRange(s);
+        pts.AddRange(r.Cps.Select(c => c.Position));
+        foreach (var b in r.Blocks) { pts.Add(b.Rect.Min); pts.Add(b.Rect.Max); }
+        double x0 = pts.Min(q => q.X), x1 = pts.Max(q => q.X), y0 = pts.Min(q => q.Y), y1 = pts.Max(q => q.Y);
+        double span = Math.Max(Math.Max(x1 - x0, y1 - y0), 8), pad = span * 0.2 + 1;
+        double cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, half = span / 2 + pad; // square view, so the map keeps its shape
+        double vx0 = cx - half, vx1 = cx + half, vy0 = cy - half, vy1 = cy + half;
+        string X(double x) => F(x, "0.###");
+        string Y(double y) => F(-y, "0.###"); // y up in the model, down on screen
+        double fs = half / 9, dot = half / 28;
+        sb.Append("<div class=\"cz-x\"><div class=\"cz-nm\">");
+        foreach (var p in r.Paths) sb.Append($"<span class=\"chip\"><i class=\"cz-k p\"></i>경로 {H(p.Name)}</span>");
+        foreach (var c in r.Cps) sb.Append($"<span class=\"chip\"><i class=\"cz-k c\"></i>CP {H(c.Name)}</span>");
+        foreach (var b in r.Blocks) sb.Append($"<span class=\"chip\"><i class=\"cz-k b\"></i>block {H(b.Name)}</span>");
+        sb.Append($"</div><svg class=\"cz-s\" viewBox=\"{X(vx0)} {Y(vy1)} {F(2 * half, "0.###")} {F(2 * half, "0.###")}\" preserveAspectRatio=\"xMidYMid meet\" role=\"img\" aria-label=\"관련 경로·CP 지도\">");
+        bool In(ASH.Core.Geometry.Point2 q) => q.X >= vx0 && q.X <= vx1 && q.Y >= vy0 && q.Y <= vy1;
+        var mine = new HashSet<ASH.Core.Layout.LayoutPath>(r.Paths);
+        foreach (var p in l.Paths.Where(p => !mine.Contains(p)))
+        {
+            var s = Sample(p); if (!s.Any(In)) continue; // only what shows in the view
+            sb.Append($"<polyline points=\"{string.Join(" ", s.Select(q => X(q.X) + "," + Y(q.Y)))}\" fill=\"none\" stroke=\"#c7c7cc\" stroke-width=\"2\" vector-effect=\"non-scaling-stroke\"/>");
+        }
+        foreach (var b in l.Blocks)
+        {
+            double bx0 = Math.Min(b.Rect.Min.X, b.Rect.Max.X), bx1 = Math.Max(b.Rect.Min.X, b.Rect.Max.X), by0 = Math.Min(b.Rect.Min.Y, b.Rect.Max.Y), by1 = Math.Max(b.Rect.Min.Y, b.Rect.Max.Y);
+            bool hot = r.Blocks.Contains(b);
+            if (!hot && (bx1 < vx0 || bx0 > vx1 || by1 < vy0 || by0 > vy1)) continue;
+            sb.Append($"<rect x=\"{X(bx0)}\" y=\"{Y(by1)}\" width=\"{F(bx1 - bx0, "0.###")}\" height=\"{F(by1 - by0, "0.###")}\" " + (hot
+                ? "fill=\"#ff9500\" fill-opacity=\".12\" stroke=\"#ff9500\" stroke-width=\"3\""
+                : "fill=\"none\" stroke=\"#d1d1d6\" stroke-width=\"1\"") + $" vector-effect=\"non-scaling-stroke\"><title>{H(b.Name)}</title></rect>");
+            if (hot) sb.Append($"<text x=\"{X(bx0)}\" y=\"{Y(by1 + fs * 0.3)}\" font-size=\"{F(fs, "0.###")}\" fill=\"#c93400\" font-weight=\"700\">{H(b.Name)}</text>");
+        }
+        foreach (var (p, s) in psamp)
+        {
+            sb.Append($"<polyline points=\"{string.Join(" ", s.Select(q => X(q.X) + "," + Y(q.Y)))}\" fill=\"none\" stroke=\"#007aff\" stroke-width=\"6\" stroke-linecap=\"round\" stroke-linejoin=\"round\" stroke-opacity=\".75\" vector-effect=\"non-scaling-stroke\"><title>{H(p.Name)}</title></polyline>");
+            var m = p.PointAt(p.Length / 2);
+            sb.Append($"<text x=\"{X(m.X)}\" y=\"{Y(m.Y + fs * 0.4)}\" font-size=\"{F(fs, "0.###")}\" fill=\"#0040dd\" font-weight=\"700\" text-anchor=\"middle\">{H(p.Name)}</text>");
+        }
+        foreach (var c in r.Cps)
+            sb.Append($"<circle cx=\"{X(c.Position.X)}\" cy=\"{Y(c.Position.Y)}\" r=\"{F(dot, "0.###")}\" fill=\"#d70015\" stroke=\"#fff\" stroke-width=\"1\" vector-effect=\"non-scaling-stroke\"><title>{H(c.Name)}</title></circle>" +
+                $"<text x=\"{X(c.Position.X + dot * 1.6)}\" y=\"{Y(c.Position.Y - dot * 0.6)}\" font-size=\"{F(fs, "0.###")}\" fill=\"#d70015\" font-weight=\"700\">{H(c.Name)}</text>");
+        sb.Append("</svg></div>");
     }
 
     /// <summary>The layout's paths and blocks in grey, one numbered marker per finding with a place (clicking it picks its row).</summary>
