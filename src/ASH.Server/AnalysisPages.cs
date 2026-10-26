@@ -174,8 +174,8 @@ public static class AnalysisPages
 .tb{display:flex;justify-content:center;align-items:center;gap:10px;flex-wrap:wrap;margin:14px 0 12px}.tb form{flex-wrap:nowrap}.tb select{flex:none;width:auto;min-height:32px}
 .kpi .t4{font-weight:600;margin-top:4px}.kpi .t1{margin-top:4px}
 .cg{flex:1;min-height:520px;display:grid;grid-template-columns:minmax(360px,560px) minmax(0,1fr);gap:14px;margin-top:14px}
-.cg .col{display:flex;flex-direction:column;gap:14px;min-height:0}.cg .box{margin-top:0;display:flex;flex-direction:column;min-height:0}.cg .gbox{flex:1}
-.gl{flex:1;min-height:0;overflow:auto}
+.cg .col{display:flex;flex-direction:column;gap:14px;min-height:0}.cg .box{margin-top:0;display:flex;flex-direction:column;min-height:0}.cg .gbox{flex:none;min-height:auto}
+.gl{flex:none;overflow:visible}
 .gr{display:grid;grid-template-columns:92px minmax(60px,1fr) 52px 66px;align-items:center;gap:10px;min-height:36px;padding:0 8px;border-bottom:1px solid var(--line);font-size:14px}
 .gr.g-fail{--c:var(--red);background:var(--red-b);color:var(--red);border-radius:6px}.gr.g-over{--c:var(--orange);background:var(--orange-b);color:var(--orange);border-radius:6px}.wn{color:var(--orange)}.gr.g-under{--c:var(--gray);color:var(--sub2)}.gr.g-ok{--c:var(--blue)}
 .gr .gn{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.gr .gb{position:relative;height:6px;border-radius:3px;background:var(--fill)}
@@ -379,10 +379,10 @@ public static class AnalysisPages
         var top = v.Groups.Where(g => !double.IsNaN(g.Util)).OrderByDescending(g => g.Util).FirstOrDefault();
         var over = top != null && Over(top, v.UtilMax);
         sb.Append(Kpi("최대 가동률", top == null ? "-" : F(top.Util * 100, "0"), top == null ? "" : "%", over ? "orange" : "ink",
-            top == null ? "" : over ? $"⚠ 경고: 상한 {F(v.UtilMax * 100, "0")}% 초과 · {H(top.Group)}" : $"✓ 상한 {F(v.UtilMax * 100, "0")}% 이하 · {H(top.Group)}", over ? "orange" : ""));
+            ""));
         var stop = m.Stop;
         sb.Append(double.IsNaN(stop) ? Kpi("자재 품절", "-", "", "ink", "")
-            : stop <= 0 ? Kpi("자재 품절", "0", "초", "ink", "✓ 없음", "green") : Kpi("자재 품절", F(stop, "0"), "초", "red", "⚠ 자재 품절", "red"));
+            : stop <= 0 ? Kpi("자재 품절", "0", "초", "ink", "") : Kpi("자재 품절", F(stop, "0"), "초", "red", "⚠ 자재 품절", "red"));
         if (m.Investment is { AnyPriced: true } inv)
         {
             var o = other.M?.Investment is { AnyPriced: true } oi && oi.Currency == inv.Currency ? oi : null;
@@ -793,7 +793,7 @@ fit();addEventListener('resize',fit);})();</script>";
         var baseM = cols[0].M;
         var many = groups.Count > ManyGroups;
 
-        sb.Append("<div class=\"scroll\"><table><tr><th>지표</th>");
+        sb.Append(CompareDetail.Css).Append("<div class=\"scroll\"><table><tr><th>지표</th>");
         for (int i = 0; i < cols.Count; i++)
         {
             var c = cols[i];
@@ -806,11 +806,12 @@ fit();addEventListener('resize',fit);})();</script>";
         void Row(string label /* already HTML */, Func<Metrics, double?> get, Func<Metrics, string> show)
         {
             sb.Append($"<tr><th>{label}</th>");
+            var mk = CompareDetail.Marks(cols.Select(c => c.M != null && get(c.M) is { } x && !double.IsNaN(x) ? new CompareDetail.Cell(x, "") : new CompareDetail.Cell(null, "")).ToList(), false);
             for (int i = 0; i < cols.Count; i++)
             {
                 var m = cols[i].M;
                 if (m == null) { sb.Append("<td class=\"num muted\">-</td>"); continue; }
-                sb.Append($"<td class=\"num\">{H(show(m))}");
+                sb.Append($"<td class=\"num{(string.IsNullOrEmpty(mk[i]) ? "" : " " + mk[i])}\">{H(show(m))}");
                 if (i > 0 && baseM != null && get(m) is { } v && !double.IsNaN(v) && get(baseM) is { } b && !double.IsNaN(b))
                 {
                     var dl = Math.Round(v - b, 1);
@@ -848,6 +849,9 @@ fit();addEventListener('resize',fit);})();</script>";
             else sb.Append("<div class=\"scroll\">").Append(HeatGrid(cols, shown)).Append("</div>");
         }
         else sb.Append("<div class=\"scroll\" style=\"margin-top:12px\">").Append(CompareChart(cols, groups, baseM?.View.UtilMax ?? cols.Select(c => c.M?.View.UtilMax).FirstOrDefault(x => x != null) ?? 0.75)).Append("</div>");
+        sb.Append("</section>");
+        CompareDetail.Append(sb, d, cols);
+        sb.Append("<section class=\"box\">");
         if (q["maps"] != "1") { sb.Append($"<p><a class=\"btn\" href=\"{Url(ids, true)}\">병목 지도 나란히</a></p></section>"); return; }
         sb.Append("<h2>병목 지도(block 평균 대기, 같은 축척)</h2><div class=\"scroll\"><div style=\"display:flex;gap:12px\">");
         // one scale for every map: the union of the layouts' bounds and the largest wait over all versions
