@@ -72,11 +72,15 @@ public sealed class AgvPaletteControl : UserControl
             };
             place.Controls.Add(b);
         }
-        tabs.TabPages.Add(Page("CP", Theme.Section("CP 배치  (TYPE별 버튼)"), place, hint,
+        // standby → load → unload → rtnload → rtnunload → finish in one go; takes the GROUP below, leaves the TYPE buttons' state alone
+        var route = Theme.Make("루트 순서 배치", GlyphKind.Path, "AGVCPROUTE");
+        new ToolTip().SetToolTip(route, "standby → load → unload → rtnload → rtnunload → finish 순서로 CP 배치 (AGVCPROUTE)");
+        tabs.TabPages.Add(Page("CP", Theme.Section("CP 배치  (TYPE별 버튼)"), place, route, hint,
             Theme.Caption("traffic CP는 교통제어 탭에서 block과 함께 자동 생성"),
             Theme.Section("CP 속성"), detailed,
             Theme.Caption("GROUP"), group,
-            Theme.Caption("접두어  (마지막 TYPE에 적용)"), prefix, Theme.Caption("CAP  (숫자 또는 INF = 무제한)"), cap));
+            Theme.Caption("접두어  (마지막 TYPE에 적용)"), prefix, Theme.Caption("CAP  (숫자 또는 INF = 무제한)"), cap,
+            Theme.Section("그룹 보기"), GroupView(tabs)));
 
         tabs.TabPages.Add(Page("교통제어", Theme.Section("자동 생성"),
             Theme.Make("block 자동 생성", GlyphKind.Block, "AGVBLOCKAUTO"), Theme.Make("블록 채번", GlyphKind.BlockNum, "AGVBLOCKNUM"), Theme.Make("교통제어 자동 생성", GlyphKind.Traffic, "AGVTRAFFIC")));
@@ -137,6 +141,83 @@ public sealed class AgvPaletteControl : UserControl
         Controls.Add(tabs); // Fill first: later Top/Bottom controls dock before it
         Controls.Add(header);
         Controls.Add(status);
+    }
+
+    private sealed class GroupItem
+    {
+        public GroupItem(CpGroupInfo info) { Info = info; }
+        public CpGroupInfo Info { get; }
+        public override string ToString() => $"{(Info.Group.Length > 0 ? Info.Group : "(그룹 없음)")}   CP {Info.Count}개";
+    }
+
+    // F1 group view: the ticked groups stay as they are, the others turn grey (강조) or disappear (숨김). AGVCPVIEW does it in the drawing.
+    // The list is filled after every ASH command (PaletteStatus.SetGroups); the first visit of the CP tab asks for one.
+    private static Control GroupView(TabControl tabs)
+    {
+        var mode = CpViewMode.Highlight;
+        var busy = false; // a refill of the list or a take-back of a refused click must not send again
+        var highlight = new RadioButton { Text = "강조", Checked = true, AutoSize = true };
+        var hide = new RadioButton { Text = "숨김", AutoSize = true };
+        var modes = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 26, FlowDirection = FlowDirection.LeftToRight, WrapContents = false };
+        modes.Controls.Add(highlight);
+        modes.Controls.Add(hide);
+        var list = new CheckedListBox { Dock = DockStyle.Fill, CheckOnClick = true, IntegralHeight = false, BorderStyle = BorderStyle.FixedSingle, Font = Theme.Base };
+        var info = new Label { Dock = DockStyle.Bottom, Height = 18, Font = Theme.Small, ForeColor = Theme.Muted, Text = "CP가 있는 그룹이 없습니다" };
+        new ToolTip().SetToolTip(list, "체크한 그룹은 그대로 두고, 나머지는 강조(회색) 또는 숨김 (AGVCPVIEW)");
+        var showAll = Theme.Make("모두 표시", GlyphKind.Check, "");
+        showAll.Dock = DockStyle.Bottom;
+
+        HashSet<string> Ticked(int index, CheckState state)
+        {
+            var set = new HashSet<string>();
+            for (int i = 0; i < list.Items.Count; i++)
+                if (i == index ? state == CheckState.Checked : list.GetItemChecked(i)) set.Add(((GroupItem)list.Items[i]).Info.Group);
+            return set;
+        }
+        list.ItemCheck += (o, e) =>
+        {
+            if (busy) return;
+            if (!CpViewRequest.Go(mode, Ticked(e.Index, e.NewValue))) e.NewValue = e.CurrentValue; // refused: the box stays as the drawing is
+        };
+        EventHandler setMode = (o, e) =>
+        {
+            var m = hide.Checked ? CpViewMode.Hide : CpViewMode.Highlight;
+            if (busy || m == mode) return;
+            var ticked = Ticked(-1, CheckState.Unchecked);
+            // nothing is grey or hidden while every group is ticked, so only the mode changes then
+            if (ticked.Count < list.Items.Count && !CpViewRequest.Go(m, ticked))
+            {
+                busy = true;
+                (mode == CpViewMode.Hide ? hide : highlight).Checked = true;
+                busy = false;
+                return;
+            }
+            mode = m;
+        };
+        highlight.CheckedChanged += setMode;
+        hide.CheckedChanged += setMode;
+        showAll.Click += (o, e) => CpViewRequest.Go(mode, null);
+
+        var loaded = false;
+        PaletteStatus.Groups = groups =>
+        {
+            loaded = true;
+            busy = true;
+            list.BeginUpdate();
+            list.Items.Clear();
+            foreach (var g in groups) list.Items.Add(new GroupItem(g), g.Shown);
+            list.EndUpdate();
+            busy = false;
+            info.Text = groups.Count == 0 ? "CP가 있는 그룹이 없습니다" : $"그룹 {groups.Count}개 · CP {groups.Sum(g => g.Count)}개";
+        };
+        tabs.SelectedIndexChanged += (o, e) => { if (!loaded && tabs.SelectedTab?.Text == "CP") AgvPalette.Send("AGVFIND"); }; // AGVFIND ends in Run, which fills the list
+
+        var panel = new Panel { Height = 220, Margin = new Padding(0, 0, 0, 4) };
+        panel.Controls.Add(list); // Fill first: the docked edges then take their space before it
+        panel.Controls.Add(info);
+        panel.Controls.Add(showAll);
+        panel.Controls.Add(modes);
+        return panel;
     }
 
     // A table with fixed columns; the last one takes the rest of the width.

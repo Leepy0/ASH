@@ -28,7 +28,15 @@ public sealed class ServerCommands
     private static readonly TimeSpan HardCapGrace = TimeSpan.FromSeconds(2);
 
     [CommandMethod("AGVSEND")]
-    public void AgvSend() => Command("AGVSEND", results: false);
+    public void AgvSend()
+    {
+        // not in Command: AGVMODEL ends in Command too and has warned already
+        var doc = Application.DocumentManager.MdiActiveDocument;
+        if (doc != null)
+            try { Cad.CpViewer.WarnIfHidden(doc); }
+            catch (System.Exception ex) { PluginLog.Write("AGVSEND hidden CP check", ex); } // only a courtesy line
+        Command("AGVSEND", results: false);
+    }
 
     /// <summary>Uploads what ash-run computed on this PC (runs\summary.tsv, search.tsv, the runs' result.tsv) with the model, for the same result pages.</summary>
     [CommandMethod("AGVRESULTUP")]
