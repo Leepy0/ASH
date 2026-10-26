@@ -39,7 +39,8 @@ public sealed class AutoModFilm(IConfiguration cfg) : IFilmAutoMod
 /// the ash_cal calibration mark and a recording window, is built and run once, F0 is measured (guide 10.4), and every cut is one AutoView run plus an ffmpeg finish.
 /// A cut that fails (or hangs past Film:CutTimeoutMin) fails alone. Scenes: one run with the event log, SceneFinder, &lt;job&gt;\scenes.json or scenes.delta&lt;d&gt;.json.
 /// </summary>
-public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore films, IFilmAutoMod am, IFilmRenderer renderer, IConfiguration cfg, ILogger<FilmWorker> logger)
+public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore films, IFilmAutoMod am, IFilmRenderer renderer, IConfiguration cfg, ILogger<FilmWorker> logger,
+    LimitWorker limits)
 {
     public const string ScenesRequest = "scenes-request.json";
     public const string CalSystem = "ash_cal";
@@ -84,7 +85,7 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
         }
     }
 
-    /// <summary>One piece of work between jobs: a waiting scene request, else the oldest queued film. False when there was nothing to do.</summary>
+    /// <summary>One piece of work between jobs: a waiting scene request, else a production limit step, else a cut preview, else the oldest queued film. False when there was nothing to do.</summary>
     public bool RunNext(CancellationToken stop)
     {
         foreach (var j in jobs.All())
@@ -98,6 +99,12 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
             _scenesDone[j.Id] = text;
             _busy = ScenesBusy;
             try { SceneRequest(j, req, text); } finally { _busy = null; }
+            return true;
+        }
+        if (limits.Next() is { } lj)
+        {
+            _busy = LimitWorker.Busy;
+            try { limits.RunStep(lj, stop); } finally { _busy = null; }
             return true;
         }
         if (Previews.TakeNext() is { } p)
