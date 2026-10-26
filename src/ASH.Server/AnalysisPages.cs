@@ -381,8 +381,8 @@ public static class AnalysisPages
         sb.Append(Kpi("최대 가동률", top == null ? "-" : F(top.Util * 100, "0"), top == null ? "" : "%", over ? "orange" : "ink",
             top == null ? "" : over ? $"⚠ 경고: 상한 {F(v.UtilMax * 100, "0")}% 초과 · {H(top.Group)}" : $"✓ 상한 {F(v.UtilMax * 100, "0")}% 이하 · {H(top.Group)}", over ? "orange" : ""));
         var stop = m.Stop;
-        sb.Append(double.IsNaN(stop) ? Kpi("결품", "-", "", "ink", "")
-            : stop <= 0 ? Kpi("결품", "0", "초", "ink", "✓ 없음", "green") : Kpi("결품", F(stop, "0"), "초", "red", "⚠ 결품 있음", "red"));
+        sb.Append(double.IsNaN(stop) ? Kpi("자재 품절", "-", "", "ink", "")
+            : stop <= 0 ? Kpi("자재 품절", "0", "초", "ink", "✓ 없음", "green") : Kpi("자재 품절", F(stop, "0"), "초", "red", "⚠ 자재 품절", "red"));
         if (m.Investment is { AnyPriced: true } inv)
         {
             var o = other.M?.Investment is { AnyPriced: true } oi && oi.Currency == inv.Currency ? oi : null;
@@ -425,7 +425,7 @@ public static class AnalysisPages
                 $"<span class=\"pn\"><b>{H(p.Name)} v{pj.Version}{(pj.Selected ? " · 선정" : "")}</b><span>{Md(At(pj))}</span></span>" +
                 V(pm?.Total?.ToString(CultureInfo.InvariantCulture) ?? "-", "대", "권장", pj.Id == cur.Id ? "blue" : "") +
                 V(double.IsNaN(pu) ? "-" : F(pu * 100, "0"), "%", "가동률", pm != null && pu > pm.View.UtilMax ? "orange" : "") +
-                V(double.IsNaN(ps) ? "-" : F(ps, "0"), "초", "결품", double.IsNaN(ps) ? "" : ps > 0 ? "red" : "green") +
+                V(double.IsNaN(ps) ? "-" : F(ps, "0"), "초", "자재 품절", double.IsNaN(ps) ? "" : ps > 0 ? "red" : "green") +
                 (priced ? V(pm?.Investment is { AnyPriced: true } pi ? H(Money(pi.Total, pi.Currency)) : "-", "", "투자비") : "") + "</a>");
         }
         sb.Append("</div></section>");
@@ -608,7 +608,7 @@ fit();addEventListener('resize',fit);})();</script>";
                 if (j.State == JobState.Failed) sb.Append($"<span class=\"state s-failed\">⚠ 실패</span><span class=\"bad\">{H((j.Error ?? "").Split('\n')[0].Trim())}</span>");
                 else if (!j.Finished || j.State == JobState.Cancelled) sb.Append(State(j));
                 else if (m?.Total is { } t)
-                    sb.Append($"<b>{t}대</b><span class=\"{(m.Util > m.View.UtilMax ? "wn" : "")}\">{(m.Util > m.View.UtilMax ? "⚠ " : "")}가동률 {Pc0(m.Util)}</span><span class=\"{(m.Stop > 0 ? "bad" : "")}\">결품 {(double.IsNaN(m.Stop) ? "-" : Num(m.Stop, "0"))}초</span>");
+                    sb.Append($"<b>{t}대</b><span class=\"{(m.Util > m.View.UtilMax ? "wn" : "")}\">{(m.Util > m.View.UtilMax ? "⚠ " : "")}가동률 {Pc0(m.Util)}</span><span class=\"{(m.Stop > 0 ? "bad" : "")}\">자재 품절 {(double.IsNaN(m.Stop) ? "-" : Num(m.Stop, "0"))}초</span>");
                 sb.Append($"<span class=\"t4\">{H(When(j.CreatedUtc))} · {H(j.Submitter)}{(j.VersionNote.Length > 0 ? " · " + H(j.VersionNote) : "")}</span><span class=\"sp\"></span>");
                 sb.Append(FileRoutes.ContinueLink(j)).Append(SelectForm(j, back)).Append($"<a class=\"btn\" href=\"/jobs/{H(j.Id)}\">열기</a></div>");
             }
@@ -825,7 +825,7 @@ fit();addEventListener('resize',fit);})();</script>";
         BlockView? Worst(Metrics m) => m.View.Blocks.Where(x => !double.IsNaN(x.AvgWaitSec)).OrderByDescending(x => x.AvgWaitSec).FirstOrDefault();
         Row("총 대수(대)", m => m.Total, m => m.Total?.ToString(CultureInfo.InvariantCulture) ?? "-");
         Row("최대 가동률(%)", m => Pv(m.Util), m => Pc(m.Util));
-        Row("결품 합계(초)", m => m.Stop, m => double.IsNaN(m.Stop) ? "-" : Num(m.Stop, "0"));
+        Row("자재 품절 합계(초)", m => m.Stop, m => double.IsNaN(m.Stop) ? "-" : Num(m.Stop, "0"));
         Row("교착(회)", m => m.View.Deadlocks, m => m.View.Deadlocks.ToString(CultureInfo.InvariantCulture));
         Row("최대 병목(block·초)", m => Worst(m)?.AvgWaitSec, m => Worst(m) is { } w ? $"{w.Name}·{Num(w.AvgWaitSec)}" : "-");
         if (d.Prices is { Count: > 0 })

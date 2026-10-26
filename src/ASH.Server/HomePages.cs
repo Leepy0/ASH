@@ -94,7 +94,7 @@ document.querySelectorAll('a[data-me]').forEach(function(a){
             sb.Append($"<div class=\"card{(i == 0 ? " hot" : "")}\"><a class=\"t2\" href=\"/analyses/{H(c.AnalysisId)}\">{H(c.Name)}</a><div class=\"t4\">{H(c.Plan)} v{c.Version} · {Md(c.FinishedUtc)}</div>" +
                 $"<div class=\"t1\">{c.Total}<small>대</small></div><div class=\"t4\">권장 대수</div><div class=\"grp\">" +
                 $"<div{(over ? " class=\"wn\"" : "")}{(double.IsNaN(c.UtilMax) ? "" : $" title=\"{(over ? "경고: 가동률 상한" : "상한")} {Pct(c.UtilMax)}{(over ? " 초과" : "")}\"")}><b>{(over ? "⚠ " : "")}{Pct(double.IsNaN(c.Util) ? null : c.Util)}</b><small>최대 가동률</small></div>" +
-                $"<div{(stop ? " class=\"bad\"" : "")}><b>{(stop ? "▲ " : "")}{(double.IsNaN(c.Stop) ? "-" : F(c.Stop, "0") + "초")}</b><small>결품</small></div>" +
+                $"<div{(stop ? " class=\"bad\"" : "")}><b>{(stop ? "▲ " : "")}{(double.IsNaN(c.Stop) ? "-" : F(c.Stop, "0") + "초")}</b><small>자재 품절</small></div>" +
                 $"<div><b>{H(c.Block ?? "-")}</b><small>병목</small></div></div>" +
                 $"<div class=\"acts\"><a class=\"btn\" href=\"/analyses/{H(c.AnalysisId)}\">결론 보기</a><a class=\"btn pri\" href=\"/analyses/{H(c.AnalysisId)}/cuts?job={H(c.JobId)}\">영상 만들기</a></div></div>");
         }

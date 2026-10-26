@@ -47,7 +47,7 @@ public static class ReportPages
         var over = top != null && Over(top, v.UtilMax);
         kpis.Add(top == null ? new("최대 가동률", "-", "", "ink", "")
             : new("최대 가동률", F(top.Util * 100, "0"), "%", over ? "orange" : "ink", over ? $"⚠ 경고: 상한 {lim}% 초과 · {top.Group}" : $"✓ 상한 {lim}% 이하 · {top.Group}", over ? "orange" : ""));
-        kpis.Add(double.IsNaN(m.Stop) ? new("결품", "-", "", "ink", "") : m.Stop <= 0 ? new("결품", "0", "초", "ink", "✓ 없음", "green") : new("결품", F(m.Stop, "0"), "초", "red", "⚠ 결품 있음", "red"));
+        kpis.Add(double.IsNaN(m.Stop) ? new("자재 품절", "-", "", "ink", "") : m.Stop <= 0 ? new("자재 품절", "0", "초", "ink", "✓ 없음", "green") : new("자재 품절", F(m.Stop, "0"), "초", "red", "⚠ 자재 품절", "red"));
         if (m.Investment is { AnyPriced: true } inv)
         {
             var s = AnalysisPages.Money(inv.Total, inv.Currency);
@@ -57,7 +57,7 @@ public static class ReportPages
 
         // ---- 안별 결론: each plan's own pick, this version for its plan
         var priced = d.Prices is { Count: > 0 };
-        var plans = new ReportTable(new[] { "안", "버전", "완료", "권장(대)", "최대 가동률(%)", "결품(초)" }.Concat(priced ? new[] { "투자비" } : Array.Empty<string>()).ToArray(), new());
+        var plans = new ReportTable(new[] { "안", "버전", "완료", "권장(대)", "최대 가동률(%)", "자재 품절(초)" }.Concat(priced ? new[] { "투자비" } : Array.Empty<string>()).ToArray(), new());
         var compare = new List<ReportPlan>();
         foreach (var p in a.Plans)
         {
@@ -85,7 +85,7 @@ public static class ReportPages
         }
 
         // ---- 자재별: supplies, frequency, lead time, quantities (as the 상세 tab)
-        var mats = new ReportTable(new[] { "자재", "그룹", "공급 횟수(회)", "공급 빈도(초)", "리드 타임 평균/최대(초)", "결품(초)", "용기 평균/최소/최대", "자재 평균/최소/최대(개)" }, new());
+        var mats = new ReportTable(new[] { "자재", "그룹", "공급 횟수(회)", "공급 빈도(초)", "리드 타임 평균/최대(초)", "자재 품절(초)", "용기 평균/최소/최대", "자재 평균/최소/최대(개)" }, new());
         foreach (var x in v.Materials)
         {
             var per = PerContainer(v, x);

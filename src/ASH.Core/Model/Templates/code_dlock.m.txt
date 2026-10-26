@@ -2,7 +2,7 @@
    A stuck vehicle waits for the holder of the block whose waiting list names it (blocks' "loads waiting", printed: its items are vehicle clones
    that no pointer variable takes), else for the stuck vehicle standing at its next CP. Following waits-for back to the start is a deadlock;
    seen on two ticks in a row it is logged, one dlock row per vehicle in it, once per episode (until it clears).
-   Vehicles are numbered 1..{{VS}} over all groups (A_dlv, set at vehicle initialization); blocks 1..{{NB}} in V_dlBn. */
+   Vehicles are numbered 1..{{VS}} over all groups (A_vid, set at vehicle initialization); blocks 1..{{NB}} in V_dlBn. */
 begin P_dlock arriving procedure
 {{NAMES}}
 	while 1 = 1 do begin

@@ -64,7 +64,6 @@ begin P_supply_{{M}} arriving procedure
 	set A_jf to 0
 	set A_js0 to V_vT(A_vid + {{NV}})
 	set A_jt0 to V_vT(A_vid + {{NV2}})
-	set V_vPtr(A_vid) to A_veh
 	/* a vehicle that came over from elsewhere to take this load: AutoMod counts that run as retrieving; the share since its last pickup is this job's */
 	set V_x to (A_veh percent time retrieving) / 100 * ac
 	set A_ret to V_x - A_veh A_rLast

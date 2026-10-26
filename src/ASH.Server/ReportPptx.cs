@@ -226,12 +226,12 @@ internal static class ReportPptx
 
         // ---- 요약: the number cards and three findings
         string headline;
-        if (stop > 0) headline = $"{plan} {total}대 — 결품 {F(stop, "#,0")}초 발생, 대수 재검토 필요";
+        if (stop > 0) headline = $"{plan} {total}대 — 자재 품절 {F(stop, "#,0")}초 발생, 대수 재검토 필요";
         else if (fails.Count > 0) headline = $"{plan} {total}대 — {fails[0].Group} 판정 실패, 대수 재검토 필요";
-        else if (top == null) headline = $"{plan} {total}대로 결품 없이 운영 가능";
-        else if (Over(top, lim)) headline = $"{plan} {total}대로 결품 없이 운영 가능 — {top.Group} 가동률 {Pc(top.Util)}, 상한({Pc(lim)}) {OverWhy(top, lim)}";
-        else if (top.Util >= lim - 0.05) headline = $"{plan} {total}대로 결품 없이 운영 가능 — {top.Group}만 가동률 상한({Pc(lim)}) 근접";
-        else headline = $"{plan} {total}대로 결품 없이 운영 가능 — 모든 그룹 가동률 상한({Pc(lim)}) 이하";
+        else if (top == null) headline = $"{plan} {total}대로 자재 품절 없이 운영 가능";
+        else if (Over(top, lim)) headline = $"{plan} {total}대로 자재 품절 없이 운영 가능 — {top.Group} 가동률 {Pc(top.Util)}, 상한({Pc(lim)}) {OverWhy(top, lim)}";
+        else if (top.Util >= lim - 0.05) headline = $"{plan} {total}대로 자재 품절 없이 운영 가능 — {top.Group}만 가동률 상한({Pc(lim)}) 근접";
+        else headline = $"{plan} {total}대로 자재 품절 없이 운영 가능 — 모든 그룹 가동률 상한({Pc(lim)}) 이하";
         var s = New("요약", headline);
         long cw = (BodyW - Gap * (r.Kpis.Count - 1)) / Math.Max(1, r.Kpis.Count), ch = In(2.05);
         for (int i = 0; i < r.Kpis.Count; i++)
@@ -277,8 +277,8 @@ internal static class ReportPptx
         {
             var outs = mats.Where(m => m.StopSec > 0).OrderByDescending(m => m.StopSec).ToList();
             var longest = mats.OrderByDescending(m => m.DelivAvg).First();
-            var title = outs.Count > 0 ? $"{outs.Count}개 자재 결품 — {MatLabel(v, outs[0])} {F(outs[0].StopSec, "#,0")}초로 최대"
-                : $"결품 없음 — 리드 타임 최장 {MatLabel(v, longest)} 평균 {F(longest.DelivAvg, "0")}초 · 최대 {F(longest.DelivMax, "0")}초";
+            var title = outs.Count > 0 ? $"{outs.Count}개 자재 품절 — {MatLabel(v, outs[0])} {F(outs[0].StopSec, "#,0")}초로 최대"
+                : $"자재 품절 없음 — 리드 타임 최장 {MatLabel(v, longest)} 평균 {F(longest.DelivAvg, "0")}초 · 최대 {F(longest.DelivMax, "0")}초";
             Materials(New("자재 공급", title), v, mats, outs);
         }
 
@@ -348,7 +348,7 @@ internal static class ReportPptx
         s.Text(In(0.8), In(4.75), In(6.6), In(1.4), lines);
         s.Text(In(0.8), In(6.75), In(3), In(0.35), T("ASH", 14, White, true));
 
-        // the three numbers: 권장 대수, 최대 가동률, then 투자비 (else 결품)
+        // the three numbers: 권장 대수, 최대 가동률, then 투자비 (else 자재 품절)
         var ks = r.Kpis.Take(2).Append(r.Kpis.Count > 3 ? r.Kpis[3] : r.Kpis.ElementAtOrDefault(2)).OfType<ReportKpi>().ToList();
         long x = lw + In(0.7), w = SW - lw - In(1.2), bh = In(2.0);
         for (int i = 0; i < ks.Count; i++)
@@ -426,7 +426,7 @@ internal static class ReportPptx
         var stripRows = cmp.Select(c => (new[] { c.Label, r.ByPlan ? $"v{c.Job.Version}{(c.Job.Selected ? " · 선정" : "")}" : When(c.Job.FinishedUtc), c.M.Total?.ToString(CultureInfo.InvariantCulture) ?? "-", (OverM(c.M) ? "▲ " : "") + Pc(c.M.Util),
                 double.IsNaN(c.M.Stop) ? "-" : F(c.M.Stop, "#,0") }.Concat(priced ? new[] { c.M.Investment is { AnyPriced: true } i ? AnalysisPages.Money(i.Total, i.Currency) : "-" } : Array.Empty<string>()).ToArray(),
             string.Join(" ", new[] { c.Job.Id == r.Job.Id ? "cur" : "", c.M.Stop > 0 ? "fail" : OverM(c.M) ? "over" : "" }.Where(x => x.Length > 0)))).ToList();
-        var head = new[] { r.ByPlan ? "안" : "버전", r.ByPlan ? "버전" : "완료", "권장(대)", "최대 가동률(%)", "결품(초)" }.Concat(priced ? new[] { "투자비" } : Array.Empty<string>()).ToArray();
+        var head = new[] { r.ByPlan ? "안" : "버전", r.ByPlan ? "버전" : "완료", "권장(대)", "최대 가동률(%)", "자재 품절(초)" }.Concat(priced ? new[] { "투자비" } : Array.Empty<string>()).ToArray();
         long stripH = In(0.52) + In(0.32) * stripRows.Count, chartH = BodyH - stripH - In(0.75);
         long hw = (BodyW - Gap) / 2;
 
@@ -550,8 +550,8 @@ internal static class ReportPptx
         if (outs.Count == 0)
         {
             s.Box(x0, Top, w, chh, "E6F4EA", null, "roundRect");
-            s.Text(x0 + In(0.3), Top + In(0.2), w - In(0.6), In(0.35), T("✓ 결품 없음", 18, Green, true));
-            s.Text(x0 + In(0.3), Top + In(0.65), w - In(0.6), In(0.7), new[] { T($"자재 {mats.Count}개 모두 결품 0초", 13, Sub), T($"공급 합계 {F(mats.Sum(m => double.IsNaN(m.Trips) ? m.Supplies : m.Trips), "#,0")}회", 13, Sub, before: 4) });
+            s.Text(x0 + In(0.3), Top + In(0.2), w - In(0.6), In(0.35), T("✓ 자재 품절 없음", 18, Green, true));
+            s.Text(x0 + In(0.3), Top + In(0.65), w - In(0.6), In(0.7), new[] { T($"자재 {mats.Count}개 모두 품절 0초", 13, Sub), T($"공급 합계 {F(mats.Sum(m => double.IsNaN(m.Trips) ? m.Supplies : m.Trips), "#,0")}회", 13, Sub, before: 4) });
         }
         for (int i = 0; i < cards.Count; i++)
         {
@@ -561,7 +561,7 @@ internal static class ReportPptx
             s.Box(x0, y + In(0.2), 38100, chh - In(0.4), bad ? Red : Blue);
             s.Text(x0 + In(0.3), y + In(0.16), w - In(0.5), In(0.32), new[] { new Para(new[] { new Run(MatLabel(v, m), 15, Ink, true), new Run("   " + m.Group, 12, Sub) }) });
             s.Text(x0 + In(0.3), y + In(0.48), w - In(0.5), In(0.62), new[] { bad
-                ? new Para(new[] { new Run(F(m.StopSec, "#,0"), 32, Red, false, Num), new Run(" 초 결품", 14, Sub) })
+                ? new Para(new[] { new Run(F(m.StopSec, "#,0"), 32, Red, false, Num), new Run(" 초 자재 품절", 14, Sub) })
                 : new Para(new[] { new Run(F(m.DelivAvg, "0"), 32, Ink, false, Num), new Run(" 초 평균", 14, Sub), new Run($"   최대 {F(m.DelivMax, "0")}초", 14, Ink, true) }) }, anchor: "b");
             s.Text(x0 + In(0.3), y + In(1.18), w - In(0.5), In(0.28), T($"공급 {F(m.Trips is > 0 ? m.Trips : m.Supplies, "#,0")}회{(SupplyInterval(v, m) is var iv && !double.IsNaN(iv) ? $" · {F(iv, "0")}초마다" : "")}", 12, Sub));
         }

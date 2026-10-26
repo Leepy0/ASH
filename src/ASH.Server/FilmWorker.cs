@@ -614,18 +614,18 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
     {
         var total = counts.Values.Sum();
         if (input.Groups.All(g => counts[g.Group] == (j.Decided!.TryGetValue(g.Group, out var d) ? d : g.MinCount)) && AnalysisPages.MetricsOf(jobs, j) is { } m)
-            return $"권장 {total}대 · 가동률 {Pct(m.Util)} · 결품 {JobPages.F(m.Stop, "0")}초";
+            return $"권장 {total}대 · 가동률 {Pct(m.Util)} · 자재 품절 {JobPages.F(m.Stop, "0")}초";
         var v = JobView.For(jobs, j);
         var runs = v.RunCounts().Where(kv => input.Groups.All(g => (kv.Value.TryGetValue(g.Group, out var n) ? n : g.MinCount) == counts[g.Group])).Select(kv => kv.Key).ToHashSet();
         var rows = v.Rows.Where(x => runs.Contains(x.RunId)).ToList();
         static double Mean(IEnumerable<double> xs) { var l = xs.Where(x => !double.IsNaN(x)).ToList(); return l.Count == 0 ? double.NaN : l.Average(); }
         if (rows.Count > 0)
             return $"{total}대 · 가동률 {Pct(rows.GroupBy(x => x.Group).Select(g => Mean(g.Select(x => x.Utilization))).DefaultIfEmpty(double.NaN).Max())} · " +
-                   $"결품 {JobPages.F(Mean(rows.GroupBy(x => x.RunId).Select(g => g.Sum(x => x.StopTimeSec))), "0")}초";
+                   $"자재 품절 {JobPages.F(Mean(rows.GroupBy(x => x.RunId).Select(g => g.Sum(x => x.StopTimeSec))), "0")}초";
         try
         {
             var k = ASH.Core.Runner.Kpi.FromRun(ResultParser.Parse(o.ResultTsvPath!), null, input);
-            return $"{total}대 · 가동률 {Pct(k.Select(x => x.Utilization).DefaultIfEmpty(double.NaN).Max())} · 결품 {JobPages.F(k.Sum(x => x.StopTimeSec), "0")}초 · 이 실행 1회 값";
+            return $"{total}대 · 가동률 {Pct(k.Select(x => x.Utilization).DefaultIfEmpty(double.NaN).Max())} · 자재 품절 {JobPages.F(k.Sum(x => x.StopTimeSec), "0")}초 · 이 실행 1회 값";
         }
         catch (Exception e) when (e is IOException or InvalidDataException or ArgumentNullException) { return $"{total}대 · 이 실행 1회 값"; }
     }

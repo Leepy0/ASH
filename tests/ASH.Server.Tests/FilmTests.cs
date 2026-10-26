@@ -491,9 +491,9 @@ public class FilmTests
         await Film(env, aid, Body(new[] { "c1", "c2", "c3" }, new[] { j1 }, "each"));
         string Cap(string plan, string cut) => env.Film.Finishes.Last(x => !x.Join && Path.GetFileName(x.Out) == $"{plan}_v1_{cut}.mp4").Captions.Single();
         // the conclusion: 2 vehicles, the confirm run's 60 %, 45 s stop per material in its result.tsv (as the 결론 table)
-        Assert.Equal($"분석 · A안 v1 · 입구\n02:00:00 · 권장 2대 · 가동률 60% · 결품 {45 * materials}초", Cap("A안", "입구"));
+        Assert.Equal($"분석 · A안 v1 · 입구\n02:00:00 · 권장 2대 · 가동률 60% · 자재 품절 {45 * materials}초", Cap("A안", "입구"));
         // one vehicle less: the search's run at G1=1 (95 %, no stop), not this filming run
-        Assert.Equal("분석 · A안 v1 · 출구\n02:00:00 · 1대 · 가동률 95% · 결품 0초", Cap("A안", "출구"));
+        Assert.Equal("분석 · A안 v1 · 출구\n02:00:00 · 1대 · 가동률 95% · 자재 품절 0초", Cap("A안", "출구"));
         Assert.Equal("", Cap("A안", "끔"));
         Assert.Equal(2, env.Film.Runs.Count(r => r.RunsDir != null)); // the -1 cut needed its own model run
 
@@ -502,7 +502,7 @@ public class FilmTests
         var sum = Path.Combine(env.Store.ProjectDir(j2), "runs", "summary.tsv");
         File.WriteAllLines(sum, File.ReadAllLines(sum).Where(l => !l.StartsWith("n1_s1\t")));
         await Film(env, aid, Body(new[] { "c2" }, new[] { j2 }, "each"));
-        Assert.Equal($"분석 · B안 v1 · 출구\n02:00:00 · 1대 · 가동률 50% · 결품 {45 * materials}초 · 이 실행 1회 값", Cap("B안", "출구"));
+        Assert.Equal($"분석 · B안 v1 · 출구\n02:00:00 · 1대 · 가동률 50% · 자재 품절 {45 * materials}초 · 이 실행 1회 값", Cap("B안", "출구"));
     }
 
     [Fact]

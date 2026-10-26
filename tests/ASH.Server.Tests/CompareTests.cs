@@ -13,7 +13,7 @@ public class CompareTests
         var st = env.Factory.Services.GetRequiredService<AnalysisStore>(); var aid = st.All().Single().Id;
         st.SetSelected(env.Store, a.Id, true); st.SetSelected(env.Store, b.Id, true);
         var html = await env.Http.GetStringAsync($"/analyses/{aid}?tab=compare");
-        foreach (var s in new[] { "총 대수(대)", "최대 가동률(%)", "결품 합계(초)", "교착(회)", "최대 병목(block·초)", "G1 권장(대)", "G1 가동률(%)", "class=\"scroll\"", "<svg", "기준으로", "병목 지도 나란히" }) Assert.Contains(s, html);
+        foreach (var s in new[] { "총 대수(대)", "최대 가동률(%)", "자재 품절 합계(초)", "교착(회)", "최대 병목(block·초)", "G1 권장(대)", "G1 가동률(%)", "class=\"scroll\"", "<svg", "기준으로", "병목 지도 나란히" }) Assert.Contains(s, html);
         Assert.Contains("<small>0</small>", html); // same result so delta 0: no class
         Assert.DoesNotContain("class=\"bad\"", html.Substring(html.IndexOf("<small", StringComparison.Ordinal)));
         Assert.DoesNotContain("<small class=", html);

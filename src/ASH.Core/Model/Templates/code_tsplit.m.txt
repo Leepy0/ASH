@@ -8,8 +8,8 @@ begin P_tsplit arriving procedure
 		set V_i to 1
 		while V_i <= {{NV}} do begin
 			if V_vT(V_i) = 1 then begin
-				if V_vPtr(V_i) current velocity < 0.000001 then begin
-					if V_vPtr(V_i) current rotation velocity < 0.000001 then inc V_vT(V_i + {{NV}}) by 1
+				if V_dlVeh(V_i) current velocity < 0.000001 then begin
+					if V_dlVeh(V_i) current rotation velocity < 0.000001 then inc V_vT(V_i + {{NV}}) by 1
 					else inc V_vT(V_i + {{NV2}}) by 1
 				end
 			end

@@ -74,7 +74,7 @@ public class FilmIntegrationTests
         var res = r.Render(work, Model, CameraScript.Build(cut, 18, 1280, 720, 15, 80, Path.Combine(work, "cut01")), TimeSpan.FromMinutes(5), CancellationToken.None);
         Console.WriteLine($"{work} dialogs [{string.Join("|", res.Dialogs)}]");
         Assert.True(res.Ok, res.Error);
-        var final = r.Finish(new[] { res.Mp4! }, new[] { "분석 · A안 v1 · 고정\n00:20:00 · 권장 2대 · 가동률 68% · 결품 0초" }, Path.Combine(work, "final.mp4"), false);
+        var final = r.Finish(new[] { res.Mp4! }, new[] { "분석 · A안 v1 · 고정\n00:20:00 · 권장 2대 · 가동률 68% · 자재 품절 0초" }, Path.Combine(work, "final.mp4"), false);
         Assert.Equal("yuv420p", Ffprobe(final, "stream=pix_fmt"));
         var sec = double.Parse(Ffprobe(final, "format=duration")!, System.Globalization.CultureInfo.InvariantCulture);
         Assert.InRange(sec, 9, 11);

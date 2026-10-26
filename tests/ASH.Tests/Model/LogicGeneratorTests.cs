@@ -167,7 +167,10 @@ public class LogicGeneratorTests
         Assert.Matches(@"travel to agv:S001\n(?:(?!inc A_dn)[\s\S])*?wait for A_rep - ac sec", s);
 
         var pm = LogicGenerator.BuildProcessModel(p, Layout, "Meters");
-        foreach (var v in new[] { "V_vLoad", "V_vHand", "V_vBufB", "V_vBufX", "V_vRep" }) Assert.Contains(pm.Vars, x => x.Name == v && x.Type == "Real");
+        // per-vehicle reals are packed into V_vR (trial licence: 200 entities); V_vLoad is the 5th block of vs = 3 slots
+        Assert.Contains(pm.Vars, x => x.Name == "V_vR" && x.Type == "Real");
+        Assert.DoesNotContain(pm.Vars, x => x.Name == "V_vLoad");
+        Assert.Contains("V_vR(12 + (1))", pm.LogicSource);
         foreach (var a in new[] { "A_bw", "A_ld", "A_dn" }) Assert.Contains(pm.Atts, x => x.Name == a);
     }
 
@@ -238,7 +241,7 @@ public class LogicGeneratorTests
         Assert.Contains("V_vDown(1) \"\\t\" V_vLoad(1) \"\\t\" V_vHand(1) \"\\t\" V_vBufB(1) \"\\t\" V_vBufX(1) \"\\t\" V_vRep(1) to V_out", t);
         var pm = LogicGenerator.BuildProcessModel(p, Layout, "Meters");
         Assert.Equal("RS_fail", Assert.Single(pm.RnStreams).Name);
-        Assert.Contains(pm.Vars, v => v.Name == "V_vDown");
+        Assert.Contains(pm.Vars, v => v.Name == "V_vR"); // V_vDown packed
     }
 
     [Fact]
@@ -271,6 +274,14 @@ public class LogicGeneratorTests
         Assert.Contains("travel to agv:U001", t);
         var bad = Sample(); bad.Routes[0] = bad.Routes[0] with { SupplyToCP = "X999" };
         Assert.Throws<ArgumentException>(() => LogicGenerator.Render(bad, Layout));
+    }
+
+    [Fact]
+    public void Pack_Folds_Scalars_And_Arrays_With_Offsets()
+    {
+        var map = new Dictionary<string, (string, int)> { ["V_dlJ"] = ("V_dlI(1)", -1), ["V_dlE"] = ("V_dlA", 6), ["V_vT"] = ("V_vR", 27) };
+        Assert.Equal("set V_dlA(6 + (V_dlI(1))) to V_vR(27 + (V_dlI(1) + 3)) /* V_dlA */ V_dlJx",
+            LogicGenerator.Pack("set V_dlE(V_dlJ) to V_vT(V_dlJ + 3) /* V_dlE */ V_dlJx", map));
     }
 
     [Fact]
