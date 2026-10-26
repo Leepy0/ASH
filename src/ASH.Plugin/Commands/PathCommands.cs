@@ -32,8 +32,13 @@ public sealed class PathCommands
         if (key == null) return;
         var kind = KindOf(key);
         var db = doc.Database;
+        ObjectId ms;
+        using (var t = db.TransactionManager.StartTransaction()) ms = ModelSpaceId(db, t);
+        // a layout sheet or the block editor would hand over sheet or block-local coordinates, which land as paths around 0,0 in model space
+        if (db.CurrentSpaceId != ms) { ed.WriteMessage("\n경로는 모델 공간에서만 그립니다. 모델 탭(또는 레이아웃의 뷰포트 안)에서 다시 실행하세요."); return; }
         var added = new List<ObjectId>();
-        ObjectEventHandler onAppend = (s, e) => { if (e.DBObject is Polyline) added.Add(e.DBObject.ObjectId); };
+        // only model space: other commands (INSERT, paste, ASH's own block definitions) append polylines to block definitions in local coordinates
+        ObjectEventHandler onAppend = (s, e) => { if (e.DBObject is Polyline pl && pl.OwnerId == ms) added.Add(pl.ObjectId); };
         db.ObjectAppended += onAppend;
         var inline = true;
         try
@@ -59,19 +64,27 @@ public sealed class PathCommands
     private static void AgvPathDeferred(Document doc, List<ObjectId> added, ObjectEventHandler onAppend, (bool Spur, bool Two, bool Crab) kind, bool startPline)
     {
         var db = doc.Database;
-        CommandEventHandler? onEnd = null;
-        onEnd = (s, e) =>
+        CommandEventHandler? onEnd = null, onStart = null;
+        var done = false;
+        void Finish()
         {
-            if (!e.GlobalCommandName.Equals("PLINE", StringComparison.OrdinalIgnoreCase)) return;
+            if (done) return;
+            done = true;
             db.ObjectAppended -= onAppend;
             doc.CommandEnded -= onEnd;
             doc.CommandCancelled -= onEnd;
             doc.CommandFailed -= onEnd;
+            doc.CommandWillStart -= onStart;
             TagNewPaths(doc, added, kind);
-        };
+        }
+        static bool IsPline(CommandEventArgs e) => e.GlobalCommandName.IndexOf("PLINE", StringComparison.OrdinalIgnoreCase) >= 0;
+        onEnd = (s, e) => { if (IsPline(e)) Finish(); };
+        // the PLINE end was missed (a nested PLINE may not report it): the next other command ends the watch, so it never collects that command's polylines
+        onStart = (s, e) => { if (!IsPline(e)) Finish(); };
         doc.CommandEnded += onEnd;
         doc.CommandCancelled += onEnd;
         doc.CommandFailed += onEnd;
+        doc.CommandWillStart += onStart;
         if (startPline) doc.SendStringToExecute("_.PLINE ", true, false, false);
     }
 
@@ -82,10 +95,12 @@ public sealed class PathCommands
         Run(doc, "AGVPATH", (d, tr) =>
         {
             var names = DrawingReader.Read(d, tr).Paths.Select(p => p.Name).ToList();
+            var ms = ModelSpaceId(d, tr);
             int made = 0;
             foreach (var id in added.Where(i => !i.IsErased).ToList())
             {
                 var pl = (Polyline)tr.GetObject(id, OpenMode.ForWrite);
+                if (pl.OwnerId != ms) continue;
                 var drawn = DrawingReader.ReadPath(pl, kind); // its straight lines and arcs, in the order drawn
                 if (drawn == null) continue;
                 // PLINE joins consecutive segments into one polyline; each line (or arc) becomes a path of its own
@@ -111,11 +126,13 @@ public sealed class PathCommands
         var skipped = new Dictionary<string, int>();
         var sources = new List<string>();
         var made = new List<LayoutPath>();
+        var ms = ModelSpaceId(db, tr);
         foreach (var id in ids)
         {
             if (!(tr.GetObject(id, OpenMode.ForRead) is Entity e) || e.IsErased) continue;
             var locked = ((LayerTableRecord)tr.GetObject(e.LayerId, OpenMode.ForRead)).IsLocked;
-            var why = PathConvert.SkipReason(ConvertType(e), e.Layer, locked, Conventions.PathLayers);
+            // a layout's or a block's objects are in sheet or block-local coordinates: as paths they would land around 0,0
+            var why = e.OwnerId != ms ? "모델 공간 밖(레이아웃·블록 편집기)" : PathConvert.SkipReason(ConvertType(e), e.Layer, locked, Conventions.PathLayers);
             // drawn order, XData ignored: every converted path is one-way from the start point to the end point
             var segs = why != null ? null : e is Polyline2d p2 ? DrawingReader.Segments(p2, tr) : DrawingReader.Segments(e);
             if (why == null && (segs == null || segs.Count == 0)) why = "길이 0";
@@ -131,6 +148,8 @@ public sealed class PathCommands
         Ed.WriteMessage("\n" + PathConvert.Guidance);
         return true;
     });
+
+    internal static ObjectId ModelSpaceId(Database db, Transaction tr) => ((BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead))[BlockTableRecord.ModelSpace];
 
     // Already selected, a selection, or everything on the layer of one picked object. Never the whole drawing: walls are lines too.
     private static ObjectId[]? ConvertTargets(Editor ed, Database db, Transaction tr)

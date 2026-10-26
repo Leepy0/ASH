@@ -21,7 +21,7 @@ public static class DrawingWriter
     /// <summary>Adds the closed rectangle (returned id) plus an AGV_BLOCK attribute tag at its centre.</summary>
     public static ObjectId AddBlock(Database db, Transaction tr, LayoutBlock b)
     {
-        var pl = new Polyline { Layer = Conventions.LayerBlock, Closed = true };
+        var pl = new Polyline { Layer = Conventions.LayerBlock, Closed = true, ColorIndex = Commands.InitCommands.ByLayer };
         var r = b.Rect;
         var corners = new[] { r.Min, new Point2(r.Max.X, r.Min.Y), r.Max, new Point2(r.Min.X, r.Max.Y) };
         for (int i = 0; i < 4; i++) pl.AddVertexAt(i, new Point2d(corners[i].X, corners[i].Y), 0, 0, 0);
@@ -56,7 +56,7 @@ public static class DrawingWriter
 
     public static Polyline ToPolyline(LayoutPath p)
     {
-        var pl = new Polyline { Layer = Conventions.LayerFor(p.IsSpur, p.IsTwoWay, p.IsCrab) };
+        var pl = new Polyline { Layer = Conventions.LayerFor(p.IsSpur, p.IsTwoWay, p.IsCrab), ColorIndex = Commands.InitCommands.ByLayer };
         int i = 0;
         foreach (var s in p.Segments.SelectMany(SplitWideArc))
         {
@@ -109,7 +109,7 @@ public static class DrawingWriter
         var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
         if (!bt.Has(blockName)) throw new InvalidOperationException($"블록 정의 '{blockName}'이 없습니다. AGVINIT을 먼저 실행하세요.");
         var defId = bt[blockName];
-        var br = new BlockReference(new Point3d(pos.X, pos.Y, 0), defId) { Layer = layer, Rotation = rotation, ScaleFactors = new Scale3d(DrawingUnits.PerMeter * sizeFactor) };
+        var br = new BlockReference(new Point3d(pos.X, pos.Y, 0), defId) { Layer = layer, Rotation = rotation, ScaleFactors = new Scale3d(DrawingUnits.PerMeter * sizeFactor), ColorIndex = Commands.InitCommands.ByLayer };
         var id = Append(db, tr, br);
         if (attrs == null) return id;
         var def = (BlockTableRecord)tr.GetObject(defId, OpenMode.ForRead);
@@ -119,6 +119,7 @@ public static class DrawingWriter
             var ar = new AttributeReference();
             ar.SetAttributeFromBlock(ad, br.BlockTransform);
             ar.Layer = br.Layer;
+            ar.ColorIndex = Commands.InitCommands.ByLayer;
             ar.TextString = attrs.TryGetValue(ad.Tag, out var v) ? v ?? "" : ad.TextString;
             try { br.AttributeCollection.AppendAttribute(ar); } catch { ar.Dispose(); throw; }
             tr.AddNewlyCreatedDBObject(ar, true);
