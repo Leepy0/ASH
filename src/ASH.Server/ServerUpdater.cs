@@ -43,6 +43,25 @@ public sealed class ServerUpdater
     public string? PreviousRun { get; }
     private string SkipPath => Path.Combine(_dir, "skip-auto.txt");
 
+    /// <summary>Set by the job worker when it runs: an update found while it works is then only downloaded and staged, and the worker applies it
+    /// between two pieces of work (<see cref="ApplyPendingAsync"/>), so a running job or film is never cut off. Off (no worker): applied at once.</summary>
+    public bool WorkerApplies { get; set; }
+    volatile Pending? _pending;
+    sealed record Pending(string Stage, string Version);
+    /// <summary>The version staged and waiting for the worker to finish, or null.</summary>
+    public string? Waiting => _pending?.Version;
+    static string WaitText(string v) => $"{v} 받아 둠 — 지금 하는 작업이 끝나면 적용합니다(대기 중인 작업은 업데이트 뒤 이어서 실행)";
+
+    /// <summary>The worker, between two pieces of work: starts the staged swap. True when it started (the server stops in a moment, so the worker
+    /// takes nothing new); false when nothing waited or the batch failed (then it carries on, the result is in <see cref="LastResult"/>).</summary>
+    public async Task<bool> ApplyPendingAsync()
+    {
+        if (_pending is not { } p) return false;
+        _pending = null;
+        try { await RunBatchAsync(p.Stage, p.Version); LastResult = $"{p.Version} 적용 중 — 하던 작업을 마친 뒤 서비스가 재시작됩니다(약 10초)"; return true; }
+        catch (Exception e) { LastResult = "실패: " + e.Message; _log.LogWarning("서버 자동 업데이트 {Result}", LastResult); return false; }
+    }
+
     public ServerUpdater(ReleaseStore store, IConfiguration cfg, IServer server, IHostApplicationLifetime life, ILogger<ServerUpdater> log)
     {
         _store = store;
@@ -107,6 +126,7 @@ public sealed class ServerUpdater
         var m = PackageManifest.ParseServer(json);
         SemVersion.TryParse(m.Version, out var latest);
         if (!SemVersion.TryParse(Current, out var cur) || latest!.CompareTo(cur) <= 0) return $"최신({Current})";
+        if (_pending?.Version == m.Version) return WaitText(m.Version);
         if (File.Exists(SkipPath) && File.ReadAllText(SkipPath).Trim() == m.Version)
             return $"{m.Version}은(는) 지난 교체에 실패해 자동 적용하지 않음(update\\apply.log 확인, 더 높은 버전이 나오면 다시 시도)";
 
@@ -135,6 +155,7 @@ public sealed class ServerUpdater
         TryDeleteFile(part);
         if (!File.Exists(Path.Combine(stage, ExeName))) return $"거절: 서버 zip에 {ExeName}이(가) 없음";
 
+        if (WorkerApplies) { _pending = new Pending(stage, m.Version); return WaitText(m.Version); }
         await RunBatchAsync(stage, m.Version);
         return $"{m.Version} 적용 중 — 서비스가 재시작됩니다(약 10초)";
     }

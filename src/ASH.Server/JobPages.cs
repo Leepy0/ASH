@@ -347,7 +347,8 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
                 $"<td class=\"num\">{(total is { } n ? n.ToString(CultureInfo.InvariantCulture) : "-")}</td>");
             if (adminBack != null)
                 sb.Append("<td style=\"white-space:nowrap\">").Append(!j.Finished ? Act(j, "cancel", j.State == JobState.Queued ? "대기 취소" : "실행 취소", $"{j.Id} 작업을 취소할까요?")
-                    : Act(j, j.Archived ? "unarchive" : "archive", j.Archived ? "보관 해제" : "보관") + " " + Act(j, "delete", "삭제", $"{j.Id} 작업과 그 폴더(결과·업로드·로그)를 지웁니다. 되돌릴 수 없습니다. 지울까요?")).Append("</td>");
+                    : (j.State is JobState.Failed or JobState.Cancelled && j.Source == JobSource.Server ? Act(j, "resume", "이어서 하기") + " " : "")
+                      + Act(j, j.Archived ? "unarchive" : "archive", j.Archived ? "보관 해제" : "보관") + " " + Act(j, "delete", "삭제", $"{j.Id} 작업과 그 폴더(결과·업로드·로그)를 지웁니다. 되돌릴 수 없습니다. 지울까요?")).Append("</td>");
             sb.Append("</tr>");
         }
         if (jobs.Count == 0) sb.Append($"<tr><td colspan=\"{(adminBack != null ? 7 : 6)}\" class=\"muted\">아직 작업이 없습니다.</td></tr>");
@@ -366,12 +367,21 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
         if (j.Source == JobSource.Local) sb.Append("<span class=\"tag gray\" title=\"ash-run으로 돌린 결과를 올린 것입니다. 서버에서 다시 실행하지 않았습니다.\">내 PC에서 실행한 결과</span>");
         sb.Append("<span class=\"sp\"></span>");
         if (j.Finished && j.Decided != null) sb.Append($"<a class=\"btn pri\" href=\"/jobs/{H(j.Id)}/files/report.xlsx\">Excel 보고서 받기</a>");
+        else if (j.Finished && canCancel && j.State is JobState.Failed or JobState.Cancelled && j.Source == JobSource.Server)
+        {
+            // continue from the runs it finished (the search takes them again), or start over; same job, same version
+            var purged = j.RunsPurgedUtc != null;
+            sb.Append($"<a class=\"btn\" href=\"/jobs/{H(j.Id)}?tab=files\">로그 보기</a>" +
+                $"<form method=\"post\" action=\"/jobs/{H(j.Id)}/retry\"><input type=\"hidden\" name=\"mode\" value=\"restart\"><button title=\"끝낸 실행을 버리고 처음부터 탐색합니다.\">처음부터 다시</button></form>" +
+                $"<form method=\"post\" action=\"/jobs/{H(j.Id)}/retry\"><input type=\"hidden\" name=\"mode\" value=\"resume\"><button class=\"pri\" title=\"{(purged ? "실행 원본이 정리되어 있어 사실상 처음부터 다시 돕니다." : "끝낸 모델 실행은 다시 돌리지 않고 결과를 그대로 써서, 멈춘 곳부터 이어 갑니다.")}\">이어서 하기</button></form>");
+        }
         else if (j.Finished) sb.Append($"<a class=\"btn pri\" href=\"/jobs/{H(j.Id)}?tab=files\">로그 보기</a>");
         else if (canCancel)
             sb.Append($"<form method=\"post\" action=\"/jobs/{H(j.Id)}/cancel\"><button title=\"보낸 PC와 관리자만 취소할 수 있습니다. 실행 중인 모델 실행은 끝까지 돌고 새 실행만 멈춥니다.\">{(j.State == JobState.Queued ? "대기 취소" : "실행 취소")}</button></form>");
         sb.Append("</div>");
         sb.Append($"<p class=\"jm\"><span data-field=\"job.phase\">{H(j.Phase)}</span><span data-field=\"job.sep\">{(j.Phase != null ? " · " : "")}</span>작업 {H(j.Id)} · 보낸 사람 {H(j.Submitter)} ({H(j.Ip)}) · 보낸 시각 {H(When(j.CreatedUtc))}");
         if (j.StartedUtc != null) sb.Append($" · 실행 시간 {Dur(j.Duration)}");
+        if (j.Retries > 0) sb.Append($" · 다시 실행 {j.Retries}회{(j.Resume ? "(이어서)" : "(처음부터)")}");
         sb.Append($" · 모델 실행 <span data-field=\"job.runs\">{j.RunsDone}{(j.ExpectedRuns is { } er ? "/" + er : "")}회</span>{(j.RunsFailed > 0 ? $" <span class=\"bad\">▲ 실패 {j.RunsFailed}</span>" : "")}</p>");
         if (j.State == JobState.Queued) sb.Append($"<p class=\"jm\">{(q.Ahead == 0 ? "다음 차례입니다" : $"앞에 {q.Ahead}건이 있습니다")}{(busy != null ? $"({H(busy)}: 끝나야 시작합니다)" : "")}{(q.Start is { } s ? $" · 시작 예상 {H(SeoulTime.Text(s))}" : "")}.</p>");
         if (!j.Finished)

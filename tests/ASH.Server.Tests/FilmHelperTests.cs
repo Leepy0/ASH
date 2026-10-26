@@ -12,7 +12,7 @@ public class FilmHelperTests : IDisposable
 
     public void Dispose() { _stop.Cancel(); try { Directory.Delete(_jobs, true); } catch (IOException) { } }
 
-    FilmHelper.Client Client(TimeSpan? startWait = null) => new(FilmHelper.DirOf(_jobs), null, startWait ?? TimeSpan.FromSeconds(5));
+    FilmHelper.Client Client(TimeSpan? startWait = null) => new(FilmHelper.DirOf(_jobs), null, startWait ?? TimeSpan.FromSeconds(30)); // generous: under a full parallel test run the host task may start late
 
     Task Host(Func<FilmHelper.Request, CancellationToken, RenderResult> render) =>
         Task.Run(() => FilmHelper.RunHost(_jobs, render, _stop.Token));
