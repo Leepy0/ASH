@@ -38,11 +38,13 @@ public sealed record ConveyorResult(string Name, string Material, int Passed, do
 public sealed record ResultRow(string Kind, string Name, string Group, double[] Values);
 
 /// <summary>Typed rows of result.tsv. Deadlocks = value1 of the deadlock row, SimSec = value2 of the clock row.
-/// Rows keeps every data row in file order, including kinds not typed here.</summary>
+/// Rows keeps every data row in file order, including kinds not typed here (but not the dlock rows: block names are no values).
+/// DeadlockEvents = the dlock rows, one per episode in time order (empty for models built before them).</summary>
 public sealed record ResultSet(IReadOnlyList<MaterialResult> Materials, IReadOnlyList<GroupResult> Groups,
     IReadOnlyList<BlockResult> Blocks, int Deadlocks, double SimSec,
     IReadOnlyList<ResultRow> Rows,
-    IReadOnlyList<VehicleResult>? Vehicles = null, IReadOnlyList<MaterialStat>? MaterialStats = null, IReadOnlyList<ConveyorResult>? Conveyors = null);
+    IReadOnlyList<VehicleResult>? Vehicles = null, IReadOnlyList<MaterialStat>? MaterialStats = null, IReadOnlyList<ConveyorResult>? Conveyors = null,
+    IReadOnlyList<ASH.Core.Cause.DeadlockEvent>? DeadlockEvents = null);
 
 /// <summary>One data row of "Vehicle Statistics" in the .report: percent of total time and trips per state.</summary>
 public sealed record VehicleRow(double DeliveringPct, int DeliveringTrips, double RetrievingPct, int RetrievingTrips,
