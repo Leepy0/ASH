@@ -82,7 +82,7 @@ ASH는 ZWCAD 플러그인으로 AGV 경로·CP를 그리고, 엑셀 입력과 �
 - 확인하면 즉시 현재 도면의 레이어 색이 바뀌고, 이후 새 도면과 모든 ASH 명령에서 그 색을 쓴다.
 
 ### 동작 규칙
-- 저장 위치는 **PC별 사용자 설정** `%APPDATA%\ASH\ash.user.tsv`에 키 `LayerColors`, 값 `AGV_PATH=1;AGV_CP_STANDBY=30` 형식(바꾼 것만). 도면별이 아닌 이유: 색은 보는 사람의 취향·모니터 문제이고, 도면을 받는 쪽에 강요할 것이 아니다. (내 판단. 도면별로 두고 싶으면 `ProjectSettings`에 같은 키를 두면 되고 구조는 같다.)
+- 저장 위치는 **PC별 사용자 설정**(사용자 확인 완료) `%APPDATA%\ASH\ash.user.tsv`에 키 `LayerColors`, 값 `AGV_PATH=1;AGV_CP_STANDBY=30` 형식(바꾼 것만). 도면별이 아닌 이유: 색은 보는 사람의 취향·모니터 문제이고, 도면을 받는 쪽에 강요할 것이 아니다. (내 판단. 도면별로 두고 싶으면 `ProjectSettings`에 같은 키를 두면 되고 구조는 같다.)
 - 기본값 표는 지금 `InitCommands.AshLayers()`와 `CpTypes.ColorIndex`에 있는 값 그대로. 이 표를 Core(`LayerColors.Default`)로 옮기고, `Init`은 "기본값 ⊕ 사용자 덮어쓰기"를 쓴다. 그래야 명령마다 색을 되돌리는 지금 동작이 사용자 색을 지우지 않는다.
 - 블록(방향표 `AGV_DIR*`, CP 원, block 태그)은 이미 ByLayer이므로 자동으로 따라온다.
 - 팔레트 버튼 색 `Theme.CpColor`는 ACI→RGB 변환으로 바꿔 같은 표를 따르게 한다(ZWCAD `Color.FromColorIndex(...).ColorValue`). 이때 빠진 `finish` 색도 들어간다.
@@ -103,7 +103,7 @@ ASH는 ZWCAD 플러그인으로 AGV 경로·CP를 그리고, 엑셀 입력과 �
 | 3 | rtnload | rtnunload |
 | 4 | buffer | traffic |
 
-- 요청의 나열은 "finish-standby, loading-unloading, buffer, rtn 2개, traffic"이었다. buffer가 혼자라 빈칸이 생기므로 buffer와 traffic을 한 줄로 묶고 rtn 쌍을 위로 올렸다(내 판단, 확인 필요: §11 질문 1).
+- 요청의 나열은 "finish-standby, loading-unloading, buffer, rtn 2개, traffic"이었다. buffer가 혼자라 빈칸이 생기므로 buffer와 traffic을 한 줄로 묶고 rtn 쌍을 위로 올렸다(사용자 확인 완료).
 - 순서 표는 `CpTypes.PaletteOrder`(Core)로 두고 팔레트는 그것을 읽는다. `CpTypes.All`은 내보내기·채번이 쓰므로 건드리지 않는다.
 - 버튼 라벨은 "standby" 같은 타입 이름 뒤에 한글을 붙인다: `standby 대기`, `finish 완료`, `load 로딩`, `unload 언로딩`, `rtnload 복귀 로딩`, `rtnunload 복귀 언로딩`, `buffer 버퍼`, `traffic 교통`. 툴팁은 지금 형식 유지.
 - F4의 "루트 순서 배치" 버튼은 이 표 바로 아래 한 줄 전체 폭으로 둔다.
@@ -140,7 +140,7 @@ ASH는 ZWCAD 플러그인으로 AGV 경로·CP를 그리고, 엑셀 입력과 �
 
 ### 입력
 - `Materials` 시트에 열 **`Use`** 하나를 추가한다(머리글 `Use`, 2행 설명 "사용 여부 Y/N, 빈칸=Y"). 값은 `Y`/`N`(대소문자 무시), 한글 `예`/`아니오`, `1`/`0`도 받는다. 빈칸은 사용.
-- Routes에는 열을 두지 않는다. 자재당 Route가 1행이므로 자재를 끄면 그 Route도 꺼진다. (요청은 "route 혹은 자재"였고, 하나만 두는 쪽이 모순이 없다. 내 판단.) 위에서 §11 항목으로 묻지는 않는다.
+- Routes에는 열을 두지 않는다. 자재당 Route가 1행이므로 자재를 끄면 그 Route도 꺼진다. (요청은 "route 혹은 자재"였고, 하나만 두는 쪽이 모순이 없다. 내 판단.)
 - 엑셀 데이터 유효성 목록(Y/N)을 템플릿에 건다. 지금 `Form`·`Flow` 열과 같은 방식(`ExcelTemplate.Lists`).
 
 ### 동작 규칙
@@ -168,7 +168,7 @@ ASH는 ZWCAD 플러그인으로 AGV 경로·CP를 그리고, 엑셀 입력과 �
 | 출입문 | 블록 `ASH_3D_DOOR` | 벽 6 m 가운데 2.2×2.4 m 개구부 | 블록 X 배율 = 전체 길이 |
 | 안전 펜스 | 레이어 `AGV_3D_FENCE`의 선·폴리선 | 노란 기둥 2 m 간격 + 어두운 망 + 발판, 높이 2 m | — |
 | 로봇 대/중/소 | 블록 `ASH_3D_ROBOT_L` / `_M` / `_S` | 6축 다관절 형상(원기둥 베이스, 노란 몸체·팔) | L 높이 3.2 m(리치 2.5 m급), M 2.0 m, S 1.1 m |
-| 컨베이어(그래픽만) | 레이어 `AGV_3D_CONV`의 폴리선 | 파란 프레임, 롤러, 다리, 높이 0.75 m, 폭 0.6 m | 폭은 폴리선 폭 |
+| 컨베이어(그래픽만) | 레이어 `AGV_3D_CONV`의 폴리선 | AutoMod 컨베이어 구간 + 그래픽 템플릿 `ASH_Roller_Green`(§9.2). 정적 셀이 아니다 | 높이 0.76 m(2.5 ft), 폭 0.6 m(폴리선 폭) |
 | 랙 | 블록 `ASH_3D_RACK` | 파란 기둥·노란 빔 3단, 팔레트+박스 | 3×1.1×4 m, X 배율 = 길이 |
 | 설비(일반) | 블록 `ASH_3D_MACHINE` | 회색 상자 + 조작반 + 녹색 램프 | 2.5×2×2.2 m, X/Y 배율로 크기 |
 | 기둥 | 블록 `ASH_3D_COLUMN` | 0.5 m 각기둥 4.5 m + 노란 띠 | — |
@@ -187,11 +187,11 @@ ASH는 ZWCAD 플러그인으로 AGV 경로·CP를 그리고, 엑셀 입력과 �
 1. `DrawingReader`가 `AGV_3D_*` 레이어의 선·폴리선과 `ASH_3D_*` 블록 참조(이름·삽입점·회전·X/Y 배율)를 읽어 `Layout.Assets`(새 레코드 `LayoutAsset(Kind, X, Y, RotDeg, Sx, Sy, Points)`)에 넣는다. 지금 CP 블록을 읽는 자리에 같이 둔다. 회전·배율 읽기는 이번에 처음 생긴다.
 2. `ExportRunner`가 `.arc\assets.tsv`를 쓴다(종류, 위치 m, 회전, 배율, 꼭짓점 목록). `blocks.tsv`와 같은 자리·같은 단위.
 3. `ModelBuilder.Build`가 `AssetShapes`로 `ash_3d.asy`를 만들고 `model.amo`의 PROCSYS 앞에 `STATIC name ash_3d` / `\tSYSPOS endx 1`을 넣는다(`StaticDrawing.AddTo`와 같은 위치·형식, `UNITS Meters`, `template Meters`, `511`이 아니라 셀 그룹 `700 1`로 시작). 모델 단위가 Millimeters인 프로젝트는 `template Millimeters`로 쓰고 좌표를 그대로 둔다.
-4. 서버: .arc를 그대로 빌드하므로 추가 작업 없음. 영상 복사본에도 그대로 들어간다. `AmBuilder`가 재빌드할 때 `<모델>.dir` 삭제는 `PrepareBuildDir`가 이미 한다(확인 필요: 정적 .asy 변경이 반영되는지 §11).
+4. 서버: .arc를 그대로 빌드하므로 추가 작업 없음. 영상 복사본에도 그대로 들어간다. `AmBuilder`가 재빌드할 때 `<모델>.dir` 삭제는 `PrepareBuildDir`가 이미 한다(확인 필요: 정적 .asy 변경이 반영되는지 §13).
 5. `JobPackage` 필수 목록에는 넣지 않는다(없으면 3D 없이 돈다).
 
 ### 8.4 셀 형식(확인된 것)
-- 상자 `310 5`, 원기둥 `320 5`(`r1 r2 h 0 0`, 축은 로컬 z, 회전 줄 `0 rx ry rz`로 눕힘), 그룹 `700 21`. 피트가 아니라 **미터 템플릿**으로 써도 되는지는 §11 확인 항목. 캡처는 피트로 만들었다.
+- 상자 `310 5`, 원기둥 `320 5`(`r1 r2 h 0 0`, 축은 로컬 z, 회전 줄 `0 rx ry rz`로 눕힘), 그룹 `700 21`. 피트가 아니라 **미터 템플릿**으로 써도 되는지는 §13 확인 항목. 캡처는 피트로 만들었다.
 - AutoMod 색 번호(캡처 `colors.jpg`로 확인): 0 검정, 1 빨강, 2 초록, 3 노랑, 4 파랑, 5 자홍, 6 청록, 7 밝은 회색, 8 회색, 9 어두운 회색, 10 갈색, 11 남색, 12 보라, 13 주황갈색, 14 연두, 15 카키.
 - 정적 시스템 하나에 에셋 수백 개를 넣어도 빌드 시간은 문제없었다(이 PC: 3만 줄 .asy 빌드 2.7 s). 영상 로드 시간은 셀 양에 비례하므로 FANUC 같은 메시 셀(1 MB)은 많이 넣지 않는다.
 
@@ -216,13 +216,20 @@ ASH는 ZWCAD 플러그인으로 AGV 경로·CP를 그리고, 엑셀 입력과 �
 ### 9.1 방식
 AutoMod **컨베이어 시스템**(`SYSTYPE Conveyor`)을 실제로 쓴다. 제품은 load로 구간 위를 이동하고, 스테이션에서 로직이 붙잡을 수 있다. 그래서 "자재가 떨어지면 그 자리에서 멈추고 뒤가 밀린다"가 로직 한 줄로 된다. 그래픽만 흘리는 방식은 멈춤을 표현하려면 결국 이 방식으로 다시 만들어야 하므로 택하지 않는다.
 
-캡처 `conv_demo.jpg`는 AutoMod 데모의 컨베이어 시스템(기본 그래픽, 보라 상자가 제품)이다. ASH 모델도 같은 모양으로 나온다.
+캡처 `conv_demo.jpg`는 AutoMod 데모의 컨베이어 시스템(보라 상자가 제품)이다. ASH는 그 데모의 롤러 템플릿을 초록 프레임으로 바꿔 쓴다(`conveyor.jpg`). 데모 벨트형은 `conveyor_belt.jpg`.
 
 ![AutoMod 컨베이어 시스템(데모)](2026-10-26-3d-assets/conv_demo.jpg)
 
+![ASH 롤러 컨베이어(초록 프레임)](2026-10-26-3d-assets/conveyor.jpg)
+
 ### 9.2 CAD·엑셀 입력(1단계)
 - CAD: 레이어 **`AGV_CONV`** 의 폴리선 하나 = 컨베이어 하나. 그린 방향이 흐름 방향. 이름은 F6의 그래픽용 `AGV_3D_CONV`와 달리 로직이 붙으므로 **이름이 필요**하다 → 명령 `AGVCONV`로 선택한 폴리선에 이름(`CV001`…)을 XData로 붙이고 글자를 단다(경로 XData 방식 `Cad/XData.cs`와 같음). `AGV_3D_CONV`(그래픽만)는 그대로 둔다.
-- 3D 모양: `AGV_CONV`(실제 시스템)는 **AutoMod 컨베이어 시스템의 기본 구간 그래픽**(회색 벨트, 캡처 `conv_demo.jpg`의 모양. gtx 템플릿·ASH 형상 없음)으로 나온다. `AGV_3D_CONV`(그래픽만)는 ASH 형상(`conveyor.jpg`)이다. 둘이 다르게 보이는 것은 감수한다(실제 시스템 쪽에 ASH 프레임을 겹쳐 그리면 제품이 가려지거나 이중으로 보인다).
+- 3D 모양(사용자 결정): 데모 `agvdemo`가 롤러 컨베이어에 쓰는 그래픽 템플릿 `class1`을 가져와 **레일·다리를 초록**으로 바꾼 `ASH_Roller_Green`을 쓴다(캡처 `conveyor.jpg`). 회색 롤러 데크, 초록 레일, 초록 다리 4 ft 간격.
+  - 템플릿은 컨베이어 `.asy` 끝에 인라인으로 넣는다: `GRAPHICS_TEMPLATE_DEF` + `<GRAPHICS_TEMPLATE_LIST>…</GRAPHICS_TEMPLATE_LIST>`, 그리고 구간마다 `PATH_GT name <구간>` / `	ATTACH_GT ASH_Roller_Green`. FLAGS에 `Sections GTemplate Inherit`. 외부 .gtx 파일이 필요 없으므로 서버·사용자 PC에 설치된 템플릿 폴더와 무관하다.
+  - 동작하는 견본: `2026-10-26-3d-assets/ashcv-sample.asy`(이 PC에서 빌드·렌더 확인. 템플릿 원문은 `C:\AutoMod
+_6\demosmoddemos\demosgvgvdemo.arc\conv.asy`의 `class1`). 템플릿 텍스트는 Core 리소스(`Model/Templates/conv_gtemplate.txt`)로 둔다.
+  - 그래픽 전용 `AGV_3D_CONV`도 **같은 방식**(컨베이어 시스템 `ash_conv`의 구간, 스테이션·로직 없음)으로 그린다. 그래서 둘은 똑같이 보인다. 정적 셀로 롤러를 직접 그리던 첫 안(롤러가 공중에 뜬 모양)은 버린다.
+  - 대안 템플릿: 같은 데모의 벨트형 `RAP_Belt_Roller_DkGreen`(캡처 `conveyor_belt.jpg`, 원래 초록 프레임). 1단계는 롤러형만, 벨트형은 Conveyors 시트 열 `Style`로 고르게 하는 것이 2단계 후보.
 - 엑셀: 시트 **`Conveyors`** 추가.
 
 | 열 | 뜻 | 기본 |
@@ -246,7 +253,8 @@ AutoMod **컨베이어 시스템**(`SYSTYPE Conveyor`)을 실제로 쓴다. 제�
   - 제품: `travel to ash_conv:CV001_use` → `wait until V_stock(mi) >= V_need(mi)` → `dec V_stock(mi) by V_need(mi)` → `travel to ash_conv:CV001_out` → 소멸. 자재가 없으면 `use` 스테이션에서 멈추고(누적형이라 뒤가 밀림), 들어오면 다시 흐른다. 이것이 요청한 "품절 시 정지"의 1단계 구현이다.
   - 자재 호출(`CallThreshold`)은 재고가 줄면 지금 로직대로 동작하므로 AGV가 자재를 가져온다. 즉 **컨베이어 소비 → 재고 감소 → 호출 → AGV 공급 → 재개**가 닫힌다.
 - 통계: `CV001` 소비 지점 정지 시간·통과 제품 수·투입 지연을 `matstat`과 같은 방식으로 report에 남긴다(`ResultParser`는 모르는 행을 무시하므로 새 행 종류를 더해도 옛 결과가 깨지지 않는다). 서버 화면 표시는 1단계에서 "컨베이어 N개, 제품 M개 통과, 정지 T분" 한 줄만.
-- 엔티티 수: 컨베이어 위 제품은 load라서 체험판 200개 제한에 **잡힌다**. 시험 PC에서는 `Capacity`를 작게 둔다. 서버(정식판)는 무관.
+- 컨베이어 없이 그리는 경우(사용자 결정): Conveyors 시트가 없거나 그 자재가 Conveyors에 없으면 **지금처럼 Materials의 TaktTime·UnitsPerCycle로 시간 소비**(`P_consume`)한다. 컨베이어가 있는 자재만 제품 통과로 소비한다. 그래픽 전용 `AGV_3D_CONV`는 소비와 무관하다.
+- 엔티티 수: 컨베이어 위 제품은 load라서 체험판 200개 제한에 **잡힌다**. 구간도 엔티티로 셀 수 있다(미확인, §13). 시험 PC에서는 `Capacity`를 작게 둔다. 서버(정식판)는 무관.
 
 ### 9.4 2단계 후보(설계 밖, 이름만)
 - 모터 정지 명령으로 라인 고장·휴지 표현, 분기·합류, 여러 자재 혼류, 생산 완료품을 `Flow=Output` 자재로 자동 연결(라인 끝에서 완제품 용기 생성 → 반출 루트).
@@ -259,22 +267,21 @@ AutoMod **컨베이어 시스템**(`SYSTYPE Conveyor`)을 실제로 쓴다. 제�
 3. F5 엑셀 Use 열 (Core만, 서버 표시 한 줄)
 4. F1 그룹 보기 (Plugin 명령 + 팔레트)
 5. F4 루트 순서 배치 (AGVCP 리팩터 뒤)
-6. F6 3D 에셋 (DrawingReader 확장 → assets.tsv → AssetShapes → ash_3d.asy) — 먼저 `template Meters` 확인(§11)
+6. F6 3D 에셋 (DrawingReader 확장 → assets.tsv → AssetShapes → ash_3d.asy) — 먼저 `template Meters` 확인(§13)
 7. F7 컨베이어 (F6의 폴리선 읽기 위에서; 로직 템플릿은 AutoMod 실행으로 검증)
 
 버전: F1–F5를 0.27.0, F6을 0.28.0, F7을 0.29.0으로 나눠 릴리즈.
 
-## 11. 확인·질문 (사용자에게)
-1. **CP 버튼 순서**: §5 표(standby·finish / load·unload / rtnload·rtnunload / buffer·traffic)로 가도 되는지. 요청 나열대로 buffer를 rtn 앞에 두려면 한 칸이 빈다.
-2. **레이어 색 저장 범위**: PC별(내 판단)인지 도면별인지.
-3. **컨베이어 소비 규칙**: Conveyors에 적힌 자재는 택트 소비 대신 제품 통과로만 소비(§9.2). 괜찮은지.
-4. **3D 기본 묶음**: §8.2 표 11종. 빼거나 더할 것이 있는지. 로봇 3종의 크기(3.2/2.0/1.1 m)가 현장 감각에 맞는지.
+## 11. 사용자 결정 (2026-10-26)
+1. CP 버튼 순서: §5 표대로.
+2. 레이어 색: PC별 저장.
+3. 컨베이어 소비: 컨베이어가 있는 자재는 제품 통과로 소비, 없는 자재는 지금처럼 Materials 택트로 소비(§9.2).
+4. 컨베이어 형상: 데모 롤러 컨베이어 템플릿을 가져와 프레임 초록(§9.2, `conveyor.jpg`). 나머지 기본 묶음(§8.2)과 로봇 크기는 이의 없음.
 
 ## 12. 설계자가 정한 것(검토 중 나온 질문에 대한 내 판단)
 - ASH 블록 정의 내부 색을 ByLayer→ByBlock으로 바꾼다(F1 강조 때문. §3).
 - 3D 블록은 `AGV3D` 명령으로 넣고, 배율은 "기본 치수의 배수"다(§8.2).
 - 컨베이어 자재는 TaktTime·UnitsPerCycle을 Conveyors 값으로 덮어써 기존 KPI·검증을 그대로 쓴다. 재고 단위는 용기 수(§9.2).
-- 실제 컨베이어(`AGV_CONV`)는 AutoMod 기본 구간 그래픽, 그래픽 전용(`AGV_3D_CONV`)은 ASH 형상(§9.2).
 - 투입은 막히면 기다린다(대기 load 1개 이하). 몰아서 넣지 않고 버리지도 않는다(§9.3).
 - 그룹 목록 갱신은 `PathCommands.Run` 끝에 훅을 둔다. 팔레트 색은 Core의 ACI→RGB 표를 쓴다(팔레트 코드는 ZWCAD 타입을 쓰지 않는 규약). 서버 `FileIndex.MaterialsFromCells`는 셀을 직접 읽어 Use=N 자재가 색인에 남는데 그대로 둔다. 영상 정적 도면(`ash_drw`)에서는 `AGV_3D*` 평면 심볼을 숨긴다. 모든 자재가 Use=N이면 검증 오류로 막는다(`LogicGenerator.Check`가 던지기 전에).
 
@@ -285,4 +292,4 @@ AutoMod **컨베이어 시스템**(`SYSTYPE Conveyor`)을 실제로 쓴다. 제�
 - 폴리선 호 구간을 `CONVSECTION … cenx ceny angle`로 쓰는 부호 규칙(데모는 `angle -900`처럼 10분의 1도 단위로 보임. 확인).
 - `AGVCPROUTE`에서 Space가 `PromptStatus.None`으로 오는지 ZWCAD에서 확인(안 오면 Enter만 안내).
 - ZWCAD에서 블록 참조 `Visible=false`가 어트리뷰트 참조까지 숨기는지. 안 숨기면 어트리뷰트도 각각 `Visible=false`로.
-- AutoMod 체험판이 이동 시스템 수(MOVESYS 추가)에도 제한을 두는지(이 PC에서 `ash_conv`를 넣고 빌드해 보면 바로 안다).
+- AutoMod 체험판이 이동 시스템 수(MOVESYS 추가)에도 제한을 두는지: 견본 `ashcv`(구간 2개)를 데모에 더해 이 PC 체험판에서 빌드·실행되었다. 구간 수가 많을 때 엔티티 수에 잡히는지는 미확인.
