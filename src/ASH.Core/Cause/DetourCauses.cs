@@ -12,6 +12,7 @@ public static class DetourCauses
 {
     const double MinRatio = 1.8, MinExtra = 30, SevereRatio = 3; // directed / undirected, metres more than undirected
     const double GapReach = 0.5;                                  // path ends this close but not joined count as a broken joint
+    const double MinGain = 0.10;                                  // a flipped path must also cut this share of all legs' directed distance (and MinExtra metres)
 
     public static IEnumerable<CauseItem> Find(CauseContext c) =>
         ByMaterial(c).GroupBy(x => x.Item.Where).Select(g => g.First().Item);
@@ -22,6 +23,7 @@ public static class DetourCauses
         var res = new List<(string, CauseItem)>();
         if (c.Layout.Paths.Count == 0) return res;
         var net = new Net(c.Layout);
+        var plan = new List<(string Material, List<(string, string)> Legs)>();
         foreach (var m in c.Input.Materials)
         {
             var r = c.Input.Routes.FirstOrDefault(x => x.Material == m.Material);
@@ -42,26 +44,55 @@ public static class DetourCauses
                 legs.Add((s, stops[0]));
                 legs.Add((stops[stops.Count - 1], s));
             }
-            foreach (var (a, b) in legs.Distinct())
-                if (net.Check(a, b) is { } leg && Item(m.Material, a, b, leg) is { } item) res.Add((m.Material, item));
+            plan.Add((m.Material, legs.Distinct().ToList()));
         }
+        var all = plan.SelectMany(x => x.Legs).Distinct().ToList();
+        var flips = new Dictionary<LayoutPath, bool>();
+        // a reversed-path suspect counts only when flipping that path alone shortens the sum of all legs' directed distances clearly
+        // and strands no leg; a one-way loop segment fails this because its flip breaks or lengthens the other legs
+        bool Passes(LayoutPath p)
+        {
+            if (flips.TryGetValue(p, out var ok)) return ok;
+            var flipped = new Net(c.Layout.WithFlipped(p));
+            double before = 0, gain = 0; bool broken = false, fixedAny = false;
+            foreach (var (a, b) in all)
+            {
+                if (net.Directed(a, b) is not { } d0 || flipped.Directed(a, b) is not { } d1) continue;
+                if (double.IsPositiveInfinity(d0)) fixedAny |= !double.IsPositiveInfinity(d1);
+                else if (double.IsPositiveInfinity(d1)) broken = true;
+                else { before += d0; gain += d0 - d1; }
+            }
+            return flips[p] = !broken && (fixedAny ? gain >= 0 : gain >= MinExtra && gain >= MinGain * before);
+        }
+        foreach (var (material, legs) in plan)
+            foreach (var (a, b) in legs)
+                if (net.Check(a, b) is { } leg && Item(material, a, b, leg, Passes) is { } item) res.Add((material, item));
         return res;
     }
 
-    static CauseItem? Item(string material, string a, string b, Leg leg)
+    /// <summary>The layout with path p drawn the other way round (same CPs).</summary>
+    static Layout.Layout WithFlipped(this Layout.Layout l, LayoutPath p) => new()
+    {
+        Cps = l.Cps, Tolerance = l.Tolerance,
+        Paths = l.Paths.Select(x => x != p ? x : new LayoutPath(x.Name) { IsTwoWay = x.IsTwoWay, Segments = Enumerable.Reverse(x.Segments).Select(s => s.Reversed()).ToList() }).ToList(),
+    };
+
+    static CauseItem? Item(string material, string a, string b, Leg leg, Func<LayoutPath, bool> passes)
     {
         double und = leg.Undirected;
         bool lost = double.IsPositiveInfinity(leg.Directed);
         if (!lost && !(leg.Directed >= MinRatio * und && leg.Directed - und >= MinExtra)) return null;
+        leg = leg with { Suspects = leg.Suspects.Where(s => s.Rev == null || passes(s.Rev)).ToList() };
+        if (!lost && leg.Suspects.Count == 0) return null; // a long way round without a concrete suspect is a plain one-way loop
         string Fmt(double d) => d.ToString("0", CultureInfo.InvariantCulture);
         var first = leg.Suspects.FirstOrDefault();
         return new CauseItem(CauseKinds.Detour, lost || leg.Directed >= SevereRatio * und ? 2 : 1,
             lost ? $"{material} 도달 불가" : $"{material} 우회 {Fmt(leg.Directed)} m", $"{a}→{b}",
             string.Join(" · ", new[] { lost ? "실제 도달 불가" : $"실제 {Fmt(leg.Directed)} m", $"방향 무시 {Fmt(und)} m" }.Concat(leg.Suspects.Select(s => s.Text))),
-            string.Join(", ", leg.Suspects.Select(s => s.Fix)), null, first?.X, first?.Y);
+            leg.Suspects.Count == 0 ? "경로 연결 확인" : string.Join(", ", leg.Suspects.Select(s => s.Fix)), null, first?.X, first?.Y);
     }
 
-    sealed record Suspect(string Text, string Fix, double X, double Y);
+    sealed record Suspect(string Text, string Fix, double X, double Y, LayoutPath? Rev = null); // Rev = the path traversed against its direction
     sealed record Leg(double Directed, double Undirected, List<Suspect> Suspects);
     sealed record Cp(LayoutPath Path, double Dist);
 
@@ -153,6 +184,10 @@ public static class DetourCauses
             return best;
         }
 
+        /// <summary>Directed distance (infinity when unreachable); null when a CP is missing or both are the same.</summary>
+        public double? Directed(string from, string to) =>
+            from == to || CpOf(from) is not { } a || CpOf(to) is not { } b ? null : To(from, a, b, true, out _, out _);
+
         public Leg? Check(string from, string to)
         {
             if (from == to || CpOf(from) is not { } a || CpOf(to) is not { } b) return null;
@@ -186,7 +221,7 @@ public static class DetourCauses
         static Suspect Against(LayoutPath p)
         {
             var m = p.PointAt(p.Length / 2);
-            return new Suspect($"{p.Name} 방향 반대 의심", $"{p.Name} 방향 확인", m.X, m.Y);
+            return new Suspect($"{p.Name} 방향 반대 의심", $"{p.Name} 방향 확인", m.X, m.Y, p);
         }
 
         Suspect Gap(int u, int v, Point2 mid)

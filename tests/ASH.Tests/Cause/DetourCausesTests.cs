@@ -90,4 +90,23 @@ public class DetourCausesTests
         Assert.Contains("A→B", wheres); Assert.Contains("B→S", wheres);
         Assert.Equal(wheres.Distinct().Count(), wheres.Count);
     }
+
+    [Fact]
+    public void One_Way_Loop_With_A_Long_Standby_Return_Has_No_Findings()
+    {
+        // S just before A on the loop: B -> S goes 260 m round against 140 m the other way, yet every single flip strands a leg
+        var l = Ring(L.Line("P1", 0, 0, 50, 0), L.Line("P2", 50, 0, 100, 0), oneWay: true);
+        l.Cps.Add(L.Cp("S", 0, 50));
+        Assert.Empty(DetourCauses.Find(Ctx(l, Input(standby: "S"))));
+    }
+
+    [Fact]
+    public void One_Mis_Drawn_Path_In_A_Consistent_Loop_Is_Named()
+    {
+        var l = Ring(L.Line("P1", 0, 0, 50, 0), L.Line("P2", 100, 0, 50, 0), oneWay: true); // the rest runs P1 -> P2 -> P3 ...
+        l.Cps.Add(L.Cp("S", 0, 50));
+        var f = DetourCauses.Find(Ctx(l, Input(standby: "S"))).ToList();
+        Assert.Contains(f, x => x.Where == "A→B" && x.Title == "M7 도달 불가" && x.Fix == "P2 방향 확인");
+        Assert.All(f, x => Assert.True(x.Fix is "P2 방향 확인" or "경로 연결 확인")); // B -> S is stranded too, but no single flip on its own route helps
+    }
 }
