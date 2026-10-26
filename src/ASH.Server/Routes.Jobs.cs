@@ -123,7 +123,7 @@ internal static partial class Routes
             if (!JobStore.IsValidId(id) || js.Get(id) is not { } j) return Msg(404, "작업이 없습니다.");
             var view = j.State == JobState.Queued ? null : JobView.For(js, j);
             var t = tab is "detail" or "input" or "files" ? tab : "summary";
-            return Results.Content(JobPages.Job(j, view, t, t == "files" ? Tail(js.LogPath(id), 200) : "", Queue(js, fw, id), CanCancel(ctx, j, rs, null), analyses.All(), fs.All(), fw.Busy, JobProgress.Parallel(cfg), cs.Prices()), "text/html; charset=utf-8");
+            return Results.Content(JobPages.Job(j, view, t, t == "files" ? Tail(js.LogPath(id), 200) : "", Queue(js, fw, id), CanCancel(ctx, j, rs, null), analyses.All(), fs.All(), fw.Busy, JobProgress.Parallel(cfg), cs.Prices(), js), "text/html; charset=utf-8");
         });
 
         app.MapPost("/jobs/{id}/cancel", async (string id, HttpContext ctx, JobStore js, JobWorker worker, ReleaseStore rs) =>

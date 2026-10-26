@@ -427,7 +427,11 @@ public static class AnalysisPages
                 V(double.IsNaN(ps) ? "-" : F(ps, "0"), "초", "결품", double.IsNaN(ps) ? "" : ps > 0 ? "red" : "green") +
                 (priced ? V(pm?.Investment is { AnyPriced: true } pi ? H(Money(pi.Total, pi.Currency)) : "-", "", "투자비") : "") + "</a>");
         }
-        sb.Append("</div></section></div>");
+        sb.Append("</div></section>");
+
+        // ---- 생산량 한계
+        LimitPage.Section(sb, d.Store, cur, $"/analyses/{a.Id}?tab=conclusion&job={cur.Id}");
+        sb.Append("</div>");
 
         // ---- 병목 지도
         // the map's own view: block wait, block occupancy, or path traffic (vehicles through each path, the busiest coloured)

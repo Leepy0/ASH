@@ -357,7 +357,8 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
     }
 
     public static string Job(JobInfo j, JobView? v, string tab, string logTail, (int Ahead, DateTime? Start, TimeSpan? Typical) q, bool canCancel, IReadOnlyList<ASH.Core.Analysis.AnalysisInfo>? analyses = null,
-        IReadOnlyList<FilmInfo>? films = null, string? busy = null, int parallel = 1, IReadOnlyDictionary<string, PriceRow>? prices = null)
+        IReadOnlyList<FilmInfo>? films = null, string? busy = null, int parallel = 1, IReadOnlyDictionary<string, PriceRow>? prices = null,
+        JobStore? store = null)
     {
         var sb = new StringBuilder(PollSlots);
         sb.Append("<style>").Append(JobCss).Append("</style>");
@@ -417,7 +418,7 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
             case "detail": Detail(sb, j, v); break;
             case "input": InputTab(sb, j, v); break;
             case "files": FilesTab(sb, j, logTail); break;
-            default: Summary(sb, j, v, prices, canCancel); break;
+            default: Summary(sb, j, v, prices, canCancel); if (store != null) LimitPage.Section(sb, store, j, "/jobs/" + j.Id); break;
         }
         sb.Append("</div>");
         return Page($"ASH 작업 {j.Id}", sb.ToString(), j.Finished ? null : PollScript("/api/jobs/" + j.Id, new Dictionary<string, string> { [j.Id] = j.State }), nav: "analyses");

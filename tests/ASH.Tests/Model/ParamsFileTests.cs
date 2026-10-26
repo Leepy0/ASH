@@ -57,4 +57,19 @@ public class ParamsFileTests
         Assert.Throws<ArgumentException>(() => ParamsFile.Render(Make("Fixed", 0), new RunScenario(1, new Dictionary<string, int> { ["nope"] = 1 })));
         Assert.Throws<ArgumentException>(() => ParamsFile.Render(Make("Fixed", 0), new RunScenario(1, new Dictionary<string, int> { ["work"] = -1 })));
     }
+
+    [Fact]
+    public void Production_Limit_Divides_Only_The_Takt()
+    {
+        var input = Make("Fixed", 0);
+        input.Conveyors.Add(new ConveyorInfo("CV1", "A", 60, 1, 0.3, null, null));
+        var sc = new RunScenario(7, new Dictionary<string, int> { ["work"] = 3 });
+        var up = ASH.Core.Runner.ProductionLimit.Scale(input, 20);
+        // +20 %: takt / 1.2, every other column (and the stock, seed and counts) as before
+        Assert.Equal(ParamsFile.Render(input, sc).Replace(" 60 1 4\n", $" {ASH.Core.Asy.AsyWriter.Num(60 / 1.2)} 1 4\n").Replace(" 90.5 2 4\n", $" {ASH.Core.Asy.AsyWriter.Num(90.5 / 1.2)} 2 4\n"),
+            ParamsFile.Render(up, sc));
+        Assert.Equal(50, up.Conveyors[0].ProductTakt, 9);
+        Assert.Equal(60, input.Materials[0].TaktTime); // the input itself is left alone
+        Assert.Equal(ParamsFile.Render(input, sc), ParamsFile.Render(ASH.Core.Runner.ProductionLimit.Scale(input, 0), sc));
+    }
 }

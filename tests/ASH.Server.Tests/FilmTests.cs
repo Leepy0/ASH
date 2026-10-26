@@ -31,6 +31,8 @@ public sealed class FakeFilm : IFilmAutoMod, IFilmRenderer
     public bool CalibrationTimesOut;
     /// <summary>A cut script with this text waits until the render is cancelled (an AutoView run that is still going).</summary>
     public string? BlockOn;
+    /// <summary>The result.tsv of a run (may wait, to hold the run); null = <see cref="FakeResult.Tsv"/>.</summary>
+    public Func<RunRequest, string>? Result;
 
     public AmBuildResult Build(string projectDir, string model)
     {
@@ -46,7 +48,7 @@ public sealed class FakeFilm : IFilmAutoMod, IFilmRenderer
         var dir = Path.Combine(r.RunsDir ?? Path.Combine(r.ProjectDir, "runs"), id);
         Directory.CreateDirectory(dir);
         var tsv = Path.Combine(dir, "result.tsv");
-        File.WriteAllText(tsv, FakeResult.Tsv(r.Input.Materials.Select(m => m.Material)));
+        File.WriteAllText(tsv, Result?.Invoke(r) ?? FakeResult.Tsv(r.Input.Materials.Select(m => m.Material)));
         var mat = r.Input.Materials[0].Material;
         if (r.Scenario.Events && WriteEvents) File.WriteAllText(Path.Combine(dir, "events.tsv"), $"t\tkind\tmat\tcp\tvalue\n1200\tstockout\t{mat}\t\t0\n2100\tstockin\t{mat}\t\t900\n");
         return new RunOutcome(id, true, dir, TimeSpan.FromSeconds(1), null, 0, null, tsv, null);
