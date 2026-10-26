@@ -21,7 +21,9 @@ public static class ResultParser
         if (lines.Length == 0 || lines[0].TrimEnd('\r').Split('\t')[0] != "kind") throw new InvalidDataException("result.tsv: empty or no header");
         var mats = new List<MaterialResult>(); var groups = new List<GroupResult>(); var blocks = new List<BlockResult>();
         var rows = new List<ResultRow>();
-        var vehicles = new List<VehicleResult>(); var mstats = new List<MaterialStat>(); var convs = new List<ConveyorResult>();
+        var vehicles = new List<VehicleResult>(); var mstats = new List<MaterialStat>(); var convs = new List<ConveyorResult>(); var times = new List<GroupTime>();
+        var claims = new Dictionary<string, Dictionary<string, int>>(StringComparer.Ordinal); // group -> block -> claims (tblock rows)
+        Dictionary<string, int> Claims(string g) => claims.TryGetValue(g, out var d) ? d : claims[g] = new Dictionary<string, int>(StringComparer.Ordinal);
         int dead = 0; double sim = 0; bool clock = false;
         for (var n = 1; n < lines.Length; n++)
         {
@@ -45,13 +47,15 @@ public static class ResultParser
                 case "vehicle": vehicles.Add(new VehicleResult(c[1], c[2], V(0), V(1), (int)V(2), V(3), (int)V(4), V(5),
                     vals.Length >= 11 ? new TimeSplit(V(3), V(0), V(6), V(7), V(8), V(9), V(10)) : null)); break;
                 case "matstat": mstats.Add(new MaterialStat(c[1], c[2], V(0), V(1), V(2), V(3), V(4), V(5), V(6), V(7))); break;
+                case "tsplit": times.Add(new GroupTime(c[1], (int)V(0), V(1), V(2), V(3), V(4), V(5), Claims(c[1]))); break;
+                case "tblock": Claims(c[2])[c[1]] = (int)V(0); break;
                 case "conveyor": convs.Add(new ConveyorResult(c[1], c[2], (int)V(0), V(1), V(2))); break;
                 case "deadlock": dead = (int)V(0); break;
                 case "clock": sim = V(1); clock = true; break;
             }
         }
         if (!clock) throw new InvalidDataException("result.tsv: no clock row (incomplete result)");
-        return new ResultSet(mats, groups, blocks, dead, sim, rows, vehicles, mstats, convs);
+        return new ResultSet(mats, groups, blocks, dead, sim, rows, vehicles, mstats, convs, times.Count > 0 ? times : null);
     }
 
     /// <summary>Parse without throwing: false + error message ("result.tsv: ...") when the file is unreadable or invalid.</summary>

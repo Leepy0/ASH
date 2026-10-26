@@ -3,13 +3,18 @@
 	set V_inLeg({{SLOT}}) to 1
 	set A_veh to this load vehicle
 	set A_mv0 to (A_veh percent time in motion) / 100 * ac
+	set A_d0 to A_veh total distance traveled
+	set V_vT(A_vid) to 1
 	travel to {{SYS}}:{{TO}}
+	set V_vT(A_vid) to 0
 	set V_inLeg({{SLOT}}) to 0
 {{LOADED}}	/* A_t0 lives on the load: a return leg and the next supply of the same material may overlap */
 	if ac - A_t0 > V_deadlockSec then inc V_deadlock by 1
 	/* wait = leg time minus time the vehicle was moving (AM has no per-vehicle blocked-time attribute); includes decel/accel at the stop */
 	set A_w to ac - A_t0 - ((A_veh percent time in motion) / 100 * ac - A_mv0)
 	if A_w < 0 then set A_w to 0
+	/* time split: the leg at free speed (distance / the leg's speed) */
+	inc A_jf by (A_veh total distance traveled - A_d0) / {{VEL}}
 	if V_events = 1 and ac >= V_warmup then print ac "\twait\t{{NAME}}\t{{TO}}\t" A_w to V_ev
 	if V_debug = 1 then print "ASH: leg m={{M}} to {{TO}} dur " (ac - A_t0) " wait " A_w to message
 {{FAIL}}
