@@ -29,8 +29,10 @@ public sealed record AgvGroup(string Group, string Type, int MinCount, int MaxCo
 
 public sealed record MaterialInfo(string Material, string Station, string Group, double TaktTime, double UnitsPerCycle,
     double UnitsPerContainer, double CallThreshold, double UnloadThreshold, double? InitStock, double? SafetyStock, bool EmptyReturn, int Row = 0, string Form = "",
-    double? LoadLength = null, double? LoadWidth = null, double? LoadHeight = null, string Flow = "")
+    double? LoadLength = null, double? LoadWidth = null, double? LoadHeight = null, string Flow = "", bool ConveyorFed = false)
 {
+    // ConveyorFed: a Conveyors row consumes this material (products passing the use point) instead of the takt clock; TaktTime and
+    // UnitsPerCycle then hold that row's ProductTakt and UnitsPerProduct, so every takt-based KPI and check keeps working unchanged.
     /// <summary>Flow is Output (an unknown value is reported by the validator and treated as Supply).</summary>
     public bool IsOutput => MaterialFlows.Normalize(Flow) == MaterialFlows.Output;
 }
@@ -39,6 +41,11 @@ public sealed record Route(string Material, string SupplyFromCP, string SupplyTo
     string? ReturnFromCP, string? ReturnToCP, double ExtraTime, int Row = 0, double BufferWaitSec = 0);
 
 public sealed record StationInfo(string Station, string CPName, double BufferCapacity, int Row = 0);
+
+/// <summary>One Conveyors sheet row: the CAD conveyor (AGV_CONV polyline named by AGVCONV) that consumes Material.
+/// SpeedMps metres/second; Capacity null = from length; ConsumeAtM metres from the polyline start, null = the end.</summary>
+public sealed record ConveyorInfo(string Conveyor, string Material, double ProductTakt, double UnitsPerProduct, double SpeedMps,
+    int? Capacity, double? ConsumeAtM, int Row = 0);
 
 public sealed record ExtHook(string Name, bool Enabled, string Description, int Row = 0);
 
@@ -51,4 +58,7 @@ public sealed class ProjectInput
     public List<Route> Routes { get; } = new List<Route>();
     public List<StationInfo> Stations { get; } = new List<StationInfo>();
     public List<ExtHook> Ext { get; } = new List<ExtHook>();
+    public List<ConveyorInfo> Conveyors { get; } = new List<ConveyorInfo>();
+    /// <summary>Materials whose Use column is N: left out of Materials and Routes by the reader, listed here for messages.</summary>
+    public List<string> DisabledMaterials { get; } = new List<string>();
 }

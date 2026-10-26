@@ -14,6 +14,12 @@ public static class Conventions
     public const string LayerBlock = "AGV_BLOCK";
     public const string LayerStation = "AGV_STATION";
     public const string LayerResultPrefix = "AGV_RESULT_";
+    /// <summary>Conveyors: AGV_CONV polylines are real conveyor sections (named by AGVCONV, may carry products); AGV_3D_CONV ones are picture only.</summary>
+    public const string LayerConv = "AGV_CONV", Layer3dConv = "AGV_3D_CONV";
+    /// <summary>3D picture: ASH_3D_* block inserts live on AGV_3D; walls and fences are lines or polylines on their own layer.</summary>
+    public const string Layer3d = "AGV_3D", Layer3dWall = "AGV_3D_WALL", Layer3dFence = "AGV_3D_FENCE";
+    /// <summary>3D asset block name for a kind (ASH.Core.Layout.AssetKinds): ASH_3D_ROBOT_L ...</summary>
+    public const string Asset3dBlockPrefix = "ASH_3D_";
     public const string CpBlockName = "AGV_CP";
     public const string StationBlockName = "AGV_STATION";
     public const string BlockBlockName = "AGV_BLOCK";
