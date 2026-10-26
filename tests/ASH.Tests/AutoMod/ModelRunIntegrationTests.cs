@@ -433,7 +433,10 @@ public class ModelRunIntegrationTests
         var asy = File.ReadAllLines(Path.Combine(run.Work, Model + ".arc", "agv.asy")).Select(x => x.Trim().Split('	')).ToList();
         var d = asy.Where(x => x[0] is "brakedist" or "stopdist").ToList();
         Assert.Equal(4 * input.Groups.Count, d.Count);                                                  // 2 states x brake/stop per vehicle type
-        Assert.All(d, x => Assert.True(double.Parse(x[1].Split(' ')[1], CultureInfo.InvariantCulture) * (x[1].EndsWith("Feet") ? 0.3048 : 1) >= 0.5 - 1e-9, string.Join(" ", x)));
+        // Default "0 b" holds the distance; Empty "1 0" = Default x 1 + 0 inherits it
+        double M(string[] x) => double.Parse(x[1].Split(' ')[1], CultureInfo.InvariantCulture) * (x[1].EndsWith("Feet") ? 0.3048 : 1);
+        Assert.All(d.Where(x => x[1].StartsWith("0 ")), x => Assert.True(M(x) >= 0.5 - 1e-9, string.Join(" ", x)));
+        Assert.All(d.Where(x => x[1].StartsWith("1 ")), x => Assert.StartsWith("1 0 ", x[1]));
         Cleanup(run.Work);
     }
 }

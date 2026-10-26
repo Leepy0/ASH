@@ -296,8 +296,9 @@ public class LayoutExporterTests
         Assert.Contains("stopdist\t0 0.5 Meters", lines);
         Assert.Contains("vel\t0 1.5 Meters Seconds", lines);   // the Empty line
         Assert.Contains("vel\t0 1 Meters Seconds", lines);     // the loaded line
-        Assert.Contains("brakedist\t1 5 Meters", lines);       // the Empty line (parked vehicles) gets the same distances
-        Assert.Contains("stopdist\t1 0.5 Meters", lines);
+        // the Empty line (parked vehicles) is "1 a b" = Default x a + b: "1 0" gives the same distances ("1 5" would have been 10 m)
+        Assert.Contains("brakedist\t1 0 Meters", lines);
+        Assert.Contains("stopdist\t1 0 Meters", lines);
         // no decel: the template's 1 ft/s^2 gives v^2 / 2d, and SpeedEmpty = Speed keeps the Empty line inheriting
         var plain = Lines(G).Select(x => x.Trim()).ToList();
         Assert.DoesNotContain("brakedist\t0 4.5 Feet", plain);
@@ -315,8 +316,16 @@ public class LayoutExporterTests
         var l = L.Of(L.Line("a",0,0,100,0)); l.Cps.Add(L.Cp("S001", 2, 0, "standby", group: "G1")); l.Cps.Add(L.Cp("S002", 4, 0, "standby", group: "G2"));
         var s = LayoutExporter.ToAgvs(l, new ExportOptions(Units: units, Groups: new[]{
             new VehicleGroupSpec("G1","Tug",3,speed,2,1, 30, 0, decel), new VehicleGroupSpec("G2","Fork",3,speed,2,1, 30, 0, decel, SpeedEmpty: speed * 2) }));
-        var dist = s.VehicleLines.Select(x => x.Trim().Split('\t')).Where(x => x[0] is "brakedist" or "stopdist")
-            .Select(x => (Key: x[0] + x[1].Split(' ')[0], Val: double.Parse(x[1].Split(' ')[1], System.Globalization.CultureInfo.InvariantCulture) / upm)).ToList();
+        // the value AutoMod uses: Default line "0 b" = b, Empty line "1 a b" = Default x a + b (the Default line of the same type and key comes first)
+        var def = new Dictionary<string, double>();
+        var dist = new List<(string Key, double Val)>();
+        foreach (var x in s.VehicleLines.Select(x => x.Trim().Split('\t')).Where(x => x[0] is "brakedist" or "stopdist"))
+        {
+            var p = x[1].Split(' '); double a = double.Parse(p[0], System.Globalization.CultureInfo.InvariantCulture), b = double.Parse(p[1], System.Globalization.CultureInfo.InvariantCulture) / upm;
+            var v = a == 0 ? b : def[x[0]] * a + b;
+            if (a == 0) def[x[0]] = v; else Assert.Equal(def[x[0]], v, 9); // Empty = Default
+            dist.Add((x[0] + p[0], v));
+        }
         Assert.Equal(8, dist.Count);                                  // 2 types x brake/stop x state 0/1
         foreach (var d in dist) Assert.True(d.Val >= 0.5 - 1e-9, $"{d.Key} {d.Val} m");
         for (int i = 0; i < dist.Count; i += 2) Assert.True(dist[i].Val >= dist[i + 1].Val, dist[i].Key);   // brakedist{n} precedes stopdist{n}
