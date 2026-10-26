@@ -44,6 +44,10 @@ public sealed record MaterialView(string Name, string Group, double Supplies, do
     public bool Warn => StockAvg - 2 * StockStd < Safety;
 }
 
+/// <summary>Conveyor lines (code_conv.m) at the recommended counts: how many, products passed and seconds stopped for want of stock, summed over
+/// the conveyors, mean over the confirm runs.</summary>
+public sealed record ConveyorSummary(int Count, double Passed, double StopSec);
+
 /// <summary>
 /// What the result pages show, read from a finished job's folder: the input (for group ranges and judgement settings), runs\summary.tsv, runs\impact.tsv,
 /// the confirm runs' result.tsv (block occupancy and waits) and the model's layout (agv.asy + blocks.tsv) for the maps. Cached per job once it has finished.
@@ -65,6 +69,8 @@ public sealed class JobView
     public IReadOnlyList<GroupVehicleView> VehicleGroups { get; private set; } = Array.Empty<GroupVehicleView>();
     public IReadOnlyList<MaterialView> Materials { get; private set; } = Array.Empty<MaterialView>();
     public IReadOnlyList<ImpactRow> Impact { get; private set; } = Array.Empty<ImpactRow>();
+    /// <summary>Null without conveyor rows. shortcut: not kept in stats.tsv, so it is gone once the run folders are purged; keep it there if that matters.</summary>
+    public ConveyorSummary? Conveyors { get; private set; }
     public double UtilMax => Input?.Settings.UtilMax ?? 0.75;
     /// <summary>Deadlocks summed over the confirm runs (each run's count is model-wide, repeated per group row).</summary>
     public int Deadlocks { get; private set; }
@@ -151,6 +157,8 @@ public sealed class JobView
             try { sets.Add(ResultParser.Parse(tsv)); }
             catch (Exception e) when (e is IOException or InvalidDataException) { }
         }
+        var conv = sets.Where(rs => rs.Conveyors is { Count: > 0 }).ToList();
+        if (conv.Count > 0) v.Conveyors = new ConveyorSummary(conv.Max(rs => rs.Conveyors!.Count), conv.Average(rs => rs.Conveyors!.Sum(c => (double)c.Passed)), conv.Average(rs => rs.Conveyors!.Sum(c => c.StopSec)));
         var acc = new Dictionary<string, List<BlockResult>>(StringComparer.Ordinal);
         foreach (var b in sets.SelectMany(rs => rs.Blocks))
         {

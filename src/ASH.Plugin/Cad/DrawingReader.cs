@@ -26,6 +26,11 @@ public static class DrawingReader
                 var p = ReadPath(e, Conventions.KindOfLayer(layer));
                 if (p != null) layout.Paths.Add(p);
             }
+            else if (e is Polyline cpl && (Eq(layer, Conventions.LayerConv) || Eq(layer, Conventions.Layer3dConv)))
+            {
+                var conv = ReadConveyor(cpl, Eq(layer, Conventions.Layer3dConv));
+                if (conv != null) layout.Conveyors.Add(conv);
+            }
             else if (e is BlockReference br)
             {
                 string name = BlockName(br, tr);
@@ -43,7 +48,21 @@ public static class DrawingReader
                     layout.Stations.Add(new LayoutStation { Name = Get(Attributes(br, tr), "NAME"), Position = Xy(br.Position) });
                 else if (Eq(layer, Conventions.LayerBlock) && Eq(name, Conventions.BlockBlockName))
                     blockTags.Add((Xy(br.Position), Attributes(br, tr), br.Handle.ToString()));
+                else if (name.StartsWith(Conventions.Asset3dBlockPrefix, StringComparison.OrdinalIgnoreCase)
+                    && Array.IndexOf(AssetKinds.Blocks, name.Substring(Conventions.Asset3dBlockPrefix.Length).ToUpperInvariant()) >= 0)
+                    // any layer; the block is drawn in metres and AGV3D scales it by PerMeter, so scale / PerMeter = multiple of the base size
+                    layout.Assets.Add(new LayoutAsset
+                    {
+                        Kind = name.Substring(Conventions.Asset3dBlockPrefix.Length).ToUpperInvariant(), X = br.Position.X, Y = br.Position.Y,
+                        RotDeg = br.Rotation * 180 / Math.PI, Sx = Math.Abs(br.ScaleFactors.X) / DrawingUnits.PerMeter, Sy = Math.Abs(br.ScaleFactors.Y) / DrawingUnits.PerMeter,
+                    });
             }
+            else if ((Eq(layer, Conventions.Layer3dWall) || Eq(layer, Conventions.Layer3dFence)) && Segments(e) is { Count: > 0 } segs)
+                layout.Assets.Add(new LayoutAsset
+                {
+                    Kind = Eq(layer, Conventions.Layer3dWall) ? AssetKinds.Wall : AssetKinds.Fence, Segments = segs,
+                    WidthM = e is Polyline wpl && wpl.NumberOfVertices > 0 ? wpl.GetStartWidthAt(0) / DrawingUnits.PerMeter : 0, // global width sets every vertex's
+                });
             else if (Eq(layer, Conventions.LayerBlock) && e is Polyline pl && pl.Closed && pl.NumberOfVertices >= 3)
                 rects.Add((pl, pl.Handle.ToString()));
         }
@@ -80,6 +99,19 @@ public static class DrawingReader
         {
             Id = e.Handle.ToString(), Segments = segs,
             IsSpur = x?.IsSpur ?? layerKind.Spur, IsTwoWay = x?.IsTwoWay ?? layerKind.Two, IsCrab = x?.IsCrab ?? layerKind.Crab,
+        };
+    }
+
+    /// <summary>A conveyor polyline in drawing order (= flow); segments in drawing units like paths, the width (first segment's start width,
+    /// which the global width sets) in metres. AGV_CONV ones carry their AGVCONV name, AGV_3D_CONV ones are picture only.</summary>
+    public static LayoutConveyor? ReadConveyor(Polyline pl, bool graphicOnly)
+    {
+        var segs = Segments(pl);
+        if (segs == null || segs.Count == 0) return null;
+        return new LayoutConveyor
+        {
+            Name = graphicOnly ? "" : XData.ReadConv(pl)?.Name ?? "", GraphicOnly = graphicOnly, Segments = segs, Id = pl.Handle.ToString(),
+            WidthM = pl.NumberOfVertices > 0 ? Math.Abs(pl.GetStartWidthAt(0)) / DrawingUnits.PerMeter : 0,
         };
     }
 

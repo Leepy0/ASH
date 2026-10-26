@@ -1,0 +1,43 @@
+GRAPHICS_TEMPLATE_DEF
+<GRAPHICS_TEMPLATE_LIST>
+	<GRAPHICS_TEMPLATE name="ASH_Roller_Green">
+		<SOLID name="MySolid">
+			<COLOR value="LtGray"/>
+			<HEIGHT value="0.25" unit="Feet"/>
+			<TRANSPARENCY value="9"/>
+			<CHANGE_WIDTH value="0.1" unit="Feet"/>
+		</SOLID>
+		<LEG name="MyLeg">
+			<COLOR value="Green"/>
+			<SIDES value="BOTH"/>
+			<SPACING value="4" unit="Feet"/>
+			<LEG_THICKNESS value="0.25" unit="Feet"/>
+			<LEG_WIDTH value="0.25" unit="Feet"/>
+			<FLOOR_Z_VALUE value="0" unit="Feet"/>
+		</LEG>
+		<CURBING name="MyCurbing">
+			<COLOR value="Green"/>
+			<SIDES value="BOTH"/>
+			<CURB_WIDTH value="0.25" unit="Feet"/>
+			<CURB_HEIGHT value="0.5" unit="Feet"/>
+		</CURBING>
+		<ROLLER name="MyRoller">
+			<COLOR value="LtGray"/>
+			<RADIUS value="0.1" unit="Feet"/>
+			<THICKNESS value="0.2" unit="Feet"/>
+			<SPACING value="1" unit="Feet"/>
+			<DETAIL value="COARSE"/>
+		</ROLLER>
+		<SOLID name="MySolid">
+			<COLOR value="White"/>
+			<HEIGHT value="0.25" unit="Feet"/>
+			<TRANSPARENCY value="10"/>
+		</SOLID>
+		<SOLID_SHADOW name="MySolid_">
+			<COLOR value="DkGray"/>
+			<HEIGHT value="0.25" unit="Feet"/>
+			<TRANSPARENCY value="8"/>
+			<FLOOR_Z_VALUE value="0.01" unit="Feet"/>
+		</SOLID_SHADOW>
+	</GRAPHICS_TEMPLATE>
+</GRAPHICS_TEMPLATE_LIST>

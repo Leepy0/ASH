@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using ASH.Core.Layout;
+using ASH.Core.Settings;
 using ASH.Plugin.Cad;
 using ZwSoft.ZwCAD.ApplicationServices;
 using ZwSoft.ZwCAD.Colors;
@@ -30,7 +32,7 @@ public sealed class InitCommands
                 int recolored = ByLayerOnAshLayers(doc.Database, tr);
                 var missing = MissingCpTags(doc.Database, tr);
                 tr.Commit();
-                ed.WriteMessage($"\nASH 양식 초기화: 새로 만든 항목 {made}개, 레이어 색·블록 정의 복구 {fixedDefs}개, 색을 ByLayer로 되돌린 객체 {recolored}개.");
+                ed.WriteMessage($"\nASH 양식 초기화: 새로 만든 항목 {made}개, 레이어 색·블록 정의 복구 {fixedDefs}개, 색을 ByLayer로, 숨김을 표시로 되돌린 객체 {recolored}개.");
                 Ui.PaletteStatus.Set($"AGVINIT 완료: 새 항목 {made}개" + (missing.Count > 0 ? ", CP 어트리뷰트 누락 경고" : ""));
                 if (missing.Count > 0)
                     ed.WriteMessage($"\n경고: 기존 {Conventions.CpBlockName} 블록 정의에 어트리뷰트 {string.Join(", ", missing)}이(가) 없습니다. 블록 정의를 고치거나 지운 뒤 AGVINIT을 다시 실행하세요.");
@@ -43,26 +45,27 @@ public sealed class InitCommands
         }
     }
 
-    /// <summary>ACI "ByLayer": block contents on layer 0 and ASH objects take their colour from the layer.</summary>
+    /// <summary>ACI "ByLayer": ASH objects (block references, paths) take their colour from the layer.</summary>
     internal const short ByLayer = 256;
 
+    /// <summary>ACI "ByBlock": the contents of ASH block definitions (on layer 0) take the colour of the reference. That is its layer's colour while the reference is ByLayer, and the grey of the group view (F1) when it sets one.</summary>
+    internal const short ByBlock = 0;
+
+    /// <summary>Every ASH layer with its colour: the defaults of ASH.Core.Layout.LayerColors with this PC's changes (ash.user.tsv) on top, so the colour reset
+    /// that every ASH command does keeps the user's colours. Read each time: the colour dialog may have changed them.</summary>
     static List<(string Name, short Color)> AshLayers()
     {
-        var layers = new List<(string Name, short Color)>
-        {
-            (Conventions.LayerPath, (short)3), (Conventions.LayerPathSpur, (short)2), (Conventions.LayerPathTwo, (short)4), (Conventions.LayerPathCrab, (short)30),
-            (Conventions.LayerDir, (short)8),
-            (Conventions.LayerCp, (short)1), (Conventions.LayerBlock, (short)5), (Conventions.LayerStation, (short)6),
-        };
-        foreach (var t in ASH.Core.Traffic.CpTypes.All) layers.Add((Conventions.LayerCpFor(t), ASH.Core.Traffic.CpTypes.ColorIndex(t)));
-        return layers;
+        IReadOnlyDictionary<string, short> overrides;
+        try { overrides = LayerColors.Parse(UserSettings.Load(UserSettings.DefaultPath).LayerColors); }
+        catch (System.Exception) { overrides = new Dictionary<string, short>(); } // unreadable user file: the defaults
+        return LayerColors.Merge(overrides).Select(c => (c.Layer, c.Color)).ToList();
     }
 
     /// <summary>Creates missing layers, block definitions and the ASH regapp. Returns how many items were created.</summary>
     public static int Init(Database db, Transaction tr) => Init(db, tr, out _);
 
     /// <summary>Also puts back what a drawing saved earlier may carry (<paramref name="fixedDefs"/>): an ASH layer with another colour, and ASH block
-    /// definitions whose contents are not on layer 0 ByLayer (then the arrow, CP and block symbols ignore their layer's colour).</summary>
+    /// definitions whose contents are not on layer 0 ByBlock (then the arrow, CP and block symbols ignore their layer's colour).</summary>
     public static int Init(Database db, Transaction tr, out int fixedDefs)
     {
         int made = 0;
@@ -128,11 +131,11 @@ public sealed class InitCommands
         foreach (var name in new[] { Conventions.CpBlockName, Conventions.StationBlockName, Conventions.BlockBlockName }.Concat(Conventions.DirBlockNames))
             if (bt.Has(name))
                 foreach (ObjectId id in (BlockTableRecord)tr.GetObject(bt[name], OpenMode.ForRead))
-                    if (tr.GetObject(id, OpenMode.ForRead) is Entity e && (e.Layer != "0" || e.ColorIndex != ByLayer))
+                    if (tr.GetObject(id, OpenMode.ForRead) is Entity e && (e.Layer != "0" || e.ColorIndex != ByBlock))
                     {
                         e.UpgradeOpen();
                         e.Layer = "0";
-                        e.ColorIndex = ByLayer;
+                        e.ColorIndex = ByBlock;
                         fixedDefs++;
                     }
 
@@ -154,17 +157,33 @@ public sealed class InitCommands
             b(new Line(new Point3d(-0.08, 0.12, 0), new Point3d(-0.08, -0.12, 0)));
         });
 
+        // 3D asset symbols (design §8.2): the 3D shape's plan outline at its base size (metres) and a Korean label; AGV3D inserts them on AGV_3D
+        foreach (var kind in ASH.Core.Layout.AssetKinds.Blocks)
+            made += Def(db, tr, bt, Conventions.Asset3dBlockPrefix + kind, b =>
+            {
+                var f = ASH.Core.Cel.AssetShapes.Footprint(kind)!.Value;
+                var pl = new Polyline { Closed = true };
+                pl.AddVertexAt(0, new Point2d(f.MinX, f.MinY), 0, 0, 0);
+                pl.AddVertexAt(1, new Point2d(f.MaxX, f.MinY), 0, 0, 0);
+                pl.AddVertexAt(2, new Point2d(f.MaxX, f.MaxY), 0, 0, 0);
+                pl.AddVertexAt(3, new Point2d(f.MinX, f.MaxY), 0, 0, 0);
+                b(pl);
+                b(new DBText { Position = new Point3d(f.MinX + 0.05, f.MinY + 0.05, 0), Height = Math.Min(0.25, (f.MaxY - f.MinY) * 0.3),
+                    TextString = ASH.Core.Cel.AssetShapes.Label(kind), TextStyleId = Asset3dCommands.KoreanTextStyle(db, tr) });
+            });
+
         var rat = (RegAppTable)tr.GetObject(db.RegAppTableId, OpenMode.ForRead);
         if (!rat.Has(Conventions.AppName)) { XData.EnsureRegApp(db, tr); made++; }
         return made;
     }
 
-    /// <summary>AGVINIT only (it walks model space): paths, arrows, CPs, blocks and their attributes on ASH layers with a fixed colour go back to ByLayer.</summary>
+    /// <summary>AGVINIT only (it walks model space): paths, arrows, CPs, blocks and their attributes on ASH layers with a fixed colour go back to ByLayer, and hidden ones become visible.</summary>
     private static int ByLayerOnAshLayers(Database db, Transaction tr)
     {
         var ash = new HashSet<string>(AshLayers().Select(l => l.Name), StringComparer.OrdinalIgnoreCase);
         int n = 0;
-        void Fix(Entity e) { if (e.ColorIndex == ByLayer) return; e.UpgradeOpen(); e.ColorIndex = ByLayer; n++; }
+        // Visible too: the group view (AGVCPVIEW) hides CPs, and a restore must show them again
+        void Fix(Entity e) { if (e.ColorIndex == ByLayer && e.Visible) return; e.UpgradeOpen(); e.ColorIndex = ByLayer; e.Visible = true; n++; }
         foreach (var id in DrawingReader.ModelSpace(db, tr, OpenMode.ForRead))
         {
             if (!(tr.GetObject(id, OpenMode.ForRead) is Entity e) || !ash.Contains(e.Layer)) continue;
@@ -195,7 +214,7 @@ public sealed class InitCommands
         tr.AddNewlyCreatedDBObject(b, true);
         fill(e =>
         {
-            e.Layer = "0"; e.ColorIndex = ByLayer; // ByLayer geometry on 0 takes the colour of the layer the reference is inserted on
+            e.Layer = "0"; e.ColorIndex = ByBlock; // ByBlock takes the colour of the reference, which is ByLayer unless the group view greys it
             try { b.AppendEntity(e); } catch { e.Dispose(); throw; }
             tr.AddNewlyCreatedDBObject(e, true);
         });

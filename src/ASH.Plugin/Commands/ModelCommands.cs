@@ -128,6 +128,7 @@ public sealed class ModelCommands
             var input = LoadInput(ed, xlsx, dir);
             if (input == null) return Fail();
             var layout = DrawingReader.Read(db, tr);
+            CpViewer.WarnIfHidden(ed, db, tr);
             int errors = CheckCommands.Report(ed, layout).Count(f => Blocking.Contains(f.Code));
             if (errors > 0 && PathCommands.Keyword(ed, $"\n오류 {errors}건이 있습니다. 계속할까요? [Y/N] <N>", "N", "Y", "N") != "Y") return false;
             ModelBuildResult r;

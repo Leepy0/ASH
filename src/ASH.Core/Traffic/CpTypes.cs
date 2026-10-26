@@ -8,28 +8,34 @@ public static class CpTypes
 {
     public static readonly string[] All = { "traffic", "load", "unload", "rtnload", "rtnunload", "standby", "buffer", "finish" };
 
+    /// <summary>Order of the palette's CP buttons, two per row: standby|finish, load|unload, rtnload|rtnunload, buffer|traffic (work order, one pair per row). A permutation of <see cref="All"/>.</summary>
+    public static readonly string[] PaletteOrder = { "standby", "finish", "load", "unload", "rtnload", "rtnunload", "buffer", "traffic" };
+
+    /// <summary>Korean name of a type for buttons and the colour dialog; the type itself for an unknown one.</summary>
+    public static string Korean(string? type)
+    {
+        switch ((type ?? "").ToLowerInvariant())
+        {
+            case "standby": return "대기";
+            case "finish": return "완료";
+            case "load": return "로딩";
+            case "unload": return "언로딩";
+            case "rtnload": return "복귀 로딩";
+            case "rtnunload": return "복귀 언로딩";
+            case "buffer": return "버퍼";
+            case "traffic": return "교통";
+            default: return type ?? "";
+        }
+    }
+
     /// <summary>AutoMod's "infinite" capacity (2147483647 in .asy files).</summary>
     public const int Infinity = int.MaxValue;
 
     /// <summary>A traffic CP claims one vehicle at a time; every other CP is a place vehicles queue or stop at, so it is unlimited unless told otherwise.</summary>
     public static int DefaultCap(string? type) => string.Equals(type, "traffic", StringComparison.OrdinalIgnoreCase) ? 1 : Infinity;
 
-    /// <summary>AutoCAD colour index of the CP's layer: red traffic, green load, blue unload, orange rtnload, magenta rtnunload, yellow standby, cyan buffer.</summary>
-    public static short ColorIndex(string? type)
-    {
-        switch ((type ?? "").ToLowerInvariant())
-        {
-            case "traffic": return 1;
-            case "load": return 3;
-            case "unload": return 5;
-            case "rtnload": return 30;
-            case "rtnunload": return 6;
-            case "standby": return 2;
-            case "buffer": return 4;
-            case "finish": return 8;
-            default: return 7;
-        }
-    }
+    /// <summary>Default AutoCAD colour index of the CP's layer (the table is <see cref="ASH.Core.Layout.LayerColors"/>): red traffic, green load, blue unload, orange rtnload, magenta rtnunload, yellow standby, cyan buffer, grey finish.</summary>
+    public static short ColorIndex(string? type) => ASH.Core.Layout.LayerColors.DefaultOf("AGV_CP_" + (type ?? "").Trim().ToUpperInvariant());
 
     public static string FormatCap(int cap) => cap == Infinity ? "INF" : (cap > 0 ? cap : 1).ToString(CultureInfo.InvariantCulture);
 

@@ -30,6 +30,10 @@ public sealed record TimeSplit(double Window, double Busy, double Loaded, double
 public sealed record MaterialStat(string Name, string Group, double PickAvg, double PickMax, double DelivAvg, double DelivMax,
     double StockAvg, double StockStd, double StockMin, double StockMax);
 
+/// <summary>conveyor row (code_conv.m, after warmup): products that passed the end, seconds the line stood at the use point for want of stock,
+/// seconds a new product waited at the full entry (input delay). Group column = the material it consumes.</summary>
+public sealed record ConveyorResult(string Name, string Material, int Passed, double StopSec, double InputDelaySec);
+
 /// <summary>Raw data row of result.tsv: Values = columns 4.. (value1..), unparsable cells are NaN.</summary>
 public sealed record ResultRow(string Kind, string Name, string Group, double[] Values);
 
@@ -38,7 +42,7 @@ public sealed record ResultRow(string Kind, string Name, string Group, double[] 
 public sealed record ResultSet(IReadOnlyList<MaterialResult> Materials, IReadOnlyList<GroupResult> Groups,
     IReadOnlyList<BlockResult> Blocks, int Deadlocks, double SimSec,
     IReadOnlyList<ResultRow> Rows,
-    IReadOnlyList<VehicleResult>? Vehicles = null, IReadOnlyList<MaterialStat>? MaterialStats = null);
+    IReadOnlyList<VehicleResult>? Vehicles = null, IReadOnlyList<MaterialStat>? MaterialStats = null, IReadOnlyList<ConveyorResult>? Conveyors = null);
 
 /// <summary>One data row of "Vehicle Statistics" in the .report: percent of total time and trips per state.</summary>
 public sealed record VehicleRow(double DeliveringPct, int DeliveringTrips, double RetrievingPct, int RetrievingTrips,

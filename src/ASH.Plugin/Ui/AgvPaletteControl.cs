@@ -46,16 +46,22 @@ public sealed class AgvPaletteControl : UserControl
         prefix.TextChanged += (o, e) => { s.Prefix = prefix.Text.Trim(); ShowType(); };
         cap.Leave += (o, e) => { cap.Text = CpTypes.FormatCap(s.Cap); ShowType(); }; // show the value AGVCP will actually use
         ShowType();
-        // one button per TYPE, glyph in the type's colour; the type is set only once AGVCP was really sent (not while a command blocks it)
+        // one button per TYPE in CpTypes.PaletteOrder (a work pair per row), glyph in the type's layer colour; the type is set only once AGVCP was really sent (not while a command blocks it)
         // fixed height, width from Page's stretch (AutoSize would shrink the columns to the text)
-        var place = new TableLayoutPanel { ColumnCount = 2, RowCount = (CpTypes.All.Length + 1) / 2, Height = (CpTypes.All.Length + 1) / 2 * 38, Margin = Padding.Empty };
+        // two-line labels (type over Korean name): the row height follows the font, so Windows scaling cannot clip the text
+        int rowH = 2 * TextRenderer.MeasureText("가", Theme.Base).Height + 8;
+        var place = new TableLayoutPanel { ColumnCount = 2, RowCount = (CpTypes.PaletteOrder.Length + 1) / 2, Height = (CpTypes.PaletteOrder.Length + 1) / 2 * rowH, Margin = Padding.Empty };
         place.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
         place.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        for (int i = 0; i < place.RowCount; i++) place.RowStyles.Add(new RowStyle(SizeType.Absolute, 38));
-        foreach (var t in CpTypes.All)
+        for (int i = 0; i < place.RowCount; i++) place.RowStyles.Add(new RowStyle(SizeType.Absolute, rowH));
+        var cpButtons = new Dictionary<string, Button>();
+        foreach (var t in CpTypes.PaletteOrder)
         {
             var b = Theme.Make(t, GlyphKind.Cp, "");
+            b.Text = " " + t + "\n " + CpTypes.Korean(t);
+            b.Padding = new Padding(4, 0, 0, 0); // a two-line label in half a palette: every pixel counts
             b.Image = Glyphs.Draw(GlyphKind.Cp, 20, Theme.CpColor(t));
+            cpButtons[t] = b;
             b.Dock = DockStyle.Fill;
             b.Margin = new Padding(0, 0, 2, 2);
             new ToolTip().SetToolTip(b, $"{t} CP 배치 · 이름 {AutoNamer.PatternFor(t)} (AGVCP)");
@@ -72,17 +78,44 @@ public sealed class AgvPaletteControl : UserControl
             };
             place.Controls.Add(b);
         }
-        tabs.TabPages.Add(Page("CP", Theme.Section("CP 배치  (TYPE별 버튼)"), place, hint,
+        // standby → load → unload → rtnload → rtnunload → finish in one go; takes the GROUP below, leaves the TYPE buttons' state alone
+        var route = Theme.Make("루트 순서 배치", GlyphKind.Path, "AGVCPROUTE");
+        new ToolTip().SetToolTip(route, "standby → load → unload → rtnload → rtnunload → finish 순서로 CP 배치 (AGVCPROUTE)");
+        // the colour dialog (AGVLAYERCOLOR) changed a layer colour: repaint the glyphs and the hint
+        Action recolor = () =>
+        {
+            foreach (var kv in cpButtons) kv.Value.Image = Glyphs.Draw(GlyphKind.Cp, 20, Theme.CpColor(kv.Key));
+            ShowType();
+        };
+        Theme.LayerColorsChanged += recolor;
+        Disposed += (o, e) => Theme.LayerColorsChanged -= recolor;
+        tabs.TabPages.Add(Page("CP", Theme.Section("CP 배치  (TYPE별 버튼)"), place, route, hint,
             Theme.Caption("traffic CP는 교통제어 탭에서 block과 함께 자동 생성"),
             Theme.Section("CP 속성"), detailed,
             Theme.Caption("GROUP"), group,
-            Theme.Caption("접두어  (마지막 TYPE에 적용)"), prefix, Theme.Caption("CAP  (숫자 또는 INF = 무제한)"), cap));
+            Theme.Caption("접두어  (마지막 TYPE에 적용)"), prefix, Theme.Caption("CAP  (숫자 또는 INF = 무제한)"), cap,
+            Theme.Section("그룹 보기"), GroupView(tabs)));
 
         tabs.TabPages.Add(Page("교통제어", Theme.Section("자동 생성"),
             Theme.Make("block 자동 생성", GlyphKind.Block, "AGVBLOCKAUTO"), Theme.Make("블록 채번", GlyphKind.BlockNum, "AGVBLOCKNUM"), Theme.Make("교통제어 자동 생성", GlyphKind.Traffic, "AGVTRAFFIC")));
 
+        // 3D picture assets (design 2026-10-26 §8): the kind goes to AGV3D as its keyword answer
+        var kind3d = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.System };
+        kind3d.Items.AddRange(AssetKinds.Blocks.Select(k => (object)ASH.Core.Cel.AssetShapes.Label(k)).ToArray());
+        kind3d.SelectedIndex = 0;
+        var place3d = Theme.Make("배치", GlyphKind.Block, "");
+        place3d.Click += (o, e) => AgvPalette.Send("AGV3D " + AssetKinds.Blocks[Math.Max(0, kind3d.SelectedIndex)].Replace("_", "")); // AGV3D keyword: kind without '_'
+        tabs.TabPages.Add(Page("3D", Theme.Section("3D 배치"), Theme.Caption("종류"), kind3d, place3d,
+            Theme.Caption("크기: 블록 X/Y 배율 (1 = 기본 크기)"),
+            Theme.Section("선으로 그리는 3D (레이어에 그리기)"),
+            Theme.Caption($"벽: {Conventions.Layer3dWall}\n  선·폴리선, 폴리선 폭 = 두께"),
+            Theme.Caption($"안전 펜스: {Conventions.Layer3dFence}"),
+            Theme.Caption($"컨베이어 그림: {Conventions.Layer3dConv}"),
+            Theme.Section("컨베이어"), Theme.Make("컨베이어 이름 붙이기", GlyphKind.Path, "AGVCONV")));
+
         var settings = Theme.Make("설정 열기", GlyphKind.Settings, "");
         settings.Click += (o, e) => Commands.ExportCommands.OpenSettings();
+        var layerColors = Theme.Make("레이어 색상", GlyphKind.Settings, "AGVLAYERCOLOR"); // the command shows the dialog and recolours the drawing
 
         var checkResult = Theme.Caption("마지막 검사 결과: -");
         var problems = Grid(("문제", 120), ("대상", 64), ("내용", 160));
@@ -96,7 +129,7 @@ public sealed class AgvPaletteControl : UserControl
             problems.BeginUpdate();
             problems.Items.Clear();
             foreach (var r in rows)
-                problems.Items.Add(new ListViewItem(new[] { r.Kind, r.Target, r.Message }) { Tag = r, ForeColor = Theme.CpColor("traffic"), ToolTipText = r.Message });
+                problems.Items.Add(new ListViewItem(new[] { r.Kind, r.Target, r.Message }) { Tag = r, ForeColor = Theme.Error, ToolTipText = r.Message });
             problems.EndUpdate();
         };
         tabs.TabPages.Add(Page("검증·내보내기", Theme.Section("도면 준비"), Theme.Make("도면 경량화", GlyphKind.Lite, "AGVLITE"),
@@ -105,7 +138,7 @@ public sealed class AgvPaletteControl : UserControl
             // "모델 생성" also does what "내보내기" did (AGVEXPORT is still a command): <Model>.arc, and <Model>.dir when this PC has AutoMod
             Theme.Section("모델"), Theme.Make("Excel 양식", GlyphKind.Excel, "AGVEXCEL"), Theme.Make("모델 생성", GlyphKind.Model, "AGVMODEL"), Theme.Make("빌드·실행", GlyphKind.Run, "AGVRUN"),
             Theme.Make("서버로 보내기", GlyphKind.Send, "AGVSEND"), Theme.Make("결과 올리기", GlyphKind.Send, "AGVRESULTUP"),
-            Theme.Section("설정"), settings));
+            Theme.Section("설정"), settings, layerColors));
 
         var finder = FinderPage(tabs);
         tabs.TabPages.Add(finder);
@@ -137,6 +170,83 @@ public sealed class AgvPaletteControl : UserControl
         Controls.Add(tabs); // Fill first: later Top/Bottom controls dock before it
         Controls.Add(header);
         Controls.Add(status);
+    }
+
+    private sealed class GroupItem
+    {
+        public GroupItem(CpGroupInfo info) { Info = info; }
+        public CpGroupInfo Info { get; }
+        public override string ToString() => $"{(Info.Group.Length > 0 ? Info.Group : "(그룹 없음)")}   CP {Info.Count}개";
+    }
+
+    // F1 group view: the ticked groups stay as they are, the others turn grey (강조) or disappear (숨김). AGVCPVIEW does it in the drawing.
+    // The list is filled after every ASH command (PaletteStatus.SetGroups); the first visit of the CP tab asks for one.
+    private static Control GroupView(TabControl tabs)
+    {
+        var mode = CpViewMode.Highlight;
+        var busy = false; // a refill of the list or a take-back of a refused click must not send again
+        var highlight = new RadioButton { Text = "강조", Checked = true, AutoSize = true };
+        var hide = new RadioButton { Text = "숨김", AutoSize = true };
+        var modes = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 26, FlowDirection = FlowDirection.LeftToRight, WrapContents = false };
+        modes.Controls.Add(highlight);
+        modes.Controls.Add(hide);
+        var list = new CheckedListBox { Dock = DockStyle.Fill, CheckOnClick = true, IntegralHeight = false, BorderStyle = BorderStyle.FixedSingle, Font = Theme.Base };
+        var info = new Label { Dock = DockStyle.Bottom, Height = 18, Font = Theme.Small, ForeColor = Theme.Muted, Text = "CP가 있는 그룹이 없습니다" };
+        new ToolTip().SetToolTip(list, "체크한 그룹은 그대로 두고, 나머지는 강조(회색) 또는 숨김 (AGVCPVIEW)");
+        var showAll = Theme.Make("모두 표시", GlyphKind.Check, "");
+        showAll.Dock = DockStyle.Bottom;
+
+        HashSet<string> Ticked(int index, CheckState state)
+        {
+            var set = new HashSet<string>();
+            for (int i = 0; i < list.Items.Count; i++)
+                if (i == index ? state == CheckState.Checked : list.GetItemChecked(i)) set.Add(((GroupItem)list.Items[i]).Info.Group);
+            return set;
+        }
+        list.ItemCheck += (o, e) =>
+        {
+            if (busy) return;
+            if (!CpViewRequest.Go(mode, Ticked(e.Index, e.NewValue))) e.NewValue = e.CurrentValue; // refused: the box stays as the drawing is
+        };
+        EventHandler setMode = (o, e) =>
+        {
+            var m = hide.Checked ? CpViewMode.Hide : CpViewMode.Highlight;
+            if (busy || m == mode) return;
+            var ticked = Ticked(-1, CheckState.Unchecked);
+            // nothing is grey or hidden while every group is ticked, so only the mode changes then
+            if (ticked.Count < list.Items.Count && !CpViewRequest.Go(m, ticked))
+            {
+                busy = true;
+                (mode == CpViewMode.Hide ? hide : highlight).Checked = true;
+                busy = false;
+                return;
+            }
+            mode = m;
+        };
+        highlight.CheckedChanged += setMode;
+        hide.CheckedChanged += setMode;
+        showAll.Click += (o, e) => CpViewRequest.Go(mode, null);
+
+        var loaded = false;
+        PaletteStatus.Groups = groups =>
+        {
+            loaded = true;
+            busy = true;
+            list.BeginUpdate();
+            list.Items.Clear();
+            foreach (var g in groups) list.Items.Add(new GroupItem(g), g.Shown);
+            list.EndUpdate();
+            busy = false;
+            info.Text = groups.Count == 0 ? "CP가 있는 그룹이 없습니다" : $"그룹 {groups.Count}개 · CP {groups.Sum(g => g.Count)}개";
+        };
+        tabs.SelectedIndexChanged += (o, e) => { if (!loaded && tabs.SelectedTab?.Text == "CP") AgvPalette.Send("AGVFIND"); }; // AGVFIND ends in Run, which fills the list
+
+        var panel = new Panel { Height = 220, Margin = new Padding(0, 0, 0, 4) };
+        panel.Controls.Add(list); // Fill first: the docked edges then take their space before it
+        panel.Controls.Add(info);
+        panel.Controls.Add(showAll);
+        panel.Controls.Add(modes);
+        return panel;
     }
 
     // A table with fixed columns; the last one takes the rest of the width.

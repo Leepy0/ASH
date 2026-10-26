@@ -14,6 +14,21 @@ public class CameraScriptTests
     static int Idx(string[] l, string startsWith) => Array.FindIndex(l, x => x.StartsWith(startsWith));
 
     [Fact]
+    public void Display_Step_Sets_The_Time_Scale()
+    {
+        // an AutoView that samples every 1 s at time scale 1 needs half the time scale for the same speed (else 10 s cuts come out as 5 s)
+        Assert.Contains("time scale 0.6667", CameraScript.Build(Hold(), 81, 1280, 720, 15, 80, @"C:\job\cut01", displayStep: 1.0));
+        Assert.Contains("time scale 1.3333", CameraScript.Build(Hold(), 81, 1280, 720, 15, 80, @"C:\job\cut01"));
+    }
+
+    [Theory]
+    [InlineData("frame=    1 fps=0.0 q=-1.0 size=N/A\rframe=  150 fps=0.0 q=-1.0 Lsize=N/A time=00:00:09.93", 150)]
+    [InlineData("Input #0, avi ...\nframe=   75 fps=0.0 q=-1.0 Lsize=N/A", 75)]
+    [InlineData("Invalid data found when processing input", 0)]
+    [InlineData("", 0)]
+    public void Frames_Reads_The_Last_Progress_Line(string err, int frames) => Assert.Equal(frames, AutoViewRenderer.ParseFrames(err));
+
+    [Fact]
     public void Script_Hold_Has_Jump_Record_And_Generate()
     {
         var l = Lines(Build(Hold()));

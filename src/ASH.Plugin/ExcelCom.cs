@@ -51,6 +51,7 @@ internal static class ExcelCom
                 case FillEdit fe: // Interior.Color is BGR
                     sheet.Range[sheet.Cells[fe.FirstRow, fe.Col], sheet.Cells[fe.LastRow, fe.Col]].Interior.Color = ((fe.Rgb & 0xFF) << 16) | (fe.Rgb & 0xFF00) | (fe.Rgb >> 16);
                     break;
+                case AlignEdit a: sheet.Range[sheet.Columns[a.FirstCol], sheet.Columns[a.LastCol]].HorizontalAlignment = -4108; break; // xlCenter
                 case ListEdit l:
                     dynamic v = sheet.Range[sheet.Cells[l.FirstRow, l.Col], sheet.Cells[l.LastRow, l.Col]].Validation;
                     v.Delete();

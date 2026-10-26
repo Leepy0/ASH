@@ -77,7 +77,7 @@ public class ExcelRoundTripTests
             ExcelTemplate.Write(path);
             using (var wb = new XLWorkbook(path))
             {
-                Assert.Equal(5, wb.Worksheets.Count);
+                Assert.Equal(6, wb.Worksheets.Count);
                 foreach (var (sheet, cols, _, _) in ExcelTemplate.Sheets)
                     for (int c = 0; c < cols.Length; c++)
                         Assert.Equal(cols[c], wb.Worksheet(sheet).Cell(1, c + 1).GetString());

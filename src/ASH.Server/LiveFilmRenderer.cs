@@ -41,8 +41,10 @@ public sealed class LiveFilmRenderer(IConfiguration cfg, FilmHelper.Client? help
     }
 
     // ffmpeg only: the AutoView program is not needed here
-    public string Finish(IReadOnlyList<string> mp4s, IReadOnlyList<string> captions, string outPath, bool join, CancellationToken ct = default) =>
-        new AutoViewRenderer(ResolveAviewExe(cfg) ?? "", AmHome(cfg), Ffmpeg(cfg)).Finish(mp4s, captions, outPath, join, ct);
+    public string Finish(IReadOnlyList<string> mp4s, IReadOnlyList<string> captions, string outPath, bool join, CancellationToken ct = default, double seconds = 0, int fps = 0) =>
+        new AutoViewRenderer(ResolveAviewExe(cfg) ?? "", AmHome(cfg), Ffmpeg(cfg)).Finish(mp4s, captions, outPath, join, ct, seconds, fps);
+
+    public int Frames(string video, CancellationToken ct = default) => new AutoViewRenderer(ResolveAviewExe(cfg) ?? "", AmHome(cfg), Ffmpeg(cfg)).Frames(video, ct);
 
     public void Thumbnail(string mp4, string outJpg, double atSec, CancellationToken ct = default, int width = 320) =>
         new AutoViewRenderer(ResolveAviewExe(cfg) ?? "", AmHome(cfg), Ffmpeg(cfg)).Thumbnail(mp4, outJpg, atSec, ct, width);
