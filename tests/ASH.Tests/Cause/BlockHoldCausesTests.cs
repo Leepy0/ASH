@@ -33,6 +33,7 @@ public class BlockHoldCausesTests
         Assert.Equal(CauseKinds.BlockHold, x.Kind); Assert.Equal(1, x.Severity);
         Assert.Equal("B001 안 정차", x.Title); Assert.Equal("B001", x.Where); Assert.Equal("U003 입구 쪽 0.8 m 이동", x.Fix);
         Assert.Equal(-3.2, x.X); Assert.Equal(0, x.Y); Assert.Null(x.AtSec);
+        Assert.Equal(new[] { "B001", "U003" }, x.Refs);
     }
     [Fact] public void Stop_Inside_Near_Exit_Moves_Out_Past_Tail()
     {

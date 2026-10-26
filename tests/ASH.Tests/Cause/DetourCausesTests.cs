@@ -40,6 +40,7 @@ public class DetourCausesTests
         Assert.Equal("P2 방향 확인", f.Fix);
         Assert.Equal(75, f.X!.Value, 6); Assert.Equal(0, f.Y!.Value, 6); // midpoint of P2
         Assert.Null(f.AtSec);
+        Assert.Equal(new[] { "A", "B", "P2" }, f.Refs);
     }
 
     [Fact]
@@ -49,7 +50,7 @@ public class DetourCausesTests
         var f = Assert.Single(DetourCauses.Find(Ctx(l, Input())));
         Assert.Equal(2, f.Severity);
         Assert.Contains("P1·P2 끊김 의심", f.Detail); Assert.Equal("P1·P2 연결 확인", f.Fix);
-        Assert.Equal(50.15, f.X!.Value, 6);
+        Assert.Equal(50.15, f.X!.Value, 6); Assert.Equal(new[] { "A", "B", "P1", "P2" }, f.Refs);
     }
 
     [Fact]

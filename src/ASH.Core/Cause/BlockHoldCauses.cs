@@ -54,7 +54,7 @@ public static class BlockHoldCauses
             return onPaths[cp] = r;
         }
         CauseItem Item(LayoutBlock b, LayoutCp cp, string what, string detail, string fix) =>
-            new CauseItem(CauseKinds.BlockHold, 1, $"{b.Name} {what}", b.Name, detail, fix, null, cp.Position.X, cp.Position.Y);
+            new CauseItem(CauseKinds.BlockHold, 1, $"{b.Name} {what}", b.Name, detail, fix, null, cp.Position.X, cp.Position.Y, new[] { b.Name, cp.Name });
 
         foreach (var b in l.Blocks)
         {
@@ -124,7 +124,7 @@ public static class BlockHoldCauses
             var cause = hits.FirstOrDefault(h => h.Block == b.Name && h.Item.Fix.Length > 0)?.Item;
             yield return new CauseItem(CauseKinds.BlockHold, br.AvgWaitSec >= HighWaitSec ? 2 : 1, $"{b.Name} 초과 점유 {F0(excess)}초", b.Name,
                 $"1회 점유 {F0(hold)}초 · 통과 {F0(pure)}초" + (double.IsNaN(br.AvgWaitSec) ? "" : $" · 대기 평균 {F0(br.AvgWaitSec)}초"), cause?.Fix ?? "", null,
-                cause?.X ?? (b.Rect.Min.X + b.Rect.Max.X) / 2, cause?.Y ?? (b.Rect.Min.Y + b.Rect.Max.Y) / 2);
+                cause?.X ?? (b.Rect.Min.X + b.Rect.Max.X) / 2, cause?.Y ?? (b.Rect.Min.Y + b.Rect.Max.Y) / 2, cause?.Refs ?? new[] { b.Name });
         }
     }
 }

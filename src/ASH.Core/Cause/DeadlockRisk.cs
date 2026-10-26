@@ -24,7 +24,7 @@ public static class DeadlockRisk
             var names = string.Join("·", ring);
             var gaps = ring.SelectMany(a => next[a].Where(kv => ring.Contains(kv.Key)).OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => $"{a}→{kv.Key} {M(kv.Value)} m"));
             var (x, y) = Centre(l, ring);
-            res.Add(new CauseItem(CauseKinds.DeadlockRisk, 1, "교착 위험 " + names, names, string.Join(" · ", gaps), Fix(c, ring), null, x, y));
+            res.Add(new CauseItem(CauseKinds.DeadlockRisk, 1, "교착 위험 " + names, names, string.Join(" · ", gaps), Fix(c, ring), null, x, y, ring.ToList()));
         }
         return res;
     }

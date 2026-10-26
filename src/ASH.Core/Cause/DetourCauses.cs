@@ -89,10 +89,11 @@ public static class DetourCauses
         return new CauseItem(CauseKinds.Detour, lost || leg.Directed >= SevereRatio * und ? 2 : 1,
             lost ? $"{material} 도달 불가" : $"{material} 우회 {Fmt(leg.Directed)} m", $"{a}→{b}",
             string.Join(" · ", new[] { lost ? "실제 도달 불가" : $"실제 {Fmt(leg.Directed)} m", $"방향 무시 {Fmt(und)} m" }.Concat(leg.Suspects.Select(s => s.Text))),
-            leg.Suspects.Count == 0 ? "경로 연결 확인" : string.Join(", ", leg.Suspects.Select(s => s.Fix)), null, first?.X, first?.Y);
+            leg.Suspects.Count == 0 ? "경로 연결 확인" : string.Join(", ", leg.Suspects.Select(s => s.Fix)), null, first?.X, first?.Y,
+            new[] { a, b }.Concat(leg.Suspects.SelectMany(s => s.Refs)).Distinct().ToList());
     }
 
-    sealed record Suspect(string Text, string Fix, double X, double Y, LayoutPath? Rev = null); // Rev = the path traversed against its direction
+    sealed record Suspect(string Text, string Fix, double X, double Y, string[] Refs, LayoutPath? Rev = null); // Rev = the path traversed against its direction
     sealed record Leg(double Directed, double Undirected, List<Suspect> Suspects);
     sealed record Cp(LayoutPath Path, double Dist);
 
@@ -221,13 +222,13 @@ public static class DetourCauses
         static Suspect Against(LayoutPath p)
         {
             var m = p.PointAt(p.Length / 2);
-            return new Suspect($"{p.Name} 방향 반대 의심", $"{p.Name} 방향 확인", m.X, m.Y, p);
+            return new Suspect($"{p.Name} 방향 반대 의심", $"{p.Name} 방향 확인", m.X, m.Y, new[] { p.Name }, p);
         }
 
         Suspect Gap(int u, int v, Point2 mid)
         {
-            string name = $"{nodes[u].Ends[0].Path.Name}·{nodes[v].Ends[0].Path.Name}";
-            return new Suspect($"{name} 끊김 의심", $"{name} 연결 확인", mid.X, mid.Y);
+            string p1 = nodes[u].Ends[0].Path.Name, p2 = nodes[v].Ends[0].Path.Name, name = $"{p1}·{p2}";
+            return new Suspect($"{name} 끊김 의심", $"{name} 연결 확인", mid.X, mid.Y, new[] { p1, p2 });
         }
     }
 }
