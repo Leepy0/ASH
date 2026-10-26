@@ -81,6 +81,8 @@ public static class ModelBuilder
         var pad = Math.Max(draw.Max.X - draw.Min.X, draw.Max.Y - draw.Min.Y) * 0.1;
         File.WriteAllText(Path.Combine(arc, "model.amo"),
             ModelAmoWriter.Render(r.ModelName, o.Units, input.Settings.SimLengthSec / 3600, new[] { "agv" }, draw.Expand(Math.Max(pad, upm)), o.Version, r.AutoView));
+        // 3D picture assets: static system ash_3d (none: a stale ash_3d.asy is removed); the build below starts from a fresh <Model>.dir, so a changed file is read
+        Cel.AssetShapes.AddTo(arc, l.Assets.Select(a => Cel.AssetShapes.InMetres(a, o.Origin, o.Scale)), o.Units);
         ParamsFile.Write(input, new RunScenario(input.Settings.SeedBase, new Dictionary<string, int>()), Path.Combine(arc, "params.txt"));
         InputSignature.Write(arc, input); // ash-run refuses a model whose baked-in inputs differ from the current Excel
 

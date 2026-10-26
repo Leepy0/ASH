@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text;
 using ASH.Core.Asy;
 using ASH.Core.Traffic;
@@ -45,6 +46,15 @@ public static class ExportRunner
             foreach (var b in l.Blocks)
                 w.Write(b.Name + "\t" + b.Cap.ToString(CultureInfo.InvariantCulture) + "\t" + F((b.Rect.Min.X - o.Origin.X) * o.Scale) + "\t" + F((b.Rect.Min.Y - o.Origin.Y) * o.Scale)
                     + "\t" + F((b.Rect.Max.X - o.Origin.X) * o.Scale) + "\t" + F((b.Rect.Max.Y - o.Origin.Y) * o.Scale) + "\n");
+        }
+        // 3D picture assets, metres like blocks.tsv: segments "L x1 y1 x2 y2" or "A cx cy x1 y1 sweepDeg", joined by ';'
+        using (var w = new StreamWriter(Path.Combine(arcDir, "assets.tsv"), false, new UTF8Encoding(false)))
+        {
+            string F(double v) => v.ToString("R", CultureInfo.InvariantCulture);
+            w.Write("kind\tx\ty\trot\tsx\tsy\twidth\tsegments\n");
+            foreach (var a in l.Assets.Select(a => Cel.AssetShapes.InMetres(a, o.Origin, o.Scale)))
+                w.Write(string.Join("\t", a.Kind, F(a.X), F(a.Y), F(a.RotDeg), F(a.Sx), F(a.Sy), F(a.WidthM), string.Join(";", a.Segments.Select(s => s is Geometry.ArcSeg c
+                    ? $"A {F(c.Center.X)} {F(c.Center.Y)} {F(c.Start.X)} {F(c.Start.Y)} {F(c.SweepDeg)}" : $"L {F(s.Start.X)} {F(s.Start.Y)} {F(s.End.X)} {F(s.End.Y)}"))) + "\n");
         }
         return new ExportResult(asy, backup, tsv, summary, warnings, blocks);
     }

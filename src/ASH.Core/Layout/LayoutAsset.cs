@@ -14,8 +14,9 @@ public static class AssetKinds
     public static readonly string[] Lines = { Wall, Fence };
 }
 
-/// <summary>A 3D picture asset in metres (model frame). Block kinds: X, Y = insertion point (floor centre), RotDeg, Sx/Sy = multiples of the kind's base size.
-/// Line kinds: Segments in drawing order, WidthM = polyline global width (0 = kind default).</summary>
+/// <summary>A 3D picture asset. X, Y and Segments are in the drawing frame like the rest of Layout (DrawingReader); AssetShapes.InMetres takes them to metres
+/// in the model frame. Block kinds: X, Y = insertion point (floor centre), RotDeg, Sx/Sy = multiples of the kind's base size.
+/// Line kinds: Segments in drawing order, WidthM = polyline global width in metres (0 = kind default).</summary>
 public sealed class LayoutAsset
 {
     public string Kind { get; set; } = "";

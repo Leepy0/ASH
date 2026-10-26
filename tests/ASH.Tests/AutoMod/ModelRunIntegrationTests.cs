@@ -24,7 +24,7 @@ public class ModelRunIntegrationTests
     /// <summary>One-way square loop (4 paths, 10 m sides) with S001 standby, L001 load, B001 buffer, U001 unload, one block;
     /// a second group adds S002 standby (G2) and L002 load.</summary>
     static Run BuildAndRun(ProjectInput input, IReadOnlyDictionary<string, int> active, int seed = 1, IReadOnlyDictionary<string, VehicleTemplateOverride>? vehOverrides = null,
-        string units = "Meters", bool autoView = false)
+        string units = "Meters", bool autoView = false, IEnumerable<ASH.Core.Layout.LayoutAsset>? assets = null)
     {
         var l = L.Of(L.Line("p1", 0, 0, 10, 0), L.Line("p2", 10, 0, 10, 10), L.Line("p3", 10, 10, 0, 10), L.Line("p4", 0, 10, 0, 0));
         l.Cps.Add(L.Cp("S001", 5, 0, "standby", "G1"));
@@ -35,6 +35,7 @@ public class ModelRunIntegrationTests
         var work = Path.Combine(Path.GetTempPath(), "ash_run_" + Guid.NewGuid().ToString("N"));
         var specs = ModelBuilder.VehicleGroups(input);
         l.Blocks.Add(new ASH.Core.Layout.LayoutBlock { Name = "B_x1", Cap = 1, Rect = new Rect2(new Point2(8, -1), new Point2(11, 2)) }); // corner p1/p2
+        if (assets != null) l.Assets.AddRange(assets);
         var res = ModelBuilder.Build(new ModelBuildRequest(work, Model, input, l, new ExportOptions(Units: units, Groups: specs), VehicleOverrides: vehOverrides, AutoView: autoView), AmHome!, TimeSpan.FromMinutes(5));
         Assert.DoesNotContain(res.Findings, f => f.Code == ASH.Core.Layout.FindingCode.InputError);
         var b = res.Build!;
@@ -54,6 +55,23 @@ public class ModelRunIntegrationTests
 
     static double V(string[] row, int i) => double.Parse(row[2 + i], CultureInfo.InvariantCulture);
     static string[] Mat(Run r, string name) => r.Rows.Single(x => x[0] == "material" && x[1] == name);
+
+    // 3D assets (design §8): the ash_3d static system must pass AutoMod's build (cells in the model units) and not disturb the run
+    [SkippableTheory]
+    [InlineData("Meters")]
+    [InlineData("Millimeters")]
+    public void Run_With_3d_Assets_Builds_The_Static_System(string units)
+    {
+        Skip.If(AmHome is null, "ASH_AM_HOME not set");
+        var assets = ASH.Core.Layout.AssetKinds.Blocks.Select((k, i) => new ASH.Core.Layout.LayoutAsset { Kind = k, X = 14 + 4 * (i % 5), Y = 2 + 6 * (i / 5), RotDeg = 30 * i }).ToList();
+        assets.Add(new ASH.Core.Layout.LayoutAsset { Kind = "WALL", Segments = { new LineSeg(new Point2(-3, -3), new Point2(13, -3)), new ArcSeg(new Point2(13, 0), new Point2(13, -3), 90) } });
+        assets.Add(new ASH.Core.Layout.LayoutAsset { Kind = "FENCE", Segments = { new LineSeg(new Point2(-3, 13), new Point2(13, 13)) } });
+        var run = BuildAndRun(LogicGeneratorTests.Sample(), new Dictionary<string, int> { ["G1"] = 1 }, units: units, assets: assets);
+        Assert.Contains("STATIC name ash_3d", File.ReadAllText(Path.Combine(run.Work, Model + ".arc", "model.amo")));
+        Assert.True(File.Exists(Path.Combine(run.Work, Model + ".dir", "ash_3d.sys")), "AutoMod compiled the static system");
+        Assert.Equal(3600, V(run.Rows.Single(x => x[0] == "clock"), 2), 3);
+        Cleanup(run.Work);
+    }
 
     // every vehicle kind and every material form must be accepted by AutoMod's build (geometry syntax, `set load type`) and run to the end
     [SkippableTheory]
