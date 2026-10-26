@@ -18,7 +18,7 @@
 
 ## 2. 모델 생성 (ZWCAD, AutoMod)
 
-- `AGVMODEL`이 입력을 검사하고 `<모델>.arc`를 만든 뒤 AutoMod가 있으면 `<모델>.dir`까지 빌드한다.
+- `AGVMODEL`이 입력을 검사하고 `<모델>.arc`를 만든다(빌드는 하지 않는다, 0.26.9). 이어서 서버로 보낼지 묻는다. 이 PC의 AutoMod로 보려면 `AGVRUN`(필요하면 그때 빌드).
 - `AGVRUN`으로 만든 모델을 AutoMod 창에서 연다.
 - 차량 형상 4종(Standard · Conveyor · Ant · Magnet)과 적재물 3종(Box · Pallet · Trolley)을 그린다.
 - 서버 에셋(STL·OBJ에서 변환한 `.cel`)을 차량 그림으로 쓴다.

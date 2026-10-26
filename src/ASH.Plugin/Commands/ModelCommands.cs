@@ -120,8 +120,8 @@ public sealed class ModelCommands
             new ExportCommands().AgvExport();
             return;
         }
-        // AutoMod on this PC is optional: without it the model files are only written, and the server builds them with the AutoMod its own settings name
-        var amHome = AmBuilder.FindBuildExe(s.AmHome) != null ? s.AmHome : null;
+        // only the model files: even with AutoMod on this PC the build is left to AGVRUN (to watch it here) or the server (AGVSEND), whichever is wanted
+        bool hasAutoMod = AmBuilder.FindBuildExe(s.AmHome) != null;
         bool toServer = false;
         PathCommands.Run(doc, "AGVMODEL", (db, tr) =>
         {
@@ -136,8 +136,7 @@ public sealed class ModelCommands
                 // Excel wins over ash.settings.tsv Groups
                 var groups = input.Groups.Count == 0 ? SettingsFile.ParseGroups(s.Groups) : ModelBuilder.VehicleGroups(input);
                 var options = new ExportOptions(Units: s.Units, Origin: s.Origin, Scale: s.Scale, Groups: groups);
-                Ui.PaletteStatus.Set(amHome != null ? "AGVMODEL 빌드 중…" : "AGVMODEL 모델 생성 중…");
-                if (amHome != null) ed.WriteMessage("\nAutoMod 빌드 중… 최대 10분");
+                Ui.PaletteStatus.Set("AGVMODEL 모델 생성 중…");
                 var assetWarnings = new List<string>();
                 var assetClient = AssetClient.Open(UserSettings.Load().ServerUrl); // one per run: its asset list is read once
                 bool wantsAssets = ModelBuilder.IsValidModelName(s.ModelName) && input.AgvTypes.Any(t => t.Asset.Length > 0);
@@ -151,7 +150,7 @@ public sealed class ModelCommands
                     }, assetWarnings), input.Groups)
                     : new Dictionary<string, VehicleTemplateOverride>();
                 foreach (var w in assetWarnings) ed.WriteMessage("\n경고: " + w);
-                r = ModelBuilder.Build(new ModelBuildRequest(dir, s.ModelName, input, layout, options, VehicleOverrides: ov.Count > 0 ? ov : null), amHome, TimeSpan.FromMinutes(10));
+                r = ModelBuilder.Build(new ModelBuildRequest(dir, s.ModelName, input, layout, options, VehicleOverrides: ov.Count > 0 ? ov : null), null, TimeSpan.FromMinutes(10));
             }
             catch (ExportException ex)
             {
@@ -167,19 +166,19 @@ public sealed class ModelCommands
             foreach (var w in r.Warnings) ed.WriteMessage($"\n경고: {w}");
             if (r.Export != null) ExportCommands.Report(ed, r.Export);
             ed.WriteMessage($"\narc: {r.ArcDir}");
-            bool ok = r.Build?.Success ?? false;
-            if (r.Build == null && r.Findings.Any(f => f.Code == FindingCode.InputError)) ed.WriteMessage("\n입력 오류가 있어 모델을 만들지 않았습니다.");
-            else if (r.Build == null)
+            if (r.Findings.Any(f => f.Code == FindingCode.InputError)) ed.WriteMessage("\n입력 오류가 있어 모델을 만들지 않았습니다.");
+            else
             {
-                ed.WriteMessage("\n이 PC에는 AutoMod가 없어 모델 파일만 만들었습니다. 빌드와 대수 탐색은 서버가 서버의 AutoMod로 합니다.");
+                ed.WriteMessage(hasAutoMod
+                    ? "\n모델 파일을 만들었습니다(빌드는 하지 않음). 이 PC의 AutoMod로 보려면 '빌드·실행'(AGVRUN), 대수 탐색은 '서버로 보내기'로 서버에서 합니다."
+                    : "\n모델 파일을 만들었습니다. 이 PC에는 AutoMod가 없어 빌드와 대수 탐색은 서버가 서버의 AutoMod로 합니다.");
                 toServer = true;
             }
-            else if (ok) ed.WriteMessage($"\n빌드 성공: {Path.Combine(dir, s.ModelName + ".dir")} — '빌드·실행'(AGVRUN)으로 AutoMod에서 바로 볼 수 있습니다.");
-            else BuildFailed(ed, r.Build);
-            PathCommands.FinalStatus = ok ? "AGVMODEL 완료" : toServer ? "AGVMODEL 모델 생성(서버 빌드)" : "AGVMODEL 오류";
+            PathCommands.FinalStatus = toServer ? "AGVMODEL 모델 생성 완료" : "AGVMODEL 오류";
             return false; // nothing in the drawing changed
         }, refreshArrows: false, unitsPerMeter: UnitScale.FromSettings(s));
-        if (toServer) ServerCommands.Command("AGVMODEL", results: false); // asks before sending, with the server's queue
+        // asks before sending (with the server's queue); No keeps the files here. With AutoMod here and no server set, it just stays here
+        if (toServer && (!hasAutoMod || UserSettings.TryNormalizeUrl(UserSettings.Load().ServerUrl, out _))) ServerCommands.Command("AGVMODEL", results: false);
     }
 
     private static void BuildFailed(Editor ed, AmBuildResult b)
