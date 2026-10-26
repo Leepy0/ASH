@@ -29,8 +29,7 @@ begin P_consume_{{M}} arriving procedure
 					if V_events = 1 then print ac "\tstockin\t{{NAME}}\t\t" ac - V_stopSince({{M}}) to V_ev
 				end
 			end
-			dec V_stock({{M}}) by V_need({{M}})
-			if ac >= V_warmup then inc V_consumed({{M}}) by V_need({{M}})
+{{CONSUME}}
 		end
 		if ac >= V_warmup then begin
 			inc V_samples({{M}}) by 1

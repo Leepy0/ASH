@@ -36,8 +36,10 @@ public static class ModelBuilder
             input = new ProjectInput { Settings = r.Input.Settings };
             input.AgvTypes.AddRange(r.Input.AgvTypes); input.Groups.AddRange(r.Input.Groups); input.Materials.AddRange(r.MaterialOverrides);
             input.Routes.AddRange(r.Input.Routes); input.Stations.AddRange(r.Input.Stations); input.Ext.AddRange(r.Input.Ext);
+            input.Conveyors.AddRange(r.Input.Conveyors);
         }
         var findings = InputValidator.Validate(input, l.Cps.Select(c => c.Name).ToList());
+        findings.AddRange(ConveyorCheck.Check(input, l, o.Scale)); // Conveyors rows against the AGV_CONV polylines
         if (findings.Any(f => f.Code == FindingCode.InputError)) return new ModelBuildResult(arc, null, findings, Warn(findings));
 
         // supply-cycle check only on valid input; route lengths in meters (SpeedLoaded is m/s)
@@ -54,6 +56,10 @@ public static class ModelBuilder
             warnings.Add($"input.xlsx Settings의 Units({input.Settings.Units})는 쓰지 않습니다. 모델 단위는 ash.settings.tsv의 Units({o.Units})이고, 길이·속도 입력은 단위와 상관없이 m, m/s로 넣습니다.");
         var export = ExportRunner.Run(l, o, arc);
         warnings.AddRange(export.Warnings);
+        // conveyors: their own movement system; the process logic moves the products into its stations
+        var conv = Path.Combine(arc, ConveyorAsyWriter.SystemName + ".asy");
+        if (l.Conveyors.Count > 0) ConveyorAsyWriter.WriteFile(l.Conveyors, input.Conveyors, o, conv);
+        else if (File.Exists(conv)) File.Delete(conv);
         var standby = new Dictionary<string, string>();
         foreach (var c in l.Cps.Where(c => c.Type == "standby" && c.Group.Length > 0)) { if (!standby.ContainsKey(c.Group)) standby[c.Group] = c.Name; }
         // standby lanes too short for the group's vehicles to queue in (the queue would reach back into a junction or a block)
@@ -74,13 +80,14 @@ public static class ModelBuilder
         ProcessAsyWriter.WriteFile(pm, Path.Combine(arc, r.ModelName + "~.asy"));
 
         var pts = l.Paths.SelectMany(p => p.Segments).SelectMany(s => new[] { s.Start, s.End })
-            .Concat(l.Cps.Select(c => c.Position)).Concat(l.Blocks.SelectMany(b => new[] { b.Rect.Min, b.Rect.Max })).Select(Tx).ToList();
+            .Concat(l.Cps.Select(c => c.Position)).Concat(l.Blocks.SelectMany(b => new[] { b.Rect.Min, b.Rect.Max }))
+            .Concat(l.Conveyors.SelectMany(c => c.Segments).SelectMany(s => new[] { s.Start, s.End })).Select(Tx).ToList();
         double upm = o.UnitsPerMeter;
         var draw = pts.Count == 0 ? new Rect2(new Point2(-10 * upm, -10 * upm), new Point2(10 * upm, 10 * upm))
             : new Rect2(new Point2(pts.Min(p => p.X), pts.Min(p => p.Y)), new Point2(pts.Max(p => p.X), pts.Max(p => p.Y)));
         var pad = Math.Max(draw.Max.X - draw.Min.X, draw.Max.Y - draw.Min.Y) * 0.1;
         File.WriteAllText(Path.Combine(arc, "model.amo"),
-            ModelAmoWriter.Render(r.ModelName, o.Units, input.Settings.SimLengthSec / 3600, new[] { "agv" }, draw.Expand(Math.Max(pad, upm)), o.Version, r.AutoView));
+            ModelAmoWriter.Render(r.ModelName, o.Units, input.Settings.SimLengthSec / 3600, (l.Conveyors.Count > 0 ? new[] { "agv", ConveyorAsyWriter.SystemName } : new[] { "agv" }), draw.Expand(Math.Max(pad, upm)), o.Version, r.AutoView));
         ParamsFile.Write(input, new RunScenario(input.Settings.SeedBase, new Dictionary<string, int>()), Path.Combine(arc, "params.txt"));
         InputSignature.Write(arc, input); // ash-run refuses a model whose baked-in inputs differ from the current Excel
 

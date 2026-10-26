@@ -24,7 +24,7 @@ public class ModelRunIntegrationTests
     /// <summary>One-way square loop (4 paths, 10 m sides) with S001 standby, L001 load, B001 buffer, U001 unload, one block;
     /// a second group adds S002 standby (G2) and L002 load.</summary>
     static Run BuildAndRun(ProjectInput input, IReadOnlyDictionary<string, int> active, int seed = 1, IReadOnlyDictionary<string, VehicleTemplateOverride>? vehOverrides = null,
-        string units = "Meters", bool autoView = false)
+        string units = "Meters", bool autoView = false, Action<ASH.Core.Layout.Layout>? layoutExtra = null)
     {
         var l = L.Of(L.Line("p1", 0, 0, 10, 0), L.Line("p2", 10, 0, 10, 10), L.Line("p3", 10, 10, 0, 10), L.Line("p4", 0, 10, 0, 0));
         l.Cps.Add(L.Cp("S001", 5, 0, "standby", "G1"));
@@ -35,6 +35,7 @@ public class ModelRunIntegrationTests
         var work = Path.Combine(Path.GetTempPath(), "ash_run_" + Guid.NewGuid().ToString("N"));
         var specs = ModelBuilder.VehicleGroups(input);
         l.Blocks.Add(new ASH.Core.Layout.LayoutBlock { Name = "B_x1", Cap = 1, Rect = new Rect2(new Point2(8, -1), new Point2(11, 2)) }); // corner p1/p2
+        layoutExtra?.Invoke(l);
         var res = ModelBuilder.Build(new ModelBuildRequest(work, Model, input, l, new ExportOptions(Units: units, Groups: specs), VehicleOverrides: vehOverrides, AutoView: autoView), AmHome!, TimeSpan.FromMinutes(5));
         Assert.DoesNotContain(res.Findings, f => f.Code == ASH.Core.Layout.FindingCode.InputError);
         var b = res.Build!;
@@ -464,6 +465,52 @@ public class ModelRunIntegrationTests
             var v = p.Substring(p.IndexOf("PROBE ", StringComparison.Ordinal) + 6).Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).Select(x => double.Parse(x, CultureInfo.InvariantCulture)).ToArray();
             Assert.Equal(0.5, v[0], 3); Assert.Equal(0.5, v[1], 3); // metres (the model's unit)
         }
+        Cleanup(run.Work);
+    }
+    /// <summary>CV001 north of the loop: 8 m east, a counter-clockwise quarter arc (radius 2 m), 5 m north; plus a picture-only conveyor.</summary>
+    static void AddConveyors(ASH.Core.Layout.Layout l)
+    {
+        l.Conveyors.Add(new ASH.Core.Layout.LayoutConveyor { Name = "CV001", Id = "1A", Segments = { new LineSeg(new Point2(0, 15), new Point2(8, 15)),
+            new ArcSeg(new Point2(8, 17), new Point2(8, 15), 90), new LineSeg(new Point2(10, 17), new Point2(10, 22)) } });
+        l.Conveyors.Add(new ASH.Core.Layout.LayoutConveyor { GraphicOnly = true, WidthM = 1.0, Segments = { new LineSeg(new Point2(0, 25), new Point2(10, 25)) } });
+    }
+
+    // the conveyor line (design 9.3): M1 starts with no stock and one product every 5 s uses 0.1 container, more than one vehicle brings,
+    // so the line stops at the use point, backs up to the entry (input delay) and runs again after each delivery; M2 keeps the takt clock.
+    // An empty ConsumeAt puts _use on _out at the end.
+    [SkippableTheory]
+    [InlineData(10.0)]
+    [InlineData(null)]
+    public void Conveyor_Line_Stops_Without_Stock_Backs_Up_And_Restarts_After_Delivery(double? consumeAt)
+    {
+        Skip.If(AmHome is null, "ASH_AM_HOME not set");
+        var input = LogicGeneratorTests.Sample();
+        input.Materials[0] = input.Materials[0] with { TaktTime = 5, InitStock = 0, ConveyorFed = true }; // as the reader sets a Conveyors material
+        input.Conveyors.Add(new ConveyorInfo("CV001", "M1", 5, 1, 0.3, null, consumeAt, Row: 2));
+        var run = BuildAndRun(input, new Dictionary<string, int> { ["G1"] = 1 }, layoutExtra: AddConveyors);
+        var arc = Path.Combine(run.Work, Model + ".arc");
+        Assert.Contains("MOVESYS name ash_conv", File.ReadAllText(Path.Combine(arc, "model.amo")));
+        var rs = ResultParser.Parse(run.ResultTsvPath);
+        var cv = Assert.Single(rs.Conveyors!);
+        var m1 = rs.Materials.Single(m => m.Name == "M1"); var m2 = rs.Materials.Single(m => m.Name == "M2");
+        Console.WriteLine($"CV001 passed {cv.Passed}, stopped {cv.StopSec:0} s, input delay {cv.InputDelaySec:0} s; M1 supplies {m1.Supplies} consumed {m1.Consumed:0.##}; M2 consumed {m2.Consumed:0.##}");
+        Assert.Equal("M1", cv.Material);
+        Assert.True(cv.Passed > 0, "products passed the end");
+        Assert.True(cv.StopSec > 0, "the line stood at the use point without stock");
+        Assert.True(cv.InputDelaySec > 0, "the stop backed the products up to the entry");
+        Assert.True(m1.Supplies > 0);
+        // every product consumes 0.1 container at the use point; those between the use point and the end at the snap are consumed, not passed
+        Assert.InRange(m1.Consumed - cv.Passed * 0.1, -1e-6, 2.0);
+        Assert.True(m2.Consumed > 0, "M2 is still consumed by the takt clock");
+        // stop and restart in time: every restart comes right after (at most the 1 s poll) a delivery of M1
+        var o = ModelRunner.Run(new RunRequest(run.Work, Model, input, new RunScenario(1, new Dictionary<string, int> { ["G1"] = 1 }, Events: true), TimeSpan.FromMinutes(2), "Student Version"));
+        Assert.True(o.Success, o.Error);
+        var ev = EventLog.Read(Path.Combine(o.RunDir, "events.tsv"));
+        var stops = ev.Where(e => e.Kind == "convstop").ToList(); var goes = ev.Where(e => e.Kind == "convgo").ToList();
+        var delivers = ev.Where(e => e.Kind == "deliver" && e.Material == "M1").Select(e => e.T).ToList();
+        Console.WriteLine($"{stops.Count} stops, {goes.Count} restarts, first stop {stops.FirstOrDefault()?.T:0} s, first restart {goes.FirstOrDefault()?.T:0} s");
+        Assert.NotEmpty(stops); Assert.NotEmpty(goes);
+        Assert.All(goes.Where(g => g.T > 361), g => Assert.Contains(delivers, d => d <= g.T + 1e-6 && g.T - d <= 1.0 + 1e-6));
         Cleanup(run.Work);
     }
 }

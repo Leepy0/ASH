@@ -1,0 +1,42 @@
+/* conveyor {{K}} = {{CV}}: products consume material {{M}} = {{NAME}} at {{CV}}_use */
+/* the takt clock of the line: the next product is made one takt after the last one got on (P_cv_{{K}} starts this load once it is on) */
+begin P_cvsrc_{{K}} arriving procedure
+	wait for {{TAKT}} sec
+	create 1 load of type L_prod to P_cv_{{K}}
+	send to die
+end
+
+/* one product: waits in front of a full entry (the time is the input delay; the next one is not made meanwhile, so at most one waits and
+   nothing is batched afterwards), rides to the use point, stays there until the stock covers it (the accumulating sections back the line up
+   behind it), consumes, rides to the end and leaves */
+begin P_cv_{{K}} arriving procedure
+	set V_cvT0({{K}}) to ac
+	set V_cvBlk({{K}}) to 1
+	move into {{SYS}}:{{CV}}_in
+	set V_cvBlk({{K}}) to 0
+	if V_cvT0({{K}}) < V_warmup then set V_cvT0({{K}}) to V_warmup
+	if ac > V_cvT0({{K}}) then inc V_cvLate({{K}}) by ac - V_cvT0({{K}})
+	create 1 load of type L_ctl to P_cvsrc_{{K}}
+	travel to {{SYS}}:{{CV}}_use
+	if V_stock({{M}}) < V_need({{M}}) - 0.000001 then begin
+		set V_cvWait({{K}}) to 1
+		set V_cvSince({{K}}) to ac
+		if V_events = 1 and ac >= V_warmup then print ac "\tconvstop\t{{NAME}}\t{{CV}}\t0" to V_ev
+		/* polled like the buffer wait in P_supply: a delivery restarts the line within a second */
+		while V_stock({{M}}) < V_need({{M}}) - 0.000001 do begin
+			wait for 1 sec
+		end
+		set V_cvWait({{K}}) to 0
+		if V_cvSince({{K}}) < V_warmup then set V_cvSince({{K}}) to V_warmup
+		if ac > V_cvSince({{K}}) then begin
+			inc V_cvStop({{K}}) by ac - V_cvSince({{K}})
+			if V_events = 1 then print ac "\tconvgo\t{{NAME}}\t{{CV}}\t" ac - V_cvSince({{K}}) to V_ev
+		end
+	end
+	dec V_stock({{M}}) by V_need({{M}})
+	if ac >= V_warmup then inc V_consumed({{M}}) by V_need({{M}})
+	travel to {{SYS}}:{{CV}}_out
+	if ac >= V_warmup then inc V_cvPass({{K}}) by 1
+	send to die
+end
+
