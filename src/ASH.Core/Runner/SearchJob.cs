@@ -12,9 +12,11 @@ namespace ASH.Core.Runner;
 
 /// <param name="RunTimeout">Per model run.</param>
 /// <param name="Append">Keep an existing runs\ folder instead of rotating it to runs.&lt;yyyyMMdd_HHmmss&gt;\.</param>
+/// <param name="Resume">Continue a stopped job: runs\ is kept, summary.tsv keeps only runs whose result is still readable, and the search takes those runs
+/// again instead of running the model (same seeds, so it reaches where it stopped at once); the rest runs as usual.</param>
 /// <param name="FixedCounts">Confirmation only: no search, run exactly these counts (every group) once at the settings' replications (<see cref="SearchStrategy.Confirm"/>); Impact is ignored.</param>
 public sealed record SearchJobOptions(string ProjectDir, string Model, string? AmHome = null, int Parallel = 2, string? DialogButton = null,
-    TimeSpan? RunTimeout = null, int InitialReps = 1, bool Impact = false, bool Debug = false, bool Append = false, IReadOnlyDictionary<string, int>? FixedCounts = null);
+    TimeSpan? RunTimeout = null, int InitialReps = 1, bool Impact = false, bool Debug = false, bool Append = false, IReadOnlyDictionary<string, int>? FixedCounts = null, bool Resume = false);
 
 /// <summary>ExitCode: 0 ok, 1 error (Error says why), 2 ok with warnings. Search, Input and Clusters are null when the job stopped before the search.</summary>
 public sealed record SearchJobResult(int ExitCode, string? Error, ProjectInput? Input, GroupClusters? Clusters, SearchResult? Search, int Runs, int Failures,
@@ -29,6 +31,26 @@ public sealed record SearchJobResult(int ExitCode, string? Error, ProjectInput? 
 public static class SearchJob
 {
     /// <summary>Moves an existing runs\ to runs.&lt;yyyyMMdd_HHmmss&gt;\ (suffix _2, _3... on a clash) so each job starts a fresh summary.</summary>
+    /// <summary>Resume: summary.tsv rewritten with only the rows of runs whose result.tsv and report are still there and valid (failed or purged runs go,
+    /// so they run again and are not counted twice); returns how many runs were kept.</summary>
+    public static int KeepReadableRuns(string runsDir, string model)
+    {
+        var path = Path.Combine(runsDir, "summary.tsv");
+        if (!File.Exists(path)) return 0;
+        bool Ok(string id)
+        {
+            string tsv = Path.Combine(runsDir, id, "result.tsv"), rep = Path.Combine(runsDir, id, model + ".report");
+            return File.Exists(tsv) && File.Exists(rep) && ResultParser.Validate(tsv, out _);
+        }
+        IReadOnlyList<SummaryRow> rows;
+        try { rows = SummaryTsv.ReadAll(path); }
+        catch (InvalidDataException) { rows = Array.Empty<SummaryRow>(); }
+        var keep = rows.GroupBy(r => r.RunId).Where(g => Ok(g.Key)).SelectMany(g => g).ToList();
+        File.Delete(path);
+        foreach (var r in keep) SummaryTsv.Append(path, r);
+        return keep.Select(r => r.RunId).Distinct().Count();
+    }
+
     public static string? RotateRuns(string runsDir)
     {
         if (!Directory.Exists(runsDir)) return null;
@@ -131,9 +153,10 @@ public static class SearchJob
         foreach (var w in clusters.Warnings) o.WriteLine("warning: " + w);
         foreach (var f in InputValidator.SupplyCapacity(input, clusters.SupplyLength)) { o.WriteLine("input: " + f.Message); warnings.Add(f.Message); }
 
-        if (!a.Append && RotateRuns(runsDir) is { } old) o.WriteLine("previous runs moved to " + old);
+        if (a.Resume) o.WriteLine($"resume: {KeepReadableRuns(runsDir, a.Model)} earlier runs can be taken again");
+        else if (!a.Append && RotateRuns(runsDir) is { } old) o.WriteLine("previous runs moved to " + old);
         var mx = new ModelExecutor(new ExecutorOptions(a.ProjectDir, a.Model, a.Parallel, a.RunTimeout ?? TimeSpan.FromMinutes(30), a.DialogButton, a.AmHome,
-            a.Debug, runsDir, Progress: progress), input);
+            a.Debug, runsDir, Progress: progress, Reuse: a.Resume), input);
         var exec = new ParallelExecutor(a.Parallel, mx.Run);
         var expected = a.FixedCounts != null ? (SearchStrategy.FixedStock(input.Settings) ? 1 : Math.Max(1, input.Settings.Replications)) : SearchEstimate.Expected(input, clusters, a.InitialReps, a.Impact);
         o.WriteLine("expected runs: " + expected);
