@@ -107,13 +107,32 @@ public sealed class LimitWorker(JobStore jobs, IFilmAutoMod am, IConfiguration c
             info.Error = e.Message; info.Done = true;
         }
         finally { lock (_gate) { _id = null; _cts = null; } }
-        try
-        {
-            File.WriteAllText(Res(jobs, j.Id) + ".tmp", JsonSerializer.Serialize(info, Json));
-            File.Move(Res(jobs, j.Id) + ".tmp", Res(jobs, j.Id), true);
-        }
-        catch (IOException e) { logger.LogWarning("생산량 한계 저장 실패 {Id}: {Error}", j.Id, e.Message); }
-        if (info.Done) TryDelete(Req(jobs, j.Id));
+        // not saved: the request stays, so the step runs again rather than the result being lost
+        if (!Save(Res(jobs, j.Id), JsonSerializer.Serialize(info, Json))) logger.LogWarning("생산량 한계 저장 실패 {Id}", j.Id);
+        else if (info.Done) TryDelete(Req(jobs, j.Id));
+    }
+
+    /// <summary>Whole-file replace, retried: a page reading the file at that moment holds it open for an instant.</summary>
+    static bool Save(string path, string text)
+    {
+        for (int i = 0; ; i++)
+            try
+            {
+                File.WriteAllText(path + ".tmp", text, new UTF8Encoding(false));
+                File.Move(path + ".tmp", path, true);
+                return true;
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                if (i == 4) return false;
+                Thread.Sleep(100);
+            }
+    }
+
+    /// <summary>The progress text, only while the request is there: a cancel deletes it and must not see it come back.</summary>
+    static void SetProgress(JobStore js, string id, string text)
+    {
+        if (File.Exists(Req(js, id))) Save(Req(js, id), text);
     }
 
     LimitStep Step(JobInfo j, int pct, StreamWriter log, CancellationToken ct)
@@ -137,12 +156,13 @@ public sealed class LimitWorker(JobStore jobs, IFilmAutoMod am, IConfiguration c
         var progress = new SyncProgress(o =>
         {
             var n = Interlocked.Increment(ref done);
-            lock (log) log.WriteLine($"run {o.RunId} {(o.Success ? "ok" : "FAILED")} {o.Duration.TotalSeconds:0.0} s");
-            // only while the request is there: a cancel deletes it and must not see it come back
-            try { if (File.Exists(Req(jobs, j.Id))) File.WriteAllText(Req(jobs, j.Id), $"+{pct}% · {n}/{reps}"); }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+            lock (log)
+            {
+                log.WriteLine($"run {o.RunId} {(o.Success ? "ok" : "FAILED")} {o.Duration.TotalSeconds:0.0} s");
+                SetProgress(jobs, j.Id, $"+{pct}% · {n}/{reps}");
+            }
         });
-        if (File.Exists(Req(jobs, j.Id))) File.WriteAllText(Req(jobs, j.Id), $"+{pct}% · 0/{reps}");
+        SetProgress(jobs, j.Id, $"+{pct}% · 0/{reps}");
         var mx = new ModelExecutor(new ExecutorOptions(proj, j.Model, par, jr.RunTimeout, jr.DialogButton, jr.AmHome, RunsDir: runsDir, Progress: progress), input, am.Run);
         var res = SearchStrategy.Confirm(input, new ParallelExecutor(par, mx.Run), counts, ct);
         ct.ThrowIfCancellationRequested(); // a step cut short is no result
