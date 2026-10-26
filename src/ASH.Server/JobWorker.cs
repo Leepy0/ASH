@@ -44,7 +44,7 @@ public sealed class AutoModJobRunner(IConfiguration cfg) : IJobRunner
         ct.ThrowIfCancellationRequested();
 
         phase(job.FixedCounts != null ? "확인 실행" : "대수 탐색");
-        var r = SearchJob.Run(new SearchJobOptions(projectDir, job.Model, AmHome, Parallel, DialogButton, RunTimeout, job.InitialReps, job.Impact, FixedCounts: job.FixedCounts), null, log, progress, ct, onProgress: search);
+        var r = SearchJob.Run(new SearchJobOptions(projectDir, job.Model, AmHome, Parallel, DialogButton, RunTimeout, job.InitialReps, job.Impact, FixedCounts: job.FixedCounts, Resume: job.Resume), null, log, progress, ct, onProgress: search);
         var sum = SearchSummaryFile.From(r);
         return new JobOutcome(r.ExitCode, r.Error, r.Search?.Decided, r.Clusters?.Clusters, sum.ConfirmRunIds, sum.Warnings, sum.FailureMessages);
     }
@@ -52,7 +52,7 @@ public sealed class AutoModJobRunner(IConfiguration cfg) : IJobRunner
 
 /// <summary>One job at a time, oldest first. A job that runs past Jobs:JobTimeoutHours (default 24) is cancelled, so one stuck job never blocks the queue.
 /// Filming work (scene requests, films) runs on the same loop after each job, so AutoMod never runs twice at once.</summary>
-public sealed class JobWorker(JobStore store, IJobRunner runner, FilmWorker films, IConfiguration cfg, ILogger<JobWorker> logger) : BackgroundService
+public sealed class JobWorker(JobStore store, IJobRunner runner, FilmWorker films, IConfiguration cfg, ILogger<JobWorker> logger, ServerUpdater? updater = null) : BackgroundService
 {
     readonly object _gate = new();
     string? _runningId;
@@ -74,10 +74,22 @@ public sealed class JobWorker(JobStore store, IJobRunner runner, FilmWorker film
     protected override async Task ExecuteAsync(CancellationToken stop)
     {
         if (!Enabled) { logger.LogInformation("작업 실행이 꺼져 있습니다(Jobs:WorkerEnabled=false)."); return; }
+        if (updater != null) updater.WorkerApplies = true;
+        // a server update waits for a moment when nothing runs; once its swap has started nothing new is taken (the server stops in a moment)
+        async Task<bool> UpdateNow()
+        {
+            if (updater?.Waiting is not { } v) return false;
+            logger.LogInformation("작업 사이: 서버 업데이트 {Version} 적용", v);
+            if (!await updater.ApplyPendingAsync()) return false;
+            try { await Task.Delay(Timeout.Infinite, stop); } catch (OperationCanceledException) { }
+            return true;
+        }
         while (!stop.IsCancellationRequested)
         {
+            if (await UpdateNow()) return;
             var job = store.TakeNext();
             if (job != null) await Task.Run(() => RunOne(job, stop), CancellationToken.None);
+            if (job != null && await UpdateNow()) return; // before the film work that would come next
             var filmed = await Task.Run(() =>
             {
                 try { return films.RunNext(stop); }

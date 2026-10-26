@@ -11,6 +11,19 @@ internal static partial class Routes
     /// <summary>대수 바꿔 다시 돌리기: a confirmation-only run (no search) of a finished job's model with the counts of the form, filed as the next version of the same plan.</summary>
     public static void MapRerun(this WebApplication app)
     {
+        // 이어서 하기 / 처음부터 다시: a failed or cancelled job goes back in the queue as itself (mode=resume keeps the runs it finished)
+        app.MapPost("/jobs/{id}/retry", async (string id, HttpContext ctx, JobStore js, ReleaseStore rs, IConfiguration cfg) =>
+        {
+            if (!AcceptsJobs(cfg)) return Msg(403, "이 서버는 작업을 받지 않습니다(Jobs:Enabled=false).");
+            if (!JobStore.IsValidId(id) || js.Get(id) is not { } j) return Msg(404, "작업이 없습니다.");
+            if (CrossSiteBrowser(ctx)) return Msg(403, CrossSite);
+            var form = await FormFrom(ctx);
+            var token = form?["token"].ToString();
+            if (!CanCancel(ctx, j, rs, string.IsNullOrEmpty(token) ? null : token)) return Msg(403, "보낸 PC나 관리자만 다시 실행할 수 있습니다.");
+            if (!js.Requeue(id, form?["mode"].ToString() != "restart")) return Msg(409, "실패했거나 취소된 서버 작업만 다시 실행할 수 있습니다.");
+            return Results.Redirect($"/jobs/{id}");
+        });
+
         app.MapPost("/jobs/{id}/rerun", async (string id, HttpContext ctx, JobStore js, AnalysisStore analyses, ReleaseStore rs, IConfiguration cfg, CancellationToken ct) =>
         {
             if (!AcceptsJobs(cfg)) return Msg(403, "이 서버는 작업을 받지 않습니다(Jobs:Enabled=false).");

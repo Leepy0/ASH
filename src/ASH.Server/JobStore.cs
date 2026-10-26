@@ -41,6 +41,10 @@ public sealed class JobInfo
     public Dictionary<string, int>? FixedCounts { get; set; }
     public int InitialReps { get; set; } = 1;
     public bool CancelRequested { get; set; }
+    /// <summary>Queued again by 이어서 하기: the search keeps runs\ and takes the runs that finished before instead of running them again.</summary>
+    public bool Resume { get; set; }
+    /// <summary>How many times this job was queued again after it failed or was cancelled.</summary>
+    public int Retries { get; set; }
     public int RunsDone { get; set; }
     public int RunsFailed { get; set; }
     /// <summary>SearchEstimate.Expected from the search start (raised once the runs pass it); null for old jobs and local uploads.</summary>
@@ -195,6 +199,25 @@ public sealed class JobStore
 
     /// <summary>Wakes the worker for other queued work (a film).</summary>
     public void Wake() => _signal.Release();
+
+    /// <summary>A failed or cancelled server job back in the queue as the same job (same version): <paramref name="resume"/> = continue from the runs
+    /// it finished, else start over (runs\ is rotated away as for a new job). False when it is missing, not failed/cancelled, or a PC result.</summary>
+    public bool Requeue(string id, bool resume)
+    {
+        lock (_gate)
+        {
+            if (!_jobs.TryGetValue(id, out var j) || j.State is not (JobState.Failed or JobState.Cancelled) || j.Source != JobSource.Server) return false;
+            j.State = JobState.Queued; j.Resume = resume; j.Retries++;
+            j.CreatedUtc = DateTime.UtcNow; // its place in the queue: behind what waits now
+            j.StartedUtc = j.FinishedUtc = null; j.CancelRequested = false;
+            j.RunsDone = j.RunsFailed = 0; j.RunSeconds = 0; j.ExpectedRuns = null; j.Partial = null;
+            j.Phase = null; j.LastLine = null; j.Error = null; j.ExitCode = 0; j.Decided = null; j.Clusters = null;
+            j.ConfirmRunIds = new(); j.Warnings = new(); j.FailureMessages = new();
+            try { Write(j); } catch (IOException e) { _log.LogWarning("job.json 저장 실패 {Id}: {Error}", id, e.Message); }
+        }
+        _signal.Release();
+        return true;
+    }
 
     /// <summary>Wakes the worker (a job was added) or times out.</summary>
     public Task WaitForWorkAsync(TimeSpan timeout, CancellationToken ct) => _signal.WaitAsync(timeout, ct);

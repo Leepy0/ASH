@@ -44,9 +44,11 @@ public sealed class FakeRunner : IJobRunner
     public Func<IProgress<RunOutcome>, Action<SearchProgress>, CancellationToken, JobOutcome>? Script { get; set; }
     /// <summary>FixedCounts of every job run (null = a normal search).</summary>
     public List<Dictionary<string, int>?> FixedSeen { get; } = new();
+    /// <summary>JobInfo.Resume of every job run (true = 이어서 하기).</summary>
+    public List<bool> ResumeSeen { get; } = new();
     public JobOutcome Run(JobInfo job, string projectDir, TextWriter log, Action<string> phase, IProgress<RunOutcome> progress, Action<SearchProgress> search, CancellationToken ct)
     {
-        lock (FixedSeen) FixedSeen.Add(job.FixedCounts);
+        lock (FixedSeen) { FixedSeen.Add(job.FixedCounts); ResumeSeen.Add(job.Resume); }
         phase("대수 탐색");
         if (Script != null) return Script(progress, search, ct);
         search(new SearchProgress("탐색 시작", new Dictionary<string, int>(), new Dictionary<string, int>(), 1, 3));

@@ -218,6 +218,9 @@ app.MapPost("/admin/jobs/{id}/{act}", (string id, string act, HttpContext ctx, R
             });
             worker.CancelRunning(id);
             break;
+        case "resume": case "restart":
+            if (!js.Requeue(id, act == "resume")) return Msg(409, "실패했거나 취소된 서버 작업만 다시 실행할 수 있습니다.");
+            break;
         case "archive": case "unarchive":
             if (!j.Finished) return Msg(409, "대기 중이거나 실행 중인 작업은 보관할 수 없습니다. 먼저 취소하세요.");
             js.Update(id, x => x.Archived = act == "archive");
