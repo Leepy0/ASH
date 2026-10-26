@@ -146,6 +146,7 @@ public static class FilmHelper
                 var r = JsonSerializer.Deserialize<Request>(File.ReadAllText(next.FullName), Json) ?? throw new JsonException("빈 요청");
                 var work = Path.GetFullPath(r.WorkDir);
                 if (!work.StartsWith(root, StringComparison.OrdinalIgnoreCase)) result = new(false, null, "작업 폴더가 Jobs:Dir 밖이라 거절했습니다: " + work, Array.Empty<string>());
+                else if (File.Exists(Path.Combine(dir, $"cancel-{id}"))) result = new(false, null, "취소되었습니다.", Array.Empty<string>()); // cancelled while it waited: not started at all
                 else
                 {
                     using var cts = CancellationTokenSource.CreateLinkedTokenSource(stop);

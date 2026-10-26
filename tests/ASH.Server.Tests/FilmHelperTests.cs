@@ -10,12 +10,24 @@ public class FilmHelperTests : IDisposable
     readonly string _jobs = Path.Combine(Path.GetTempPath(), "ash-helper-test-" + Guid.NewGuid().ToString("N"));
     readonly CancellationTokenSource _stop = new();
 
-    public void Dispose() { _stop.Cancel(); try { Directory.Delete(_jobs, true); } catch (IOException) { } }
+    readonly List<Task> _hosts = new();
+
+    // the hosts write heartbeat.txt until they see the stop: wait for them before removing the folder
+    public void Dispose()
+    {
+        _stop.Cancel();
+        Task.WaitAll(_hosts.ToArray(), TimeSpan.FromSeconds(40));
+        try { Directory.Delete(_jobs, true); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+    }
 
     FilmHelper.Client Client(TimeSpan? startWait = null) => new(FilmHelper.DirOf(_jobs), null, startWait ?? TimeSpan.FromSeconds(30)); // generous: under a full parallel test run the host task may start late
 
-    Task Host(Func<FilmHelper.Request, CancellationToken, RenderResult> render) =>
-        Task.Run(() => FilmHelper.RunHost(_jobs, render, _stop.Token));
+    Task Host(Func<FilmHelper.Request, CancellationToken, RenderResult> render)
+    {
+        var t = Task.Run(() => FilmHelper.RunHost(_jobs, render, _stop.Token));
+        _hosts.Add(t);
+        return t;
+    }
 
     [Fact]
     public async Task A_Render_Goes_To_The_Helper_And_Its_Result_Comes_Back()
