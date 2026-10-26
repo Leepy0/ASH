@@ -439,4 +439,31 @@ public class ModelRunIntegrationTests
         Assert.All(d.Where(x => x[1].StartsWith("1 ")), x => Assert.StartsWith("1 0 ", x[1]));
         Cleanup(run.Work);
     }
+
+    // the distances must reach the running vehicles, not only the file: a print in the logic reads them back from AutoMod. With "ignore" on the
+    // system's ALTERNATE line the vehicles did not sense one another and every one of these read 0 (checked 2026-10-26).
+    [SkippableFact]
+    public void Running_Vehicles_Stop_Half_A_Meter_Behind_The_One_Ahead()
+    {
+        Skip.If(AmHome is null, "ASH_AM_HOME not set");
+        var input = LogicGeneratorTests.Sample();
+        var run = BuildAndRun(input, new Dictionary<string, int> { ["G1"] = 2 });
+        var arc = Path.Combine(run.Work, Model + ".arc");
+        var logic = Directory.GetFiles(arc, "*.asy").First(f => File.ReadAllText(f).Contains("vehicle initialization procedure"));
+        File.WriteAllText(logic, File.ReadAllText(logic).Replace("\tscale to x 1, y 1, z 1\n",
+            "\tprint \"PROBE \" A_veh defined stop distance \" \" A_veh current stop distance to message\n\tscale to x 1, y 1, z 1\n"));
+        ModelBuilder.PrepareBuildDir(run.Work, Model);
+        var b = AmBuilder.Build(AmHome!, run.Work, Model, TimeSpan.FromMinutes(5));
+        Assert.True(b.Success, b.MakeErrText + b.Am2ErrText);
+        var o = ModelRunner.Run(new RunRequest(run.Work, Model, input, new RunScenario(1, new Dictionary<string, int> { ["G1"] = 2 }), TimeSpan.FromMinutes(2), "Student Version"));
+        Assert.True(o.Success, o.Error);
+        var probes = File.ReadAllLines(Path.Combine(o.RunDir, Model + ".message")).Where(x => x.Contains("PROBE ")).ToList();
+        Assert.NotEmpty(probes);
+        foreach (var p in probes)
+        {
+            var v = p.Substring(p.IndexOf("PROBE ", StringComparison.Ordinal) + 6).Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries).Select(x => double.Parse(x, CultureInfo.InvariantCulture)).ToArray();
+            Assert.Equal(0.5, v[0], 3); Assert.Equal(0.5, v[1], 3); // metres (the model's unit)
+        }
+        Cleanup(run.Work);
+    }
 }
