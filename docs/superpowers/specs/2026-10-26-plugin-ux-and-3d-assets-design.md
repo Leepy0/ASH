@@ -226,8 +226,7 @@ AutoMod **컨베이어 시스템**(`SYSTYPE Conveyor`)을 실제로 쓴다. 제�
 - CAD: 레이어 **`AGV_CONV`** 의 폴리선 하나 = 컨베이어 하나. 그린 방향이 흐름 방향. 이름은 F6의 그래픽용 `AGV_3D_CONV`와 달리 로직이 붙으므로 **이름이 필요**하다 → 명령 `AGVCONV`로 선택한 폴리선에 이름(`CV001`…)을 XData로 붙이고 글자를 단다(경로 XData 방식 `Cad/XData.cs`와 같음). `AGV_3D_CONV`(그래픽만)는 그대로 둔다.
 - 3D 모양(사용자 결정): 데모 `agvdemo`가 롤러 컨베이어에 쓰는 그래픽 템플릿 `class1`을 가져와 **레일·다리를 초록**으로 바꾼 `ASH_Roller_Green`을 쓴다(캡처 `conveyor.jpg`). 회색 롤러 데크, 초록 레일, 초록 다리 4 ft 간격.
   - 템플릿은 컨베이어 `.asy` 끝에 인라인으로 넣는다: `GRAPHICS_TEMPLATE_DEF` + `<GRAPHICS_TEMPLATE_LIST>…</GRAPHICS_TEMPLATE_LIST>`, 그리고 구간마다 `PATH_GT name <구간>` / `	ATTACH_GT ASH_Roller_Green`. FLAGS에 `Sections GTemplate Inherit`. 외부 .gtx 파일이 필요 없으므로 서버·사용자 PC에 설치된 템플릿 폴더와 무관하다.
-  - 동작하는 견본: `2026-10-26-3d-assets/ashcv-sample.asy`(이 PC에서 빌드·렌더 확인. 템플릿 원문은 `C:\AutoMod
-_6\demosmoddemos\demosgvgvdemo.arc\conv.asy`의 `class1`). 템플릿 텍스트는 Core 리소스(`Model/Templates/conv_gtemplate.txt`)로 둔다.
+  - 동작하는 견본: `2026-10-26-3d-assets/ashcv-sample.asy`(이 PC에서 빌드·렌더 확인. 템플릿 원문은 `C:\AutoMod\12_6\demos\amoddemos\demos\agv\agvdemo.arc\conv.asy`의 `class1`). 템플릿 텍스트는 Core 리소스(`Model/Templates/conv_gtemplate.txt`)로 둔다.
   - 그래픽 전용 `AGV_3D_CONV`도 **같은 방식**(컨베이어 시스템 `ash_conv`의 구간, 스테이션·로직 없음)으로 그린다. 그래서 둘은 똑같이 보인다. 정적 셀로 롤러를 직접 그리던 첫 안(롤러가 공중에 뜬 모양)은 버린다.
   - 대안 템플릿: 같은 데모의 벨트형 `RAP_Belt_Roller_DkGreen`(캡처 `conveyor_belt.jpg`, 원래 초록 프레임). 1단계는 롤러형만, 벨트형은 Conveyors 시트 열 `Style`로 고르게 하는 것이 2단계 후보.
 - 엑셀: 시트 **`Conveyors`** 추가.
