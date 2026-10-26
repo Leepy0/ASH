@@ -527,7 +527,7 @@ public sealed class PathCommands
 
     /// <summary>Runs body in one locked transaction; when it returns true, refreshes arrows (unless refreshArrows is false) and commits. Errors go to the command line.
     /// unitsPerMeter comes from settings the caller already loaded; null loads (or creates) ash.settings.tsv via ExportCommands.UnitsPerMeter.</summary>
-    /// <summary>A body that returns false may set this for its final status line instead of "변경 없음".</summary>
+    /// <summary>A body may set this for its final status line instead of "변경 없음" (returns false) or "완료" (returns true).</summary>
     internal static string? FinalStatus;
 
     internal static void Run(Document doc, string cmd, Func<Database, Transaction, bool> body, bool refreshArrows = true, double? unitsPerMeter = null)
@@ -541,10 +541,13 @@ public sealed class PathCommands
             {
                 InitCommands.Init(doc.Database, tr); // layers/blocks must exist before any Layer set or block insert
                 FinalStatus = null;
-                if (!body(doc.Database, tr)) { Ui.PaletteStatus.Set(FinalStatus ?? $"{cmd}: 변경 없음"); FinalStatus = null; return; }
+                var changed = body(doc.Database, tr);
+                RefreshCpGroups(doc.Database, tr);
+                if (!changed) { Ui.PaletteStatus.Set(FinalStatus ?? $"{cmd}: 변경 없음"); FinalStatus = null; return; }
                 if (refreshArrows) DrawingWriter.RefreshDirectionArrows(doc.Database, tr);
                 tr.Commit();
-                Ui.PaletteStatus.Set($"{cmd} 완료");
+                Ui.PaletteStatus.Set(FinalStatus ?? $"{cmd} 완료");
+                FinalStatus = null;
             }
         }
         catch (OperationCanceledException)
@@ -562,6 +565,14 @@ public sealed class PathCommands
         {
             DrawingUnits.PerMeter = 1.0;
         }
+    }
+
+    /// <summary>Hands the palette's "그룹 보기" list the CP groups as the command left them (also feeds the status line's hidden-group count). Never fails the command.</summary>
+    private static void RefreshCpGroups(Database db, Transaction tr)
+    {
+        if (!Ui.PaletteStatus.WantsGroups) return;
+        try { Ui.PaletteStatus.SetGroups(CpViewer.Scan(db, tr)); }
+        catch (System.Exception ex) { PluginLog.Write("CP group list", ex); }
     }
 
     /// <summary>Paths that were already selected when the command started (PICKFIRST). The selection is cleared so it does not linger.</summary>

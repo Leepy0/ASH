@@ -30,7 +30,7 @@ public sealed class InitCommands
                 int recolored = ByLayerOnAshLayers(doc.Database, tr);
                 var missing = MissingCpTags(doc.Database, tr);
                 tr.Commit();
-                ed.WriteMessage($"\nASH 양식 초기화: 새로 만든 항목 {made}개, 레이어 색·블록 정의 복구 {fixedDefs}개, 색을 ByLayer로 되돌린 객체 {recolored}개.");
+                ed.WriteMessage($"\nASH 양식 초기화: 새로 만든 항목 {made}개, 레이어 색·블록 정의 복구 {fixedDefs}개, 색을 ByLayer로, 숨김을 표시로 되돌린 객체 {recolored}개.");
                 Ui.PaletteStatus.Set($"AGVINIT 완료: 새 항목 {made}개" + (missing.Count > 0 ? ", CP 어트리뷰트 누락 경고" : ""));
                 if (missing.Count > 0)
                     ed.WriteMessage($"\n경고: 기존 {Conventions.CpBlockName} 블록 정의에 어트리뷰트 {string.Join(", ", missing)}이(가) 없습니다. 블록 정의를 고치거나 지운 뒤 AGVINIT을 다시 실행하세요.");
@@ -43,8 +43,11 @@ public sealed class InitCommands
         }
     }
 
-    /// <summary>ACI "ByLayer": block contents on layer 0 and ASH objects take their colour from the layer.</summary>
+    /// <summary>ACI "ByLayer": ASH objects (block references, paths) take their colour from the layer.</summary>
     internal const short ByLayer = 256;
+
+    /// <summary>ACI "ByBlock": the contents of ASH block definitions (on layer 0) take the colour of the reference. That is its layer's colour while the reference is ByLayer, and the grey of the group view (F1) when it sets one.</summary>
+    internal const short ByBlock = 0;
 
     static List<(string Name, short Color)> AshLayers()
     {
@@ -64,7 +67,7 @@ public sealed class InitCommands
     public static int Init(Database db, Transaction tr) => Init(db, tr, out _);
 
     /// <summary>Also puts back what a drawing saved earlier may carry (<paramref name="fixedDefs"/>): an ASH layer with another colour, and ASH block
-    /// definitions whose contents are not on layer 0 ByLayer (then the arrow, CP and block symbols ignore their layer's colour).</summary>
+    /// definitions whose contents are not on layer 0 ByBlock (then the arrow, CP and block symbols ignore their layer's colour).</summary>
     public static int Init(Database db, Transaction tr, out int fixedDefs)
     {
         int made = 0;
@@ -130,11 +133,11 @@ public sealed class InitCommands
         foreach (var name in new[] { Conventions.CpBlockName, Conventions.StationBlockName, Conventions.BlockBlockName }.Concat(Conventions.DirBlockNames))
             if (bt.Has(name))
                 foreach (ObjectId id in (BlockTableRecord)tr.GetObject(bt[name], OpenMode.ForRead))
-                    if (tr.GetObject(id, OpenMode.ForRead) is Entity e && (e.Layer != "0" || e.ColorIndex != ByLayer))
+                    if (tr.GetObject(id, OpenMode.ForRead) is Entity e && (e.Layer != "0" || e.ColorIndex != ByBlock))
                     {
                         e.UpgradeOpen();
                         e.Layer = "0";
-                        e.ColorIndex = ByLayer;
+                        e.ColorIndex = ByBlock;
                         fixedDefs++;
                     }
 
@@ -161,12 +164,13 @@ public sealed class InitCommands
         return made;
     }
 
-    /// <summary>AGVINIT only (it walks model space): paths, arrows, CPs, blocks and their attributes on ASH layers with a fixed colour go back to ByLayer.</summary>
+    /// <summary>AGVINIT only (it walks model space): paths, arrows, CPs, blocks and their attributes on ASH layers with a fixed colour go back to ByLayer, and hidden ones become visible.</summary>
     private static int ByLayerOnAshLayers(Database db, Transaction tr)
     {
         var ash = new HashSet<string>(AshLayers().Select(l => l.Name), StringComparer.OrdinalIgnoreCase);
         int n = 0;
-        void Fix(Entity e) { if (e.ColorIndex == ByLayer) return; e.UpgradeOpen(); e.ColorIndex = ByLayer; n++; }
+        // Visible too: the group view (AGVCPVIEW) hides CPs, and a restore must show them again
+        void Fix(Entity e) { if (e.ColorIndex == ByLayer && e.Visible) return; e.UpgradeOpen(); e.ColorIndex = ByLayer; e.Visible = true; n++; }
         foreach (var id in DrawingReader.ModelSpace(db, tr, OpenMode.ForRead))
         {
             if (!(tr.GetObject(id, OpenMode.ForRead) is Entity e) || !ash.Contains(e.Layer)) continue;
@@ -197,7 +201,7 @@ public sealed class InitCommands
         tr.AddNewlyCreatedDBObject(b, true);
         fill(e =>
         {
-            e.Layer = "0"; e.ColorIndex = ByLayer; // ByLayer geometry on 0 takes the colour of the layer the reference is inserted on
+            e.Layer = "0"; e.ColorIndex = ByBlock; // ByBlock takes the colour of the reference, which is ByLayer unless the group view greys it
             try { b.AppendEntity(e); } catch { e.Dispose(); throw; }
             tr.AddNewlyCreatedDBObject(e, true);
         });
