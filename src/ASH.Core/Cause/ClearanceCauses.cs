@@ -31,7 +31,7 @@ public static class ClearanceCauses
         }
     }
 
-    sealed record Thing(string Label, List<Obs> Parts, Rect2 Box);
+    sealed record Thing(string Label, List<Obs> Parts, Rect2 Box, bool Solid = false); // Solid: walls and fences, always checked
 
     public static IEnumerable<CauseItem> Find(CauseContext c)
     {
@@ -39,6 +39,8 @@ public static class ClearanceCauses
         var things = Obstacles(l);
         if (things.Count == 0 || l.Paths.Count == 0) return Array.Empty<CauseItem>();
         double need = c.VehicleWidth / 2 + c.SafetyGap;
+        // docking: a vehicle comes up to a conveyor or machine at a stop CP, so points within one vehicle length of one are not checked against those
+        var stops = l.Cps.Where(cp => cp.Type != "traffic").Select(cp => cp.Position).ToList();
         var res = new List<CauseItem>();
         foreach (var p in l.Paths.Where(p => p.Segments.Count > 0 && p.Length > 0))
         {
@@ -50,12 +52,15 @@ public static class ClearanceCauses
                 if (!t.Box.Expand(need).Intersects(box)) continue;
                 double best = double.MaxValue; Point2 at = default;
                 foreach (var q in pts)
+                {
+                    if (!t.Solid && stops.Any(s => s.DistanceTo(q) <= c.VehicleLength)) continue;
                     foreach (var o in t.Parts)
                     {
                         if (Math.Abs(q.X - o.Cx) > o.Reach + need || Math.Abs(q.Y - o.Cy) > o.Reach + need) continue;
                         double d = o.Dist(q.X, q.Y);
                         if (d < best) { best = d; at = q; }
                     }
+                }
                 if (best >= need) continue;
                 var refs = new[] { p.Name };
                 if (best <= CrossM)
@@ -86,7 +91,7 @@ public static class ClearanceCauses
                     double a2 = (cell.RotDeg + p.RotZ) * Math.PI / 180;
                     return new Obs { Cx = cell.X + p.X * cr - p.Y * sr, Cy = cell.Y + p.X * sr + p.Y * cr, Cos = Math.Cos(a2), Sin = Math.Sin(a2), Hx = p.Dx / 2, Hy = p.Dy / 2, R = p.Radius, Circle = p.Radius > 0 };
                 }).ToList();
-            Add(res, label, parts);
+            Add(res, label, parts, kind == AssetKinds.Wall || kind == AssetKinds.Fence);
         }
         foreach (var cv in l.Conveyors)
         {
@@ -100,10 +105,10 @@ public static class ClearanceCauses
         return res;
     }
 
-    static void Add(List<Thing> res, string label, List<Obs> parts)
+    static void Add(List<Thing> res, string label, List<Obs> parts, bool solid = false)
     {
         if (parts.Count == 0) return;
         double minX = parts.Min(o => o.Cx - o.Reach), minY = parts.Min(o => o.Cy - o.Reach), maxX = parts.Max(o => o.Cx + o.Reach), maxY = parts.Max(o => o.Cy + o.Reach);
-        res.Add(new Thing(label, parts, new Rect2(new Point2(minX, minY), new Point2(maxX, maxY))));
+        res.Add(new Thing(label, parts, new Rect2(new Point2(minX, minY), new Point2(maxX, maxY)), solid));
     }
 }

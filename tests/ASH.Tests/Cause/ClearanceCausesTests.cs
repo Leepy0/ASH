@@ -70,4 +70,27 @@ public class ClearanceCausesTests
         Assert.Single(ClearanceCauses.Find(Ctx(l) with { VehicleWidth = 2.0 })); // need 1.5, edge 1.4
         Assert.Contains(CauseAnalysis.Static(Ctx(l) with { SafetyGap = 1.0 }), i => i.Kind == CauseKinds.Clearance);
     }
+
+    [Fact] public void Docking_At_A_Stop_Cp_Is_Not_Checked_Against_Conveyors_Or_Blocks_But_Walls_Count()
+    {
+        // path ends at an unload CP beside a conveyor end (0.3 m off the centre line) and a machine; vehicle length 2
+        var l = L.Of(L.Line("P1", 0, 0, 10, 0));
+        l.Cps.Add(L.Cp("U001", 10, 0, "unload"));
+        l.Conveyors.Add(new LayoutConveyor { Name = "CV001", WidthM = 0.6, Segments = { new LineSeg(new Point2(10, 0.8), new Point2(14, 0.8)) } });
+        l.Assets.Add(Block("MACHINE", 11, 1.5));
+        Assert.Empty(ClearanceCauses.Find(Ctx(l) with { VehicleLength = 2 }));
+        l.Assets.Add(Line("WALL", 9, 0.5, 12, 0.5, 0.2)); // a wall right there still counts
+        Assert.Contains(ClearanceCauses.Find(Ctx(l) with { VehicleLength = 2 }), i => i.Detail.EndsWith("벽") || i.Title.EndsWith("벽 교차"));
+    }
+
+    [Fact] public void Running_Along_A_Conveyor_Away_From_Any_Cp_Is_Found()
+    {
+        var l = L.Of(L.Line("P1", 0, 0, 10, 0));
+        l.Conveyors.Add(new LayoutConveyor { Name = "CV001", WidthM = 0.6, Segments = { new LineSeg(new Point2(0, 0.8), new Point2(10, 0.8)) } });
+        Assert.Single(ClearanceCauses.Find(Ctx(l) with { VehicleLength = 2 }));
+        l.Cps.Add(L.Cp("U001", 10, 0, "unload")); // a stop CP at the far end exempts only the last 2 m; the rest still counts
+        Assert.Single(ClearanceCauses.Find(Ctx(l) with { VehicleLength = 2 }));
+        l.Cps.Add(L.Cp("L001", 5, 0, "load"));
+        Assert.Single(ClearanceCauses.Find(Ctx(l) with { VehicleLength = 2 })); // 0..3 and 7..8 m are still checked
+    }
 }

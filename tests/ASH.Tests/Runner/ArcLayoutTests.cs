@@ -43,6 +43,25 @@ public class ArcLayoutTests
     }
 
     [Fact]
+    public void Load_Reads_Assets_Tsv_Missing_File_Is_Empty()
+    {
+        var l = L.Of(L.Line("p1", 0, 0, 10, 0));
+        l.Cps.Add(L.Cp("S001", 7, 0, "standby", "G1"));
+        l.Assets.Add(new ASH.Core.Layout.LayoutAsset { Kind = "WALL", WidthM = 0.3, Segments = { new LineSeg(new Point2(0, 2), new Point2(4, 2)), new ArcSeg(new Point2(4, 4), new Point2(4, 2), 90) } });
+        l.Assets.Add(new ASH.Core.Layout.LayoutAsset { Kind = "MACHINE", X = 5, Y = 3, RotDeg = 90, Sx = 1.5, Sy = 2 });
+        var dir = Tmp();
+        ExportRunner.Run(l, new ExportOptions(Groups: new[] { new VehicleGroupSpec("G1", "Tug", 1, 1.0, 1, 1) }), dir);
+        var a = ArcLayout.Load(dir).Layout.Assets;
+        Assert.Equal(2, a.Count);
+        Assert.Equal("WALL", a[0].Kind); Assert.Equal(0.3, a[0].WidthM, 9); Assert.Equal(2, a[0].Segments.Count);
+        Assert.Equal(new Point2(4, 2), a[0].Segments[0].End); Assert.Equal(90, Assert.IsType<ArcSeg>(a[0].Segments[1]).SweepDeg, 9);
+        Assert.Equal(5, a[1].X, 9); Assert.Equal(90, a[1].RotDeg, 9); Assert.Equal(1.5, a[1].Sx, 9); Assert.Equal(2, a[1].Sy, 9); Assert.Empty(a[1].Segments);
+        File.Delete(Path.Combine(dir, "assets.tsv"));
+        Assert.Empty(ArcLayout.Load(dir).Layout.Assets);
+        Directory.Delete(dir, true);
+    }
+
+    [Fact]
     public void Start_Only_Cps_Stay_Out_Of_The_Rebuilt_Layout_And_The_Export_Diff()
     {
         var l = L.Of(L.Line("p1", 0, 0, 10, 0)); l.Cps.Add(L.Cp("S001", 9, 0, "standby", "G1"));
