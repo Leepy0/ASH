@@ -39,6 +39,7 @@ public sealed class ModelCommands
             if (!ExportCommands.TryLoadSettings(ed, out _, out var dir)) return;
             var path = Path.Combine(dir, ExcelFileName);
             bool made = !File.Exists(path);
+            List<string>? cpNames = null;
             // the [..] part holds the bare keywords only: ZWCAD offers each item between the slashes as a clickable choice, text and spaces included
             // an existing input holds hours of typing: open it, update it in place (only what the drawing added), or replace it after a second yes
             var mode = made ? "W" : PathCommands.Keyword(ed, $"\n{ExcelFileName}이(가) 이미 있습니다. O=열기, U=갱신(입력 유지, 도면에 새로 생긴 것만 추가), W=덮어쓰기(새 양식) [O/U/W] <O>", "O", "O", "U", "W");
@@ -49,6 +50,7 @@ public sealed class ModelCommands
                 var doc = Application.DocumentManager.MdiActiveDocument;
                 ASH.Core.Layout.Layout? layout = null;
                 PathCommands.Run(doc, "AGVEXCEL", (db, tr) => { layout = DrawingReader.Read(db, tr); return false; }, refreshArrows: false);
+                cpNames = layout?.Cps.Select(c => c.Name).ToList();
                 if (!made)
                 {
                     var bak = Path.Combine(dir, $"input.bak.{ASH.Core.SeoulTime.Now:yyyyMMdd_HHmmss}.xlsx");
@@ -92,6 +94,7 @@ public sealed class ModelCommands
                     }
                 }
             }
+            if (mode != "O" && cpNames != null) ValidateAndMark(ed, path, dir, cpNames); // red / orange cells for what the checks object to
             ed.WriteMessage(mode == "O" ? $"\n기존 Excel 입력을 엽니다: {path}" : mode == "U" ? $"\nExcel 입력을 갱신했습니다: {path}" : $"\nExcel 양식을 만들었습니다: {path}");
             try { Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }); }
             catch (System.ComponentModel.Win32Exception ex) { ed.WriteMessage($"\nExcel 파일을 열지 못했습니다(연결 프로그램 없음?): {ex.Message}"); }
@@ -103,6 +106,61 @@ public sealed class ModelCommands
             PluginLog.Write("AGVEXCEL", ex);
             ed.WriteMessage($"\nAGVEXCEL 오류: {ex.Message} (Excel에서 셀을 편집 중이면 마치고, 그래도 안 되면 {ExcelFileName}을(를) 닫고 다시 하세요)");
             Ui.PaletteStatus.Set("AGVEXCEL 오류");
+        }
+    }
+
+    /// <summary>Excel input against the drawing: CPs named in Excel but not drawn, drawn CPs no row uses, CP types and groups that do not fit. The list goes to the
+    /// palette's problem table (double-click zooms to the CP).</summary>
+    [CommandMethod("AGVEXCELDIFF")]
+    public void AgvExcelDiff()
+    {
+        var doc = Application.DocumentManager.MdiActiveDocument;
+        var ed = doc.Editor;
+        if (!ExportCommands.TryLoadSettings(ed, out _, out var dir)) return;
+        var xlsx = Path.Combine(dir, ExcelFileName);
+        if (!File.Exists(xlsx)) { ed.WriteMessage($"\n{ExcelFileName}이 없습니다. 먼저 AGVEXCEL로 양식을 만드세요."); return; }
+        PathCommands.Run(doc, "AGVEXCELDIFF", (db, tr) =>
+        {
+            var input = LoadInput(ed, xlsx, dir);
+            if (input == null) return false;
+            var diff = ExcelDrawingDiff.Compare(input, DrawingReader.Read(db, tr));
+            foreach (var d in diff) ed.WriteMessage($"\n[{d.Kind}] {d.Finding.EntityId}: {d.Finding.Message}");
+            ed.WriteMessage(diff.Count == 0 ? "\n엑셀과 도면이 일치합니다." : $"\n엑셀·도면 차이 {diff.Count}건");
+            Ui.PaletteStatus.SetFindings(diff.Select(d => new Ui.FindingRow(d.Kind, d.Finding.EntityId ?? "", d.Finding.Message,
+                d.Finding.Where.X, d.Finding.Where.Y, !(d.Finding.Where.X == 0 && d.Finding.Where.Y == 0), warning: d.Finding.Code == FindingCode.InputWarning)).ToList());
+            Ui.PaletteStatus.Set(diff.Count == 0 ? "AGVEXCELDIFF: 일치" : $"AGVEXCELDIFF: 차이 {diff.Count}건");
+            return false;
+        }, refreshArrows: false);
+    }
+
+    /// <summary>Reads the input just written, checks it against the drawing's CP names and marks the cells (see <see cref="MarkExcel"/>).</summary>
+    private static void ValidateAndMark(Editor ed, string xlsx, string dir, IReadOnlyCollection<string> cpNames)
+    {
+        var input = LoadInput(ed, xlsx, dir);
+        if (input != null) MarkExcel(ed, xlsx, InputValidator.Validate(input, cpNames));
+    }
+
+    /// <summary>Colours the cells the findings name (red = error, orange = warning, the message as a cell comment) and clears the marks of the last run. The file
+    /// is edited directly; when that fails (company document encryption, or Excel has it locked) Excel makes the same edits. Never throws.</summary>
+    private static void MarkExcel(Editor ed, string xlsx, IReadOnlyList<Finding> findings)
+    {
+        try
+        {
+            try { ExcelMarks.MarkFile(xlsx, findings); }
+            catch (System.Exception ex) when (!(ex is OperationCanceledException))
+            {
+                PluginLog.Write("Excel marks direct failed", ex);
+                var log = new List<ExcelEdit>();
+                using (var wb = ExcelCom.Read(xlsx, out _)) ExcelMarks.Apply(wb, findings, log);
+                ExcelCom.Apply(xlsx, log);
+            }
+            int e = findings.Count(f => f.Code == FindingCode.InputError && f.EntityId?.IndexOf('!') > 0), w = findings.Count(f => f.Code == FindingCode.InputWarning && f.EntityId?.IndexOf('!') > 0);
+            ed.WriteMessage(e + w == 0 ? "\nExcel 표시: 없음" : $"\nExcel 표시: 오류 {e}건(빨강), 경고 {w}건(주황) — 칸의 메모에 내용이 있습니다.");
+        }
+        catch (System.Exception ex) when (!(ex is OperationCanceledException))
+        {
+            PluginLog.Write("Excel marks", ex);
+            ed.WriteMessage("\nExcel 표시를 하지 못했습니다: " + ex.Message.Split('\n')[0].Trim());
         }
     }
 
@@ -165,6 +223,7 @@ public sealed class ModelCommands
             }
             foreach (var f in r.Findings.Where(f => f.Code != FindingCode.InputWarning)) ed.WriteMessage($"\n[{f.Code}] {f.Message}");
             foreach (var w in r.Warnings) ed.WriteMessage($"\n경고: {w}");
+            MarkExcel(ed, xlsx, r.Findings);
             if (r.Export != null) ExportCommands.Report(ed, r.Export);
             ed.WriteMessage($"\narc: {r.ArcDir}");
             if (r.Findings.Any(f => f.Code == FindingCode.InputError)) ed.WriteMessage("\n입력 오류가 있어 모델을 만들지 않았습니다.");

@@ -11,12 +11,16 @@ namespace ASH.Plugin.Cad;
 
 public static class DrawingWriter
 {
-    public static ObjectId AddCp(Database db, Transaction tr, LayoutCp cp) =>
-        InsertBlock(db, tr, Conventions.CpBlockName, Conventions.LayerCpFor(cp.Type), cp.Position, 0, new Dictionary<string, string>
+    public static ObjectId AddCp(Database db, Transaction tr, LayoutCp cp)
+    {
+        var id = InsertBlock(db, tr, Conventions.CpBlockName, Conventions.LayerCpFor(cp.Type), cp.Position, 0, new Dictionary<string, string>
         {
             ["NAME"] = cp.Name, ["TYPE"] = cp.Type, ["GROUP"] = cp.Group,
             ["CAP"] = ASH.Core.Traffic.CpTypes.FormatCap(cp.Cap),
         });
+        if (cp.RouteId.Length > 0) XData.WriteCpRoute((Entity)tr.GetObject(id, OpenMode.ForWrite), cp.RouteId, tr); // AGVCPROUTE: AGVEXCEL builds route rows from it
+        return id;
+    }
 
     /// <summary>Adds the closed rectangle (returned id) plus an AGV_BLOCK attribute tag at its centre.</summary>
     public static ObjectId AddBlock(Database db, Transaction tr, LayoutBlock b)

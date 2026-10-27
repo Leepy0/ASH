@@ -41,7 +41,7 @@ public static class DrawingReader
                     {
                         Name = Get(a, "NAME"), Type = Get(a, "TYPE").ToLowerInvariant(), Group = Get(a, "GROUP"),
                         Cap = ParseCap(Get(a, "CAP")),
-                        Position = Xy(br.Position), Id = br.Handle.ToString(),
+                        Position = Xy(br.Position), Id = br.Handle.ToString(), RouteId = XData.ReadCpRoute(br),
                     });
                 }
                 else if (Eq(name, Conventions.StationBlockName))

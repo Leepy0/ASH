@@ -55,8 +55,22 @@ internal static class ExcelCom
                 case ListEdit l:
                     dynamic v = sheet.Range[sheet.Cells[l.FirstRow, l.Col], sheet.Cells[l.LastRow, l.Col]].Validation;
                     v.Delete();
+                    if (l.Formula.Length == 0) break; // no drop-down
                     v.Add(3, l.Warn ? 2 : 1, 1, l.Formula); // xlValidateList, xlValidAlertWarning/Stop, xlBetween
                     v.IgnoreBlank = true; v.InCellDropdown = true; v.ShowError = true; v.ErrorTitle = l.Title; v.ErrorMessage = l.Message;
+                    break;
+                case ClearMarksEdit:
+                    // Excel does its own search: a copy read through Excel carries no comments. Newest first, as deleting shifts the index.
+                    for (int i = (int)sheet.Comments.Count; i >= 1; i--)
+                    {
+                        dynamic cm = sheet.Comments.Item(i);
+                        if (((string)cm.Text()).StartsWith(ExcelMarks.Prefix, StringComparison.Ordinal)) { cm.Parent.Interior.ColorIndex = -4142; cm.Delete(); } // xlColorIndexNone
+                    }
+                    break;
+                case MarkEdit m:
+                    dynamic cell = sheet.Cells[m.Row, m.Col];
+                    cell.Interior.Color = ((m.Rgb & 0xFF) << 16) | (m.Rgb & 0xFF00) | (m.Rgb >> 16);
+                    if (cell.Comment == null) cell.AddComment(m.Text); // the user's own comment stays
                     break;
             }
         }
