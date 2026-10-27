@@ -55,6 +55,17 @@ public sealed class ConvCommands
         }, refreshArrows: false);
     }
 
+    /// <summary>Gives a new AGV_CONV polyline the next free CV name (like AGVCONV does) and its label. Returns the name.</summary>
+    internal static string NameNew(Database db, Transaction tr, Polyline pl)
+    {
+        var names = DrawingReader.ModelSpace(db, tr, OpenMode.ForRead).Select(i => tr.GetObject(i, OpenMode.ForRead)).OfType<Polyline>()
+            .Where(p => DrawingReader.Eq(p.Layer, Conventions.LayerConv)).Select(p => XData.ReadConv(p)?.Name ?? "").ToList();
+        var name = new CpNaming(names).Next("CV");
+        var label = PlaceLabel(db, tr, pl, name, null);
+        XData.WriteConv(pl, name, label.Handle.ToString(), tr);
+        return name;
+    }
+
     static List<ObjectId> Select(Editor ed, Transaction tr)
     {
         bool Conv(ObjectId i) => tr.GetObject(i, OpenMode.ForRead) is Polyline p && DrawingReader.Eq(p.Layer, Conventions.LayerConv);
