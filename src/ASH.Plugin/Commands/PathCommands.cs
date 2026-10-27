@@ -96,7 +96,7 @@ public sealed class PathCommands
         {
             var names = DrawingReader.Read(d, tr).Paths.Select(p => p.Name).ToList();
             var ms = ModelSpaceId(d, tr);
-            int made = 0;
+            var made = new List<string>();
             foreach (var id in added.Where(i => !i.IsErased).ToList())
             {
                 var pl = (Polyline)tr.GetObject(id, OpenMode.ForWrite);
@@ -106,12 +106,13 @@ public sealed class PathCommands
                 // PLINE joins consecutive segments into one polyline; each line (or arc) becomes a path of its own
                 var pieces = PathConvert.Pieces(drawn.Segments, kind, names);
                 DrawingWriter.ReplacePaths(d, tr, new[] { pl.Handle.ToString() }, pieces);
-                made += pieces.Count;
+                made.AddRange(pieces.Select(p => p.Id));
                 ed.WriteMessage(pieces.Count == 1
                     ? $"\n경로 {pieces[0].Name} 추가 ({label})."
                     : $"\n경로 {pieces[0].Name} ~ {pieces[pieces.Count - 1].Name} {pieces.Count}개 추가 ({label}).");
             }
-            return made > 0;
+            AutoConnect(d, tr, ed, made);
+            return made.Count > 0;
         });
     }
 
@@ -143,6 +144,7 @@ public sealed class PathCommands
         Ed.WriteMessage("\n" + PathConvert.Summary(sources.Count, made.Count, skipped));
         if (made.Count == 0) { FinalStatus = "AGVCONVERT: 변환할 선·폴리선 없음"; return false; }
         DrawingWriter.ReplacePaths(db, tr, sources, made);
+        AutoConnect(db, tr, Ed, made.Select(p => p.Id).ToList());
         var layout = DrawingReader.Read(db, tr); // every path, new and old, as AGVSPLIT with Enter
         SplitPaths(db, tr, Ed, layout.Paths, layout.Tolerance);
         Ed.WriteMessage("\n" + PathConvert.Guidance);
@@ -208,16 +210,117 @@ public sealed class PathCommands
         var key = Keyword(Ed, KindPrompt, "O", "O", "T", "S", "C");
         if (key == null) return false;
         var kind = KindOf(key);
-        foreach (var id in ids)
-        {
-            var e = (Entity)tr.GetObject(id, OpenMode.ForWrite);
-            var x = XData.ReadPath(e);
-            e.Layer = Conventions.LayerFor(kind.Spur, kind.Two, kind.Crab);
-            XData.WritePath(e, x?.Name ?? "?" + e.Handle, x?.Reversed ?? false, kind, tr);
-        }
+        foreach (var id in ids) SetKind((Entity)tr.GetObject(id, OpenMode.ForWrite), kind, tr);
         Ed.WriteMessage($"\n경로 {ids.Count}개를 {PathKinds.Label(kind.Spur, kind.Two, kind.Crab)}(으)로 변경.");
         return true;
     });
+
+    private static void SetKind(Entity e, (bool Spur, bool Two, bool Crab) kind, Transaction tr)
+    {
+        var x = XData.ReadPath(e);
+        e.Layer = Conventions.LayerFor(kind.Spur, kind.Two, kind.Crab);
+        XData.WritePath(e, x?.Name ?? "?" + e.Handle, x?.Reversed ?? false, kind, tr);
+    }
+
+    // Type brush: pick the type once, then click paths one after another; each click is committed at once (Esc keeps the clicks so far). Enter or Esc ends.
+    [CommandMethod("AGVPBRUSH")]
+    public void AgvPBrush()
+    {
+        var key = Keyword(Ed, KindPrompt, "O", "O", "T", "S", "C");
+        if (key == null) return;
+        var kind = KindOf(key);
+        var label = PathKinds.Label(kind.Spur, kind.Two, kind.Crab);
+        int n = 0;
+        while (true)
+        {
+            var r = Ed.GetEntity(new PromptEntityOptions($"\n{label}(으)로 바꿀 경로 클릭 (Enter 끝)") { AllowNone = true });
+            if (r.Status != PromptStatus.OK) break;
+            Run(Doc, "AGVPBRUSH", (db, tr) =>
+            {
+                var e = (Entity)tr.GetObject(r.ObjectId, OpenMode.ForRead);
+                if (!Conventions.PathLayers.Any(l => DrawingReader.Eq(e.Layer, l))) { Ed.WriteMessage("\n경로가 아닙니다."); return false; }
+                e.UpgradeOpen();
+                SetKind(e, kind, tr);
+                FinalStatus = $"종류 붓: {label} {++n}개";
+                return true;
+            });
+        }
+        if (n > 0) Ed.WriteMessage($"\n경로 {n}개를 {label}(으)로 변경.");
+    }
+
+    // ---------- connect, gaps, flow ----------
+
+    /// <summary>Snaps the free ends of the given paths (null: every path) onto path ends or middles within the JoinGap setting; a middle is split there.
+    /// Prints each connection; returns how many there were.</summary>
+    private static int AutoConnect(Database db, Transaction tr, Editor ed, ICollection<string>? ids, ICollection<string>? avoid = null)
+    {
+        var layout = DrawingReader.Read(db, tr);
+        double gap = DrawingUnits.JoinGapMeters * DrawingUnits.PerMeter;
+        if (!(gap > layout.Tolerance)) return 0;
+        var r = PathConnect.Connect(layout.Paths, ids, gap, layout.Tolerance, avoid);
+        if (r.Notes.Count == 0) return 0;
+        DrawingWriter.ReplacePaths(db, tr, r.Removed, r.Added);
+        foreach (var note in r.Notes) ed.WriteMessage("\n연결: " + note);
+        return r.Notes.Count;
+    }
+
+    [CommandMethod("AGVCONNECT", CommandFlags.UsePickSet)]
+    public void AgvConnect() => Run(Doc, "AGVCONNECT", (db, tr) =>
+    {
+        if (!(DrawingUnits.JoinGapMeters > 0)) { FinalStatus = "AGVCONNECT: 연결 거리 0 (설정 JoinGap)"; Ed.WriteMessage("\n설정의 경로 자동 연결 거리(JoinGap)가 0입니다."); return false; }
+        var ids = Preselected(Ed, tr);
+        if (ids.Count == 0)
+        {
+            var mode = Keyword(Ed, "\n연결 대상 [선택(S)] <전체>", "", "S");
+            if (mode == null) return false;
+            if (mode == "S" && (ids = SelectPaths(Ed, tr, "\n끝을 이을 경로 선택")).Count == 0) return false;
+        }
+        int n = AutoConnect(db, tr, Ed, ids.Count == 0 ? null : ids.Select(i => i.Handle.ToString()).ToList());
+        FinalStatus = n == 0 ? "AGVCONNECT: 연결 없음" : $"AGVCONNECT: 연결 {n}곳";
+        Ed.WriteMessage($"\n연결 {n}곳 (거리 {DrawingUnits.JoinGapMeters:0.###} m 안).");
+        return true; // also when nothing joined: the gap markers are redrawn
+    });
+
+    // Commands after which the gap markers (AGV_PATH_GAP) are redrawn and counted in the status line.
+    private static readonly HashSet<string> PathEditCommands = new HashSet<string>
+        { "AGVPATH", "AGVCONVERT", "AGVPTYPE", "AGVPBRUSH", "AGVREVERSE", "AGVOFFSET", "AGVARRAY", "AGVSPLIT", "AGVJOIN", "AGVFILLET", "AGVCONNECT" };
+
+    /// <summary>Erases the old gap markers and circles every dangling end (layer colour) and one-way dead end (orange). Returns the status text.</summary>
+    private static string RefreshGapMarkers(Database db, Transaction tr)
+    {
+        foreach (var id in DrawingReader.ModelSpace(db, tr, OpenMode.ForRead))
+            if (tr.GetObject(id, OpenMode.ForRead) is Entity e && !e.IsErased && DrawingReader.Eq(e.Layer, Conventions.LayerPathGap))
+            {
+                e.UpgradeOpen();
+                e.Erase();
+            }
+        var gaps = PathConnect.Gaps(DrawingReader.Read(db, tr));
+        double r = 0.25 * DrawingUnits.ArrowMeters * DrawingUnits.PerMeter;
+        var ms = (BlockTableRecord)tr.GetObject(ModelSpaceId(db, tr), OpenMode.ForWrite);
+        foreach (var g in gaps)
+        {
+            var c = new Circle(new ZwSoft.ZwCAD.Geometry.Point3d(g.At.X, g.At.Y, 0), ZwSoft.ZwCAD.Geometry.Vector3d.ZAxis, r) { Layer = Conventions.LayerPathGap, ColorIndex = g.Flow ? 30 : InitCommands.ByLayer };
+            ms.AppendEntity(c);
+            tr.AddNewlyCreatedDBObject(c, true);
+        }
+        int free = gaps.Count(g => !g.Flow), flow = gaps.Count - free;
+        return (free > 0 ? $"끊긴 끝 {free}개" : "끊긴 끝 없음") + (flow > 0 ? $" · 흐름 막힘 {flow}곳" : "");
+    }
+
+    [CommandMethod("AGVFLOW")]
+    public void AgvFlow()
+    {
+        List<LayoutPath>? paths = null;
+        double size = 0;
+        Run(Doc, "AGVFLOW", (db, tr) =>
+        {
+            paths = DrawingReader.Read(db, tr).Paths;
+            size = DrawingUnits.ArrowMeters * DrawingUnits.PerMeter;
+            FinalStatus = paths.Count == 0 ? "AGVFLOW: 경로 없음" : $"흐름 보기: 경로 {paths.Count}개";
+            return false;
+        }, refreshArrows: false);
+        if (paths != null && paths.Count > 0) FlowPreview.Start(Doc, paths, size);
+    }
 
     // ---------- edits ----------
 
@@ -285,6 +388,8 @@ public sealed class PathCommands
         }
         if (made.Count == 0) return false;
         DrawingWriter.ReplacePaths(db, tr, new string[0], made);
+        var copies = made.Select(p => p.Id).ToList();
+        AutoConnect(db, tr, Ed, copies, copies.Concat(paths.Select(p => p.Id)).ToList()); // never onto the source or another copy
         return true;
     });
 
@@ -324,6 +429,8 @@ public sealed class PathCommands
                 newPaths.Add(c);
             }
         DrawingWriter.ReplacePaths(db, tr, new string[0], newPaths);
+        var copies = newPaths.Select(p => p.Id).ToList();
+        AutoConnect(db, tr, Ed, copies, copies.Concat(picked).ToList()); // never onto the source or another copy
 
         var cpNames = layout.Cps.Select(c => c.Name).ToList();
         int cps = 0;
@@ -533,7 +640,9 @@ public sealed class PathCommands
     internal static void Run(Document doc, string cmd, Func<Database, Transaction, bool> body, bool refreshArrows = true, double? unitsPerMeter = null)
     {
         DrawingUnits.PerMeter = unitsPerMeter ?? ExportCommands.UnitsPerMeter(doc.Editor);
-        DrawingUnits.ArrowMeters = ExportCommands.ArrowMeters();
+        var saved = ExportCommands.SavedSettings();
+        DrawingUnits.ArrowMeters = saved.ArrowSize;
+        DrawingUnits.JoinGapMeters = saved.JoinGap;
         try
         {
             using (doc.LockDocument())
@@ -545,8 +654,13 @@ public sealed class PathCommands
                 RefreshCpGroups(doc.Database, tr);
                 if (!changed) { Ui.PaletteStatus.Set(FinalStatus ?? $"{cmd}: 변경 없음"); FinalStatus = null; return; }
                 if (refreshArrows) DrawingWriter.RefreshDirectionArrows(doc.Database, tr);
+                string? gaps = null;
+                // markers only: a locked AGV_PATH_GAP layer or the like must not undo the edit
+                try { if (PathEditCommands.Contains(cmd)) gaps = RefreshGapMarkers(doc.Database, tr); }
+                catch (System.Exception ex) { PluginLog.Write("gap markers", ex); }
                 tr.Commit();
-                Ui.PaletteStatus.Set(FinalStatus ?? $"{cmd} 완료");
+                if (gaps != null) doc.Editor.WriteMessage("\n" + gaps);
+                Ui.PaletteStatus.Set((FinalStatus ?? $"{cmd} 완료") + (gaps != null ? " · " + gaps : ""));
                 FinalStatus = null;
             }
         }

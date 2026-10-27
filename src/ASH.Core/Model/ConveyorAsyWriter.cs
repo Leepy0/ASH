@@ -115,7 +115,7 @@ public static class ConveyorAsyWriter
             }
             double total = lens.Sum();
             stations.Add($"CONVSTATION name {n}_in type DefaultStation at {At(Math.Min(ProductLengthM * upm, total))}");
-            stations.Add($"CONVSTATION name {n}_use type DefaultStation at {At(UseM(row, total / upm) * upm)}");
+            stations.Add($"CONVSTATION name {n}_use type DefaultStation at {At(UseM(c, row, total / upm) * upm)}");
             stations.Add($"CONVSTATION name {n}_out type DefaultStation at {At(total)}");
         }
         foreach (var s in secs) L(s);
@@ -129,6 +129,9 @@ public static class ConveyorAsyWriter
         return sb.ToString();
     }
 
-    /// <summary>The use point in metres from the start: ConsumeAt, or the end when it is empty or past the end.</summary>
-    public static double UseM(ConveyorInfo row, double lengthM) => row.ConsumeAtM is double d && d < lengthM ? d : lengthM;
+    /// <summary>The use point in metres from the start: the drawing marker, else the Excel ConsumeAt (the marker wins).</summary>
+    public static double? ConsumeAt(LayoutConveyor c, ConveyorInfo row) => c.ConsumeAtM ?? row.ConsumeAtM;
+
+    /// <summary>The use point in metres from the start: <see cref="ConsumeAt"/>, or the end when it is empty or past the end.</summary>
+    public static double UseM(LayoutConveyor c, ConveyorInfo row, double lengthM) => ConsumeAt(c, row) is double d && d < lengthM ? d : lengthM;
 }

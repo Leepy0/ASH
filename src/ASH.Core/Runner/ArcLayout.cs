@@ -49,6 +49,25 @@ public static class ArcLayout
                 l.Blocks.Add(new LayoutBlock { Name = t[0], Cap = (int)D(1), Rect = new Rect2(new Point2(D(2), D(3)), new Point2(D(4), D(5))) });
             }
 
+        // 3D picture assets (assets.tsv, metres; format in ExportRunner); conveyors are not kept in the arc as data, so they stay plugin-only
+        var assets = Path.Combine(arcDir, "assets.tsv");
+        if (File.Exists(assets))
+            foreach (var line in File.ReadAllLines(assets).Skip(1))
+            {
+                var t = line.TrimEnd('\r').Split('\t');
+                if (t.Length < 7) continue;
+                double D(string s) => double.Parse(s, System.Globalization.CultureInfo.InvariantCulture);
+                var a = new LayoutAsset { Kind = t[0], X = D(t[1]), Y = D(t[2]), RotDeg = D(t[3]), Sx = D(t[4]), Sy = D(t[5]), WidthM = D(t[6]) };
+                if (t.Length > 7)
+                    foreach (var s in t[7].Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries))
+                    {
+                        var f = s.Trim().Split(' ');
+                        if (f[0] == "L" && f.Length == 5) a.Segments.Add(new LineSeg(new Point2(D(f[1]), D(f[2])), new Point2(D(f[3]), D(f[4]))));
+                        else if (f[0] == "A" && f.Length == 6) a.Segments.Add(new ArcSeg(new Point2(D(f[1]), D(f[2])), new Point2(D(f[3]), D(f[4])), D(f[5])));
+                    }
+                l.Assets.Add(a);
+            }
+
         var traffic = new TrafficTable();
         var tsv = Path.Combine(arcDir, "traffic.tsv");
         if (File.Exists(tsv))

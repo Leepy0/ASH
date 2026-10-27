@@ -15,7 +15,7 @@ public static class CausePages
     static readonly Dictionary<string, string> GroupNames = new()
     {
         [CauseKinds.Deadlock] = "교착", [CauseKinds.DeadlockRisk] = "교착 위험", [CauseKinds.BlockHold] = "block 점유",
-        [CauseKinds.Detour] = "우회", [CauseKinds.LoadShare] = "주행 부하", [CauseKinds.TimeLoss] = "시간 손실",
+        [CauseKinds.Detour] = "우회", [CauseKinds.LoadShare] = "주행 부하", [CauseKinds.TimeLoss] = "시간 손실", [CauseKinds.Clearance] = "간격 부족",
     };
 
     /// <summary>Film cut around a finding: a 30 m square on (x, y), starting 60 s before atSec, 120 s long at 4x (a 30 s video), tilt 30°.</summary>
@@ -88,8 +88,15 @@ public static class CausePages
         sb.Append("<noscript><button>보기</button></noscript></form></div>");
 
         if (v.Layout == null || v.Input == null) { sb.Append("<div class=\"empty\">자료 없음</div>"); return; }
-        var (rs, rep) = run == null ? (null, null) : ReadRun(d.Store, cur, run.Id);
-        var ctx = CauseFrame.Context(v.Layout, v.Input, SettingsOf(d.Store, cur), rs, rep);
+        var (items, breakdown, note) = Analyse(d.Store, cur, v, run);
+        Render(sb, a.Id, cur.Id, items, breakdown, v.Layout, note);
+    }
+
+    /// <summary>The findings of one run (null run: layout only) with the time breakdown; <c>Note</c> says what is missing (no run data, analyser error). Needs v.Layout and v.Input.</summary>
+    internal static (IReadOnlyList<CauseItem> Items, IReadOnlyList<TimeBreakdown> Breakdown, string Note) Analyse(JobStore js, JobInfo cur, JobView v, RunChoice? run)
+    {
+        var (rs, rep) = run == null ? (null, null) : ReadRun(js, cur, run.Id);
+        var ctx = CauseFrame.Context(v.Layout!, v.Input!, SettingsOf(js, cur), rs, rep);
         IReadOnlyList<CauseItem> items = Array.Empty<CauseItem>(); IReadOnlyList<TimeBreakdown> breakdown = Array.Empty<TimeBreakdown>();
         var note = rs == null ? "실행 자료 없음 · 도면 기준만" : "";
         try
@@ -98,7 +105,35 @@ public static class CausePages
             if (rs != null) breakdown = TimeLossCauses.Breakdown(ctx);
         }
         catch (Exception e) when (e is not OutOfMemoryException) { note = "분석 오류: " + e.Message; } // an analyser meeting odd data must not take the page down
-        Render(sb, a.Id, cur.Id, items, breakdown, v.Layout, note);
+        return (items, breakdown, note);
+    }
+
+    /// <summary>Body of GET /api/jobs/{id}/causes: the runs to choose from, the chosen one (?run=, else the worst, like the tab) and its findings with the place in
+    /// model metres (x, y null = none) and the CP / path / block names to highlight. Null when the job has no layout or input.</summary>
+    internal static object? Json(JobStore js, JobInfo j, string? runId)
+    {
+        var v = JobView.For(js, j);
+        if (v.Layout == null || v.Input == null) return null;
+        var runs = Runs(v, j);
+        var run = runs.FirstOrDefault(r => r.Id == runId) ?? runs.MaxBy(r => r.Score);
+        var (items, _, note) = Analyse(js, j, v, run);
+        return Body(j.Id, run, runs, items, note);
+    }
+
+    /// <summary>The JSON object for <see cref="Json"/>; items in the tab's order (kind groups, then as found).</summary>
+    internal static object Body(string jobId, RunChoice? run, IReadOnlyList<RunChoice> runs, IReadOnlyList<CauseItem> items, string note)
+    {
+        var kinds = CauseKinds.Order.Concat(items.Select(i => i.Kind).Distinct().Except(CauseKinds.Order)).ToList();
+        return new
+        {
+            job = jobId, run = run?.Id, runs = runs.Select(r => new { id = r.Id, label = r.Label }), note,
+            items = items.OrderBy(i => kinds.IndexOf(i.Kind)).Select(i => new
+            {
+                kind = i.Kind, severity = Math.Clamp(i.Severity, 0, 2), title = i.Title, where = i.Where, detail = i.Detail, fix = i.Fix,
+                atSec = i.AtSec is { } t && double.IsFinite(t) ? t : (double?)null, x = Place(i) ? i.X : null, y = Place(i) ? i.Y : null,
+                refs = i.Refs ?? Array.Empty<string>(),
+            }),
+        };
     }
 
     // ---------------------------------------------------------------- render

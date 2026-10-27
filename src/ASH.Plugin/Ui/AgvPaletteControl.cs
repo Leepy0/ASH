@@ -24,12 +24,20 @@ public sealed class AgvPaletteControl : UserControl
         var tabs = new TabControl { Dock = DockStyle.Fill, DrawMode = TabDrawMode.OwnerDrawFixed, Appearance = TabAppearance.Normal, Padding = new Point(2, 6), Font = Theme.Base, Multiline = true };
         tabs.DrawItem += DrawTab;
 
+        // type brush: the chosen type goes to AGVPBRUSH as its keyword answer (O/T/S/C, same order as the list)
+        var brushKind = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.System };
+        brushKind.Items.AddRange(new object[] { "단방향", "양방향", "spur", "crab" });
+        brushKind.SelectedIndex = 0;
+        var brush = Theme.Make("종류 붓", GlyphKind.PathType, "");
+        new ToolTip().SetToolTip(brush, "경로를 차례로 클릭해 종류 적용 · Enter 끝 (AGVPBRUSH)");
+        brush.Click += (o, e) => AgvPalette.Send("AGVPBRUSH " + "OTSC"[Math.Max(0, brushKind.SelectedIndex)]);
         tabs.TabPages.Add(Page("경로", Theme.Section("경로 그리기·편집"),
             Theme.Make("경로 그리기", GlyphKind.Path, "AGVPATH"), Theme.Make("선·폴리선 → 경로 변환", GlyphKind.Convert, "AGVCONVERT"), Theme.Make("방향 반전", GlyphKind.Reverse, "AGVREVERSE"), Theme.Make("경로 종류 변경", GlyphKind.PathType, "AGVPTYPE"),
+            Theme.Caption("종류 붓"), brushKind, brush,
             Theme.Make("평행 복제", GlyphKind.Offset, "AGVOFFSET"), Theme.Make("배열 복제", GlyphKind.Array, "AGVARRAY"),
             Theme.Section("연결"),
-            Theme.Make("교차 분할", GlyphKind.Split, "AGVSPLIT"), Theme.Make("경로 잇기", GlyphKind.Join, "AGVJOIN"), Theme.Make("필렛", GlyphKind.Fillet, "AGVFILLET"),
-            Theme.Section("방향표"), Theme.Make("방향표 크기·갱신", GlyphKind.ArrowSize, "AGVARROW")));
+            Theme.Make("교차 분할", GlyphKind.Split, "AGVSPLIT"), Theme.Make("경로 잇기", GlyphKind.Join, "AGVJOIN"), Theme.Make("끝 연결", GlyphKind.Join, "AGVCONNECT"), Theme.Make("필렛", GlyphKind.Fillet, "AGVFILLET"),
+            Theme.Section("방향표"), Theme.Make("방향표 크기·갱신", GlyphKind.ArrowSize, "AGVARROW"), Theme.Make("흐름 보기", GlyphKind.ArrowSize, "AGVFLOW")));
 
         var s = CpSettings.Current;
         var detailed = new CheckBox { Text = "상세 모드", Checked = s.DetailedMode, AutoSize = true, Margin = new Padding(2, 4, 0, 4) };
@@ -94,7 +102,10 @@ public sealed class AgvPaletteControl : UserControl
             Theme.Section("CP 속성"), detailed,
             Theme.Caption("GROUP"), group,
             Theme.Caption("접두어  (마지막 TYPE에 적용)"), prefix, Theme.Caption("CAP  (숫자 또는 INF = 무제한)"), cap,
-            Theme.Section("그룹 보기"), GroupView(tabs)));
+            Theme.Section("그룹 보기"), GroupView(tabs),
+            Theme.Section("CP 편집"),
+            Theme.Make("선택 CP 편집", GlyphKind.Cp, "AGVCPEDIT"), Theme.Make("CP 번호 다시 매기기", GlyphKind.BlockNum, "AGVCPRENUM"), Theme.Make("CP 경로 따라 이동", GlyphKind.Offset, "AGVCPMOVE"),
+            Theme.Section("루트 보기"), RouteViewPanel()));
 
         tabs.TabPages.Add(Page("교통제어", Theme.Section("자동 생성"),
             Theme.Make("block 자동 생성", GlyphKind.Block, "AGVBLOCKAUTO"), Theme.Make("블록 채번", GlyphKind.BlockNum, "AGVBLOCKNUM"), Theme.Make("교통제어 자동 생성", GlyphKind.Traffic, "AGVTRAFFIC")));
@@ -125,7 +136,7 @@ public sealed class AgvPaletteControl : UserControl
             line3d("펜스", Line3dSettings.Fence),
             Theme.Caption("컨베이어 폭 (m)"), convW, line3d("컨베이어", Line3dSettings.Conv), line3d("컨베이어 (그림만)", Line3dSettings.ConvPicture),
             Theme.Caption("점 클릭 · Enter 끝 · C 닫기 · U 되돌리기"),
-            Theme.Section("컨베이어"),Theme.Make("컨베이어 이름 붙이기", GlyphKind.Path, "AGVCONV")));
+            Theme.Section("컨베이어"),Theme.Make("컨베이어 이름 붙이기", GlyphKind.Path, "AGVCONV"), Theme.Make("소비 지점", GlyphKind.Cp, "AGVCONVUSE")));
 
         var settings = Theme.Make("설정 열기", GlyphKind.Settings, "");
         settings.Click += (o, e) => Commands.ExportCommands.OpenSettings();
@@ -152,10 +163,12 @@ public sealed class AgvPaletteControl : UserControl
             // "모델 생성" also does what "내보내기" did (AGVEXPORT is still a command): <Model>.arc, and <Model>.dir when this PC has AutoMod
             Theme.Section("모델"), Theme.Make("Excel 양식", GlyphKind.Excel, "AGVEXCEL"), Theme.Make("모델 생성", GlyphKind.Model, "AGVMODEL"), Theme.Make("빌드·실행", GlyphKind.Run, "AGVRUN"),
             Theme.Make("서버로 보내기", GlyphKind.Send, "AGVSEND"), Theme.Make("결과 올리기", GlyphKind.Send, "AGVRESULTUP"),
+            Theme.Make("엑셀·도면 비교", GlyphKind.Excel, "AGVEXCELDIFF"),
             Theme.Section("설정"), settings, layerColors));
 
         var finder = FinderPage(tabs);
         tabs.TabPages.Add(finder);
+        tabs.TabPages.Add(CausePanel.Page()); // 원인: AGVCAUSE's list (CausePanel.cs)
 
         var header = new Panel { Dock = DockStyle.Top, Height = 50, BackColor = Theme.Panel, Padding = new Padding(10, 6, 6, 6) };
         var init = Theme.Make("양식 초기화", GlyphKind.Init, "AGVINIT");
@@ -260,6 +273,39 @@ public sealed class AgvPaletteControl : UserControl
         panel.Controls.Add(info);
         panel.Controls.Add(showAll);
         panel.Controls.Add(modes);
+        return panel;
+    }
+
+    // Route view: the materials of the drawing's Excel input; a double-click draws that material's route on AGV_ROUTE (AGVROUTE), 지우기 clears the layer.
+    private static Control RouteViewPanel()
+    {
+        var list = Grid(("자재", 110), ("그룹", 90));
+        list.Dock = DockStyle.Fill;
+        var info = new Label { Dock = DockStyle.Bottom, Height = 18, Font = Theme.Small, ForeColor = Theme.Muted, Text = "목록 새로고침을 누르세요" };
+        var refresh = Theme.Make("목록 새로고침", GlyphKind.Search, "");
+        var clear = Theme.Make("지우기", GlyphKind.Check, "");
+        refresh.Dock = DockStyle.Top;
+        clear.Dock = DockStyle.Bottom;
+        new ToolTip().SetToolTip(list, "더블클릭하면 그 자재의 CP와 구간별 최단 경로를 AGV_ROUTE 레이어에 그림 (AGVROUTE)");
+        refresh.Click += (o, e) => RouteRequest.Go(RouteRequest.Kind.List);
+        clear.Click += (o, e) => RouteRequest.Go(RouteRequest.Kind.Clear);
+        list.DoubleClick += (o, e) =>
+        {
+            if (list.SelectedItems.Count > 0) RouteRequest.Go(RouteRequest.Kind.Show, list.SelectedItems[0].Text);
+        };
+        RouteRequest.Materials = items =>
+        {
+            list.BeginUpdate();
+            list.Items.Clear();
+            foreach (var (material, group) in items) list.Items.Add(new ListViewItem(new[] { material, group }));
+            list.EndUpdate();
+            info.Text = items.Count == 0 ? "자재 없음" : $"자재 {items.Count}개 — 더블클릭하면 루트 표시";
+        };
+        var panel = new Panel { Height = 230, Margin = new Padding(0, 0, 0, 4) };
+        panel.Controls.Add(list); // Fill first: the docked edges then take their space before it
+        panel.Controls.Add(info);
+        panel.Controls.Add(clear);
+        panel.Controls.Add(refresh);
         return panel;
     }
 

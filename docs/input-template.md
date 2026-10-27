@@ -41,6 +41,7 @@
 - AGV_Types: 타입 `T_AGV` 한 행. 모든 그룹이 이 타입을 쓴다. 다른 차량이 필요하면 타입 행을 추가하고 그룹의 Type을 바꾼다.
 - AGV_Groups: CP의 GROUP 값마다 한 행, StandbyCPs는 그 그룹의 standby CP.
 - Routes / Materials: load CP마다 자재 `M001`, `M002`...를 만들고, 같은 순서의 unload / buffer / rtnload / rtnunload CP를 짝지어 넣는다. 짝은 추측이므로 확인한다.
+- `AGVCPROUTE`로 놓은 CP는 따로 다룬다. 아래 "루트 순서 배치로 만든 행".
 - 속도, T/T 같은 숫자는 도면에서 알 수 없어 예시 값 그대로이다. 반드시 고친다.
 - 도면에 해당 CP가 없으면 그 시트는 회색 예시 행이 들어간다.
 
@@ -56,7 +57,7 @@ U·W 모두 원래 파일을 `input.bak.<날짜_시각>.xlsx`로 먼저 복사�
 
 ## 목록 선택(데이터 유효성 검사)
 
-다음 열은 셀의 드롭다운에서 고르고, 목록에 없는 값은 Excel이 받지 않는다. 양식 생성과 갱신 때마다 다시 설정한다.
+다음 열은 셀의 드롭다운에서 고르고, 목록에 없는 값은 Excel이 받지 않는다. 양식 생성과 갱신 때마다 다시 설정한다. (CP 이름 열은 아래 "CP 이름 드롭다운".)
 
 | 시트.열 | 목록 |
 |---|---|
@@ -68,6 +69,56 @@ U·W 모두 원래 파일을 `input.bak.<날짜_시각>.xlsx`로 먼저 복사�
 | Materials.Use | Y / N |
 | Routes.Material | Materials의 Material |
 | Conveyors.Material | Materials의 Material |
+
+### CP 이름 드롭다운
+
+Routes의 SupplyFromCP / SupplyToCP / BufferCP / ReturnFromCP / ReturnToCP와 AGV_Groups의 StandbyCPs / FinishCP는 도면의 CP 이름 목록에서 고른다. 목록은 type별로 걸러진다.
+
+| 열 | 도면 CP type |
+|---|---|
+| SupplyFromCP | load |
+| SupplyToCP | unload |
+| BufferCP | buffer |
+| ReturnFromCP | rtnload |
+| ReturnToCP | rtnunload |
+| StandbyCPs | standby |
+| FinishCP | finish |
+
+- 목록은 숨김 시트 `_lists`의 C열부터(load, unload, buffer, rtnload, rtnunload, standby, finish 순) 있고, A열은 에셋 이름이 쓴다. `AGVEXCEL`(W·U)이 도면을 읽어 다시 채운다. 도면에서 CP를 지우면 다음 갱신 때 목록에서도 빠진다.
+- 위 표의 다른 목록과 달리 막지 않고 경고만 한다. 도면에 아직 없는 CP 이름을 미리 적으려면 경고에서 "예"를 누른다(`AGVEXCELDIFF`가 알려 준다).
+- StandbyCPs는 `SB1,SB2`처럼 쉼표로 여러 개를 적을 수 있어서, 이 열에 쉼표 목록이 한 줄이라도 있으면 드롭다운을 걸지 않는다(기존 드롭다운은 갱신 때 지운다). 대기 CP가 하나뿐인 그룹만 있을 때 드롭다운이 있다.
+- 사내 문서 암호화로 Excel을 통해 갱신할 때도 같은 목록과 드롭다운을 Excel이 만든다.
+
+## 루트 순서 배치로 만든 행
+
+`AGVCPROUTE`가 놓은 CP는 블록에 같은 루트 번호가 붙어 도면에 남는다(XData `ASH_ROUTE`). `AGVEXCEL`은 이 CP들을 낱개 CP의 순서 짝짓기에서 빼고, 루트 하나씩 행을 만든다.
+
+- 루트의 load CP마다 Materials 한 행과 Routes 한 행. 자재 이름은 그 load CP 이름(`L001` 등). 이미 쓰는 이름이거나 AutoMod에서 못 쓰는 이름(한글 등)이면 `M###`.
+- 그룹은 루트의 그룹. SupplyToCP, ReturnFromCP, ReturnToCP는 루트에서 같은 순서의 CP이고, 모자라면 마지막 CP(load 2개, unload 1개면 둘 다 그 unload로). BufferCP는 비운다.
+- AGV_Groups: StandbyCPs에 루트의 standby, FinishCP에 루트의 finish. FinishCP는 비어 있을 때만 채운다.
+- 이미 SupplyFromCP에 있는 load CP는 건너뛴다(두 번 실행해도 늘지 않음). T/T와 임계값은 예시 값이므로 고친다.
+- 무엇을 더했는지는 명령줄에 한 줄씩 나온다: `Materials·Routes: 경로 G1 (대기 S001 → 로딩 L001,L002 → …)의 자재 L001 추가`.
+
+## 검증 표시 (빨강·주황 칸)
+
+`AGVEXCEL`(U·W)이 끝날 때와 `AGVMODEL`이 입력을 검증한 뒤, 문제가 있는 칸을 칠하고 메모를 단다.
+
+- 오류: 빨강(FF9B9B), 경고: 주황(FFD27F). 칸의 메모는 `ASH 검증(오류): …` 또는 `ASH 검증(경고): …`로 시작한다.
+- 칸은 문제 메시지가 가리키는 행과, 메시지에 열 이름(예: `SupplyToCP`)이 있으면 그 열이다. 열을 모르면 행의 첫 칸. 한 칸에 문제가 여럿이면 메모에 모두 적는다. 행이 없는 문제(Settings 값 등)는 명령줄에만 나온다.
+- 다음 실행 때 이전 표시(`ASH 검증`으로 시작하는 메모와 그 칸의 색)를 먼저 지우고 새로 칠한다. 고친 칸은 색이 사라진다. 직접 단 메모는 지우지 않는다.
+- 색만 지우므로 회색 예시 행에 표시가 겹쳤다면 색이 없어진다.
+- 암호화된 파일이나 Excel이 열고 있는 파일은 Excel을 통해 같은 표시를 한다.
+
+## 엑셀·도면 비교 (AGVEXCELDIFF)
+
+팔레트 검증·내보내기 탭 "엑셀·도면 비교" 또는 `AGVEXCELDIFF`. 도면과 `input.xlsx`를 견주어 문제 목록(표)에 낸다. 행을 더블클릭하면 해당 CP로 이동한다(도면에 없는 CP는 위치가 없다).
+
+| 종류 | 뜻 | 등급 |
+|---|---|---|
+| 도면에 없음 | Excel의 Routes / AGV_Groups / Stations가 쓰는 CP 이름이 도면에 없음 | 오류 |
+| 타입 불일치 | CP type이 열과 다름(예: load CP를 SupplyToCP에 씀) | 오류 |
+| 미사용 CP | traffic이 아닌 도면 CP를 어느 행도 쓰지 않음 | 경고 |
+| 그룹 불일치 | CP의 GROUP이 자재(Routes) 또는 그룹(StandbyCPs·FinishCP)의 그룹과 다름. CP의 GROUP이 비어 있으면 검사하지 않음 | 경고 |
 
 ## 자재 사용 여부 (Materials.Use)
 

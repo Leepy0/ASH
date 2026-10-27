@@ -73,6 +73,7 @@ public sealed class Line3dCommands
             pl.Closed = closed;
             pl.ConstantWidth = w;
             string? name = kind == Line3dSettings.Conv ? ConvCommands.NameNew(db, tr, pl) : null;
+            if (kind == Line3dSettings.Conv || kind == Line3dSettings.ConvPicture) DrawingWriter.RefreshDirectionArrows(db, tr); // flow arrows along the new conveyor
             ed.WriteMessage($"\n{label}{(name != null ? " " + name : "")} 추가({layer}).");
             return true;
         }, refreshArrows: false);

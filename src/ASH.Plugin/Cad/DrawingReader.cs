@@ -17,6 +17,7 @@ public static class DrawingReader
         var layout = new CoreLayout { Tolerance = 0.001 * DrawingUnits.PerMeter };
         var blockTags = new List<(Point2 Pos, Dictionary<string, string> Attrs, string Id)>();
         var rects = new List<(Polyline Pl, string Id)>();
+        var useMarks = new List<(string Conv, Point2 At)>();
         foreach (ObjectId id in ModelSpace(db, tr, OpenMode.ForRead))
         {
             if (!(tr.GetObject(id, OpenMode.ForRead) is Entity e) || e.IsErased) continue;
@@ -31,6 +32,11 @@ public static class DrawingReader
                 var conv = ReadConveyor(cpl, Eq(layer, Conventions.Layer3dConv));
                 if (conv != null) layout.Conveyors.Add(conv);
             }
+            else if (e is Line ul && Eq(layer, Conventions.LayerConvUse))
+            {
+                // use-point marker: its bar's middle is the point; it is resolved after all conveyors are known
+                if (XData.ReadUse(ul) is { } u && u.Name.Length > 0) useMarks.Add((u.Name, new Point2((ul.StartPoint.X + ul.EndPoint.X) / 2, (ul.StartPoint.Y + ul.EndPoint.Y) / 2)));
+            }
             else if (e is BlockReference br)
             {
                 string name = BlockName(br, tr);
@@ -41,7 +47,7 @@ public static class DrawingReader
                     {
                         Name = Get(a, "NAME"), Type = Get(a, "TYPE").ToLowerInvariant(), Group = Get(a, "GROUP"),
                         Cap = ParseCap(Get(a, "CAP")),
-                        Position = Xy(br.Position), Id = br.Handle.ToString(),
+                        Position = Xy(br.Position), Id = br.Handle.ToString(), RouteId = XData.ReadCpRoute(br),
                     });
                 }
                 else if (Eq(name, Conventions.StationBlockName))
@@ -66,6 +72,9 @@ public static class DrawingReader
             else if (Eq(layer, Conventions.LayerBlock) && e is Polyline pl && pl.Closed && pl.NumberOfVertices >= 3)
                 rects.Add((pl, pl.Handle.ToString()));
         }
+        foreach (var (cname, at) in useMarks)
+            if (layout.Conveyors.FirstOrDefault(c => !c.GraphicOnly && c.Name.Length > 0 && Eq(c.Name, cname)) is { } cv)
+                cv.ConsumeAtM = cv.Nearest(at).Dist / DrawingUnits.PerMeter;
         foreach (var (pl, id) in rects)
         {
             var pts = Enumerable.Range(0, pl.NumberOfVertices).Select(i => Xy(pl.GetPoint3dAt(i))).ToList();

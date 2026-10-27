@@ -118,6 +118,14 @@ internal static partial class Routes
             });
         });
 
+        // the 원인 tab's findings for the plugin's AGVCAUSE (no auth, like the other GET /api/jobs routes)
+        app.MapGet("/api/jobs/{id}/causes", (string id, string? run, JobStore js) =>
+        {
+            if (!JobStore.IsValidId(id) || js.Get(id) is not { } j) return Msg(404, "작업이 없습니다.");
+            if (j.State != JobState.Done) return Msg(409, "끝난 작업에서만 원인을 볼 수 있습니다.");
+            return CausePages.Json(js, j, run) is { } body ? Results.Json(body) : Msg(409, "이 작업에는 도면 자료가 없습니다.");
+        });
+
         app.MapGet("/jobs/{id}", (string id, string? tab, HttpContext ctx, JobStore js, ReleaseStore rs, AnalysisStore analyses, FilmStore fs, FilmWorker fw, IConfiguration cfg, CatalogStore cs) =>
         {
             if (!JobStore.IsValidId(id) || js.Get(id) is not { } j) return Msg(404, "작업이 없습니다.");

@@ -28,6 +28,7 @@ public sealed class SettingsDialog : Form
         ("OriginX", "원점 X", "이 도면 좌표(도면 단위)가 모델의 (0, 0)이 됩니다", 100),
         ("OriginY", "원점 Y", "", 100),
         ("ArrowSize", "방향표 길이 (m)", "경로 방향 화살표 크기. 다음 경로 편집 때 반영됩니다", 100),
+        ("JoinGap", "경로 자동 연결 (m)", "그린 경로 끝이 이 거리 안이면 붙임. 0 = 끔", 100),
         (null, "교통제어 자동 생성 (단위 m)", "", 0),
         ("VehicleLength", "차량 길이", "block 크기·합치기 판단에 씁니다", 100),
         ("VehicleWidth", "차량 폭", "block을 경로 양옆으로 폭/2 + 안전 거리만큼 넓힙니다", 100),

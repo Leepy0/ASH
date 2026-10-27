@@ -95,6 +95,7 @@ public sealed class CpCommands
             double maxOffsetM = new CheckOptions().CpMaxOffset;
             var naming = new CpNaming(layout.Cps.Select(c => c.Name));
             var seq = new CpRouteSequence();
+            var routeId = ASH.Core.SeoulTime.Now.ToString("yyMMddHHmmss", CultureInfo.InvariantCulture); // ties the placed CPs together for AGVEXCEL
             int added = 0;
             while (!seq.Done)
             {
@@ -109,7 +110,7 @@ public sealed class CpCommands
                 var hit = Snap(ed, layout, pr.Value.X, pr.Value.Y, maxOffsetM);
                 if (hit == null) continue;
                 var type = seq.Type;
-                Place(doc, db, tr, new LayoutCp { Type = type, Group = group, Cap = CpTypes.DefaultCap(type), Name = naming.Next(AutoNamer.PrefixFor(type)) }, hit.Value);
+                Place(doc, db, tr, new LayoutCp { Type = type, Group = group, Cap = CpTypes.DefaultCap(type), Name = naming.Next(AutoNamer.PrefixFor(type)), RouteId = routeId }, hit.Value);
                 seq.Placed();
                 added++;
             }

@@ -94,6 +94,57 @@ public class ConveyorModelTests
         Assert.Empty(ConveyorCheck.Check(Input(), new ASH.Core.Layout.Layout { Conveyors = Convs() }, 1.0));
     }
 
+    // the drawing marker (AGVCONVUSE) wins over the Excel ConsumeAt; without it the Excel value, without both the end
+    [Fact]
+    public void Marker_Wins_Over_Excel_ConsumeAt()
+    {
+        var c = Convs();
+        c[0].ConsumeAtM = 3;
+        var asy = ConveyorAsyWriter.Render(c, Input(consumeAt: 10).Conveyors, new ExportOptions());
+        Assert.Contains("CONVSTATION name CV001_use type DefaultStation at CV001_s1 3\n", asy);
+        Assert.Contains("CONVSTATION name CV001_out type DefaultStation at CV001_s3 5\n", asy);
+        asy = ConveyorAsyWriter.Render(c, Input(consumeAt: null).Conveyors, new ExportOptions());
+        Assert.Contains("CONVSTATION name CV001_use type DefaultStation at CV001_s1 3\n", asy);
+        c[0].ConsumeAtM = null;
+        asy = ConveyorAsyWriter.Render(c, Input(consumeAt: 10).Conveyors, new ExportOptions());
+        Assert.Contains("CONVSTATION name CV001_use type DefaultStation at CV001_s2 2\n", asy);
+        asy = ConveyorAsyWriter.Render(c, Input(consumeAt: null).Conveyors, new ExportOptions());
+        Assert.Contains("CONVSTATION name CV001_use type DefaultStation at CV001_s3 5\n", asy);
+        // a marker past the end falls back to the end
+        c[0].ConsumeAtM = 99;
+        Assert.Equal(c[0].Segments.Sum(s => s.Length), ConveyorAsyWriter.UseM(c[0], Input().Conveyors[0], c[0].Segments.Sum(s => s.Length)), 9);
+    }
+
+    [Fact]
+    public void Check_Marker_Differs_From_Excel_Is_Information_And_Marker_Is_Validated()
+    {
+        var c = Convs();
+        c[0].ConsumeAtM = 12;
+        var l = new ASH.Core.Layout.Layout { Conveyors = c };
+        var f = ConveyorCheck.Check(Input(consumeAt: 10), l, 1.0);
+        Assert.DoesNotContain(f, x => x.Code == FindingCode.InputError);
+        Assert.Contains(f, x => x.Code == FindingCode.InputWarning && x.Message.Contains("도면 소비 지점 12 m") && x.Message.Contains("ConsumeAt 10 m"));
+        // same value or no Excel value: nothing to say
+        Assert.Empty(ConveyorCheck.Check(Input(consumeAt: 12), l, 1.0));
+        Assert.Empty(ConveyorCheck.Check(Input(consumeAt: null), l, 1.0));
+        // a marker too close to the start (inside the entry box) is an error, even when Excel is fine
+        c[0].ConsumeAtM = 0.2;
+        f = ConveyorCheck.Check(Input(consumeAt: 10), l, 1.0);
+        Assert.Contains(f, x => x.Code == FindingCode.InputError && x.Message.StartsWith("Conveyors 2행: 소비 지점 마커 0.2 m"));
+    }
+
+    [Fact]
+    public void Nearest_Projects_A_Point_Onto_The_Polyline()
+    {
+        var c = Convs()[0];
+        var (d, p, a) = c.Nearest(new Point2(5, 16.2));          // beside the first line
+        Assert.Equal(5, d, 6); Assert.Equal(5, p.X, 6); Assert.Equal(15, p.Y, 6); Assert.Equal(0, a, 3);
+        (d, p, a) = c.Nearest(new Point2(11, 20));                // beside the last (north-going) line
+        Assert.Equal(8 + Math.PI + 3, d, 6); Assert.Equal(1, Math.Abs(Math.Sin(a)), 3);
+        (d, _, _) = c.Nearest(new Point2(-4, 15));                // before the start clamps to 0
+        Assert.Equal(0, d, 6);
+    }
+
     [Fact]
     public void Logic_Consumes_A_Conveyor_Material_By_Products_Only()
     {

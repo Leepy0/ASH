@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using ASH.Core.Layout;
 using ClosedXML.Excel;
 
 namespace ASH.Core.Input;
@@ -122,10 +123,13 @@ public static class ExcelTemplate
         var groups = new List<string>();
         foreach (var c in l.Cps) if (c.Group.Length > 0 && !groups.Contains(c.Group)) groups.Add(c.Group);
         string[] Ex(string sheet) { foreach (var x in Sheets) if (x.Sheet == sheet) return x.Example; return new string[0]; }
+        // CPs of an AGVCPROUTE sequence get their rows from the recorded route below, not from the one-by-one pairing
+        var recorded = CpRoutes.Names(l);
+        var routesOf = CpRoutes.From(l);
         List<string> Names(string type, string? group = null)
         {
             var r = new List<string>();
-            foreach (var c in l.Cps) if (c.Type == type && (group == null || c.Group == group)) r.Add(c.Name);
+            foreach (var c in l.Cps) if (c.Type == type && (group == null || c.Group == group) && (type == "standby" || !recorded.Contains(c.Name))) r.Add(c.Name);
             return r;
         }
         if (groups.Count > 0)
@@ -135,7 +139,8 @@ public static class ExcelTemplate
             var gs = new List<string[]>();
             foreach (var g in groups)
             {
-                var r = (string[])Ex("AGV_Groups").Clone(); r[0] = g; r[1] = typeName; r[4] = string.Join(",", Names("standby", g)); gs.Add(r);
+                var r = (string[])Ex("AGV_Groups").Clone(); r[0] = g; r[1] = typeName; r[4] = string.Join(",", Names("standby", g));
+                r[6] = routesOf.Where(x => x.Group == g).SelectMany(x => x.Finish).FirstOrDefault() ?? ""; gs.Add(r);
             }
             seed["AGV_Types"] = new List<string[]> { t }; seed["AGV_Groups"] = gs;
         }
@@ -146,20 +151,30 @@ public static class ExcelTemplate
             if (groups.Count == 0) { var g = (string[])Ex("AGV_Groups").Clone(); g[1] = catalog![0].Name; seed["AGV_Groups"] = new List<string[]> { g }; }
         }
         var loads = new List<LayoutCpRef>();
-        foreach (var c in l.Cps) if (c.Type == "load") loads.Add(new LayoutCpRef(c.Name, c.Group));
+        foreach (var c in l.Cps) if (c.Type == "load" && !recorded.Contains(c.Name)) loads.Add(new LayoutCpRef(c.Name, c.Group));
+        var mats = new List<string[]>(); var routes = new List<string[]>();
         if (loads.Count > 0)
         {
             var unload = Names("unload"); var buffer = Names("buffer"); var rl = Names("rtnload"); var ru = Names("rtnunload");
             string At(List<string> list, int i) => i < list.Count ? list[i] : "";
-            var mats = new List<string[]>(); var routes = new List<string[]>();
             for (int i = 0; i < loads.Count; i++)
             {
                 var name = "M" + (i + 1).ToString("000");
                 var m = (string[])Ex("Materials").Clone(); m[0] = name; m[2] = loads[i].Group.Length > 0 ? loads[i].Group : (groups.Count > 0 ? groups[0] : m[2]); mats.Add(m);
                 routes.Add(new[] { name, loads[i].Name, At(unload, i), At(buffer, i), At(rl, i), At(ru, i), "0", "0" });
             }
-            seed["Materials"] = mats; seed["Routes"] = routes;
         }
+        // one material per load CP of a recorded sequence, named after the CP (a name taken, or one AutoMod cannot use, falls back to M###)
+        var taken = new HashSet<string>(mats.Select(m => m[0]));
+        foreach (var r in routesOf)
+            for (int i = 0; i < r.Load.Count; i++)
+            {
+                string name = r.Load[i];
+                for (int n = mats.Count + 1; !InputValidator.IsAmText(name) || !taken.Add(name); n++) name = "M" + n.ToString("000");
+                var m = (string[])Ex("Materials").Clone(); m[0] = name; m[2] = r.Group.Length > 0 ? r.Group : (groups.Count > 0 ? groups[0] : m[2]); mats.Add(m);
+                routes.Add(new[] { name, r.Load[i], CpRoute.Pair(r.Unload, i), "", CpRoute.Pair(r.RtnLoad, i), CpRoute.Pair(r.RtnUnload, i), "0", "0" });
+            }
+        if (mats.Count > 0) { seed["Materials"] = mats; seed["Routes"] = routes; }
         return seed;
     }
 
@@ -214,7 +229,7 @@ public static class ExcelTemplate
             StyleHeader(ws, cols.Length);
             for (int c = 1; c <= cols.Length; c++) FitWidth(ws, c, lastRow);
         }
-        ApplyLists(wb);
+        ApplyLists(wb, null, layout);
         ApplyTotals(wb);
         ApplyAutoFill(wb);
         ApplyCenter(wb);
@@ -300,12 +315,22 @@ public static class ExcelTemplate
                     changes.Add($"AGV_Groups: 그룹 {g[0]} 추가(Type {types[0]}, 대수 확인 필요)");
                     continue;
                 }
-                if (!gc.TryGetValue("StandbyCPs", out var sc)) continue;
-                var listed = Split(gws.Cell(row, sc).GetString());
-                var add = Split(g[4]).Where(x => !listed.Contains(x)).ToList();
-                if (add.Count == 0) continue;
-                Set(gws, row, sc, string.Join(",", listed.Concat(add)), log);
-                changes.Add($"AGV_Groups: 그룹 {g[0]} 대기 CP {string.Join(",", add)} 추가");
+                if (gc.TryGetValue("StandbyCPs", out var sc))
+                {
+                    var listed = Split(gws.Cell(row, sc).GetString());
+                    var add = Split(g[4]).Where(x => !listed.Contains(x)).ToList();
+                    if (add.Count > 0)
+                    {
+                        Set(gws, row, sc, string.Join(",", listed.Concat(add)), log);
+                        changes.Add($"AGV_Groups: 그룹 {g[0]} 대기 CP {string.Join(",", add)} 추가");
+                    }
+                }
+                // the finish CP of a recorded sequence fills a blank cell only
+                if (g[6].Length > 0 && gc.TryGetValue("FinishCP", out var fc) && gws.Cell(row, fc).GetString().Trim().Length == 0)
+                {
+                    Set(gws, row, fc, g[6], log);
+                    changes.Add($"AGV_Groups: 그룹 {g[0]} 완료 CP {g[6]} 추가");
+                }
             }
         }
         if (seed.TryGetValue("Routes", out var sr))
@@ -314,19 +339,28 @@ public static class ExcelTemplate
             var from = new HashSet<string>(Values(rws, "SupplyFromCP"));
             var names = new HashSet<string>(Values(mws, "Material").Concat(Values(rws, "Material")));
             var sm = seed["Materials"];
+            var recordedOf = CpRoutes.From(layout!).SelectMany(r => r.Load.Select(l => (Load: l, Route: r))).GroupBy(x => x.Load).ToDictionary(x => x.Key, x => x.First().Route);
             for (int i = 0; i < sr.Count; i++)
             {
                 if (from.Contains(sr[i][1])) continue;
-                int n = 1; string name;
-                do name = "M" + (n++).ToString("000"); while (names.Contains(name));
+                // a recorded sequence keeps the name the seed gave (the load CP's); the others take the next free M###
+                recordedOf.TryGetValue(sr[i][1], out var rec);
+                string name = sm[i][0];
+                if (rec == null || names.Contains(name))
+                {
+                    int n = 1;
+                    do name = "M" + (n++).ToString("000"); while (names.Contains(name));
+                }
                 names.Add(name);
                 var m = (string[])sm[i].Clone(); m[0] = name;
                 var route = (string[])sr[i].Clone(); route[0] = name;
                 Append(mws, ColsOf("Materials"), m, log); Append(rws, ColsOf("Routes"), route, log);
-                changes.Add($"Materials·Routes: load CP {sr[i][1]}의 자재 {name} 추가(T/T·임계값·unload CP 확인 필요)");
+                changes.Add(rec != null
+                    ? $"Materials·Routes: 경로 {rec.Group} ({rec.Describe()})의 자재 {name} 추가(T/T·임계값 확인 필요)"
+                    : $"Materials·Routes: load CP {sr[i][1]}의 자재 {name} 추가(T/T·임계값·unload CP 확인 필요)");
             }
         }
-        ApplyLists(wb, log);
+        ApplyLists(wb, log, layout);
         ApplyTotals(wb, log);
         ApplyAutoFill(wb, log);
         ApplyCenter(wb, log);
@@ -398,7 +432,7 @@ public static class ExcelTemplate
         }
     }
 
-    static void ApplyAutoFill(XLWorkbook wb, List<ExcelEdit>? log = null)
+    internal static void ApplyAutoFill(XLWorkbook wb, List<ExcelEdit>? log = null)
     {
         foreach (var (sheet, col) in AutoCols)
         {
@@ -426,7 +460,67 @@ public static class ExcelTemplate
 
     const string AssetMsg = "카탈로그에 없는 에셋 이름입니다. 그대로 쓰려면 예";
 
-    static void ApplyLists(XLWorkbook wb, List<ExcelEdit>? log = null)
+    /// <summary>Hidden helper sheet. Column A: asset names; columns C.. : the drawing's CP names per type (<see cref="CpListTypes"/>), one name per row from row 1.</summary>
+    const string ListsSheet = "_lists";
+
+    /// <summary>CP types in the order of their columns in the helper sheet (C = 3 ...), and the cells that drop down one of them.</summary>
+    static readonly string[] CpListTypes = { "load", "unload", "buffer", "rtnload", "rtnunload", "standby", "finish" };
+    static readonly (string Sheet, string Col, string CpType)[] CpLists =
+    {
+        ("Routes", "SupplyFromCP", "load"), ("Routes", "SupplyToCP", "unload"), ("Routes", "BufferCP", "buffer"),
+        ("Routes", "ReturnFromCP", "rtnload"), ("Routes", "ReturnToCP", "rtnunload"),
+        ("AGV_Groups", "StandbyCPs", "standby"), ("AGV_Groups", "FinishCP", "finish"),
+    };
+    const string CpMsg = "도면에 없는 CP 이름입니다. 그대로 쓰려면 예";
+
+    static IXLWorksheet ListsSheetOf(XLWorkbook wb, List<ExcelEdit>? log)
+    {
+        if (wb.TryGetWorksheet(ListsSheet, out var ls)) { ls.Visibility = XLWorksheetVisibility.Hidden; return ls; }
+        ls = wb.AddWorksheet(ListsSheet); log?.Add(new AddSheetEdit(ListsSheet, true));
+        ls.Visibility = XLWorksheetVisibility.Hidden;
+        return ls;
+    }
+
+    /// <summary>Names down a column of the helper sheet from row 1; rows left over from a longer earlier list are cleared.</summary>
+    static void PutColumn(IXLWorksheet ls, int col, IReadOnlyList<string> names, List<ExcelEdit>? log)
+    {
+        int prev = ls.Column(col).LastCellUsed()?.Address.RowNumber ?? 0;
+        for (int i = 0; i < names.Count; i++) Set(ls, i + 1, col, names[i], log);
+        for (int i = names.Count + 1; i <= prev; i++) { ls.Cell(i, col).Clear(); log?.Add(new CellEdit(ListsSheet, i, col, "")); }
+    }
+
+    /// <summary>Drop-downs of the drawing's CP names on the route and group columns, filled from the hidden helper sheet. A warning, not a stop: a name
+    /// typed ahead of the drawing is allowed after a yes (AGVEXCELDIFF lists it). StandbyCPs takes a comma list, so it drops down only while no row has one.</summary>
+    static void ApplyCpLists(XLWorkbook wb, List<ExcelEdit>? log, ASH.Core.Layout.Layout layout)
+    {
+        var ls = ListsSheetOf(wb, log);
+        var counts = new int[CpListTypes.Length];
+        for (int t = 0; t < CpListTypes.Length; t++)
+        {
+            var names = layout.Cps.Where(c => c.Type == CpListTypes[t] && c.Name.Length > 0).Select(c => c.Name).Distinct().ToList();
+            counts[t] = names.Count;
+            PutColumn(ls, 3 + t, names, log);
+        }
+        foreach (var (sheet, col, type) in CpLists)
+        {
+            if (!wb.TryGetWorksheet(sheet, out var ws) || !Columns(ws).TryGetValue(col, out var c)) continue;
+            var range = ws.Range(3, c, LastListRow, c);
+            if (type == "standby" && Values(ws, col).Any(v => v.IndexOf(',') >= 0))
+            {
+                range.Clear(XLClearOptions.DataValidation);
+                log?.Add(new ListEdit(sheet, c, 3, LastListRow, "", col, "", true)); // empty formula = no drop-down
+                continue;
+            }
+            int t = Array.IndexOf(CpListTypes, type), lc = 3 + t, n = Math.Max(1, counts[t]);
+            var v = range.CreateDataValidation();
+            v.List(ls.Range(1, lc, n, lc), true);
+            v.IgnoreBlanks = true; v.ErrorStyle = XLErrorStyle.Warning; v.ErrorTitle = col; v.ErrorMessage = CpMsg; v.ShowErrorMessage = true;
+            var letter = XLHelper.GetColumnLetterFromNumber(lc);
+            log?.Add(new ListEdit(sheet, c, 3, LastListRow, $"={ListsSheet}!${letter}$1:${letter}${n}", col, CpMsg, true));
+        }
+    }
+
+    static void ApplyLists(XLWorkbook wb, List<ExcelEdit>? log = null, ASH.Core.Layout.Layout? layout = null)
     {
         var all = AssetListFormula.Length == 0 ? Lists : Lists.Concat(new[] { ("AGV_Types", "Asset", AssetListFormula) }).ToArray();
         foreach (var (sheet, col, source) in all)
@@ -443,11 +537,8 @@ public static class ExcelTemplate
             else if (isAsset && source.Length > 253) // Excel caps an inline list at 255 chars: names go to a hidden sheet
             {
                 var names = source.Split(',');
-                bool had = wb.TryGetWorksheet("_lists", out var ls);
-                if (!had) { ls = wb.AddWorksheet("_lists"); log?.Add(new AddSheetEdit("_lists", true)); }
-                else for (int i = names.Length + 1; i <= ls.LastRowUsed()?.RowNumber(); i++) { ls.Cell(i, 1).Clear(); log?.Add(new CellEdit("_lists", i, 1, "")); } // stale rows
-                for (int i = 0; i < names.Length; i++) Set(ls, i + 1, 1, names[i], log);
-                ls.Visibility = XLWorksheetVisibility.Hidden;
+                var ls = ListsSheetOf(wb, log);
+                PutColumn(ls, 1, names, log); // stale rows below the new list are cleared
                 v.List(ls.Range(1, 1, names.Length, 1), true);
                 v.ErrorMessage = AssetMsg;
                 log?.Add(new ListEdit(sheet, c, 3, LastListRow, $"=_lists!$A$1:$A${names.Length}", col, v.ErrorMessage, true));
@@ -463,6 +554,7 @@ public static class ExcelTemplate
             v.ErrorTitle = col;
             v.ShowErrorMessage = true;
         }
+        if (layout != null) ApplyCpLists(wb, log, layout);
     }
 
     static void StyleHeader(IXLWorksheet ws, int ncols)
@@ -483,7 +575,7 @@ public static class ExcelTemplate
     }
 
     // saved beside the target and moved over it: a failure half way must not leave a truncated input.xlsx that the next run takes for a real one
-    static void Save(XLWorkbook wb, string path)
+    internal static void Save(XLWorkbook wb, string path)
     {
         var tmp = path + ".tmp";
         try
