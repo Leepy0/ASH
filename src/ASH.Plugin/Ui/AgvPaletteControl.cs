@@ -95,6 +95,8 @@ public sealed class AgvPaletteControl : UserControl
             Theme.Caption("GROUP"), group,
             Theme.Caption("접두어  (마지막 TYPE에 적용)"), prefix, Theme.Caption("CAP  (숫자 또는 INF = 무제한)"), cap,
             Theme.Section("그룹 보기"), GroupView(tabs),
+            Theme.Section("CP 편집"),
+            Theme.Make("선택 CP 편집", GlyphKind.Cp, "AGVCPEDIT"), Theme.Make("CP 번호 다시 매기기", GlyphKind.BlockNum, "AGVCPRENUM"), Theme.Make("CP 경로 따라 이동", GlyphKind.Offset, "AGVCPMOVE"),
             Theme.Section("루트 보기"), RouteViewPanel()));
 
         tabs.TabPages.Add(Page("교통제어", Theme.Section("자동 생성"),
