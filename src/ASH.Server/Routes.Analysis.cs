@@ -22,7 +22,7 @@ internal static partial class Routes
         app.MapGet("/api/analyses", (AnalysisStore st, JobStore js) =>
         {
             var jobs = js.All();
-            return Results.Json(st.All().Select(a => new { a.Id, a.Name, a.Note, a.Corp, a.ProductLine, a.Line, Plans = a.Plans.Select(p => new { p.Id, p.Name, NextVersion = NextVersion(jobs, a.Id, p.Id) }) }));
+            return Results.Json(st.All().Select(a => new { a.Id, a.Name, a.Note, a.Corp, a.ProductLine, a.Line, Plans = a.Plans.Select(p => new { p.Id, p.Name, NextVersion = NextVersion(jobs, a.Id, p.Id), Jobs = jobs.Where(j => j.AnalysisId == a.Id && j.PlanId == p.Id && j.State == JobState.Done).OrderByDescending(j => j.Version).Select(j => new { j.Id, j.Version, j.Selected }) }) }));
         });
 
         app.MapPost("/api/analyses", async (HttpContext ctx, AnalysisStore st) =>

@@ -123,6 +123,61 @@ public class CausePagesTests
         Assert.Contains("자료 없음", await env.Http.GetStringAsync($"/analyses/{aid}?tab=cause"));
     }
 
+    // ---------------------------------------------------------------- the plugin's JSON
+
+    [Fact] public void Body_Lists_The_Findings_In_Tab_Order_With_Places_Refs_And_Camel_Case_Names()
+    {
+        var items = new[]
+        {
+            new CauseItem(CauseKinds.TimeLoss, 0, "대기 많음", "G1", "30%", ""),
+            new CauseItem(CauseKinds.Deadlock, 5, "교착 B005·B007", "B005", "d", "U003 이동", 3725, 12.5, double.NaN, new[] { "B005", "P1" }), // severity clamped, NaN y = no place
+            new CauseItem(CauseKinds.Detour, 1, "우회", "A→B", "d", "", null, 30, -2),
+        };
+        var runs = new[] { new CausePages.RunChoice("r1", "실행 1", 0), new CausePages.RunChoice("r2", "실행 2 · 교착 1회", 1) };
+        using var doc = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(CausePages.Body("j1", runs[1], runs, items, "메모")));
+        var r = doc.RootElement;
+        Assert.Equal("j1", r.GetProperty("job").GetString()); Assert.Equal("r2", r.GetProperty("run").GetString()); Assert.Equal("메모", r.GetProperty("note").GetString());
+        Assert.Equal(2, r.GetProperty("runs").GetArrayLength()); Assert.Equal("실행 2 · 교착 1회", r.GetProperty("runs")[1].GetProperty("label").GetString());
+        var it = r.GetProperty("items");
+        Assert.Equal(new[] { "deadlock", "detour", "time-loss" }, it.EnumerateArray().Select(i => i.GetProperty("kind").GetString())); // the tab's group order
+        var d = it[0];
+        Assert.Equal(2, d.GetProperty("severity").GetInt32()); Assert.Equal("교착 B005·B007", d.GetProperty("title").GetString()); Assert.Equal("U003 이동", d.GetProperty("fix").GetString());
+        Assert.Equal(3725, d.GetProperty("atSec").GetDouble()); Assert.Equal(System.Text.Json.JsonValueKind.Null, d.GetProperty("x").ValueKind); // a place needs both
+        Assert.Equal(System.Text.Json.JsonValueKind.Null, d.GetProperty("y").ValueKind);
+        Assert.Equal(new[] { "B005", "P1" }, d.GetProperty("refs").EnumerateArray().Select(x => x.GetString()));
+        Assert.Equal(-2, it[1].GetProperty("y").GetDouble()); Assert.Equal(System.Text.Json.JsonValueKind.Null, it[1].GetProperty("atSec").ValueKind);
+        Assert.Equal(0, it[2].GetProperty("refs").GetArrayLength()); Assert.Equal(System.Text.Json.JsonValueKind.Null, it[2].GetProperty("x").ValueKind);
+        // and the plugin's reader takes it
+        var back = ASH.Core.Runner.JobServerClient.ParseCauses(System.Text.Json.JsonSerializer.Serialize(CausePages.Body("j1", runs[1], runs, items, "")));
+        Assert.Equal(3, back.Items.Count); Assert.Equal(30, back.Items[1].X); Assert.Null(back.Items[0].Y); Assert.Equal("r2", back.Run);
+    }
+
+    [Fact] public async Task Causes_Endpoint_Answers_404_For_No_Job_409_Without_A_Drawing_And_200_Otherwise()
+    {
+        using var env = new JobEnv(); var id = await env.SendFiled("라인 증설", "A안"); await env.WaitFinished(id);
+        Assert.Equal(HttpStatusCode.NotFound, (await env.Http.GetAsync("/api/jobs/20260101-000000-zzzz/causes")).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await env.Http.GetAsync("/api/jobs/..%2Fx/causes")).StatusCode);
+        var v = JobView.For(env.Store, env.Store.Get(id)!);
+        Set(v, "Layout", null);
+        var none = await env.Http.GetAsync($"/api/jobs/{id}/causes");
+        Assert.Equal(HttpStatusCode.Conflict, none.StatusCode); Assert.Contains("도면 자료가 없습니다", await none.Content.ReadAsStringAsync());
+        Set(v, "Layout", Lay());
+        var ok = await env.Http.GetAsync($"/api/jobs/{id}/causes?run=nope");
+        Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
+        var body = ASH.Core.Runner.JobServerClient.ParseCauses(await ok.Content.ReadAsStringAsync());
+        Assert.Equal(id, body.Job); Assert.Empty(body.Items); // the analysers find nothing in this fake job: an empty list, not an error
+        Assert.DoesNotContain("분석 오류", body.Note);
+        Set(v, "Layout", null);
+    }
+
+    [Fact] public async Task Analyses_List_Carries_The_Finished_Jobs_Of_Each_Plan()
+    {
+        using var env = new JobEnv(); var id = await env.SendFiled("라인 증설", "A안"); await env.WaitFinished(id);
+        var l = ASH.Core.Runner.JobServerClient.ParseAnalyses(await env.Http.GetStringAsync("/api/analyses"));
+        var j = Assert.Single(l.Single().Plans.Single().Jobs);
+        Assert.Equal(id, j.Id); Assert.Equal(1, j.Version);
+    }
+
     // ---------------------------------------------------------------- the cut endpoint
 
     static FormUrlEncodedContent Form(params (string, string)[] kv) => new(kv.Select(x => new KeyValuePair<string, string>(x.Item1, x.Item2)));

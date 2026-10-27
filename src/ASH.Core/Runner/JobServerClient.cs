@@ -53,6 +53,50 @@ public sealed class PlanSummary
     [DataMember(Name = "id")] public string Id { get; set; } = "";
     [DataMember(Name = "name")] public string Name { get; set; } = "";
     [DataMember(Name = "nextVersion")] public int NextVersion { get; set; }
+    /// <summary>Finished jobs of the plan, newest version first (empty from a server before AGVCAUSE).</summary>
+    [DataMember(Name = "jobs")] public List<PlanJob> Jobs { get; set; } = new List<PlanJob>();
+}
+
+[DataContract]
+public sealed class PlanJob
+{
+    [DataMember(Name = "id")] public string Id { get; set; } = "";
+    [DataMember(Name = "version")] public int Version { get; set; }
+    [DataMember(Name = "selected")] public bool Selected { get; set; }
+}
+
+/// <summary>One finding in GET /api/jobs/{id}/causes. X, Y are model metres (null = no single place); Refs name the CPs, paths and blocks it concerns.</summary>
+[DataContract]
+public sealed class CauseInfo
+{
+    [DataMember(Name = "kind")] public string Kind { get; set; } = "";
+    [DataMember(Name = "severity")] public int Severity { get; set; }
+    [DataMember(Name = "title")] public string Title { get; set; } = "";
+    [DataMember(Name = "where")] public string Where { get; set; } = "";
+    [DataMember(Name = "detail")] public string Detail { get; set; } = "";
+    [DataMember(Name = "fix")] public string Fix { get; set; } = "";
+    [DataMember(Name = "atSec")] public double? AtSec { get; set; }
+    [DataMember(Name = "x")] public double? X { get; set; }
+    [DataMember(Name = "y")] public double? Y { get; set; }
+    [DataMember(Name = "refs")] public List<string> Refs { get; set; } = new List<string>();
+}
+
+[DataContract]
+public sealed class CauseRun
+{
+    [DataMember(Name = "id")] public string Id { get; set; } = "";
+    [DataMember(Name = "label")] public string Label { get; set; } = "";
+}
+
+/// <summary>GET /api/jobs/{id}/causes: the chosen run, the runs to choose from, a short note (data missing) and the findings in the 원인 tab's order.</summary>
+[DataContract]
+public sealed class CauseReply
+{
+    [DataMember(Name = "job")] public string Job { get; set; } = "";
+    [DataMember(Name = "run")] public string? Run { get; set; }
+    [DataMember(Name = "runs")] public List<CauseRun> Runs { get; set; } = new List<CauseRun>();
+    [DataMember(Name = "note")] public string Note { get; set; } = "";
+    [DataMember(Name = "items")] public List<CauseInfo> Items { get; set; } = new List<CauseInfo>();
 }
 
 /// <summary>The form fields of a submission (the package file goes beside them). <c>Plan</c> is the drawing's name; the analysis fields are optional: ids win over names,
@@ -101,6 +145,23 @@ public sealed class JobServerClient : IDisposable
         return ParseCatalog(await ReadOk(r).ConfigureAwait(false));
     }
 
+    /// <summary>The 원인 findings of a finished job (run null = the server's pick, the worst run).</summary>
+    public async Task<CauseReply> GetCausesAsync(string jobId, string? run = null, CancellationToken ct = default)
+    {
+        var rel = "api/jobs/" + Uri.EscapeDataString(jobId) + "/causes" + (string.IsNullOrEmpty(run) ? "" : "?run=" + Uri.EscapeDataString(run));
+        using var r = await _http.GetAsync(new Uri(_base, rel), ct).ConfigureAwait(false);
+        return ParseCauses(await ReadOk(r).ConfigureAwait(false));
+    }
+
+    /// <exception cref="InvalidDataException">Not the expected JSON.</exception>
+    public static CauseReply ParseCauses(string json)
+    {
+        var c = Parse<CauseReply>(json);
+        c.Runs ??= new List<CauseRun>(); c.Items ??= new List<CauseInfo>(); c.Note ??= "";
+        foreach (var i in c.Items) { i.Kind ??= ""; i.Title ??= ""; i.Where ??= ""; i.Detail ??= ""; i.Fix ??= ""; i.Refs ??= new List<string>(); } // absent keys skip the initializers
+        return c;
+    }
+
     public async Task<JobReceipt> SubmitAsync(string zipPath, JobSubmission job, CancellationToken ct = default)
     {
         using var form = new MultipartFormDataContent();
@@ -136,7 +197,7 @@ public sealed class JobServerClient : IDisposable
     public static IReadOnlyList<AnalysisSummary> ParseAnalyses(string json)
     {
         var l = Parse<List<AnalysisSummary>>(json);
-        foreach (var a in l) { a.Corp ??= ""; a.ProductLine ??= ""; a.Line ??= ""; } // the serializer skips initializers for absent keys (0.19 servers)
+        foreach (var a in l) { a.Corp ??= ""; a.ProductLine ??= ""; a.Line ??= ""; foreach (var p in a.Plans) p.Jobs ??= new List<PlanJob>(); } // the serializer skips initializers for absent keys (0.19 servers)
         return l;
     }
 

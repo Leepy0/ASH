@@ -156,6 +156,7 @@ public sealed class AgvPaletteControl : UserControl
 
         var finder = FinderPage(tabs);
         tabs.TabPages.Add(finder);
+        tabs.TabPages.Add(CausePanel.Page()); // 원인: AGVCAUSE's list (CausePanel.cs)
 
         var header = new Panel { Dock = DockStyle.Top, Height = 50, BackColor = Theme.Panel, Padding = new Padding(10, 6, 6, 6) };
         var init = Theme.Make("양식 초기화", GlyphKind.Init, "AGVINIT");
