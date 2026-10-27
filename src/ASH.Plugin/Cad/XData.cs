@@ -62,12 +62,31 @@ public static class XData
         e.XData = rb;
     }
 
-    public static void EnsureRegApp(Database db, Transaction tr)
+    /// <summary>AGVCPROUTE: the id of the sequence a CP block was placed in, under its own regapp so it never mixes with the path / conveyor XData.</summary>
+    const string RouteApp = "ASH_ROUTE";
+
+    public static string ReadCpRoute(Entity e)
+    {
+        using var rb = e.GetXDataForApplication(RouteApp);
+        var v = rb?.AsArray();
+        return v != null && v.Length > 1 && v[1].Value is string id ? id : "";
+    }
+
+    public static void WriteCpRoute(Entity e, string routeId, Transaction tr)
+    {
+        EnsureRegApp(e.Database, tr, RouteApp);
+        using var rb = new ResultBuffer(
+            new TypedValue((int)DxfCode.ExtendedDataRegAppName, RouteApp),
+            new TypedValue((int)DxfCode.ExtendedDataAsciiString, routeId));
+        e.XData = rb;
+    }
+
+    public static void EnsureRegApp(Database db, Transaction tr, string app = Conventions.AppName)
     {
         var rat = (RegAppTable)tr.GetObject(db.RegAppTableId, OpenMode.ForRead);
-        if (rat.Has(Conventions.AppName)) return;
+        if (rat.Has(app)) return;
         rat.UpgradeOpen();
-        var r = new RegAppTableRecord { Name = Conventions.AppName };
+        var r = new RegAppTableRecord { Name = app };
         rat.Add(r);
         tr.AddNewlyCreatedDBObject(r, true);
     }

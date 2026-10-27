@@ -630,3 +630,20 @@ ZWCAD 필요. 준비: 경로가 이어진 도면(분기 1곳 포함)에 load 3�
 | CM2 이음매: 이어진 다른 경로(분기, 코너 뒤 경로)로 커서를 가져가면 원이 그 경로로 넘어가고 명령줄 결과의 "경로 <이름>"이 바뀜. 이어지지 않은 다른 연결망 쪽으로 커서를 가져가도 원이 그쪽으로 넘어가지 않음(자기 연결망에 머묾) | | | |
 | CM3 연속·취소: 하나 옮긴 뒤 같은 프롬프트에서 다른 CP를 또 옮김. 이동 중 Esc → 그 CP는 제자리, 다시 CP 선택 프롬프트. Enter → 종료. `U` 한 번으로 이번 명령의 이동이 모두 돌아옴. 먼저 CP 하나를 고른 채 시작하면 바로 이동 단계. 곡선(원호) 경로 위에서도 같음, `AGVCHECK`에서 옮긴 CP가 CpOffPath로 나오지 않음 | | | |
 | CP1 팔레트: CP 탭 맨 아래 "CP 편집" 구역에 버튼 3개(선택 CP 편집, CP 번호 다시 매기기, CP 경로 따라 이동)가 보이고 각각 명령을 실행. 명령 실행 중에 누르면 "실행 중인 명령을 먼저 끝내세요" | | | |
+
+## 엑셀·도면 연동 (CP 드롭다운, 루트 행, 비교, 검증 표시)
+
+ZWCAD와 Excel 필요. 준비: 경로가 있는 도면에 G1 그룹의 standby·load·unload·rtnload·rtnunload·finish CP와 traffic CP 하나. 암호화(NASCA) 환경이 있으면 EX8~EX9도 한다.
+
+| 항목 | 날짜 | 결과 | 비고 |
+|---|---|---|---|
+| EX1 `input.xlsx`를 지우고 `AGVEXCEL` → Routes의 SupplyFromCP 칸을 누르면 드롭다운에 load CP 이름만, SupplyToCP는 unload, BufferCP는 buffer, ReturnFromCP는 rtnload, ReturnToCP는 rtnunload. AGV_Groups의 StandbyCPs는 standby, FinishCP는 finish. 숨김 시트 `_lists`가 있음(보이지 않음, 시트 탭 우클릭 "숨기기 취소"로 확인) | | | |
+| EX2 EX1의 칸에 도면에 없는 이름 입력 → 경고 대화상자("도면에 없는 CP 이름입니다 …"), "예"로 입력됨. 도면에서 load CP 하나를 지우고 `AGVEXCEL` U → 그 이름이 드롭다운에서 빠짐 | | | |
+| EX3 StandbyCPs 칸에 `SB1,SB2`를 직접 적고 `AGVEXCEL` U → 오류 없이 끝나고 StandbyCPs 열에 드롭다운이 없어짐. 쉼표 목록을 지우고 U → 드롭다운이 돌아옴 | | | |
+| EX4 `AGVCPROUTE`로 G1을 standby 1, load 2, unload 1, rtnload 1, rtnunload 1, finish 1로 배치 → `AGVEXCEL` U → 명령줄에 `Materials·Routes: 경로 G1 (대기 … → 로딩 L001,L002 → …)의 자재 L001 추가` 두 줄(L001, L002), `AGV_Groups: 그룹 G1 완료 CP F001 추가`. Excel의 Materials에 자재 `L001`, `L002`(그룹 G1), Routes에 SupplyFrom=그 load CP, SupplyTo=unload, ReturnFrom/To가 채워짐. 한 번 더 U → "추가할 내용이 없습니다" | | | |
+| EX5 `AGVCP`로 낱개로 놓은 load CP는 EX4처럼 이름이 `M###`이고 루트 CP와 짝지어지지 않음. 도면을 저장하고 닫았다가 다시 열어 `AGVEXCEL` U(루트 번호가 DWG에 남음) → EX4 결과가 그대로 | | | |
+| EX6 `AGVEXCELDIFF`(팔레트 "엑셀·도면 비교") → 문제 목록에 종류(도면에 없음·타입 불일치·미사용 CP·그룹 불일치)가 나옴. Routes의 SupplyToCP에 load CP 이름을 넣으면 "타입 불일치"(빨강), 어느 행도 쓰지 않는 CP는 "미사용 CP"(주황). CP 행을 더블클릭하면 그 CP로 이동, "도면에 없음" 행은 이동 안 함. 모두 맞으면 "엑셀과 도면이 일치합니다" | | | |
+| EX7 CP의 GROUP을 G2로 바꾼 뒤 `AGVEXCELDIFF` → 그 CP를 쓰는 행이 "그룹 불일치". `AGVCHECK`의 문제 목록은 이 명령이 덮어쓰고, `AGVCHECK`를 다시 하면 원래대로 | | | |
+| EX8 Routes의 SupplyToCP에 도면에 없는 이름을 넣고 `AGVEXCEL`(U) → 끝난 뒤 명령줄에 "Excel 표시: 오류 n건(빨강) …", 파일을 열면 그 칸이 빨갛고 칸에 마우스를 올리면 `ASH 검증(오류): …` 메모. `AGVMODEL`도 같은 표시를 새로 함 | | | |
+| EX9 EX8의 칸을 고치고 `AGVMODEL`(또는 `AGVEXCEL` U) → 그 칸의 색과 메모가 사라짐. 직접 단 메모는 남음. 경고(호출 임계 등)는 주황. 문제가 없으면 "Excel 표시: 없음" | | | |
+| EX10 암호화(NASCA)된 파일: EX1(U), EX8~EX9를 반복 → "Excel로 갱신합니다…" 뒤 드롭다운·표시가 같게 나오고 파일은 여전히 암호화. Excel에서 연 채로 해도 열린 창에서 바뀌고 저장됨 | | | |
