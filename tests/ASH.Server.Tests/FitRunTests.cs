@@ -33,6 +33,9 @@ public class FitRunTests
         AnalysisPages.BottleneckMap(sb, v, b => b.AvgWaitSec, x => x.ToString("0") + "대", true, "#z", "#a", "#i", null, traffic);
         var html = sb.ToString();
         Assert.Contains($"stroke=\"{JobPages.Heat(1)}\" stroke-width=\"10\"", html);
+        Assert.Contains($"stroke=\"{JobPages.Heat(0.1)}\" stroke-width=\"3.7\"", html); // the quietest path with traffic: min..max scale, not value / max
+        Assert.Contains("통행량", html); Assert.Contains("10대", html); Assert.Contains("통행 없음", html); // legend with the range
+        Assert.Equal(0.1, AnalysisPages.TrafficT(10, 10, 40), 6); Assert.Equal(1, AnalysisPages.TrafficT(40, 10, 40), 6); Assert.Equal(0.5, AnalysisPages.TrafficT(7, 7, 7), 6);
         Assert.Contains($"<li><i>1</i><span title=\"{names[0]}\">{names[0]}</span><b>40대</b>", html);
         Assert.Contains("전체 " + (40 + 10 * (names.Count - 1)) + "대", html);
     }
@@ -46,5 +49,14 @@ public class FitRunTests
         var page = await env.Http.GetStringAsync($"/analyses/{aid}?tab=conclusion&metric=traffic");
         Assert.Contains(">통행량</a>", page);
         Assert.Contains("통행량 자료 없음", page); // the fake runs leave no AutoMod report
+    }
+
+    [Fact]
+    public void Legend_Helpers_Show_Swatches_And_Scale_Range()
+    {
+        var l = JobPages.Legend(("#fff", "통과"), ("red", "미통과"));
+        Assert.Contains("통과", l); Assert.Contains("background:red", l);
+        var h = JobPages.HeatLegend("통행량", "12대", "340대");
+        Assert.Contains("12대", h); Assert.Contains("340대", h); Assert.Contains(JobPages.Heat(1), h);
     }
 }

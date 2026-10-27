@@ -93,6 +93,7 @@ td.best{background:var(--green-b);color:#1c5c2e;font-weight:600}td.worst{backgro
         Cell MatCell(Col c, string k, Func<MaterialView, double> f, string fmt = "0.#") => Mat(c, k) is { } m ? N(f(m), fmt) : None;
         var mats = Keys(m => m.View.Materials.Select(x => x.Name)).ToList();
 
+        sb.Append(Legend(("var(--green-b)", "최선"), ("var(--red-b)", "최악")));
         sb.Append("<div class=\"cmpg\">");
 
         // production limit (higher = better) and deadlocks / causes (lower = better)
