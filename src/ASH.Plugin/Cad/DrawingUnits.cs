@@ -7,4 +7,6 @@ public static class DrawingUnits
     public static double PerMeter { get; internal set; } = 1.0;
     /// <summary>Direction arrow length in meters (ash.settings.tsv ArrowSize), set with PerMeter.</summary>
     public static double ArrowMeters { get; internal set; } = 2.0;
+    /// <summary>Path auto-connect distance in meters (ash.settings.tsv JoinGap, 0 = off), set with PerMeter.</summary>
+    public static double JoinGapMeters { get; internal set; } = 0.3;
 }

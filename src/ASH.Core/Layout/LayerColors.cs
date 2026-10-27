@@ -38,6 +38,7 @@ public static class LayerColors
             new LayerColor("AGV_CONV_USE", "컨베이어 소비 지점", 1),
             new LayerColor("AGV_CAUSE", "원인 표시 (서버 분석)", 6),
             new LayerColor("AGV_ROUTE", "루트 보기", 210),
+            new LayerColor("AGV_PATH_GAP", "끊긴 경로 끝 표시", 1),
         };
         foreach (var type in CpTypes.All) t.Add(new LayerColor("AGV_CP_" + type.ToUpperInvariant(), type + " CP (" + CpTypes.Korean(type) + ")", CpDefault(type)));
         return t;

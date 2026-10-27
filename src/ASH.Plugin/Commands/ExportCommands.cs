@@ -69,15 +69,15 @@ public sealed class ExportCommands
 
     /// <summary>Drawing units per meter for commands that don't otherwise need settings. Same load path as TryLoadSettings (template on first use, mm warning);
     /// 1, with a message, for an unsaved drawing or a bad file.</summary>
-    /// <summary>ArrowSize (meters) from ash.settings.tsv without creating the file or printing anything; the default when it is unsaved, missing or unreadable.</summary>
-    internal static double ArrowMeters()
+    /// <summary>ash.settings.tsv (ArrowSize, JoinGap ...) without creating the file or printing anything; the defaults when it is unsaved, missing or unreadable.</summary>
+    internal static ASH.Core.Settings.ProjectSettings SavedSettings()
     {
-        var def = new ASH.Core.Settings.ProjectSettings().ArrowSize;
+        var def = new ASH.Core.Settings.ProjectSettings();
         try
         {
             if (Convert.ToInt32(Application.GetSystemVariable("DWGTITLED")) == 0) return def;
             var path = Path.Combine((string)Application.GetSystemVariable("DWGPREFIX"), SettingsFileName);
-            return File.Exists(path) ? ASH.Core.Settings.SettingsFile.Load(path).ArrowSize : def;
+            return File.Exists(path) ? ASH.Core.Settings.SettingsFile.Load(path) : def;
         }
         catch (System.Exception) { return def; }
     }
