@@ -15,7 +15,7 @@ public static class CausePages
     static readonly Dictionary<string, string> GroupNames = new()
     {
         [CauseKinds.Deadlock] = "교착", [CauseKinds.DeadlockRisk] = "교착 위험", [CauseKinds.BlockHold] = "block 점유",
-        [CauseKinds.Detour] = "우회", [CauseKinds.LoadShare] = "주행 부하", [CauseKinds.TimeLoss] = "시간 손실",
+        [CauseKinds.Detour] = "우회", [CauseKinds.LoadShare] = "주행 부하", [CauseKinds.TimeLoss] = "시간 손실", [CauseKinds.Clearance] = "간격 부족",
     };
 
     /// <summary>Film cut around a finding: a 30 m square on (x, y), starting 60 s before atSec, 120 s long at 4x (a 30 s video), tilt 30°.</summary>

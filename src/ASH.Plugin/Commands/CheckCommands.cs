@@ -105,7 +105,7 @@ public sealed class CheckCommands
                 bool at = i.X is double && i.Y is double;
                 var p = at ? CauseFrame.ToDrawing(i.X!.Value, i.Y!.Value, s.Origin, s.Scale) : default;
                 ed.WriteMessage($"\n[원인] {text}" + (at ? $" ({p.X:0.###}, {p.Y:0.###})" : ""));
-                rows.Add(new Ui.FindingRow("원인", i.Where, text, p.X, p.Y, at, warning: true));
+                rows.Add(new Ui.FindingRow(i.Kind != CauseKinds.Clearance ? "원인" : i.Severity >= 2 ? "교차" : "간격 부족", i.Where, text, p.X, p.Y, at, warning: true));
             }
         }
         catch (System.Exception ex) when (!(ex is OperationCanceledException))
