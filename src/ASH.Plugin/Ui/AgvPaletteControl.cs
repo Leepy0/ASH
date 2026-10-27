@@ -125,7 +125,7 @@ public sealed class AgvPaletteControl : UserControl
             line3d("펜스", Line3dSettings.Fence),
             Theme.Caption("컨베이어 폭 (m)"), convW, line3d("컨베이어", Line3dSettings.Conv), line3d("컨베이어 (그림만)", Line3dSettings.ConvPicture),
             Theme.Caption("점 클릭 · Enter 끝 · C 닫기 · U 되돌리기"),
-            Theme.Section("컨베이어"),Theme.Make("컨베이어 이름 붙이기", GlyphKind.Path, "AGVCONV")));
+            Theme.Section("컨베이어"),Theme.Make("컨베이어 이름 붙이기", GlyphKind.Path, "AGVCONV"), Theme.Make("소비 지점", GlyphKind.Cp, "AGVCONVUSE")));
 
         var settings = Theme.Make("설정 열기", GlyphKind.Settings, "");
         settings.Click += (o, e) => Commands.ExportCommands.OpenSettings();
