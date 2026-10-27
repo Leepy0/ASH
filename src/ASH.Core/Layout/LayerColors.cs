@@ -35,6 +35,9 @@ public static class LayerColors
             new LayerColor("AGV_3D", "3D 장비 블록", 9),
             new LayerColor("AGV_3D_WALL", "3D 벽", 8),
             new LayerColor("AGV_3D_FENCE", "3D 펜스", 40),
+            new LayerColor("AGV_CONV_USE", "컨베이어 소비 지점", 1),
+            new LayerColor("AGV_CAUSE", "원인 표시 (서버 분석)", 6),
+            new LayerColor("AGV_ROUTE", "루트 보기", 210),
         };
         foreach (var type in CpTypes.All) t.Add(new LayerColor("AGV_CP_" + type.ToUpperInvariant(), type + " CP (" + CpTypes.Korean(type) + ")", CpDefault(type)));
         return t;
