@@ -78,7 +78,7 @@ public static class DrawingWriter
         return new[] { s };
     }
 
-    /// <summary>Deletes every direction arrow and inserts one at each path segment midpoint, shaped by the path type (<see cref="Conventions.DirBlockFor"/>).</summary>
+    /// <summary>Deletes every direction arrow and inserts one at each path segment midpoint, shaped by the path type (<see cref="Conventions.DirBlockFor"/>), and one at each conveyor segment midpoint.</summary>
     public static void RefreshDirectionArrows(Database db, Transaction tr)
     {
         foreach (var id in DrawingReader.ModelSpace(db, tr, OpenMode.ForRead))
@@ -88,18 +88,25 @@ public static class DrawingWriter
                 br.UpgradeOpen();
                 br.Erase();
             }
-        foreach (var p in DrawingReader.Read(db, tr).Paths)
-            foreach (var s in p.Segments)
-            {
-                var mid = s.PointAt(s.Length / 2);
-                double ang;
-                if (s is ArcSeg a) ang = Math.Atan2(mid.Y - a.Center.Y, mid.X - a.Center.X) + (a.SweepDeg >= 0 ? Math.PI / 2 : -Math.PI / 2);
-                else ang = Math.Atan2(s.End.Y - s.Start.Y, s.End.X - s.Start.X);
-                // ArrowSize meters, but at most 80% of the piece so arrows on short arcs do not pile up
-                double lenM = s.Length / DrawingUnits.PerMeter, sizeM = Math.Min(DrawingUnits.ArrowMeters, 0.8 * lenM);
-                if (sizeM <= 0) continue;
-                InsertBlock(db, tr, Conventions.DirBlockFor(p.IsSpur, p.IsTwoWay, p.IsCrab), Conventions.LayerDir, mid, ang, null, sizeM / Conventions.ArrowDefMeters);
-            }
+        var layout = DrawingReader.Read(db, tr);
+        foreach (var p in layout.Paths) InsertArrows(db, tr, p.Segments, Conventions.DirBlockFor(p.IsSpur, p.IsTwoWay, p.IsCrab));
+        // conveyors (AGV_CONV and picture-only AGV_3D_CONV) flow in drawing order: one-way arrows on the same layer; nothing reads arrows back
+        foreach (var c in layout.Conveyors) InsertArrows(db, tr, c.Segments, Conventions.DirBlockName);
+    }
+
+    static void InsertArrows(Database db, Transaction tr, IEnumerable<Segment> segs, string block)
+    {
+        foreach (var s in segs)
+        {
+            var mid = s.PointAt(s.Length / 2);
+            double ang;
+            if (s is ArcSeg a) ang = Math.Atan2(mid.Y - a.Center.Y, mid.X - a.Center.X) + (a.SweepDeg >= 0 ? Math.PI / 2 : -Math.PI / 2);
+            else ang = Math.Atan2(s.End.Y - s.Start.Y, s.End.X - s.Start.X);
+            // ArrowSize meters, but at most 80% of the piece so arrows on short arcs do not pile up
+            double lenM = s.Length / DrawingUnits.PerMeter, sizeM = Math.Min(DrawingUnits.ArrowMeters, 0.8 * lenM);
+            if (sizeM <= 0) continue;
+            InsertBlock(db, tr, block, Conventions.LayerDir, mid, ang, null, sizeM / Conventions.ArrowDefMeters);
+        }
     }
 
     /// <summary>Block definitions are drawn for meters; the reference is scaled by DrawingUnits.PerMeter so symbols keep their real size in mm drawings.</summary>

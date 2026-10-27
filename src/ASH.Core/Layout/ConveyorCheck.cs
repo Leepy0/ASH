@@ -34,8 +34,14 @@ public static class ConveyorCheck
             if (!LayoutChecker.IsValidName(c.Name)) { Err($"컨베이어 이름 '{c.Name}'은(는) 모델에 쓸 수 없습니다. AGVCONV로 다시 이름을 붙이세요.", r); continue; }
             double len = ConveyorAsyWriter.LengthM(c, scale), entry = ConveyorAsyWriter.ProductLengthM;
             if (len <= entry) Err($"컨베이어 '{r.Conveyor}'의 길이 {F(len)} m가 제품 길이 {F(entry)} m보다 짧습니다.", r);
-            else if (r.ConsumeAtM is double at && (at <= entry || at > len + 1e-6))
-                Err($"ConsumeAt {F(at)} m가 컨베이어 '{r.Conveyor}' 위에 있지 않습니다. 시작에서 {F(entry)} m 초과, 길이 {F(len)} m 이하로 넣으세요(빈칸 = 끝).", r);
+            else if (ConveyorAsyWriter.ConsumeAt(c, r) is double at && (at <= entry || at > len + 1e-6))
+            {
+                if (c.ConsumeAtM.HasValue) Err($"소비 지점 마커 {F(at)} m가 컨베이어 '{r.Conveyor}'의 입구(시작에서 {F(entry)} m) 앞입니다. AGVCONVUSE로 더 뒤에 다시 찍으세요.", r);
+                else Err($"ConsumeAt {F(at)} m가 컨베이어 '{r.Conveyor}' 위에 있지 않습니다. 시작에서 {F(entry)} m 초과, 길이 {F(len)} m 이하로 넣으세요(빈칸 = 끝).", r);
+            }
+            // both set and different: the drawing wins (information, not an error)
+            if (c.ConsumeAtM is double m && r.ConsumeAtM is double x && Math.Abs(m - x) > 0.005)
+                Warn($"컨베이어 '{r.Conveyor}': 도면 소비 지점 {F(m)} m와 ConsumeAt {F(x)} m가 다릅니다. 도면 값을 씁니다.", c);
         }
         foreach (var c in named.Where(c => !input.Conveyors.Any(r => string.Equals(r.Conveyor, c.Name, StringComparison.OrdinalIgnoreCase))))
             Warn($"도면의 컨베이어 '{c.Name}'은(는) Conveyors 시트에 행이 없어 모양만 그립니다(제품 흐름 없음).", c);

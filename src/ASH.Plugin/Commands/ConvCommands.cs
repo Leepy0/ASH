@@ -52,6 +52,55 @@ public sealed class ConvCommands
             }
             ed.WriteMessage($"\n컨베이어 {ids.Count}개: 새 이름 {named}개, 이름 유지 {kept}개. 흐름 방향은 폴리선을 그린 방향입니다.");
             return true;
+        }, refreshArrows: true);
+    }
+
+    /// <summary>Use point of a conveyor: pick a point on an AGV_CONV polyline, a bar across it and "CV001 소비" go on AGV_CONV_USE (XData = the conveyor's name).
+    /// One marker per conveyor: running it again moves the marker. DrawingReader turns it into LayoutConveyor.ConsumeAtM, which wins over the Excel ConsumeAt.</summary>
+    [CommandMethod("AGVCONVUSE")]
+    public void AgvConvUse()
+    {
+        var doc = Application.DocumentManager.MdiActiveDocument;
+        var ed = doc.Editor;
+        PathCommands.Run(doc, "AGVCONVUSE", (db, tr) =>
+        {
+            var po = new PromptEntityOptions($"\n소비 지점을 찍을 컨베이어({Conventions.LayerConv} 폴리선) 위의 점");
+            po.SetRejectMessage($"\n{Conventions.LayerConv} 레이어의 폴리선이 아닙니다.");
+            po.AddAllowedClass(typeof(Polyline), true);
+            var pr = ed.GetEntity(po);
+            if (pr.Status != PromptStatus.OK) return false;
+            if (!(tr.GetObject(pr.ObjectId, OpenMode.ForWrite) is Polyline pl) || !DrawingReader.Eq(pl.Layer, Conventions.LayerConv)) { ed.WriteMessage($"\n{Conventions.LayerConv} 레이어의 폴리선이 아닙니다."); return false; }
+            var name = XData.ReadConv(pl)?.Name ?? "";
+            if (name.Length == 0 || !LayoutChecker.IsValidName(name)) name = NameNew(db, tr, pl); // not named yet: name it like AGVCONV does
+            var conv = DrawingReader.ReadConveyor(pl, false);
+            if (conv == null) return false;
+            var (dist, pt, ang) = conv.Nearest(new Point2(pr.PickedPoint.X, pr.PickedPoint.Y));
+            // earlier markers of this conveyor (and their labels) go
+            foreach (var id in DrawingReader.ModelSpace(db, tr, OpenMode.ForRead))
+                if (tr.GetObject(id, OpenMode.ForRead) is Line old && DrawingReader.Eq(old.Layer, Conventions.LayerConvUse) && XData.ReadUse(old) is { } u && DrawingReader.Eq(u.Name, name))
+                {
+                    var lt = Label(db, tr, u.LabelHandle);
+                    lt?.Erase();
+                    old.UpgradeOpen();
+                    old.Erase();
+                }
+            double per = DrawingUnits.PerMeter, nx = -Math.Sin(ang), ny = Math.Cos(ang);
+            double half = Math.Max(Math.Abs(pl.NumberOfVertices > 0 ? pl.GetStartWidthAt(0) : 0), 0.6 * per) / 2 + 0.1 * per;
+            var ms = (BlockTableRecord)tr.GetObject(PathCommands.ModelSpaceId(db, tr), OpenMode.ForWrite);
+            var bar = new Line(new Point3d(pt.X - nx * half, pt.Y - ny * half, 0), new Point3d(pt.X + nx * half, pt.Y + ny * half, 0)) { Layer = Conventions.LayerConvUse };
+            ms.AppendEntity(bar);
+            tr.AddNewlyCreatedDBObject(bar, true);
+            double ta = ang > Math.PI / 2 || ang <= -Math.PI / 2 ? ang + Math.PI : ang; // keep the text readable
+            var text = new DBText { Layer = Conventions.LayerConvUse, TextString = name + " 소비", Height = LabelHeightM * per, Rotation = ta,
+                TextStyleId = Asset3dCommands.KoreanTextStyle(db, tr), HorizontalMode = TextHorizontalMode.TextCenter, VerticalMode = TextVerticalMode.TextVerticalMid };
+            text.AlignmentPoint = new Point3d(pt.X - nx * (half + 0.3 * per), pt.Y - ny * (half + 0.3 * per), 0); // the right-hand side; the name label is on the left
+            ms.AppendEntity(text);
+            tr.AddNewlyCreatedDBObject(text, true);
+            text.AdjustAlignment(db);
+            XData.WriteUse(bar, name, text.Handle.ToString(), tr);
+            double m = dist / per;
+            ed.WriteMessage($"\n{name} 소비 지점: 시작에서 {m:0.##} m." + (m <= ASH.Core.Model.ConveyorAsyWriter.ProductLengthM ? $" 제품 길이 {ASH.Core.Model.ConveyorAsyWriter.ProductLengthM} m보다 뒤여야 합니다." : ""));
+            return true;
         }, refreshArrows: false);
     }
 

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using ASH.Core.Geometry;
 
@@ -38,4 +39,24 @@ public sealed class LayoutConveyor
     /// <summary>Polyline global width in metres (0 = 0.6 m default).</summary>
     public double WidthM { get; set; }
     public string Id { get; set; } = "";
+    /// <summary>Use point from the drawing marker (AGVCONVUSE): metres from the polyline start; null = no marker. Wins over the Excel ConsumeAt.</summary>
+    public double? ConsumeAtM { get; set; }
+
+    /// <summary>The point of the polyline nearest p: distance from the start (drawing units), the point and the flow direction there (radians).</summary>
+    public (double Dist, Point2 Point, double Angle) Nearest(Point2 p)
+    {
+        double best = double.MaxValue, before = 0, bestAlong = 0, run = 0;
+        Segment? hit = null;
+        foreach (var s in Segments)
+        {
+            double along = s.DistanceAlong(p), d = s.PointAt(along).DistanceTo(p);
+            if (d < best) { best = d; hit = s; before = run; bestAlong = along; }
+            run += s.Length;
+        }
+        if (hit == null) return (0, p, 0);
+        var at = hit.PointAt(bestAlong);
+        double e = Math.Max(1e-6, hit.Length * 1e-3), a0 = Math.Max(0, bestAlong - e), a1 = Math.Min(hit.Length, bestAlong + e);
+        var q0 = hit.PointAt(a0); var q1 = hit.PointAt(a1);
+        return (before + bestAlong, at, Math.Atan2(q1.Y - q0.Y, q1.X - q0.X));
+    }
 }
