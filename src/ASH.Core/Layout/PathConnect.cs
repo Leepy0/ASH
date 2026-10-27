@@ -17,14 +17,16 @@ public static class PathConnect
     /// <summary>
     /// Every free end (touching no other path end) of a movable path (null = all) moves onto the nearest other path end within gap,
     /// else onto the nearest point of another path within gap, which is then split there (a cut within gap of that path's end snaps to the end instead).
+    /// Paths in avoid (original ids) are never targets: AGVOFFSET/AGVARRAY pass the source and every copy, so a copy only joins other paths.
     /// Changed paths get ids "&lt;original id&gt;#k", like PathSplitter.SplitAt pieces.
     /// </summary>
-    public static ConnectResult Connect(IReadOnlyList<LayoutPath> paths, ICollection<string>? movable, double gap, double tol)
+    public static ConnectResult Connect(IReadOnlyList<LayoutPath> paths, ICollection<string>? movable, double gap, double tol, ICollection<string>? avoid = null)
     {
         var work = paths.Where(p => p.Segments.Count > 0).ToList();
         var notes = new List<string>();
         var taken = new HashSet<string>(paths.Select(p => p.Name));
         bool Movable(LayoutPath p) => movable == null || movable.Contains(Origin(p.Id));
+        bool Avoided(int j) => avoid != null && avoid.Contains(Origin(work[j].Id));
         // shortcut: every free end scans every path (ends x segments); fine for a few thousand paths, add a spatial grid if AGVCONNECT on everything gets slow
         for (int i = 0; gap > tol && i < work.Count; i++)
             foreach (var atStart in new[] { true, false })
@@ -39,7 +41,7 @@ public static class PathConnect
                 double best = gap;
                 for (int j = 0; j < work.Count; j++)
                 {
-                    if (j == i) continue;
+                    if (j == i || Avoided(j)) continue;
                     if (work[j].Start.DistanceTo(e) <= best) { best = work[j].Start.DistanceTo(e); target = j; targetStart = true; }
                     if (work[j].End.DistanceTo(e) <= best) { best = work[j].End.DistanceTo(e); target = j; targetStart = false; }
                 }
@@ -52,7 +54,7 @@ public static class PathConnect
                 }
                 else
                 {
-                    var (j, d, off) = Nearest(work, i, e);
+                    var (j, d, off) = Nearest(work, k => k == i || Avoided(k), e);
                     if (j < 0 || off > gap) continue;
                     var q = work[j];
                     if (d <= gap || d >= q.Length - gap)
@@ -100,8 +102,10 @@ public static class PathConnect
             if (n.Degree == 1)
             {
                 var p = n.Ends[0].Path;
+                if (p.IsTwoWay) continue; // a turnaround, as AGVCHECK sees it
                 // an end on another path's middle touches it (not split yet: AGVCHECK reports that)
-                var (j, _, off) = Nearest(l.Paths, l.Paths.IndexOf(p), n.Position);
+                int self = l.Paths.IndexOf(p);
+                var (j, _, off) = Nearest(l.Paths, k => k == self, n.Position);
                 if (j < 0 || off > l.Tolerance) res.Add(new PathGap(n.Position, p.Name, false));
             }
             else if (n.InCount == 0 || n.OutCount == 0) res.Add(new PathGap(n.Position, n.Ends[0].Path.Name, true));
@@ -115,13 +119,13 @@ public static class PathConnect
         return k >= 0 ? id.Substring(0, k) : id;
     }
 
-    // nearest point of any path but skip: (path index, distance along it, distance from pt); -1 when there is none
-    private static (int Path, double Along, double Off) Nearest(IReadOnlyList<LayoutPath> paths, int skip, Point2 pt)
+    // nearest point of any path not skipped: (path index, distance along it, distance from pt); -1 when there is none
+    private static (int Path, double Along, double Off) Nearest(IReadOnlyList<LayoutPath> paths, Func<int, bool> skip, Point2 pt)
     {
         (int, double, double) best = (-1, 0, double.MaxValue);
         for (int j = 0; j < paths.Count; j++)
         {
-            if (j == skip) continue;
+            if (skip(j)) continue;
             double o = 0;
             foreach (var s in paths[j].Segments)
             {

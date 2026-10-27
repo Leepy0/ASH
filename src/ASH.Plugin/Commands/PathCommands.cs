@@ -252,12 +252,12 @@ public sealed class PathCommands
 
     /// <summary>Snaps the free ends of the given paths (null: every path) onto path ends or middles within the JoinGap setting; a middle is split there.
     /// Prints each connection; returns how many there were.</summary>
-    private static int AutoConnect(Database db, Transaction tr, Editor ed, ICollection<string>? ids)
+    private static int AutoConnect(Database db, Transaction tr, Editor ed, ICollection<string>? ids, ICollection<string>? avoid = null)
     {
         var layout = DrawingReader.Read(db, tr);
         double gap = DrawingUnits.JoinGapMeters * DrawingUnits.PerMeter;
         if (!(gap > layout.Tolerance)) return 0;
-        var r = PathConnect.Connect(layout.Paths, ids, gap, layout.Tolerance);
+        var r = PathConnect.Connect(layout.Paths, ids, gap, layout.Tolerance, avoid);
         if (r.Notes.Count == 0) return 0;
         DrawingWriter.ReplacePaths(db, tr, r.Removed, r.Added);
         foreach (var note in r.Notes) ed.WriteMessage("\n연결: " + note);
@@ -388,7 +388,8 @@ public sealed class PathCommands
         }
         if (made.Count == 0) return false;
         DrawingWriter.ReplacePaths(db, tr, new string[0], made);
-        AutoConnect(db, tr, Ed, made.Select(p => p.Id).ToList());
+        var copies = made.Select(p => p.Id).ToList();
+        AutoConnect(db, tr, Ed, copies, copies.Concat(paths.Select(p => p.Id)).ToList()); // never onto the source or another copy
         return true;
     });
 
@@ -428,7 +429,8 @@ public sealed class PathCommands
                 newPaths.Add(c);
             }
         DrawingWriter.ReplacePaths(db, tr, new string[0], newPaths);
-        AutoConnect(db, tr, Ed, newPaths.Select(p => p.Id).ToList());
+        var copies = newPaths.Select(p => p.Id).ToList();
+        AutoConnect(db, tr, Ed, copies, copies.Concat(picked).ToList()); // never onto the source or another copy
 
         var cpNames = layout.Cps.Select(c => c.Name).ToList();
         int cps = 0;

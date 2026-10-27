@@ -85,6 +85,34 @@ public class PathConnectTests
     }
 
     [Fact]
+    public void Offset_Copy_Narrower_Than_Gap_Never_Joins_Its_Source_Or_Other_Copies()
+    {
+        var a = L.Line("a", 0, 0, 10, 0);
+        var copy1 = PathOps.Offset(a, 0.2, reverseDirection: false);
+        var copy2 = PathOps.Offset(a, -0.2, reverseDirection: false); // 0.4 from copy1, 0.2 from a: both off limits
+        var other = L.Line("c", 10.1, 0.2, 20, 0.2); // a different path near copy1's end
+        var copies = new[] { copy1.Id, copy2.Id };
+        var r = PathConnect.Connect(new[] { a, copy1, copy2, other }, copies, Gap, Tol, copies.Concat(new[] { a.Id }).ToList());
+        var n = Assert.Single(r.Added);
+        Assert.Equal(copy1.Id + "#0", n.Id);
+        Assert.Equal(new Point2(0, 0.2), n.Start); // start stays: a and copy2 are off limits
+        Assert.Equal(new Point2(10.1, 0.2), n.End); // end joins the other path
+        Assert.Single(r.Notes);
+        Assert.NotEmpty(PathConnect.Connect(new[] { a, copy1 }, new[] { copy1.Id }, Gap, Tol).Notes); // without avoid it would join a
+    }
+
+    [Fact]
+    public void Gaps_Skip_Two_Way_Free_End_Like_AgvCheck()
+    {
+        var two = L.Line("t", 10, 0, 20, 0);
+        two.IsTwoWay = true;
+        var l = L.Of(L.Line("a", 0, 0, 10, 0), two);
+        var g = PathConnect.Gaps(l);
+        Assert.Equal(new[] { new Point2(0, 0) }, g.Where(x => !x.Flow).Select(x => x.At));
+        Assert.Equal(LayoutChecker.Check(l, new CheckOptions()).Count(f => f.Code == FindingCode.DanglingEnd), g.Count(x => !x.Flow));
+    }
+
+    [Fact]
     public void Gaps_Mark_One_Way_Flow_Dead_End()
     {
         var l = L.Of(L.Line("a", 0, 0, 10, 0), L.Line("b", 20, 0, 10, 0)); // both run into (10,0)
