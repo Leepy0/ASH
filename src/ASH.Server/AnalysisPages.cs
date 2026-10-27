@@ -445,9 +445,13 @@ public static class AnalysisPages
         if (v.Layout == null) sb.Append("<div class=\"empty\">레이아웃을 읽지 못했습니다.</div>");
         else BottleneckMap(sb, v, occ ? b => b.Utilization : b => b.AvgWaitSec, trf ? x => F(x, "#,0.#") + "대" : occ ? x => F(x * 100, "0") + "%" : x => F(x, x < 10 ? "0.#" : "0") + "초",
             q["map"] == "all", Url(null, "zoom"), Url(null, "all"), $"/jobs/{H(cur.Id)}?tab=detail",
-            b => $"/analyses/{H(a.Id)}/cuts?job={H(cur.Id)}&amp;add={H(Uri.EscapeDataString(CutEditorPage.AddBlock + b))}", trf ? v.PathTraffic : null);
+            b => $"/analyses/{H(a.Id)}/cuts?job={H(cur.Id)}&amp;add={H(Uri.EscapeDataString(CutEditorPage.AddBlock + b))}", trf ? v.PathTraffic : null, occ ? "점유율" : "평균 대기");
         sb.Append("</section></div>");
     }
+
+    /// <summary>Colour position 0.1..1 of a traffic value between the least and the busiest path with traffic (0.1 keeps the quietest visibly above the grey of "no traffic");
+    /// 0.5 when all paths carry the same.</summary>
+    internal static double TrafficT(double v, double lo, double hi) => hi > lo ? 0.1 + 0.9 * (v - lo) / (hi - lo) : 0.5;
 
     /// <summary>The part of the layout to show first: the hot blocks with their own size again as margin, at least 30 % of the layout each way,
     /// kept inside the layout. Model coordinates; the whole layout when nothing is hot.</summary>
@@ -495,7 +499,7 @@ fit();addEventListener('resize',fit);})();</script>";
     /// <paramref name="traffic"/> (path name -> vehicles that entered it, the report's Guide Path Total): the paths are coloured and widened by it instead,
     /// the blocks are only outlined, and the busiest paths are ranked and marked.</summary>
     internal static void BottleneckMap(StringBuilder sb, JobView v, Func<BlockView, double> value, Func<double, string> label, bool whole, string zoomHref, string allHref, string impactHref,
-        Func<string, string>? cutHref = null, IReadOnlyDictionary<string, double>? traffic = null)
+        Func<string, string>? cutHref = null, IReadOnlyDictionary<string, double>? traffic = null, string metricName = "평균 대기")
     {
         var l = v.Layout!;
         sb.Append("<div class=\"mw\"><div class=\"mv\">");
@@ -510,6 +514,9 @@ fit();addEventListener('resize',fit);})();</script>";
         var vals = tr ? traffic!.Where(kv => !double.IsNaN(kv.Value)).ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal)
             : v.Blocks.Where(b => !double.IsNaN(value(b))).ToDictionary(b => b.Name, value, StringComparer.Ordinal);
         double hi = vals.Values.DefaultIfEmpty(0).Max();
+        // traffic colour: min..max over the paths that carry traffic (not value / max, which paints every path of a loop orange);
+        // linear rather than rank percentile so the legend's min and max are true values and the colour still tracks the magnitude
+        double lo = tr ? vals.Values.Where(x => x > 0).DefaultIfEmpty(0).Min() : 0;
         var ranked = vals.Where(kv => kv.Value > 0 && (!tr || boxes.ContainsKey(kv.Key))).OrderByDescending(kv => kv.Value).Take(5).Select(kv => kv.Key).ToList();
         var zb = ZoomBox(bb, ranked.Take(3).Where(boxes.ContainsKey).Select(n => boxes[n]).ToList());
         double Area((double X0, double X1, double Y0, double Y1) b) => Math.Max(1e-9, b.X1 - b.X0) * Math.Max(1e-9, b.Y1 - b.Y0);
@@ -541,7 +548,8 @@ fit();addEventListener('resize',fit);})();</script>";
             foreach (var p in l.Paths.OrderBy(p => vals.TryGetValue(p.Name, out var t) ? t : -1))
             {
                 var has = vals.TryGetValue(p.Name, out var t) && t > 0;
-                sb.Append(Line(p, has ? Heat(t / hi) : "#d1d1d6", has ? F(3 + 7 * t / hi, "0.#") : "2", $"{p.Name}: {(has ? label(t) : "통행 없음")}"));
+                var nt = TrafficT(t, lo, hi);
+                sb.Append(Line(p, has ? Heat(nt) : "#d1d1d6", has ? F(3 + 7 * nt, "0.#") : "2", $"{p.Name}: {(has ? label(t) : "통행 없음")}"));
             }
         string[] col = { "#d70015", "#ff9500", "#ffcc00", "#ffcc00", "#ffcc00" };
         for (int i = ranked.Count - 1; i >= 0; i--) // the first drawn last, on top
@@ -574,6 +582,10 @@ fit();addEventListener('resize',fit);})();</script>";
                 (cutHref != null && rects.ContainsKey(ranked[i]) ? $"<a class=\"btn\" href=\"{cutHref(ranked[i])}\" title=\"이 블록을 찍는 새 컷을 영상 만들기에서 엽니다\" aria-label=\"{H(ranked[i])} 컷 만들기\">＋ 컷</a>" : "") + "</li>");
             sb.Append("</ol>");
         }
+        if (tr) sb.Append(vals.Values.Any(x => x > 0)
+            ? HeatLegend("통행량", label(lo), label(hi), 0.1) + Legend(("#d1d1d6", "통행 없음"), ("#d70015", "1위"), ("#ff9500", "2위"), ("#ffcc00", "3~5위"))
+            : Legend(("#d1d1d6", "통행 없음")));
+        else sb.Append(HeatLegend(metricName, label(0), label(hi)) + Legend(("#fff", "값 없음"), ("#d70015", "1위"), ("#ff9500", "2위"), ("#ffcc00", "3~5위")));
         if (tr && vals.Count > 0) sb.Append($"<div class=\"t4\">통행량 = 확인 실행에서 그 경로에 들어간 차량 수의 평균(보고서 Guide Path Total) · 전체 {H(F(vals.Values.Sum(), "#,0"))}대</div>");
         sb.Append($"<a class=\"end\" href=\"{impactHref}\">영향표 전체 ›</a></div></div>").Append(FitScript);
     }
@@ -891,7 +903,8 @@ fit();addEventListener('resize',fit);})();</script>";
             }
             sb.Append("</tr>");
         }
-        return sb.Append("</table><div class=\"t4\">숫자 = 권장(대) · 색 = 가동률(빨강 100%) · 빨간 테두리 = 판정 실패</div>").ToString();
+        return sb.Append("</table><div class=\"t4\">숫자 = 권장(대)</div>").Append(HeatLegend("가동률", "0%", "100%"))
+            .Append(Legend(("#fff;outline:2px solid #a32d2d;outline-offset:-2px", "판정 실패"))).ToString();
     }
 
     /// <summary>Grouped bars: per group one bar per version (palette colour per version), dashed line = utilization limit.</summary>

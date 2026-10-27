@@ -157,6 +157,8 @@ mk.forEach(function(m){m.addEventListener('click',function(){pick(m.dataset.i,tr
         foreach (var k in kinds) foreach (var i in items.Where(i => i.Kind == k && Place(i))) nums[i] = nums.Count + 1;
         var bb = layout == null || nums.Count == 0 ? null : LayoutBounds(layout);
 
+        if (items.Count > 0)
+            sb.Append(Legend((SevFill[0], SevText[0]), (SevFill[1], SevText[1]), (SevFill[2], SevText[2]), ("#007aff", "경로"), ("#d70015", "CP"), ("#ff9500", "block")));
         sb.Append($"<div class=\"cz{(bb != null ? " map" : "")}\"><div class=\"col\">");
         if (items.Count == 0) sb.Append("<section class=\"box\"><div class=\"empty\">원인 없음</div></section>");
         else

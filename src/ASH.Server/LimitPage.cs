@@ -10,11 +10,11 @@ public static class LimitPage
 {
     const string Css = @"
 .lim .lim-h{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:baseline;margin:2px 0 8px}.lim .lim-h b{font-size:18px}
-.lim .lr{display:grid;grid-template-columns:44px minmax(64px,auto) 1fr minmax(90px,auto);align-items:center;gap:8px;min-height:26px;font-size:13px}
+.lim .lmr{display:grid;grid-template-columns:44px minmax(64px,auto) 1fr minmax(90px,auto);align-items:center;gap:8px;min-height:26px;font-size:13px}
 .lim .lb{height:10px}.lim .lb i{display:block;height:100%;border-radius:5px;background:var(--gray-b)}
 .lim .ok i{background:var(--green)}.lim .no i{background:var(--red)}.lim .no .lt,.lim .lbad{color:var(--red)}
 .lim summary{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 14px;cursor:pointer;list-style:none}.lim summary::-webkit-details-marker{display:none}.lim summary h3{margin:0}.lim summary::before{content:'▸';color:var(--sub2)}.lim details[open]>summary::before{content:'▾'}.lim .tk{color:var(--sub2);font-variant-numeric:tabular-nums;font-size:12px}.lim details>.lim-h{margin-top:10px}
-.lim .lact{display:flex;align-items:center;gap:8px;margin-top:8px}.lim form{margin:0}
+.lim .lact{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:8px;max-width:100%}.lim form{margin:0}.lim .box,.lim{overflow-wrap:anywhere}.lim .btn{max-width:100%;white-space:nowrap}.lim summary>.t4,.lim summary>b{min-width:0}
 ";
 
     /// <summary>Takt seconds a step runs at: every material's takt / (1 + pct/100); one number, or the range when the materials differ.</summary>
@@ -50,10 +50,11 @@ public static class LimitPage
         {
             var s = info?.Steps.FirstOrDefault(x => x.Pct == pct);
             var text = s == null ? "-" : s.Ok ? "통과" : s.Rule + (s.Worst.Length > 0 ? " · " + s.Worst : "");
-            sb.Append($"<div class=\"lr{(s == null ? "" : s.Ok ? " ok" : " no")}\"{(s is { Ok: false } ? $" title=\"{H(s.Reason)}\"" : "")}><span>+{pct}%</span><span class=\"tk\">{H(Takt(takts, pct))}</span>" +
+            sb.Append($"<div class=\"lmr{(s == null ? "" : s.Ok ? " ok" : " no")}\"{(s is { Ok: false } ? $" title=\"{H(s.Reason)}\"" : "")}><span>+{pct}%</span><span class=\"tk\">{H(Takt(takts, pct))}</span>" +
                 $"<span class=\"lb\"><i style=\"width:{F(100.0 * (100 + pct) / (100 + top), "0.#")}%\"></i></span><span class=\"lt\">{H(text)}</span></div>");
         }
 
+        sb.Append(Legend(("var(--green)", "통과"), ("var(--red)", "미통과"), ("var(--gray-b)", "미실행"))).Append("<div class=\"t4\">막대 길이 = 생산량</div>");
         var id = H(j.Id);
         var bk = $"<input type=\"hidden\" name=\"back\" value=\"{H(back)}\">";
         sb.Append("<div class=\"lact\">");

@@ -105,13 +105,27 @@ public sealed class AgvPaletteControl : UserControl
         kind3d.SelectedIndex = 0;
         var place3d = Theme.Make("배치", GlyphKind.Block, "");
         place3d.Click += (o, e) => AgvPalette.Send("AGV3D " + AssetKinds.Blocks[Math.Max(0, kind3d.SelectedIndex)].Replace("_", "")); // AGV3D keyword: kind without '_'
+        var wallW = Box(Line3dSettings.WallM.ToString(System.Globalization.CultureInfo.CurrentCulture));
+        var convW = Box(Line3dSettings.ConvM.ToString(System.Globalization.CultureInfo.CurrentCulture));
+        wallW.TextChanged += (o, e) => { if (Line3dSettings.TryParseM(wallW.Text, out var m)) Line3dSettings.WallM = m; };
+        convW.TextChanged += (o, e) => { if (Line3dSettings.TryParseM(convW.Text, out var m)) Line3dSettings.ConvM = m; };
+        wallW.Leave += (o, e) => wallW.Text = Line3dSettings.WallM.ToString(System.Globalization.CultureInfo.CurrentCulture); // show the value AGV3DLINE will use
+        convW.Leave += (o, e) => convW.Text = Line3dSettings.ConvM.ToString(System.Globalization.CultureInfo.CurrentCulture);
+        // the kind is handed over through Pending (the command runs after this handler returns); a blocked send must not leave it behind
+        Button line3d(string text, string kind)
+        {
+            var b = Theme.Make(text, GlyphKind.Path, "");
+            b.Click += (o, e) => { Line3dSettings.Pending = kind; if (!AgvPalette.Send("AGV3DLINE")) Line3dSettings.Pending = null; };
+            return b;
+        }
         tabs.TabPages.Add(Page("3D", Theme.Section("3D 배치"), Theme.Caption("종류"), kind3d, place3d,
             Theme.Caption("크기: 블록 X/Y 배율 (1 = 기본 크기)"),
-            Theme.Section("선으로 그리는 3D (레이어에 그리기)"),
-            Theme.Caption($"벽: {Conventions.Layer3dWall}\n  선·폴리선, 폴리선 폭 = 두께"),
-            Theme.Caption($"안전 펜스: {Conventions.Layer3dFence}"),
-            Theme.Caption($"컨베이어 그림: {Conventions.Layer3dConv}"),
-            Theme.Section("컨베이어"), Theme.Make("컨베이어 이름 붙이기", GlyphKind.Path, "AGVCONV")));
+            Theme.Section("선으로 그리기"),
+            Theme.Caption("벽 두께 (m)"), wallW, line3d("벽", Line3dSettings.Wall),
+            line3d("펜스", Line3dSettings.Fence),
+            Theme.Caption("컨베이어 폭 (m)"), convW, line3d("컨베이어", Line3dSettings.Conv), line3d("컨베이어 (그림만)", Line3dSettings.ConvPicture),
+            Theme.Caption("점 클릭 · Enter 끝 · C 닫기 · U 되돌리기"),
+            Theme.Section("컨베이어"),Theme.Make("컨베이어 이름 붙이기", GlyphKind.Path, "AGVCONV")));
 
         var settings = Theme.Make("설정 열기", GlyphKind.Settings, "");
         settings.Click += (o, e) => Commands.ExportCommands.OpenSettings();

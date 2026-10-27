@@ -54,6 +54,7 @@ h1{font-size:24px;font-weight:700;margin:0 0 14px}h2{font-size:16px;font-weight:
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;margin-top:14px}.grid .box{margin-top:0}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
 .box-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:8px}.box-head h2,.box-head h3{margin:0}
+details.box>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px 12px;flex-wrap:wrap}details.box>summary::-webkit-details-marker{display:none}details.box>summary::before{content:'▸';color:var(--sub2)}details.box[open]>summary::before{content:'▾'}details.box>summary h2{margin:0}details.box[open]>summary{margin-bottom:8px}details.box>summary.box-head{justify-content:flex-start}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;text-align:center;display:flex;flex-direction:column;align-items:center;min-width:0}
 .card.hot{border:2px solid var(--c,var(--blue))}
 .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
@@ -539,6 +540,7 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
         sb.Append($"<div class=\"card\"><div class=\"sub\">최대 병목</div><div class=\"big\">{H(worst?.Name ?? "-")}</div><div class=\"sub\">{(occ ? "점유율" : "평균 대기")} {(worst == null ? "-" : occ ? Pct(worst.Utilization) : F(worst.AvgWaitSec, "0.0") + "초")}</div></div>");
         sb.Append("</div>");
         if (many) ManyGroupsBlock(sb, j, v); else ClusterBars(sb, j, v);
+        sb.Append(Legend(("var(--blue)", "가동률"), ("var(--orange)", "경고"), ("var(--bad)", "판정 실패"))).Append("<div class=\"t4\">세로선 = 가동률 상한</div>");
         sb.Append("<h3>서로 영향이 큰 그룹</h3>");
         var effects = v.Impact.Where(r => r.OtherGroup != r.Group && !double.IsNaN(r.UtilDelta)).OrderByDescending(r => Math.Abs(r.UtilDelta)).Take(3).ToList();
         if (effects.Count == 0) sb.Append("<p class=\"muted\">영향표 없음</p>");
@@ -665,6 +667,16 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
         return $"rgb({L(p.r, q.r)},{L(p.g, q.g)},{L(p.b, q.b)})";
     }
 
+    /// <summary>Legend of colour swatches: (CSS colour, label) pairs. Labels are trusted text (literals or formatted numbers).</summary>
+    internal static string Legend(params (string Color, string Label)[] items) =>
+        "<div class=\"t4 lgd\" style=\"display:flex;flex-wrap:wrap;gap:4px 12px;align-items:center\">" +
+        string.Concat(items.Select(i => $"<span style=\"display:inline-flex;align-items:center;gap:4px\"><i style=\"display:inline-block;width:12px;height:12px;border-radius:3px;background:{i.Color};border:1px solid rgba(0,0,0,.25)\"></i>{i.Label}</span>")) + "</div>";
+
+    /// <summary>Legend of the <see cref="Heat"/> scale: a gradient bar from <paramref name="from"/> to 1 with the value at each end (units included).</summary>
+    internal static string HeatLegend(string title, string lo, string hi, double from = 0) =>
+        $"<div class=\"t4 lgd\" style=\"display:flex;flex-wrap:wrap;gap:4px 6px;align-items:center\"><b>{title}</b><span>{lo}</span>" +
+        $"<i style=\"display:inline-block;width:120px;height:10px;border-radius:5px;border:1px solid rgba(0,0,0,.2);background:linear-gradient(90deg,{Heat(from)},{Heat((from + 1) / 2)},{Heat(1)})\"></i><span>{hi}</span></div>";
+
     /// <summary>Model-coordinate bounds (x0, x1, y0, y1) of a layout's paths, blocks and CPs; null when it has nothing to draw.</summary>
     internal static (double X0, double X1, double Y0, double Y1)? LayoutBounds(ASH.Core.Layout.Layout l)
     {
@@ -709,7 +721,7 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
                 sb.Append($"<text x=\"{X((b.Rect.Min.X + b.Rect.Max.X) / 2)}\" y=\"{Y((b.Rect.Min.Y + b.Rect.Max.Y) / 2)}\" font-size=\"11\" font-weight=\"600\" text-anchor=\"middle\" fill=\"#2c2c2a\" stroke=\"#fff\" stroke-width=\"3\" paint-order=\"stroke\">{H(b.Name)} {H(label(byName[b.Name]))}</text>");
         foreach (var c in l.Cps) sb.Append($"<circle cx=\"{X(c.Position.X)}\" cy=\"{Y(c.Position.Y)}\" r=\"2\" fill=\"#185fa5\"><title>{H(c.Name)}</title></circle>");
         sb.Append("</svg>");
-        sb.Append($"<div class=\"muted\" style=\"font-size:12px\">색: 연회색 0 → 주황 → 빨강 최대({H(label(hi))}). block에 마우스를 올리면 값이 보입니다.</div>");
+        sb.Append(HeatLegend(H(title), H(label(0)), H(label(hi)))).Append(Legend(("#5f5e5a", "경로"), ("#185fa5", "CP"), ("#f1efe8", "결과 없음")));
         return sb.ToString();
     }
 
@@ -725,16 +737,30 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
             sb.Append("<div>").Append(Curve(g.Group, g.MinCount, g.MaxCount, pts, v.UtilMax, dec)).Append("</div>");
         }
         sb.Append("</div></div>");
+        if (v.Vehicles.Count > 0)
+        {
+            bool down = v.Vehicles.Any(x => x.Down > 0), split = v.Vehicles.Any(x => x.Split != null);
+            sb.Append("<div class=\"box\"><div class=\"box-head\"><h2>차량별</h2><span class=\"t4\">권장 대수만큼 움직인 차량의 확인 실행 평균</span></div><div class=\"scroll\"><table><tr><th>차량</th><th>그룹</th><th>가동률(%)</th>" +
+                (split ? "<th>시간 내역</th>" : "") + "<th>작업 수(회)</th><th>주행 거리(m)</th><th>거리/작업(m)</th><th>시간/작업(초)</th>" +
+                (down ? "<th>고장 시간(초)</th>" : "") + "</tr>");
+            foreach (var x in v.Vehicles)
+                sb.Append($"<tr><td>{H(x.Name)}</td><td>{H(x.Group)}</td><td class=\"num\">{P(x.Util)}</td>" + (split ? $"<td>{SplitBar(x.Split, v.UtilMax)}</td>" : "") +
+                    $"<td class=\"num\">{F(x.Jobs, "0.#")}</td><td class=\"num\">{F(x.Distance, "0")}</td>" +
+                    $"<td class=\"num\">{F(x.DistPerJob, "0.#")}</td><td class=\"num\">{F(x.BusyPerJob, "0.#")}</td>" + (down ? $"<td class=\"num\">{F(x.Down, "0")}</td>" : "") + "</tr>");
+            sb.Append("</table></div>" + (split ? SplitLegend(v.UtilMax) : "") + "</div>");
+        }
+        if (v.Materials.Count > 0) MaterialTable(sb, v);
+        if (v.Conveyors is { } cv) sb.Append($"<div class=\"box\"><div class=\"box-head\"><h2>컨베이어</h2><span class=\"t4\">컨베이어 {cv.Count}개, 제품 {F(cv.Passed, "0")}개 통과, 정지 {F(cv.StopSec / 60, "0.#")}분 (확인 실행 평균)</span></div></div>");
         if (j.Clusters is { Count: > 0 })
         {
-            sb.Append("<div class=\"box\"><h2 title=\"경로나 block을 함께 쓰는 그룹은 서로 영향을 주므로 한 묶음으로 대수를 정했습니다.\">함께 탐색한 묶음</h2>");
+            sb.Append("<details class=\"box\"><summary><h2 title=\"경로나 block을 함께 쓰는 그룹은 서로 영향을 주므로 한 묶음으로 대수를 정했습니다.\">함께 탐색한 묶음</h2></summary>");
             foreach (var c in j.Clusters) sb.Append($"<span class=\"chip\">{H(string.Join(", ", c))}</span>");
-            sb.Append("</div>");
+            sb.Append("</details>");
         }
         if (v.Impact.Count > 0)
         {
             var groups = v.Input.Groups.Select(x => x.Group).ToList();
-            sb.Append("<div class=\"box\"><div class=\"box-head\"><h2 title=\"행 그룹을 권장 대수에서 1대 늘렸을 때 열 그룹의 가동률 변화(%p). 진할수록 영향이 큽니다.\">영향표</h2><span class=\"t4\">행 그룹 +1대 → 열 그룹 가동률 변화(%p) · 진할수록 영향 큼</span></div>" +
+            sb.Append("<details class=\"box\"><summary class=\"box-head\"><h2 title=\"행 그룹을 권장 대수에서 1대 늘렸을 때 열 그룹의 가동률 변화(%p). 진할수록 영향이 큽니다.\">영향표</h2><span class=\"t4\">행 그룹 +1대 → 열 그룹 가동률 변화(%p) · 진할수록 영향 큼</span></summary>" +
                 "<div class=\"scroll\"><table><tr><th>+1대 한 그룹 → 가동률 변화(%p)</th>");
             foreach (var g in groups) sb.Append($"<th>{H(g)}</th>");
             sb.Append("</tr>");
@@ -751,22 +777,8 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
                 }
                 sb.Append("</tr>");
             }
-            sb.Append("</table></div></div>");
+            sb.Append("</table></div>").Append(HeatLegend("가동률 변화 절댓값", "0%p", F(hi * 100, "0.0") + "%p")).Append("</details>");
         }
-        if (v.Vehicles.Count > 0)
-        {
-            bool down = v.Vehicles.Any(x => x.Down > 0), split = v.Vehicles.Any(x => x.Split != null);
-            sb.Append("<div class=\"box\"><div class=\"box-head\"><h2>차량별</h2><span class=\"t4\">권장 대수만큼 움직인 차량의 확인 실행 평균</span></div><div class=\"scroll\"><table><tr><th>차량</th><th>그룹</th><th>가동률(%)</th>" +
-                (split ? "<th>시간 내역</th>" : "") + "<th>작업 수(회)</th><th>주행 거리(m)</th><th>거리/작업(m)</th><th>시간/작업(초)</th>" +
-                (down ? "<th>고장 시간(초)</th>" : "") + "</tr>");
-            foreach (var x in v.Vehicles)
-                sb.Append($"<tr><td>{H(x.Name)}</td><td>{H(x.Group)}</td><td class=\"num\">{P(x.Util)}</td>" + (split ? $"<td>{SplitBar(x.Split, v.UtilMax)}</td>" : "") +
-                    $"<td class=\"num\">{F(x.Jobs, "0.#")}</td><td class=\"num\">{F(x.Distance, "0")}</td>" +
-                    $"<td class=\"num\">{F(x.DistPerJob, "0.#")}</td><td class=\"num\">{F(x.BusyPerJob, "0.#")}</td>" + (down ? $"<td class=\"num\">{F(x.Down, "0")}</td>" : "") + "</tr>");
-            sb.Append("</table></div>" + (split ? SplitLegend(v.UtilMax) : "") + "</div>");
-        }
-        if (v.Materials.Count > 0) MaterialTable(sb, v);
-        if (v.Conveyors is { } cv) sb.Append($"<div class=\"box\"><div class=\"box-head\"><h2>컨베이어</h2><span class=\"t4\">컨베이어 {cv.Count}개, 제품 {F(cv.Passed, "0")}개 통과, 정지 {F(cv.StopSec / 60, "0.#")}분 (확인 실행 평균)</span></div></div>");
         // one row per run and group; every group's count of the run is a column, so the list sorts by any of them
         var gs = v.Input.Groups;
         var counts = v.RunCounts();
@@ -777,7 +789,7 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
             && v.Rows.Where(x => x.RunId == runId).All(x => x.Ok || JobView.UtilOnly(x));
         var fit = v.Rows.Select(x => x.RunId).Distinct().Where(Fit).ToList();
         string Zip(string runId) => $"/jobs/{H(j.Id)}/runs/{Uri.EscapeDataString(runId)}/model.zip";
-        sb.Append("<div class=\"box\"><div class=\"box-head\"><h2>실행 목록</h2><span class=\"t4\" title=\"받기: 그 실행의 모델과 조건(params.txt)을 zip으로 받아 AutoMod가 있는 PC에서 run.bat으로 창을 띄워 볼 수 있습니다.\">제목을 누르면 정렬 · 받기 = 모델 zip</span></div>");
+        sb.Append("<details class=\"box\"><summary class=\"box-head\"><h2>실행 목록</h2><span class=\"t4\" title=\"받기: 그 실행의 모델과 조건(params.txt)을 zip으로 받아 AutoMod가 있는 PC에서 run.bat으로 창을 띄워 볼 수 있습니다.\">제목을 누르면 정렬 · 받기 = 모델 zip</span></summary>");
         if (fit.Count > 0)
         {
             var seedOf = v.Rows.GroupBy(x => x.RunId).ToDictionary(g2 => g2.Key, g2 => g2.First().Seed);
@@ -804,7 +816,7 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
         }
         sb.Append("</tbody></table></div>").Append(SortScript);
         if (v.Rows.Count > 1000) sb.Append($"<div class=\"t4\">처음 1000행만 보여 주고 그 안에서 정렬합니다(전체 {v.Rows.Count}행은 summary.tsv로 받으세요).</div>");
-        sb.Append("</div>");
+        sb.Append("</details>");
     }
 
     /// <summary>Mean interval between a material's supply jobs over the measured window; NaN without jobs.</summary>
