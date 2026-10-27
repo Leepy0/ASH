@@ -16,6 +16,15 @@ public sealed record SendChoice
     public string AnalysisName { get; init; } = "";
     public string PlanName { get; init; } = "";
 
+    /// <summary>The job the drawing was last sent as (AGVSEND / AGVRESULTUP), one id in &lt;drawing folder&gt;\ash.job.txt, for AGVCAUSE.</summary>
+    public const string JobFileName = "ash.job.txt";
+    public static void SaveJob(string dir, string jobId) => File.WriteAllText(Path.Combine(dir, JobFileName), jobId.Trim());
+    public static string? LoadJob(string dir)
+    {
+        var path = Path.Combine(dir, JobFileName);
+        return File.Exists(path) && File.ReadAllText(path).Trim() is { Length: > 0 } id ? id : null;
+    }
+
     public static SendChoice? Load(string dir)
     {
         var path = Path.Combine(dir, FileName);

@@ -137,6 +137,8 @@ public sealed class ServerCommands
         {
             using var client = new JobServerClient(new Uri(url));
             var receipt = Run(ct => client.SubmitAsync(zip, job, ct), UploadTimeout);
+            try { SendChoice.SaveJob(dir, receipt.Id); }
+            catch (System.Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { PluginLog.Write("ash.job.txt", ex); } // only AGVCAUSE's default
             Say(ed, results ? $"결과 올림: {receipt.Id}" : $"전송 완료: 작업 {receipt.Id} (앞에 {receipt.Ahead}건)" + (receipt.Version > 0 ? $" · v{receipt.Version}" : ""));
             var page = client.PageUri(receipt);
             if (page == null) { ed.WriteMessage("\n서버가 알려 준 주소가 올바르지 않아 브라우저를 열지 않습니다: " + receipt.Url); return; }
@@ -202,7 +204,7 @@ public sealed class ServerCommands
     }
 
     // Task.Run so ZWCAD's UI sync context cannot deadlock the wait; the hard cap is for net48 DNS/WPAD stalls that ignore the token
-    private static T Run<T>(Func<CancellationToken, Task<T>> f, TimeSpan timeout)
+    internal static T Run<T>(Func<CancellationToken, Task<T>> f, TimeSpan timeout)
     {
         using var cts = new CancellationTokenSource(timeout);
         var task = Task.Run(() => f(cts.Token));
@@ -211,7 +213,7 @@ public sealed class ServerCommands
         return task.GetAwaiter().GetResult();
     }
 
-    private static bool IsNetwork(System.Exception e)
+    internal static bool IsNetwork(System.Exception e)
         => e is HttpRequestException || e is OperationCanceledException || e is TimeoutException || e is IOException || e is JobServerException;
 
     private static void Fail(Editor ed, string what, System.Exception e)
