@@ -70,6 +70,9 @@ public static class DetourCauses
         return res;
     }
 
+    /// <summary>Directed shortest-route finder over one layout, for <see cref="RouteView"/> (the search is cached per start CP).</summary>
+    internal static Func<string, string, (double Dist, List<(LayoutPath Path, double From, double To)> Pieces)?> Tracer(Layout.Layout l) => new Net(l).Trace;
+
     /// <summary>The layout with path p drawn the other way round (same CPs).</summary>
     static Layout.Layout WithFlipped(this Layout.Layout l, LayoutPath p) => new()
     {
@@ -188,6 +191,30 @@ public static class DetourCauses
         /// <summary>Directed distance (infinity when unreachable); null when a CP is missing or both are the same.</summary>
         public double? Directed(string from, string to) =>
             from == to || CpOf(from) is not { } a || CpOf(to) is not { } b ? null : To(from, a, b, true, out _, out _);
+
+        /// <summary>The directed shortest route from to as path pieces (path, from distance, to distance) in travel order.
+        /// Null when a CP is missing, off every path, or both are the same; Dist is infinity (no pieces) when unreachable.</summary>
+        public (double Dist, List<(LayoutPath Path, double From, double To)> Pieces)? Trace(string from, string to)
+        {
+            if (from == to || CpOf(from) is not { } a || CpOf(to) is not { } b) return null;
+            double d = To(from, a, b, true, out int via, out bool back);
+            var pieces = new List<(LayoutPath, double, double)>();
+            if (double.IsPositiveInfinity(d)) return (d, pieces);
+            if (via == -1) { pieces.Add((a.Path, a.Dist, b.Dist)); return (d, pieces); }
+            pieces.Add((b.Path, back ? b.Path.Length : 0, b.Dist));
+            var prev = Run(from, a, true).P;
+            int n = nodeOf[(b.Path, !back)];
+            for (int guard = nodes.Count; guard-- > 0;)
+            {
+                var (u, k) = prev[n];
+                if (u < 0) { pieces.Add(k == -2 ? (a.Path, a.Dist, 0) : (a.Path, a.Dist, a.Path.Length)); break; }
+                var e = dir[u][k];
+                pieces.Add((e.Path!, e.Fwd ? 0 : e.Path!.Length, e.Fwd ? e.Path!.Length : 0));
+                n = u;
+            }
+            pieces.Reverse();
+            return (d, pieces);
+        }
 
         public Leg? Check(string from, string to)
         {
