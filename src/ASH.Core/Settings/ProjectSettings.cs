@@ -6,4 +6,4 @@ namespace ASH.Core.Settings;
 public sealed record ProjectSettings(double SafetyGap = 0.5, double CpSpacing = 10, double? ClaimDist = null, double? BlockReach = null,
     double VehicleLength = 2.0, double VehicleWidth = 1.0, string Units = "Meters", double Scale = 0.001, Point2 Origin = default,
     string ModelName = "model", string Groups = "G1:DefVehicle:5:1.0:2.0:1.0", string AmHome = @"C:\AutoMod\12_6",
-    double ArrowSize = 2.0);
+    double ArrowSize = 2.0, double JoinGap = 0.3);

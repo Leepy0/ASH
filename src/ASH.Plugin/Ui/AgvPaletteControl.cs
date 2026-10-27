@@ -24,12 +24,20 @@ public sealed class AgvPaletteControl : UserControl
         var tabs = new TabControl { Dock = DockStyle.Fill, DrawMode = TabDrawMode.OwnerDrawFixed, Appearance = TabAppearance.Normal, Padding = new Point(2, 6), Font = Theme.Base, Multiline = true };
         tabs.DrawItem += DrawTab;
 
+        // type brush: the chosen type goes to AGVPBRUSH as its keyword answer (O/T/S/C, same order as the list)
+        var brushKind = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, FlatStyle = FlatStyle.System };
+        brushKind.Items.AddRange(new object[] { "단방향", "양방향", "spur", "crab" });
+        brushKind.SelectedIndex = 0;
+        var brush = Theme.Make("종류 붓", GlyphKind.PathType, "");
+        new ToolTip().SetToolTip(brush, "경로를 차례로 클릭해 종류 적용 · Enter 끝 (AGVPBRUSH)");
+        brush.Click += (o, e) => AgvPalette.Send("AGVPBRUSH " + "OTSC"[Math.Max(0, brushKind.SelectedIndex)]);
         tabs.TabPages.Add(Page("경로", Theme.Section("경로 그리기·편집"),
             Theme.Make("경로 그리기", GlyphKind.Path, "AGVPATH"), Theme.Make("선·폴리선 → 경로 변환", GlyphKind.Convert, "AGVCONVERT"), Theme.Make("방향 반전", GlyphKind.Reverse, "AGVREVERSE"), Theme.Make("경로 종류 변경", GlyphKind.PathType, "AGVPTYPE"),
+            Theme.Caption("종류 붓"), brushKind, brush,
             Theme.Make("평행 복제", GlyphKind.Offset, "AGVOFFSET"), Theme.Make("배열 복제", GlyphKind.Array, "AGVARRAY"),
             Theme.Section("연결"),
-            Theme.Make("교차 분할", GlyphKind.Split, "AGVSPLIT"), Theme.Make("경로 잇기", GlyphKind.Join, "AGVJOIN"), Theme.Make("필렛", GlyphKind.Fillet, "AGVFILLET"),
-            Theme.Section("방향표"), Theme.Make("방향표 크기·갱신", GlyphKind.ArrowSize, "AGVARROW")));
+            Theme.Make("교차 분할", GlyphKind.Split, "AGVSPLIT"), Theme.Make("경로 잇기", GlyphKind.Join, "AGVJOIN"), Theme.Make("끝 연결", GlyphKind.Join, "AGVCONNECT"), Theme.Make("필렛", GlyphKind.Fillet, "AGVFILLET"),
+            Theme.Section("방향표"), Theme.Make("방향표 크기·갱신", GlyphKind.ArrowSize, "AGVARROW"), Theme.Make("흐름 보기", GlyphKind.ArrowSize, "AGVFLOW")));
 
         var s = CpSettings.Current;
         var detailed = new CheckBox { Text = "상세 모드", Checked = s.DetailedMode, AutoSize = true, Margin = new Padding(2, 4, 0, 4) };
