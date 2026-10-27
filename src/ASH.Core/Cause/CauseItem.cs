@@ -8,8 +8,8 @@ namespace ASH.Core.Cause;
 public static class CauseKinds
 {
     public const string Deadlock = "deadlock", DeadlockRisk = "deadlock-risk", BlockHold = "block-hold", Detour = "detour",
-        LoadShare = "load-share", TimeLoss = "time-loss";
-    public static readonly string[] Order = { Deadlock, DeadlockRisk, BlockHold, Detour, LoadShare, TimeLoss };
+        LoadShare = "load-share", TimeLoss = "time-loss", Clearance = "clearance";
+    public static readonly string[] Order = { Deadlock, DeadlockRisk, Clearance, BlockHold, Detour, LoadShare, TimeLoss };
 }
 
 /// <summary>One finding of the cause analysis. UI text rules: words and short noun phrases, no sentences; "자재 품절", never "결품".
@@ -24,7 +24,7 @@ public sealed record CauseItem(string Kind, int Severity, string Title, string W
 /// Result / Report are null for layout-only analysis (plugin AGVCHECK, before any run). VehicleLength / VehicleWidth / ClaimDist / BlockReach are metres
 /// (ash.settings.tsv values when known, else the first AgvType size and the ProjectSettings defaults).</summary>
 public sealed record CauseContext(Layout.Layout Layout, ProjectInput Input, ResultSet? Result = null, ReportStats? Report = null,
-    double VehicleLength = 1.5, double VehicleWidth = 1.0, double ClaimDist = 0, double BlockReach = 0);
+    double VehicleLength = 1.5, double VehicleWidth = 1.0, double ClaimDist = 0, double BlockReach = 0, double SafetyGap = 0.5);
 
 /// <summary>One deadlock as the model logged it (dlock rows of result.tsv): when it was first seen and who waited for whom.</summary>
 public sealed record DeadlockEvent(double AtSec, IReadOnlyList<DeadlockLink> Links);

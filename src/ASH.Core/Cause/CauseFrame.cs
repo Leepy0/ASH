@@ -13,7 +13,7 @@ namespace ASH.Core.Cause;
 /// Metres = (drawing - Origin) x Scale, the frame ExportOptions.ToModel and ArcLayout use.</summary>
 public static class CauseFrame
 {
-    /// <summary>The drawing's layout in model metres. shortcut: assets and conveyors are not copied (no analyser reads them), copy them when one does.</summary>
+    /// <summary>The drawing's layout in model metres (paths, CPs, blocks, stations, 3D assets, conveyors).</summary>
     public static Layout.Layout ToMetres(Layout.Layout l, Point2 origin, double scale)
     {
         Point2 P(Point2 p) => new((p.X - origin.X) * scale, (p.Y - origin.Y) * scale);
@@ -34,6 +34,13 @@ public static class CauseFrame
         foreach (var b in l.Blocks)
             m.Blocks.Add(new LayoutBlock { Name = b.Name, Cap = b.Cap, Rect = new Rect2(P(b.Rect.Min), P(b.Rect.Max)), Id = b.Id, TagId = b.TagId });
         foreach (var s in l.Stations) m.Stations.Add(new LayoutStation { Name = s.Name, Position = P(s.Position) });
+        foreach (var a in l.Assets) m.Assets.Add(Cel.AssetShapes.InMetres(a, origin, scale));
+        foreach (var c in l.Conveyors)
+            m.Conveyors.Add(new LayoutConveyor
+            {
+                Name = c.Name, GraphicOnly = c.GraphicOnly, WidthM = c.WidthM, Id = c.Id,
+                Segments = c.Segments.Select(s => s is ArcSeg a ? new ArcSeg(P(a.Center), P(a.Start), a.SweepDeg) : (Segment)new LineSeg(P(s.Start), P(s.End))).ToList(),
+            });
         return m;
     }
 
@@ -49,7 +56,7 @@ public static class CauseFrame
         var t = input.AgvTypes.FirstOrDefault(a => a.Length > 0 && a.Width > 0);
         double len = s?.VehicleLength ?? t?.Length ?? def.VehicleLength, wid = s?.VehicleWidth ?? t?.Width ?? def.VehicleWidth;
         var p = s ?? def;
-        return new CauseContext(metres, input, result, report, len, wid, p.ClaimDist ?? p.SafetyGap, p.BlockReach ?? 0);
+        return new CauseContext(metres, input, result, report, len, wid, p.ClaimDist ?? p.SafetyGap, p.BlockReach ?? 0, p.SafetyGap);
     }
 
     /// <summary>Layout-only findings of a drawing read in drawing units. DetourCauses reads the Excel Routes, so its findings are left out when the input has none.</summary>

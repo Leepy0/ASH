@@ -36,6 +36,16 @@ public class CauseFrameTests
         Assert.Equal(new Point2(0, 0), m.Stations.Single().Position); Assert.Equal(0.001, m.Tolerance, 12);
     }
 
+    [Fact] public void ToMetres_Converts_Assets_And_Conveyors()
+    {
+        var d = Drawing();
+        d.Assets.Add(new LayoutAsset { Kind = "MACHINE", X = 5000, Y = 4000 });
+        d.Conveyors.Add(new LayoutConveyor { Name = "CV001", WidthM = 0.8, Segments = { new LineSeg(new Point2(1000, 2000), new Point2(3000, 2000)) } });
+        var m = CauseFrame.ToMetres(d, new Point2(1000, 2000), 0.001);
+        Assert.Equal(4, m.Assets.Single().X, 9); Assert.Equal(2, m.Assets.Single().Y, 9);
+        Assert.Equal(new Point2(2, 0), m.Conveyors.Single().Segments[0].End); Assert.Equal(0.8, m.Conveyors.Single().WidthM);
+    }
+
     [Fact] public void ToDrawing_Is_The_Inverse()
     {
         var o = new Point2(1000, 2000); const double k = 0.001;
