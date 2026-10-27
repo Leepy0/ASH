@@ -229,7 +229,7 @@ public sealed class ModelCommands
     /// <summary>input.xlsx as a ProjectInput; null (after saying why) when it cannot be had. The file is read directly; when that fails (company document encryption
     /// leaves only Excel able to read it, or Excel has it locked) Excel is asked for the cells. Whichever way it was read, the cells are also written to
     /// input.cells.tsv beside the workbook so ash-run can still read them.</summary>
-    private static ProjectInput? LoadInput(Editor ed, string xlsx, string dir)
+    internal static ProjectInput? LoadInput(Editor ed, string xlsx, string dir)
     {
         ClosedXML.Excel.XLWorkbook? wb = null;
         try

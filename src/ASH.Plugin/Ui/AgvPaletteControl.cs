@@ -94,7 +94,8 @@ public sealed class AgvPaletteControl : UserControl
             Theme.Section("CP 속성"), detailed,
             Theme.Caption("GROUP"), group,
             Theme.Caption("접두어  (마지막 TYPE에 적용)"), prefix, Theme.Caption("CAP  (숫자 또는 INF = 무제한)"), cap,
-            Theme.Section("그룹 보기"), GroupView(tabs)));
+            Theme.Section("그룹 보기"), GroupView(tabs),
+            Theme.Section("루트 보기"), RouteViewPanel()));
 
         tabs.TabPages.Add(Page("교통제어", Theme.Section("자동 생성"),
             Theme.Make("block 자동 생성", GlyphKind.Block, "AGVBLOCKAUTO"), Theme.Make("블록 채번", GlyphKind.BlockNum, "AGVBLOCKNUM"), Theme.Make("교통제어 자동 생성", GlyphKind.Traffic, "AGVTRAFFIC")));
@@ -260,6 +261,39 @@ public sealed class AgvPaletteControl : UserControl
         panel.Controls.Add(info);
         panel.Controls.Add(showAll);
         panel.Controls.Add(modes);
+        return panel;
+    }
+
+    // Route view: the materials of the drawing's Excel input; a double-click draws that material's route on AGV_ROUTE (AGVROUTE), 지우기 clears the layer.
+    private static Control RouteViewPanel()
+    {
+        var list = Grid(("자재", 110), ("그룹", 90));
+        list.Dock = DockStyle.Fill;
+        var info = new Label { Dock = DockStyle.Bottom, Height = 18, Font = Theme.Small, ForeColor = Theme.Muted, Text = "목록 새로고침을 누르세요" };
+        var refresh = Theme.Make("목록 새로고침", GlyphKind.Search, "");
+        var clear = Theme.Make("지우기", GlyphKind.Check, "");
+        refresh.Dock = DockStyle.Top;
+        clear.Dock = DockStyle.Bottom;
+        new ToolTip().SetToolTip(list, "더블클릭하면 그 자재의 CP와 구간별 최단 경로를 AGV_ROUTE 레이어에 그림 (AGVROUTE)");
+        refresh.Click += (o, e) => RouteRequest.Go(RouteRequest.Kind.List);
+        clear.Click += (o, e) => RouteRequest.Go(RouteRequest.Kind.Clear);
+        list.DoubleClick += (o, e) =>
+        {
+            if (list.SelectedItems.Count > 0) RouteRequest.Go(RouteRequest.Kind.Show, list.SelectedItems[0].Text);
+        };
+        RouteRequest.Materials = items =>
+        {
+            list.BeginUpdate();
+            list.Items.Clear();
+            foreach (var (material, group) in items) list.Items.Add(new ListViewItem(new[] { material, group }));
+            list.EndUpdate();
+            info.Text = items.Count == 0 ? "자재 없음" : $"자재 {items.Count}개 — 더블클릭하면 루트 표시";
+        };
+        var panel = new Panel { Height = 230, Margin = new Padding(0, 0, 0, 4) };
+        panel.Controls.Add(list); // Fill first: the docked edges then take their space before it
+        panel.Controls.Add(info);
+        panel.Controls.Add(clear);
+        panel.Controls.Add(refresh);
         return panel;
     }
 
