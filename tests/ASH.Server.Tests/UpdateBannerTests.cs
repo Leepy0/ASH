@@ -197,6 +197,10 @@ public class UpdateBannerTests
             s.TakeNext(); s.RequeueCut(id);
             var f = s.Get(id)!;
             Assert.Equal(JobState.Failed, f.State); Assert.Equal(JobStore.CutTooOften, f.Error); Assert.Equal(JobStore.CutTooOften, f.Items[0].Error);
+            Assert.True(s.Retry(id)); // 재시도: queued again, three more tries, nothing of the failed run kept
+            f = s.Get(id)!;
+            Assert.Equal((JobState.Queued, 0), (f.State, f.Interrupts)); Assert.Null(f.Error); Assert.Null(f.Items[0].Error);
+            Assert.False(s.Retry(id)); // a queued film is not retried
         }
         finally { Directory.Delete(dir, true); }
     }

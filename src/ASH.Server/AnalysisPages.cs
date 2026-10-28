@@ -712,10 +712,14 @@ fit();addEventListener('resize',fit);})();</script>";
             }
             else if (joinedOk) sb.Append("<p class=\"t4\">이어 붙인 영상에만 넣었습니다.</p>");
             if (f.Error != null) sb.Append($"<p class=\"bad\">⚠ {H(f.Error)}</p>");
-            sb.Append("<div class=\"actions\">" + (oks.Count > 0 || joinedOk ? $"<a class=\"btn\" href=\"/films/{fid}/files/all.zip\">↓ 전체 zip</a>" : "") + $"<a class=\"btn\" href=\"/films/{fid}\">자세히</a></div></section>");
+            sb.Append("<div class=\"actions\">" + (oks.Count > 0 || joinedOk ? $"<a class=\"btn\" href=\"/films/{fid}/files/all.zip\">↓ 전체 zip</a>" : "") + $"<a class=\"btn\" href=\"/films/{fid}\">자세히</a>" +
+                (FilmStore.CanRetry(f) ? RetryForm(fid) : "") + "</div></section>");
         }
         sb.Append("</div>");
     }
+
+    static string RetryForm(string fid) =>
+        $"<form method=\"post\" action=\"/films/{fid}/retry\" style=\"display:inline\"><button title=\"같은 설정으로 모든 컷을 처음부터 다시 찍습니다.\">↻ 재시도</button></form>";
 
     // clicking ▶ on a cut plays it in the page's player instead of opening the file
     const string PlayScript = "<script>document.querySelectorAll('a[data-play]').forEach(function(a){a.addEventListener('click',function(e){var v=document.getElementById('fv');if(!v)return;" +
@@ -732,6 +736,7 @@ fit();addEventListener('resize',fit);})();</script>";
         var oks = f.Items.Where(i => i.Ok && exists(i.Name)).ToList();
         sb.Append($"<div class=\"head\"><h1>영상</h1><span class=\"state s-{H(f.State)}\" data-state=\"film.state\" data-field=\"film.statetext\">{H(JobState.Korean(f.State))}</span>" +
             $"<span class=\"t4\">{H(When(f.CreatedUtc))}</span><span class=\"sp\"></span>");
+        if (FilmStore.CanRetry(f)) sb.Append(RetryForm(fid));
         if (f.Finished && (joinedOk || oks.Count > 0)) sb.Append($"<a class=\"btn pri\" href=\"/films/{fid}/files/all.zip\">↓ 전체 zip</a>");
         sb.Append("</div>");
         sb.Append($"<p class=\"t3\"><span data-field=\"film.phase\">{H(f.Phase)}</span><span data-field=\"film.sep\">{(f.Phase != null ? " · " : "")}</span><span data-field=\"film.done\">컷 {f.Items.Count}개 중 {f.Done}개 완료</span>" +

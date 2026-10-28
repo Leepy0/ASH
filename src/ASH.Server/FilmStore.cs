@@ -138,6 +138,16 @@ public sealed class FilmStore
     /// <summary>The third time it fails instead.</summary>
     public void RequeueCut(string id) => Update(id, CutOff);
 
+    /// <summary>A failed or cancelled film, or one with failed cuts: queued again at its old place and made again from the start, with three tries again.</summary>
+    public static bool CanRetry(FilmInfo f) => f.State is JobState.Failed or JobState.Cancelled || f.State == JobState.Done && f.Failed > 0;
+
+    public bool Retry(string id)
+    {
+        var ok = false;
+        Update(id, f => { if (!CanRetry(f)) return; f.Interrupts = 0; ResetToQueue(f); ok = true; });
+        return ok;
+    }
+
     static void CutOff(FilmInfo f)
     {
         if (++f.Interrupts > JobStore.MaxRequeues)

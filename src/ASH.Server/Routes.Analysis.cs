@@ -268,6 +268,16 @@ internal static partial class Routes
             return Results.Redirect("/films/" + id);
         });
 
+        app.MapPost("/films/{id}/retry", (string id, HttpContext ctx, FilmStore fs, JobStore js, IConfiguration cfg) =>
+        {
+            if (!SameOrigin(ctx)) return Msg(403, CrossSite);
+            if (!WorkerOn(cfg)) return Msg(409, WorkerOff);
+            if (!JobStore.IsValidId(id) || fs.Get(id) == null) return Msg(404, "영상이 없습니다.");
+            if (!fs.Retry(id)) return Msg(409, "실패하거나 취소된 영상만 다시 찍을 수 있습니다.");
+            js.Wake();
+            return Results.Redirect("/films/" + id);
+        });
+
         // only names the film itself lists are served: never a path from the URL
         app.MapGet("/films/{id}/files/{name}", (string id, string name, FilmStore fs) =>
         {
