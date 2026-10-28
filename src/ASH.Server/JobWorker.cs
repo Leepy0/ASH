@@ -160,7 +160,7 @@ public sealed class JobWorker(JobStore store, IJobRunner runner, FilmWorker film
         finally { lock (_gate) { _runningId = null; _runningCts = null; } }
         if (cancelled && stop.IsCancellationRequested && job.Source == JobSource.Server && store.Get(job.Id)?.CancelRequested != true)
         {
-            log.WriteLine($"[{ASH.Core.SeoulTime.NowText}] 서버 멈춤 · 다시 시작 뒤 이어서");
+            log.WriteLine($"[{ASH.Core.SeoulTime.NowText}] 서버 멈춤으로 중단 · 다시 대기(3번째면 실패)");
             store.RequeueCut(job.Id); // an update or restart cut it off: it continues first after the start
             return;
         }

@@ -300,7 +300,7 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
         finally { lock (_gate) { _filmId = null; _filmCts = null; } }
         if (error != null && stop.IsCancellationRequested && !cancelled)
         {
-            Say("서버 멈춤 · 다시 시작 뒤 처음부터");
+            Say("서버 멈춤으로 중단 · 다시 대기(3번째면 실패)");
             films.RequeueCut(f.Id); // an update or restart cut it off
             return;
         }

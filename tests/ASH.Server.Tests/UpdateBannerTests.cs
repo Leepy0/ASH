@@ -158,5 +158,46 @@ public class UpdateBannerTests
         }
         finally { Directory.Delete(dir, true); }
     }
-}
 
+    [Fact]
+    public void A_Job_Cut_Off_A_Third_Time_Fails_And_A_Retry_Starts_The_Count_Again()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "ash-jobs-cut3-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var log = Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
+            var s = new JobStore(dir, log);
+            var id = JobStore.NewId();
+            s.Add(new JobInfo { Id = id, Model = "m", CreatedUtc = DateTime.UtcNow });
+            s.TakeNext(); s.RequeueCut(id); // a clean stop (the worker)
+            Assert.Equal((JobState.Queued, 1), (s.Get(id)!.State, s.Get(id)!.Interrupts));
+            s.TakeNext(); s = new JobStore(dir, log); // killed: counted at the next start, from job.json
+            Assert.Equal((JobState.Queued, 2), (s.Get(id)!.State, s.Get(id)!.Interrupts));
+            s.TakeNext(); s = new JobStore(dir, log);
+            var j = s.Get(id)!;
+            Assert.Equal(JobState.Failed, j.State); Assert.Equal(JobStore.CutTooOften, j.Error); Assert.NotNull(j.FinishedUtc);
+            Assert.True(s.Requeue(id, resume: true)); // the admin's 이어서 하기: three more tries
+            Assert.Equal(0, s.Get(id)!.Interrupts);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
+    [Fact]
+    public void A_Film_Cut_Off_A_Third_Time_Fails()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "ash-films-cut3-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            const string id = "20261023-000000-eeee";
+            var s = new FilmStore(dir);
+            s.Add(new FilmInfo { Request = new(id, "x", ["c1"], ["j"], 640, 480, 10, "joined", false, null, 0, null), CreatedUtc = DateTime.UtcNow, Items = { new FilmItem() } });
+            s.TakeNext(); s.RequeueCut(id);
+            s.TakeNext(); s = new FilmStore(dir);
+            Assert.Equal((JobState.Queued, 2), (s.Get(id)!.State, s.Get(id)!.Interrupts));
+            s.TakeNext(); s.RequeueCut(id);
+            var f = s.Get(id)!;
+            Assert.Equal(JobState.Failed, f.State); Assert.Equal(JobStore.CutTooOften, f.Error); Assert.Equal(JobStore.CutTooOften, f.Items[0].Error);
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+}
