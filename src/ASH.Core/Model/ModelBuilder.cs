@@ -38,9 +38,7 @@ public static class ModelBuilder
             input.Routes.AddRange(r.Input.Routes); input.Stations.AddRange(r.Input.Stations); input.Ext.AddRange(r.Input.Ext);
             input.Conveyors.AddRange(r.Input.Conveyors);
         }
-        var findings = InputValidator.Validate(input, l.Cps.Select(c => c.Name).ToList());
-        findings.AddRange(ConveyorCheck.Check(input, l, o.Scale)); // Conveyors rows against the AGV_CONV polylines
-        findings.AddRange(RouteGroupCheck.Check(input, l)); // Routes rows pointing at another group's CPs
+        var findings = Validate(input, l, o.Scale);
         if (findings.Any(f => f.Code == FindingCode.InputError)) return new ModelBuildResult(arc, null, findings, Warn(findings));
 
         // supply-cycle check only on valid input; route lengths in meters (SpeedLoaded is m/s)
@@ -112,6 +110,15 @@ public static class ModelBuilder
             }
         }
         return new ModelBuildResult(arc, build, findings, warnings, export);
+    }
+
+    /// <summary>The input checks Build runs first (any InputError stops it before a file is written); AGVSEND runs them without building.</summary>
+    public static List<Finding> Validate(ProjectInput input, Layout.Layout l, double scale)
+    {
+        var findings = InputValidator.Validate(input, l.Cps.Select(c => c.Name).ToList());
+        findings.AddRange(ConveyorCheck.Check(input, l, scale)); // Conveyors rows against the AGV_CONV polylines
+        findings.AddRange(RouteGroupCheck.Check(input, l)); // Routes rows pointing at another group's CPs
+        return findings;
     }
 
     /// <summary>One AGVS vehicle type per group, named after the group (the logic's vehicle procedures and dispatch filters are per AGVS type),

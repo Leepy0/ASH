@@ -192,21 +192,15 @@ public sealed class ModelCommands
             ModelBuildResult r;
             try
             {
-                // Excel wins over ash.settings.tsv Groups
-                var groups = input.Groups.Count == 0 ? SettingsFile.ParseGroups(s.Groups) : ModelBuilder.VehicleGroups(input);
-                var options = new ExportOptions(Units: s.Units, Origin: s.Origin, Scale: s.Scale, Groups: groups);
+                // the server's SourceBuild makes the model from the same rules: Excel groups win over ash.settings.tsv Groups, assets kept in <model>.arc\assets
+                var options = SourceBuild.Options(input, s);
                 Ui.PaletteStatus.Set("AGVMODEL 모델 생성 중…");
                 var assetWarnings = new List<string>();
                 var assetClient = AssetClient.Open(UserSettings.Load().ServerUrl); // one per run: its asset list is read once
                 bool wantsAssets = ModelBuilder.IsValidModelName(s.ModelName) && input.AgvTypes.Any(t => t.Asset.Length > 0);
                 if (wantsAssets && assetClient == null) assetWarnings.Add("서버 주소가 설정되지 않아 에셋 그림을 쓰지 않습니다(AGVSERVER). 기본 그림을 씁니다.");
                 var ov = wantsAssets && assetClient != null
-                    ? AssetOverrides.ForGroups(AssetOverrides.Build(input.AgvTypes, AssetOverrides.VehSegTemplate(), (ty, n) =>
-                    {
-                        var c = AssetClient.Fetch(assetClient!, Path.Combine(dir, s.ModelName + ".arc"), ty, n, out var why);
-                        if (c == null && why != null) throw new IOException(why);
-                        return c;
-                    }, assetWarnings), input.Groups)
+                    ? SourceBuild.Overrides(input, Path.Combine(dir, s.ModelName + ".arc"), assetClient.FetchCel, assetWarnings)
                     : new Dictionary<string, VehicleTemplateOverride>();
                 foreach (var w in assetWarnings) ed.WriteMessage("\n경고: " + w);
                 r = ModelBuilder.Build(new ModelBuildRequest(dir, s.ModelName, input, layout, options, VehicleOverrides: ov.Count > 0 ? ov : null), null, TimeSpan.FromMinutes(10));
