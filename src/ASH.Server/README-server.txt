@@ -52,7 +52,8 @@ ASH.Server - ASH 배포 서버 (최소판)
                       (장면 후보, 미리보기, 영상 한 편 순) 하므로 작업·영상과 AutoMod/AutoView 가 동시에 돌지 않고, 큰 작업이 돌면 미리보기는 그 뒤에 한다.
                       분석마다 Jobs:Dir\analyses\<id>\previews\ 에 미리보기 그림과 모델 복사본(work\)이 남는다. 분석을 지우면 함께 지워진다.
                     영상 촬영에는 로그온 세션 대리 실행기가 필요하다(서비스는 세션 0이라 화면이 없어 AutoView가 그리지 못함).
-                      영상용 계정으로 로그온해 관리자 명령 프롬프트에서 한 번:  "C:\Program Files\ASH.Server\ASH.Server.exe" --install-film-helper
+                      영상용 계정으로 로그온해 install-film-helper.bat 을 더블클릭(관리자 권한을 묻는다). 또는 관리자 명령 프롬프트에서:  "C:\Program Files\ASH.Server\ASH.Server.exe" --install-film-helper
+                      실패·취소된 영상(실패한 컷이 있는 영상 포함)은 영상 페이지의 "재시도"로 같은 설정으로 처음부터 다시 찍는다.
                       그 계정이 로그온해 있는 동안 AutoView만 그 화면에서 돈다. 자세한 내용은 docs\server-install.md 5절 "영상 촬영".
    를 확인한다. 환경 변수 Admin__Password 로 관리자 암호를 줄 수도 있다.
    설치 뒤에는 Admin:Password(관리자 암호)로 브라우저 http://서버:8082/admin/settings 에서 위 값을 바꿀 수 있다(아래 "웹 설정").

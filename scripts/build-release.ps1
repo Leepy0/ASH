@@ -1,6 +1,6 @@
 ﻿# Release build -> dist/ASH-Setup-<Version>.exe (single exe, plugin DLLs embedded), dist/ASH-Plugin-<Version>.zip (manual NETLOAD)
 # and dist/ASH-Runner-<Version>-win-x64.zip (ash-run.exe, self-contained single file: no .NET install needed)
-# and dist/ASH-Server-<Version>-win-x64.zip (ASH.Server.exe self-contained single file + appsettings.json + README-server.txt + install-service.bat/uninstall-service.bat).
+# and dist/ASH-Server-<Version>-win-x64.zip (ASH.Server.exe self-contained single file + appsettings.json + README-server.txt + install-service.bat/uninstall-service.bat/install-film-helper.bat).
 # Version comes from <Version> in Directory.Build.props.
 # Also dist/ASH.json (release manifest: version, minSupported, SHA-256/size of the Setup exe)
 # and dist/ASH.Server.json: version/SHA-256/size of the server zip (running servers replace themselves from it).
@@ -103,7 +103,7 @@ if ($havePub) { # the single-file exe bundles this assembly; the published one i
     if ($LASTEXITCODE) { throw "published ASH.Server does not embed update-key.pub" }
 }
 $serverZip = "$dist\ASH-Server-$version-win-x64.zip"
-Compress-Archive -Path "$serverPub\ASH.Server.exe", "$serverPub\appsettings.json", "$root\src\ASH.Server\README-server.txt", "$root\src\ASH.Server\install-service.bat", "$root\src\ASH.Server\uninstall-service.bat" -DestinationPath $serverZip -Force
+Compress-Archive -Path "$serverPub\ASH.Server.exe", "$serverPub\appsettings.json", "$root\src\ASH.Server\README-server.txt", "$root\src\ASH.Server\install-service.bat", "$root\src\ASH.Server\uninstall-service.bat", "$root\src\ASH.Server\install-film-helper.bat" -DestinationPath $serverZip -Force
 # ASH.Server.json / ASH.Runner.json (+ .sig): version, SHA-256 and size of a zip, signed with the same key.
 # A running server replaces itself from the first; the server hands the second to ash-run, which replaces itself from it.
 function New-PackageManifest($product, $zipPath, $name) {

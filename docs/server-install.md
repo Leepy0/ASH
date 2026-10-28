@@ -15,7 +15,7 @@
 
 **가장 쉬운 방법:** zip을 `C:\Program Files\ASH.Server`에 풀고 `install-service.bat`을 더블클릭한다(관리자 권한을 묻는다). 아래 3~5번(폴더 권한 잠금, 서비스 등록과 복구 설정, 방화벽 규칙)과 시작, 응답 확인을 한 번에 한다. 포트는 `appsettings.json`의 `Urls`에서 읽는다. `Releases:Dir`을 기본값에서 바꿨다면 그 폴더의 권한은 직접 잠근다. 제거는 `uninstall-service.bat`(배포 파일과 설정은 남긴다). 아래는 같은 일을 손으로 하는 방법이다.
 
-1. zip을 **`C:\Program Files\ASH.Server`** 에 푼다. `ASH.Server.exe`, `appsettings.json`, `README-server.txt`, `install-service.bat`, `uninstall-service.bat`이 나온다.
+1. zip을 **`C:\Program Files\ASH.Server`** 에 푼다. `ASH.Server.exe`, `appsettings.json`, `README-server.txt`, `install-service.bat`, `uninstall-service.bat`, `install-film-helper.bat`(영상 대리 실행기 등록, 5절)이 나온다.
 2. `appsettings.json`을 고친다.
    - `GitHub` — 새 릴리스 자동 가져오기(AGV_FOTA_GATEWAY와 같은 방식). 기본값 그대로 두면 된다.
      - `BaseUrl` 기본 `https://github.com/Leepy0/ASH`. 서버는 `<BaseUrl>/releases/latest/download/ASH.json`만 본다(api.github.com은 쓰지 않음). https만 받는다.
@@ -260,7 +260,7 @@ sc start ASH.Server
 
 1. **ffmpeg** — libx264와 drawtext(libfreetype)가 들어 있는 최신 빌드(gyan.dev의 full/essentials 등). 서버 서비스 계정의 `PATH`에 두거나 `Film:FfmpegPath`에 전체 경로를 적는다. AutoView도 MP4 변환에 PATH의 ffmpeg를 쓰므로, 전체 경로를 적으면 서버가 그 폴더를 AutoView 실행 환경의 PATH에 붙여 준다. 확인: `ffmpeg -hide_banner -encoders | findstr libx264`, `ffmpeg -hide_banner -filters | findstr drawtext` (둘 다 한 줄 이상 나와야 한다).
 2. **AutoView** — AutoMod 폴더의 `bin` 안에서 찾는다: AutoMod 12.6 이상은 `aview64.exe`, 12.4는 `aview.exe`(둘 다 있으면 `aview64.exe`). 다른 곳에 있으면 `Film:AviewExe`에 전체 경로를 적는다. AutoView 라이선스가 모델 실행과 같은 라이선스를 쓰므로 서버 PC에서 AutoMod 라이선스가 AutoView도 허용하는지 확인한다.
-3. **로그온 세션 대리 실행기(필수, 0.26.0)** — 서비스는 계정과 상관없이 세션 0(화면 없음)에서 돌아 AutoView가 그리지 못한다(진단 `서버 세션 0`, `보이는 창 없음`, 프레임 JPG 0개). 그래서 서비스는 그대로 두고 AutoView 렌더만 로그온한 사용자 세션의 `ASH.Server.exe --film-helper`가 한다. 영상용 계정으로 서버 PC에 로그온해 **관리자 권한 명령 프롬프트**에서 한 번 등록한다:
+3. **로그온 세션 대리 실행기(필수, 0.26.0)** — 서비스는 계정과 상관없이 세션 0(화면 없음)에서 돌아 AutoView가 그리지 못한다(진단 `서버 세션 0`, `보이는 창 없음`, 프레임 JPG 0개). 그래서 서비스는 그대로 두고 AutoView 렌더만 로그온한 사용자 세션의 `ASH.Server.exe --film-helper`가 한다. 영상용 계정으로 서버 PC에 로그온해 설치 폴더의 **`install-film-helper.bat`을 더블클릭**한다(관리자 권한을 묻는다. 관리자 암호가 다른 계정이어도 더블클릭한 계정으로 등록한다). 같은 일을 **관리자 권한 명령 프롬프트**에서 하려면:
    ```
    "C:\Program Files\ASH.Server\ASH.Server.exe" --install-film-helper
    ```
