@@ -176,8 +176,16 @@ public static class ExcelTemplate
                 routes.Add(new[] { name, r.Load[i], CpRoute.Pair(r.Unload, i), "", CpRoute.Pair(r.RtnLoad, i), CpRoute.Pair(r.RtnUnload, i), "0", "0" });
             }
         if (mats.Count > 0) { seed["Materials"] = mats; seed["Routes"] = routes; }
+        var conv = ConveyorRows(l, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+        if (conv.Count > 0) seed["Conveyors"] = conv;
         return seed;
     }
+
+    /// <summary>One Conveyors row per named AGV_CONV conveyor of the drawing not in <paramref name="have"/>: the name only. The material is the user's to pick
+    /// (the validator asks for it); takt, speed and capacity stay blank = their defaults; the use point comes from the drawing's AGVCONVUSE marker.</summary>
+    static List<string[]> ConveyorRows(ASH.Core.Layout.Layout l, HashSet<string> have) =>
+        l.Conveyors.Where(c => !c.GraphicOnly && c.Name.Length > 0).Select(c => c.Name).Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(have.Add).OrderBy(n => n, StringComparer.OrdinalIgnoreCase).Select(n => new[] { n, "", "", "", "", "", "" }).ToList();
 
     /// <summary>CP names in natural order: prefix, then the trailing number as a number (L2 before L10), then the name.</summary>
     internal static List<string> ByName(IEnumerable<string> names) =>
@@ -360,6 +368,13 @@ public static class ExcelTemplate
                     : $"Materials·Routes: load CP {sr[i][1]}의 자재 {name} 추가(T/T·임계값·unload CP 확인 필요)");
             }
         }
+        // named AGV_CONV conveyors without a Conveyors row get one (the sheet itself was added above when the workbook lacked it)
+        if (layout != null && wb.TryGetWorksheet("Conveyors", out var cws))
+            foreach (var row in ConveyorRows(layout, new HashSet<string>(Values(cws, "Conveyor"), StringComparer.OrdinalIgnoreCase)))
+            {
+                Append(cws, ColsOf("Conveyors"), row, log);
+                changes.Add($"Conveyors: 컨베이어 {row[0]} 추가(소비 자재 입력 필요)");
+            }
         ApplyLists(wb, log, layout);
         ApplyTotals(wb, log);
         ApplyAutoFill(wb, log);
