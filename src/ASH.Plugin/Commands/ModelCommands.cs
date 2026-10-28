@@ -50,7 +50,7 @@ public sealed class ModelCommands
             {
                 var doc = Application.DocumentManager.MdiActiveDocument;
                 ASH.Core.Layout.Layout? layout = null;
-                PathCommands.Run(doc, "AGVEXCEL", (db, tr) => { layout = DrawingReader.Read(db, tr); return false; }, refreshArrows: false);
+                PathCommands.Run(doc, "AGVEXCEL", (db, tr) => { using (PluginLog.Time("AGVEXCEL 도면 읽기")) layout = DrawingReader.Read(db, tr); return false; }, refreshArrows: false);
                 cpNames = layout?.Cps.Select(c => c.Name).ToList();
                 if (!made)
                 {
@@ -61,10 +61,14 @@ public sealed class ModelCommands
                 // both reads run at once, so a server that is down stalls the command once (≈5 s), not once per read
                 var serverUrl = UserSettings.Load().ServerUrl;
                 // one asset-name read serves the drop-down and the unknown-asset warning; null = server unset/down (no drop-down, no warning)
-                var namesTask = System.Threading.Tasks.Task.Run(() => AssetClient.AssetNames(serverUrl));
-                // 3 s cap, any failure = null: the template then keeps its one T_AGV row
-                var catalog = CatalogFetch.TryGet(serverUrl);
-                var assetNames = namesTask.GetAwaiter().GetResult();
+                IReadOnlyList<CatalogType>? catalog; IReadOnlyList<string>? assetNames;
+                using (PluginLog.Time("AGVEXCEL 서버 카탈로그"))
+                {
+                    var namesTask = System.Threading.Tasks.Task.Run(() => AssetClient.AssetNames(serverUrl));
+                    // 3 s cap, any failure = null: the template then keeps its one T_AGV row
+                    catalog = CatalogFetch.TryGet(serverUrl);
+                    assetNames = namesTask.GetAwaiter().GetResult();
+                }
                 ExcelTemplate.AssetListFormula = assetNames == null ? "" : string.Join(",", assetNames);
                 // said after the write succeeds, per mode: W builds a new form, U keeps the existing AGV_Types
                 string Filled() => catalog != null ? $"\n카탈로그 타입 {catalog.Count}개로 AGV_Types를 채웠습니다."
@@ -73,24 +77,35 @@ public sealed class ModelCommands
                 if (mode == "W") { ExcelTemplate.Write(path, layout, catalog); ed.WriteMessage(Filled()); }
                 else
                 {
-                    List<string> changes;
-                    try { changes = ExcelTemplate.Update(path, layout, catalog); }
-                    catch (System.Exception ex) when (!(ex is OperationCanceledException))
+                    List<string>? changes = null;
+                    // company document encryption (NASCA) lets only Excel read and write the file, and an Excel that has it open locks it:
+                    // the same update is worked out on the cells Excel reads, then Excel makes the edits and saves (the encryption stays on).
+                    // An encrypted file is known by its first bytes and goes to Excel at once, without the direct try that can only fail.
+                    if (!ExcelCom.Encrypted(path))
+                        try { using (PluginLog.Time("AGVEXCEL 직접 갱신")) changes = ExcelTemplate.Update(path, layout, catalog); }
+                        catch (System.Exception ex) when (!(ex is OperationCanceledException))
+                        {
+                            ed.WriteMessage("\n파일을 직접 고치지 못해(" + ex.GetType().Name + ") Excel로 갱신합니다…");
+                            PluginLog.Write("AGVEXCEL direct update failed", ex);
+                        }
+                    if (changes == null)
                     {
-                        // company document encryption (NASCA) lets only Excel read and write the file, and an Excel that has it open locks it:
-                        // the same update is worked out on the cells Excel reads, then Excel makes the edits and saves (the encryption stays on)
-                        ed.WriteMessage("\n파일을 직접 고치지 못해(" + ex.GetType().Name + ") Excel로 갱신합니다…");
-                        PluginLog.Write("AGVEXCEL direct update failed", ex);
                         var log = new List<ExcelEdit>();
-                        using (var wb = ExcelCom.Read(path, out _)) changes = ExcelTemplate.Update(wb, layout, log, catalog);
-                        ExcelCom.Apply(path, log);
+                        using (PluginLog.Time("AGVEXCEL Excel로 읽기·계산")) using (var wb = ExcelCom.Read(path, out _)) changes = ExcelTemplate.Update(wb, layout, log, catalog);
+                        using (PluginLog.Time($"AGVEXCEL Excel로 쓰기({log.Count}개)")) ExcelCom.Apply(path, log);
                     }
                     ed.WriteMessage(Filled());
                     foreach (var c in changes) ed.WriteMessage($"\n  {c}");
                     if (changes.Count == 0) ed.WriteMessage("\n  추가할 내용이 없습니다(드롭다운 목록만 다시 설정).");
                     if (catalog != null)
                     {
-                        try { foreach (var w in InputValidator.CatalogDiff(ExcelReader.Read(path, out _), catalog, assetNames)) ed.WriteMessage($"\n  경고: {w.Message}"); }
+                        try
+                        {
+                            ProjectInput now;
+                            if (ExcelCom.Encrypted(path)) using (var wb = ExcelCom.Read(path, out _)) now = ExcelReader.Read(wb, out _); // the kept Excel: no new start
+                            else now = ExcelReader.Read(path, out _);
+                            foreach (var w in InputValidator.CatalogDiff(now, catalog, assetNames)) ed.WriteMessage($"\n  경고: {w.Message}");
+                        }
                         catch (System.Exception ex) when (!(ex is OperationCanceledException)) { PluginLog.Write("AGVEXCEL catalog diff", ex); } // Excel may still hold the file: only the form was updated
                     }
                 }
@@ -149,13 +164,15 @@ public sealed class ModelCommands
     {
         try
         {
-            try { ExcelMarks.MarkFile(xlsx, findings); }
-            catch (System.Exception ex) when (!(ex is OperationCanceledException))
+            var direct = !ExcelCom.Encrypted(xlsx); // an encrypted file goes to Excel at once
+            if (direct)
+                try { using (PluginLog.Time("Excel 표시 직접")) ExcelMarks.MarkFile(xlsx, findings); }
+                catch (System.Exception ex) when (!(ex is OperationCanceledException)) { PluginLog.Write("Excel marks direct failed", ex); direct = false; }
+            if (!direct)
             {
-                PluginLog.Write("Excel marks direct failed", ex);
                 var log = new List<ExcelEdit>();
-                using (var wb = ExcelCom.Read(xlsx, out _)) ExcelMarks.Apply(wb, findings, log);
-                ExcelCom.Apply(xlsx, log);
+                using (PluginLog.Time("Excel 표시 읽기")) using (var wb = ExcelCom.Read(xlsx, out _)) ExcelMarks.Apply(wb, findings, log);
+                using (PluginLog.Time($"Excel 표시 쓰기({log.Count}개)")) ExcelCom.Apply(xlsx, log);
             }
             int e = findings.Count(f => f.Code == FindingCode.InputError && f.EntityId?.IndexOf('!') > 0), w = findings.Count(f => f.Code == FindingCode.InputWarning && f.EntityId?.IndexOf('!') > 0);
             ed.WriteMessage(e + w == 0 ? "\nExcel 표시: 없음" : $"\nExcel 표시: 오류 {e}건(빨강), 경고 {w}건(주황) — 칸의 메모에 내용이 있습니다.");
@@ -291,30 +308,37 @@ public sealed class ModelCommands
         ClosedXML.Excel.XLWorkbook? wb = null;
         try
         {
-            try { wb = ExcelReader.Open(xlsx); }
-            catch (System.Exception ex) when (!(ex is OperationCanceledException))
-            {
-                ed.WriteMessage("\nxlsx를 직접 읽지 못해(" + ex.GetType().Name + ") Excel로 읽습니다…");
-                PluginLog.Write("AGVMODEL direct read failed", ex);
+            // an encrypted file (not a zip) goes to Excel at once: the direct read can only fail, after reading the whole file
+            System.Exception? direct = null;
+            if (!ExcelCom.Encrypted(xlsx))
+                try { using (PluginLog.Time("Excel 직접 읽기")) wb = ExcelReader.Open(xlsx); }
+                catch (System.Exception ex) when (!(ex is OperationCanceledException))
+                {
+                    direct = ex;
+                    ed.WriteMessage("\nxlsx를 직접 읽지 못해(" + ex.GetType().Name + ") Excel로 읽습니다…");
+                    PluginLog.Write("AGVMODEL direct read failed", ex);
+                }
+            if (wb == null)
                 try
                 {
-                    wb = ExcelCom.Read(xlsx, out var note);
+                    string note;
+                    using (PluginLog.Time("Excel로 읽기")) wb = ExcelCom.Read(xlsx, out note);
                     if (note.Length > 0) ed.WriteMessage("\n" + note);
                 }
                 catch (System.Exception cex) when (!(cex is OperationCanceledException))
                 {
-                    ed.WriteMessage("\nExcel 읽기 오류: " + ex.Message);
-                    ed.WriteMessage("\nExcel로 읽기도 실패했습니다: " + cex.GetType().Name + ": " + cex.Message.Split('\n')[0].Trim());
-                    foreach (var line in ExcelDiagnosis.Explain(xlsx, ex)) ed.WriteMessage("\n  " + line);
+                    if (direct != null) ed.WriteMessage("\nExcel 읽기 오류: " + direct.Message);
+                    ed.WriteMessage("\nExcel로 읽기 실패: " + cex.GetType().Name + ": " + cex.Message.Split('\n')[0].Trim());
+                    foreach (var line in ExcelDiagnosis.Explain(xlsx, direct ?? cex)) ed.WriteMessage("\n  " + line);
                     PluginLog.Write("AGVMODEL Excel (COM) read failed", cex);
                     foreach (var line in ExcelDiagnosis.Inspect(xlsx)) PluginLog.Write("  " + line);
                     return null;
                 }
-            }
             ProjectInput input;
             try
             {
-                input = ExcelReader.Read(wb, out var xw);
+                List<Finding> xw;
+                using (PluginLog.Time("Excel 값 해석")) input = ExcelReader.Read(wb, out xw);
                 foreach (var w in xw) ed.WriteMessage("\nExcel 경고: " + w.Message);
             }
             catch (System.Exception ex) when (ex is FormatException || ex is InvalidOperationException || ex is ArgumentException)
@@ -322,7 +346,7 @@ public sealed class ModelCommands
                 ed.WriteMessage("\nExcel 읽기 오류: " + ex.Message); // names sheet, row and column when a value is the problem
                 return null;
             }
-            try { CellDump.Write(wb, Path.Combine(dir, CellDump.FileName)); }
+            try { using (PluginLog.Time("셀 스냅샷")) CellDump.Write(wb, Path.Combine(dir, CellDump.FileName)); }
             catch (System.Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
             { ed.WriteMessage("\n경고: 셀 스냅샷(" + CellDump.FileName + ")을 쓰지 못했습니다. ash-run이 암호화된 input.xlsx를 읽지 못할 수 있습니다: " + ex.Message); }
             return input;

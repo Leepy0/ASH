@@ -649,10 +649,11 @@ public sealed class PathCommands
             using (doc.LockDocument())
             using (var tr = doc.Database.TransactionManager.StartTransaction())
             {
-                InitCommands.Init(doc.Database, tr); // layers/blocks must exist before any Layer set or block insert
+                using (PluginLog.Time(cmd + " 준비")) InitCommands.Init(doc.Database, tr); // layers/blocks must exist before any Layer set or block insert
                 FinalStatus = null;
-                var changed = body(doc.Database, tr);
-                RefreshCpGroups(doc.Database, tr);
+                bool changed;
+                using (PluginLog.Time(cmd + " 본문")) changed = body(doc.Database, tr);
+                using (PluginLog.Time(cmd + " 그룹 목록")) RefreshCpGroups(doc.Database, tr);
                 if (!changed) { Ui.PaletteStatus.Set(FinalStatus ?? $"{cmd}: 변경 없음"); FinalStatus = null; return; }
                 if (refreshArrows) DrawingWriter.RefreshDirectionArrows(doc.Database, tr);
                 string? gaps = null;

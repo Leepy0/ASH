@@ -25,6 +25,19 @@ internal static class ExcelCom
     static int _appPid;
     static readonly System.Collections.Generic.Dictionary<string, object> _books = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>True when the file is not a zip (an .xlsx starts with "PK\x03\x04"): company document encryption, which only Excel opens. A file that
+    /// cannot be read here is left to the direct path (false), which reports the real error.</summary>
+    public static bool Encrypted(string path)
+    {
+        try
+        {
+            using var f = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            var b = new byte[4];
+            return f.Read(b, 0, 4) == 4 && !(b[0] == 0x50 && b[1] == 0x4B && b[2] == 3 && b[3] == 4);
+        }
+        catch (Exception e) when (e is IOException || e is UnauthorizedAccessException) { return false; }
+    }
+
     /// <summary>Keeps the hidden Excel of the following Read/Apply calls until the matching <see cref="End"/>. Nested pairs share the outer one.</summary>
     public static void Begin() => _depth++;
 

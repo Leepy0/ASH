@@ -39,6 +39,27 @@ public class RoutePairingTests
         Assert.Equal("U9", routes.Single(x => x[1] == "L9")[2]);
     }
 
+    [Fact]
+    public void Material_Form_Starts_As_One_The_Groups_Vehicle_Carries()
+    {
+        var seed = ExcelTemplate.Seed(OneLoadTwoUnloads(second: false));
+        var type = seed["AGV_Groups"][0][1];
+        var kind = seed["AGV_Types"].First(t => t[0] == type)[16];
+        Assert.Equal(VehicleKinds.Find(kind)!.Carries[0], seed["Materials"][0][14]);
+
+        // the workbook's own types count on update: an ANT (trolley lifting) group gets Trolley
+        var path = Path.Combine(Path.GetTempPath(), "ash_" + System.Guid.NewGuid().ToString("N") + ".xlsx");
+        try
+        {
+            ExcelTemplate.Write(path, OneLoadTwoUnloads(second: false));
+            using (var wb = ExcelReader.Open(path)) { wb.Worksheet("AGV_Types").Cell(3, 17).Value = "Ant"; wb.Save(); }
+            ExcelTemplate.Update(path, OneLoadTwoUnloads());
+            using (var wb = ExcelReader.Open(path))
+                Assert.Equal("Trolley", wb.Worksheet("Materials").Cell(4, 15).GetString()); // the new M002 row
+        }
+        finally { File.Delete(path); }
+    }
+
     static ASH.Core.Layout.Layout OneLoadTwoUnloads(bool second = true)
     {
         var l = new ASH.Core.Layout.Layout();
