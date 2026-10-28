@@ -1,8 +1,11 @@
+using System.IO;
+using System.Linq;
 using ASH.Core.Input;
 using ASH.Core.Layout;
 
 namespace ASH.Tests.Input;
 
+[Collection("ExcelTemplateStatics")]
 public class RoutePairingTests
 {
     static LayoutCp Cp(string name, string type, string group) => new() { Name = name, Type = type, Group = group };
@@ -34,6 +37,41 @@ public class RoutePairingTests
         var routes = ExcelTemplate.Seed(l)["Routes"];
         Assert.Equal("U1", routes.Single(x => x[1] == "L2")[2]);
         Assert.Equal("U9", routes.Single(x => x[1] == "L9")[2]);
+    }
+
+    static ASH.Core.Layout.Layout OneLoadTwoUnloads(bool second = true)
+    {
+        var l = new ASH.Core.Layout.Layout();
+        foreach (var c in new[] { Cp("S1", "standby", "1"), Cp("L1", "load", "1"), Cp("U1", "unload", "1"), Cp("RL1", "rtnload", "1"), Cp("RU1", "rtnunload", "1") }) l.Cps.Add(c);
+        if (second) { l.Cps.Add(Cp("U2", "unload", "1")); l.Cps.Add(Cp("RL2", "rtnload", "1")); }
+        return l;
+    }
+
+    [Fact]
+    public void More_Unloads_Than_Loads_Make_A_Route_Each_Reusing_The_Last_Load_And_Return()
+    {
+        var routes = ExcelTemplate.Seed(OneLoadTwoUnloads())["Routes"];
+        Assert.Equal(new[] { "L1 U1 RL1 RU1", "L1 U2 RL2 RU1" }, routes.Select(r => string.Join(" ", r[1], r[2], r[4], r[5])));
+    }
+
+    [Fact]
+    public void Update_Adds_The_Route_Of_A_New_Unload_For_A_Load_Already_In_The_Sheet()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "ash_" + System.Guid.NewGuid().ToString("N") + ".xlsx");
+        try
+        {
+            ExcelTemplate.Write(path, OneLoadTwoUnloads(second: false));
+            var changes = ExcelTemplate.Update(path, OneLoadTwoUnloads());
+            Assert.Single(changes, c => c.StartsWith("Materials·Routes"));
+            using (var wb = ExcelReader.Open(path))
+            {
+                var ws = wb.Worksheet("Routes");
+                var rows = ws.RowsUsed().Where(r => r.RowNumber() >= 3 && r.Cell(2).GetString().Length > 0).Select(r => r.Cell(2).GetString() + " " + r.Cell(3).GetString()).ToList();
+                Assert.Equal(new[] { "L1 U1", "L1 U2" }, rows);
+            }
+            Assert.Empty(ExcelTemplate.Update(path, OneLoadTwoUnloads()).Where(c => c.StartsWith("Materials·Routes"))); // nothing new the second time
+        }
+        finally { File.Delete(path); }
     }
 
     [Fact]

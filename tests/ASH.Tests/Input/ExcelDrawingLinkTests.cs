@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using ASH.Core.Geometry;
@@ -141,18 +141,18 @@ public class ExcelDrawingLinkTests
     }
 
     [Fact]
-    public void Recorded_Sequence_Gives_One_Material_Per_Load_Cp_Named_After_It()
+    public void Recorded_Sequence_Gives_One_M_Numbered_Material_Per_Load_Cp()
     {
         var path = Tmp();
         try
         {
             ExcelTemplate.Write(path, Recorded());
             var p = ExcelReader.Read(path);
-            Assert.Equal(new[] { "M001", "LA", "LB" }, p.Materials.Select(m => m.Material));  // L9 stays on the one-by-one pairing
+            Assert.Equal(new[] { "M001", "M002", "M003" }, p.Materials.Select(m => m.Material));  // L9 stays on the one-by-one pairing; every material is M###
             Assert.All(p.Materials, m => Assert.Equal("G1", m.Group));
-            var la = p.Routes.Single(r => r.Material == "LA");
+            var la = p.Routes.Single(r => r.SupplyFromCP == "LA");
             Assert.Equal(("LA", "UA", "RLA", "RUA"), (la.SupplyFromCP, la.SupplyToCP, la.ReturnFromCP, la.ReturnToCP));
-            var lb = p.Routes.Single(r => r.Material == "LB");
+            var lb = p.Routes.Single(r => r.SupplyFromCP == "LB");
             Assert.Equal(("UA", "RLA", "RUA"), (lb.SupplyToCP, lb.ReturnFromCP, lb.ReturnToCP));   // two loads, one unload: both go to it
             var one = p.Routes.Single(r => r.Material == "M001");
             Assert.Equal(("L9", "U9"), (one.SupplyFromCP, one.SupplyToCP));
@@ -174,9 +174,9 @@ public class ExcelDrawingLinkTests
             ExcelTemplate.Write(path, start);
             var changes = ExcelTemplate.Update(path, Recorded());
             var p = ExcelReader.Read(path);
-            Assert.Equal(new[] { "M001", "LA", "LB" }, p.Materials.Select(m => m.Material));
+            Assert.Equal(new[] { "M001", "M002", "M003" }, p.Materials.Select(m => m.Material));
             Assert.Equal("FN", p.Groups[0].FinishCP);
-            Assert.Contains(changes, c => c.Contains("자재 LA") && c.Contains("로딩 LA,LB") && c.Contains("완료 FN"));
+            Assert.Contains(changes, c => c.Contains("자재 M002") && c.Contains("로딩 LA,LB") && c.Contains("완료 FN"));
             Assert.Contains(changes, c => c.Contains("완료 CP FN"));
             Assert.Empty(ExcelTemplate.Update(path, Recorded()));                       // nothing left to add
             using (var wb = ExcelReader.Open(path)) { wb.Worksheet("AGV_Groups").Cell(3, 7).Value = "OWN"; wb.Save(); }
