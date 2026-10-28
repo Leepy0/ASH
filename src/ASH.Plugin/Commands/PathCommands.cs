@@ -714,7 +714,7 @@ public sealed class PathCommands
                 bool changed;
                 using (PluginLog.Time(cmd + " 본문")) changed = body(doc.Database, tr);
                 using (PluginLog.Time(cmd + " 그룹 목록")) RefreshCpGroups(doc.Database, tr);
-                using (PluginLog.Time(cmd + " 다음 할 일")) RefreshNextSteps(doc, tr);
+                QueueNextSteps(changed);
                 if (!changed) { Ui.PaletteStatus.Set(FinalStatus ?? $"{cmd}: 변경 없음"); FinalStatus = null; return; }
                 if (refreshArrows) DrawingWriter.RefreshDirectionArrows(doc.Database, tr);
                 string? gaps = null;
@@ -752,12 +752,35 @@ public sealed class PathCommands
         catch (System.Exception ex) { PluginLog.Write("CP group list", ex); }
     }
 
-    /// <summary>Hands the palette's "다음 할 일" list the drawing as the command left it (one read of the drawing, only while the panel exists). Never fails the command.</summary>
-    private static void RefreshNextSteps(Document doc, Transaction tr)
+    static bool _nextQueued, _nextFilled;
+
+    /// <summary>The palette's "다음 할 일" list is refilled once the command is over and ZWCAD is idle (a full read and check of the drawing must not
+    /// lengthen the command), coalescing several commands into one read, and only after a command that changed the drawing (or the first time).</summary>
+    private static void QueueNextSteps(bool changed)
     {
-        if (!Ui.NextStepsPanel.Wanted) return;
-        try { Ui.NextStepsPanel.Update(doc.Name, DrawingReader.Read(doc.Database, tr)); }
-        catch (System.Exception ex) { PluginLog.Write("다음 할 일 목록", ex); }
+        if (!Ui.NextStepsPanel.Wanted || (!changed && _nextFilled) || _nextQueued) return;
+        _nextQueued = true;
+        Application.Idle += NextStepsOnIdle;
+    }
+
+    private static void NextStepsOnIdle(object sender, EventArgs e)
+    {
+        Application.Idle -= NextStepsOnIdle;
+        _nextQueued = false;
+        var doc = Application.DocumentManager.MdiActiveDocument;
+        if (doc == null || !Ui.NextStepsPanel.Wanted) return;
+        try
+        {
+            using (PluginLog.Time("다음 할 일"))
+            using (doc.LockDocument())
+            using (var tr = doc.Database.TransactionManager.StartTransaction())
+            {
+                Ui.NextStepsPanel.Update(doc.Name, DrawingReader.Read(doc.Database, tr));
+                tr.Commit();
+            }
+            _nextFilled = true;
+        }
+        catch (System.Exception ex) { PluginLog.Write("다음 할 일 목록", ex); } // never fails anything: the list just stays as it was
     }
 
     /// <summary>Paths that were already selected when the command started (PICKFIRST). The selection is cleared so it does not linger.</summary>

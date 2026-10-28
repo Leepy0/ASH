@@ -10,8 +10,8 @@ using CoreLayout = ASH.Core.Layout.Layout;
 
 namespace ASH.Plugin.Ui;
 
-/// <summary>"다음 할 일": the list NextSteps.Of makes, for the top of the palette (<see cref="Create"/>). Filled after every ASH command
-/// (PathCommands.Run calls <see cref="Update"/> with the layout it read) and after a save (SaveCheck). A double click on an item that names a command sends it.</summary>
+/// <summary>"다음 할 일": the list NextSteps.Of makes, for the top of the palette (<see cref="Create"/>). Filled once ZWCAD is idle after an ASH command
+/// that changed the drawing (PathCommands.QueueNextSteps calls <see cref="Update"/>) and after a save (SaveCheck). A double click on an item that names a command sends it.</summary>
 internal static class NextStepsPanel
 {
     private const int MaxRows = 6;
@@ -31,7 +31,7 @@ internal static class NextStepsPanel
         var root = new Panel { Dock = DockStyle.Top, Margin = new Padding(0, 0, 0, 4) };
         root.Controls.Add(list); // Fill first: the docked edge then takes its space before it
         root.Controls.Add(head);
-        new ToolTip().SetToolTip(list, "더블클릭하면 그 명령을 실행 · 명령을 실행하거나 저장할 때마다 갱신");
+        new ToolTip().SetToolTip(list, "더블클릭하면 그 명령을 실행 · 도면을 바꾼 명령 뒤·저장 때 갱신");
         list.DoubleClick += (o, e) =>
         {
             int i = list.SelectedIndex;
