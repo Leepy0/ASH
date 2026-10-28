@@ -34,7 +34,7 @@
 | AGV_Groups | Group, Type(AGV_Types 목록에서 선택, 여러 그룹이 같은 타입을 써도 된다), MinCount(≥1), MaxCount(≥MinCount), StandbyCPs(쉼표 구분), Dispatch(Nearest / FIFO), FinishCP(선택) |
 | Materials | Material, Group(운반 그룹, AGV_Groups 목록), TaktTime(초, >0), UnitsPerCycle(소요 원수), UnitsPerContainer(용기당 자재 수량, ≥1), CallThreshold(호출 임계, 용기), Form(목록: Box / Pallet / Trolley), SupplyFromCP(load CP), SupplyToCP(unload CP), ReturnFromCP(rtnload CP, 선택), ReturnToCP(rtnunload CP, 선택), *Station(공정명, 메모), CallThresholdQty(호출 임계, 자재) → CallThresholdTotal(합계, 자동), UnloadThreshold(언로딩 임계, 용기) + UnloadThresholdQty(언로딩 임계, 자재) → UnloadThresholdTotal(합계, 자동), InitStock / SafetyStock(용기, `-` 또는 빈칸 = Settings 기본값), LoadLength / LoadWidth / LoadHeight(m, `-` 또는 빈칸 = 형태별 기본값), Flow(목록: Supply / Output, 빈칸 = Supply), Use(목록: Y / N, 빈칸 = Y. 아래 "자재 사용 여부"), BufferCP(buffer CP, 선택), ExtraTime(초), BufferWaitSec(버퍼 대기 허용, 초, 빈칸 = 0, ≥0)* |
 | *(예전 양식) Routes* | Material, SupplyFromCP, SupplyToCP, BufferCP, ReturnFromCP, ReturnToCP, ExtraTime, BufferWaitSec. 지금 양식은 이 열들이 Materials의 자재 행에 있다(자재당 경로 1개). 아래 "예전 양식의 Routes 시트" |
-| Conveyors (선택) | Conveyor(CAD 컨베이어 이름), Material(소비 자재), ProductTakt(제품 투입 간격, 초, 빈칸 = 60), UnitsPerProduct(제품 1개당 자재 수량, 빈칸 = 1), Speed(m/s, 빈칸 = 0.3), Capacity(동시에 올라갈 제품 수, 빈칸 = 길이로 자동), ConsumeAt(소비 지점, 폴리선 시작에서 m, 빈칸 = 끝). 아래 "컨베이어" |
+| Conveyors (선택) | Conveyor(CAD 컨베이어 이름), Material(소비 자재), ProductTakt(제품 투입 간격, 초, 빈칸 = 60), Speed(m/s, 빈칸 = 0.3), Capacity(동시에 올라갈 제품 수, 빈칸 = 길이로 자동), ConsumeAt(소비 지점, 폴리선 시작에서 m, 빈칸 = 끝). 아래 "컨베이어" |
 
 ## 도면 값으로 채운 양식
 
@@ -169,9 +169,9 @@ Materials의 SupplyFromCP / SupplyToCP / BufferCP / ReturnFromCP / ReturnToCP와
 CAD의 컨베이어(`AGV_CONV` 폴리선, `AGVCONV`로 이름을 붙인 것)가 자재를 소비하는 방식을 정한다. 시트는 비어 있어도 되고, 없어도 읽는다. 1행 헤더, 2행 설명, 3행부터 데이터이며 열은 머리글 이름으로 찾는다. 예시 행은 없다.
 
 - 한 행 = 컨베이어 하나. `Material`은 그 컨베이어가 소비하는 자재(Materials 목록에서 고른다). 한 자재를 컨베이어 둘이 소비할 수 없다.
-- 이 자재는 Materials의 `TaktTime`·`UnitsPerCycle`을 무시하고 `ProductTakt`·`UnitsPerProduct`를 쓴다(읽을 때 덮어쓰므로 Materials의 두 칸은 비워도 된다). 검증이 자재마다 정보 메시지로 알린다. 그래서 기대 소비량, 결품, 공급 상한 검증은 같은 식 그대로 컨베이어 값으로 계산된다.
+- 이 자재는 Materials의 `TaktTime`을 무시하고 `ProductTakt`를 쓴다(T/T 칸은 비워도 된다). 제품 1개당 자재 수량은 그 자재의 `UnitsPerCycle`(소요 원수)이다(예전 양식의 `UnitsPerProduct` 열은 읽지 않는다). 검증이 자재마다 정보 메시지로 알린다. 그래서 기대 소비량, 결품, 공급 상한 검증은 같은 식 그대로 컨베이어 값으로 계산된다.
 - Conveyors에 없는 자재는 지금처럼 Materials의 TaktTime으로 시간 소비한다.
-- 검증: 컨베이어 이름 중복, 이름·자재 비어 있음, Materials에 없는 자재(Use가 N인 자재의 컨베이어 행은 함께 빠진다), 자재 하나에 컨베이어 둘, `ProductTakt`·`UnitsPerProduct`·`Speed` ≤ 0, `Capacity` < 1(정수여야 함), `ConsumeAt` < 0은 오류이다. CAD에 그 이름의 컨베이어가 있는지는 여기서 보지 않는다.
+- 검증: 컨베이어 이름 중복, 이름·자재 비어 있음, Materials에 없는 자재(Use가 N인 자재의 컨베이어 행은 함께 빠진다), 자재 하나에 컨베이어 둘, `ProductTakt`·`Speed`·소비 자재의 소요 원수 ≤ 0, `Capacity` < 1(정수여야 함), `ConsumeAt` < 0은 오류이다. CAD에 그 이름의 컨베이어가 있는지는 여기서 보지 않는다.
 
 ## 생산 출하(Flow = Output)
 

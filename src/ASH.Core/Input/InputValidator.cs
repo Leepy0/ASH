@@ -210,7 +210,7 @@ public static class InputValidator
             var first = c.Material.Length == 0 ? -1 : input.Conveyors.FindIndex(x => x.Material == c.Material);
             if (first >= 0 && first < i) Err("Conveyors", c.Row, i, $"자재 '{c.Material}'을(를) 컨베이어 '{input.Conveyors[first].Conveyor}'과(와) '{c.Conveyor}'이(가) 함께 소비합니다(자재당 컨베이어 1개).");
             if (!(c.ProductTakt > 0)) Err("Conveyors", c.Row, i, $"컨베이어 '{c.Conveyor}'의 ProductTakt는 0보다 커야 합니다(비우면 60).");
-            if (!(c.UnitsPerProduct > 0)) Err("Conveyors", c.Row, i, $"컨베이어 '{c.Conveyor}'의 UnitsPerProduct는 0보다 커야 합니다(비우면 1).");
+            if (!(c.UnitsPerProduct > 0)) Err("Conveyors", c.Row, i, $"컨베이어 '{c.Conveyor}'가 소비하는 자재의 소요 원수(UnitsPerCycle)는 0보다 커야 합니다.");
             if (!(c.SpeedMps > 0)) Err("Conveyors", c.Row, i, $"컨베이어 '{c.Conveyor}'의 Speed는 0보다 커야 합니다(비우면 0.3).");
             if (c.Capacity.HasValue && c.Capacity.Value < 1) Err("Conveyors", c.Row, i, $"컨베이어 '{c.Conveyor}'의 Capacity는 1 이상이어야 합니다(비우면 길이로 자동).");
             if (c.ConsumeAtM.HasValue && !(c.ConsumeAtM.Value >= 0)) Err("Conveyors", c.Row, i, $"컨베이어 '{c.Conveyor}'의 ConsumeAt은 0 이상이어야 합니다(비우면 끝).");
@@ -218,7 +218,7 @@ public static class InputValidator
         foreach (var m in input.Materials.Where(m => m.ConveyorFed))
         {
             var c = input.Conveyors.First(x => x.Material == m.Material);
-            Warn("Materials", m.Row, input.Materials.IndexOf(m), $"자재 '{m.Material}': 컨베이어 '{c.Conveyor}'가 소비하므로 Materials의 TaktTime·UnitsPerCycle은 무시하고 Conveyors의 ProductTakt {F(c.ProductTakt)}초·UnitsPerProduct {F(c.UnitsPerProduct)}를 씁니다.");
+            Warn("Materials", m.Row, input.Materials.IndexOf(m), $"자재 '{m.Material}': 컨베이어 '{c.Conveyor}'가 소비하므로 Materials의 T/T는 무시하고 Conveyors의 ProductTakt {F(c.ProductTakt)}초를 씁니다. 제품 1개당 자재 수량 = 소요 원수 {F(c.UnitsPerProduct)}.");
         }
         for (int i = 0; i < input.Stations.Count; i++)
         {

@@ -63,7 +63,7 @@ public class UpdateBannerTests
         var r = await Act(env, "after");
         Assert.Equal("/films", r.RequestMessage!.RequestUri!.AbsolutePath); // back to the page the banner was on
         Assert.True(u.Armed);
-        Assert.Contains("작업 끝나면 업데이트 9.9.9", await Banner(env));
+        Assert.Contains("진행 탭이 비면 업데이트 9.9.9", await Banner(env));
         await Task.Delay(300);
         Assert.Empty(swaps); // the job is not cut off
         env.Runner.Gate.Set();
@@ -83,7 +83,7 @@ public class UpdateBannerTests
         env.Runner.Gate.Set(); await env.WaitFinished(id); await Task.Delay(300);
         Assert.Empty(swaps);
         var b = await Banner(env);
-        Assert.Contains("업데이트 9.9.9 준비됨", b); Assert.Contains("지금 업데이트", b); Assert.Contains("진행 중 작업 끝나고 업데이트", b);
+        Assert.Contains("업데이트 9.9.9 준비됨", b); Assert.Contains("지금 업데이트", b); Assert.Contains("진행 탭 작업 모두 끝나고 업데이트", b);
     }
 
     [Fact]

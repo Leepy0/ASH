@@ -18,28 +18,28 @@ public static class ExcelTemplate
             ("Type", "타입명", "T_EX"), ("SpeedLoaded", "적재 속도(m/s)", "1.0"), ("SpeedEmpty", "공차 속도(m/s)", "1.0"), ("Capacity", "용기 수", "1"),
             ("LoadTime", "로딩(초)", "20"), ("UnloadTime", "언로딩(초)", "20"), ("Length", "길이(m)", "1.2"), ("Width", "폭(m)", "0.8"), ("Kind", "형상(목록에서 선택)", "Standard"),
             ("Category", "분류(메모)", ""), ("SpeedLoadedCurve", "적재 곡선 속도(m/s, 빈칸=직선)", ""), ("SpeedEmptyCurve", "공차 곡선 속도(m/s, 빈칸=직선)", ""),
-            ("Accel", "가속(m/s²)", "0.3"), ("Decel", "감속(m/s²)", "0.3"), ("MTBF", "MTBF(초, 0=없음)", "0"), ("MTTR", "MTTR(초)", "0"), ("Color", "색상", "Blue"), ("Asset", "에셋(C에서 채움)", "")),
+            ("Accel", "가속(m/s²)", "0.3"), ("Decel", "감속(m/s²)", "0.3"), ("MTBF", "MTBF(초, 0=없음)", "0"), ("MTTR", "MTTR(초)", "0"), ("Color", "색상", "Blue"), ("Asset", "차량 그림(에셋 목록, 빈칸=기본)", "")),
         ("AGV_Groups",
             new[] { "Group", "Type", "MinCount", "MaxCount", "StandbyCPs", "Dispatch", "FinishCP" },
-            new[] { "그룹명", "AGV 타입", "최소 대수", "최대 대수", "대기 CP", "Nearest / FIFO", "작업 완료 CP" },
+            new[] { "그룹명", "AGV 타입", "최소 대수", "최대 대수", "대기 CP", "호출 기준", "작업 완료 CP" },
             new[] { "G_EX", "T_EX", "1", "3", "CP_STBY", "Nearest", "" }),
         // thresholds are containers + units (each may be blank: ExcelReader adds them up in containers); EmptyReturn follows the route's return CPs.
         // The route (an older template's Routes sheet) is on the material's row: one route per material.
         S("Materials",
             ("Material", "자재명", "M001"), ("Group", "운반 그룹", "G_EX"), ("TaktTime", "T/T(초)", "60"), ("UnitsPerCycle", "소요 원수", "1"), ("UnitsPerContainer", "용기당 자재 수량", "10"),
-            ("CallThreshold", "호출 임계(용기)", "4"), // Call 4 > Settings SafetyStock 2
-            ("Form", "형태(목록에서 선택)", "Box"), ("SupplyFromCP", "load CP", "CP_LOAD"), ("SupplyToCP", "unload CP", "CP_UNLOAD"),
+            ("CallThreshold", "호출 기준 (용기)", "4"), // Call 4 > Settings SafetyStock 2
+            ("Form", "형태", "Box"), ("SupplyFromCP", "load CP", "CP_LOAD"), ("SupplyToCP", "unload CP", "CP_UNLOAD"),
             ("ReturnFromCP", "rtnload CP(선택)", ""), ("ReturnToCP", "rtnunload CP(선택)", ""),
-            ("Station", "공정명(메모)", ""), ("CallThresholdQty", "호출 임계(자재)", ""), ("CallThresholdTotal", "호출 임계 합계(용기, 자동)", ""),
-            ("UnloadThreshold", "언로딩 임계(용기, 빈칸=1)", "1"), ("UnloadThresholdQty", "언로딩 임계(자재)", ""), ("UnloadThresholdTotal", "언로딩 임계 합계(용기, 자동)", ""),
-            ("InitStock", "초기재고(- : 기본값)", ""), ("SafetyStock", "안전재고(- : 기본값)", ""),
+            ("Station", "공정명(메모)", ""), ("CallThresholdQty", "호출 기준 (자재)", ""), ("CallThresholdTotal", "호출 기준 합계 (용기, 자동)", ""),
+            ("UnloadThreshold", "언로딩 기준 (용기)", "1"), ("UnloadThresholdQty", "언로딩 기준 (자재)", ""), ("UnloadThresholdTotal", "언로딩 기준 합계 (용기, 자동)", ""),
+            ("InitStock", "초기 재고", ""), ("SafetyStock", "안전재고", ""),
             ("LoadLength", "적재물 길이(m, - : 기본값)", ""), ("LoadWidth", "적재물 폭(m, - : 기본값)", ""), ("LoadHeight", "적재물 높이(m, - : 기본값)", ""),
-            ("Flow", "흐름(Supply 공급 / Output 빈 용기 공급+풀 용기 반출)", "Supply"), ("Use", "사용 여부 Y/N, 빈칸=Y", "Y"),
+            ("Flow", "흐름(Supply 공급 / Output 빈 용기 공급+풀 용기 반출)", "Supply"), ("Use", "사용 여부", "Y"),
             ("BufferCP", "buffer CP(선택)", ""), ("ExtraTime", "추가 시간(초)", "0"), ("BufferWaitSec", "버퍼 대기 허용(초, 넘는 시간만 비가동)", "0")),
         // optional sheet, no example row: a material named here is consumed by the conveyor's products instead of the takt clock
         ("Conveyors",
-            new[] { "Conveyor", "Material", "ProductTakt", "UnitsPerProduct", "Speed", "Capacity", "ConsumeAt" },
-            new[] { "컨베이어 이름(CAD)", "소비 자재(Materials의 이름)", "제품 투입 간격(초, 빈칸=60)", "제품 1개당 자재 수량(빈칸=1)", "속도(m/s, 빈칸=0.3)", "동시 제품 수(빈칸=길이로 자동)", "소비 지점(폴리선 시작에서 m, 빈칸=끝)" },
+            new[] { "Conveyor", "Material", "ProductTakt", "Speed", "Capacity", "ConsumeAt" },
+            new[] { "컨베이어 이름(CAD)", "소비 자재(Materials의 이름)", "제품 투입 간격(초, 빈칸=60)", "속도(m/s, 빈칸=0.3)", "동시 제품 수(빈칸=길이로 자동)", "소비 지점(폴리선 시작에서 m, 빈칸=끝)" },
             new string[0]),
     };
 
@@ -572,7 +572,7 @@ public static class ExcelTemplate
                 int n = named.Count(r => S(r, col).Length == 0 && !(col == "CallThreshold" && S(r, "CallThresholdQty").Length > 0)
                     && !((col == "TaktTime" || col == "UnitsPerCycle") && fed.Contains(S(r, cols[0]))));
                 var label = desc[Array.IndexOf(cols, col)];
-                if (n > 0) counts.Add($"{(label.IndexOf('(') > 0 ? label.Substring(0, label.IndexOf('(')) : label)} {n}칸");
+                if (n > 0) counts.Add($"{(label.IndexOf('(') > 0 ? label.Substring(0, label.IndexOf('(')) : label).Trim()} {n}칸");
             }
             if (counts.Count > 0) parts.Add($"{sheet} {string.Join(", ", counts)}");
         }

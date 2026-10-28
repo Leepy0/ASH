@@ -127,11 +127,11 @@ public static class ServerPages
             ".upd.armed{background:var(--orange-b);color:var(--orange)}.upd form{margin:0}.upd details{position:relative}.upd summary{list-style:none;cursor:pointer}.upd summary::-webkit-details-marker{display:none}" +
             ".upd .m{position:absolute;z-index:20;top:calc(100% + 6px);left:0;background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:6px;min-width:240px;box-shadow:0 4px 18px rgba(0,0,0,.15)}" +
             ".upd .m .btn{width:100%}.upd .w{color:var(--red);font-size:13px}</style>");
-        if (armed) return sb.Append($"<div class=\"upd armed\" role=\"status\"><b>작업 끝나면 업데이트 {H(version)}</b>{Act("cancel", "취소")}</div>").ToString();
+        if (armed) return sb.Append($"<div class=\"upd armed\" role=\"status\"><b>진행 탭이 비면 업데이트 {H(version)}</b>{Act("cancel", "취소")}</div>").ToString();
         sb.Append($"<div class=\"upd\" role=\"status\"><b>업데이트 {H(version)} 준비됨</b><details><summary class=\"btn pri\">업데이트</summary><div class=\"m\">");
         sb.Append(Act("now", "지금 업데이트"));
         if (busy) sb.Append("<span class=\"w\">실행 중 작업 중단 · 재시작 뒤 이어서</span>");
-        return sb.Append(Act("after", "진행 중 작업 끝나고 업데이트")).Append("</div></details></div>").ToString();
+        return sb.Append(Act("after", "진행 탭 작업 모두 끝나고 업데이트")).Append("</div></details></div>").ToString();
     }
 
     public static string Message(string title, string html, string? refreshTo = null) =>
