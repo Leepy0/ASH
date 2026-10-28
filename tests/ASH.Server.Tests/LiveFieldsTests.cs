@@ -17,7 +17,7 @@ public class LiveFieldsTests
     [Fact] public void Poll_Script_Uses_TextContent_Only()
     {
         var s = JobPages.PollScript("/api/home?me=1");
-        Assert.Contains("textContent", s); Assert.DoesNotContain("innerHTML", s); Assert.Contains("10000", s); Assert.Contains("60000", s); Assert.Contains("연결 끊김 · 다시 시도 중", s);
+        Assert.Contains("textContent", s); Assert.DoesNotContain("innerHTML", s); Assert.Contains("setInterval(tick,5000)", s); Assert.Contains("60000", s); Assert.Contains("연결 끊김 · 다시 시도 중", s);
         Assert.Contains("prev[id]==='queued'&&w[id]==='running'", s); Assert.Contains("location.reload()", s);
         Assert.Contains("!(id in w)&&(prev[id]==='queued'||prev[id]==='running')) ended=true", s); // a running/queued key that vanished counts as ended
     }
