@@ -88,17 +88,17 @@ public sealed class LimitWorker(JobStore jobs, IFilmAutoMod am, IConfiguration c
         if (!File.Exists(Req(jobs, j.Id))) return; // cancelled meanwhile
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(stop);
         lock (_gate) { _id = j.Id; _cts = cts; }
-        using var log = new StreamWriter(jobs.LogPath(j.Id), true, new UTF8Encoding(false)) { AutoFlush = true };
+        using var log = new StampedWriter(new StreamWriter(jobs.LogPath(j.Id), true, new UTF8Encoding(false)) { AutoFlush = true });
         try
         {
             var pct = ProductionLimit.Pcts[info.Steps.Count];
-            log.WriteLine($"[{SeoulTime.NowText}] 생산량 한계 +{pct}%");
+            log.WriteLine($"생산량 한계 +{pct}%");
             info.Steps.Add(Step(j, pct, log, cts.Token));
             info.Done = info.Steps.Count == ProductionLimit.Pcts.Count || info.Steps.Count(s => !s.Ok) >= ProductionLimit.MaxFails;
         }
         catch (OperationCanceledException)
         {
-            log.WriteLine($"[{SeoulTime.NowText}] 생산량 한계 중단");
+            log.WriteLine($"생산량 한계 중단");
             // a server stop keeps the request for the next start; a cancel deleted it (again here: a progress write may have raced it)
             if (!stop.IsCancellationRequested) TryDelete(Req(jobs, j.Id));
             return;
@@ -138,7 +138,7 @@ public sealed class LimitWorker(JobStore jobs, IFilmAutoMod am, IConfiguration c
         if (File.Exists(Req(js, id))) Save(Req(js, id), text);
     }
 
-    LimitStep Step(JobInfo j, int pct, StreamWriter log, CancellationToken ct)
+    LimitStep Step(JobInfo j, int pct, TextWriter log, CancellationToken ct)
     {
         var proj = jobs.ProjectDir(j.Id);
         var input0 = SearchJob.ReadInput(proj, TextWriter.Null, new List<string>(), out var err) ?? throw new InvalidOperationException(err);
@@ -174,7 +174,7 @@ public sealed class LimitWorker(JobStore jobs, IFilmAutoMod am, IConfiguration c
         finally { try { Directory.Delete(runsDir, true); } catch (Exception e) when (e is IOException or UnauthorizedAccessException) { } }
     }
 
-    static LimitStep Judged(int pct, SearchStep step0, ProjectInput input, Dictionary<string, int> counts, string runsDir, StreamWriter log)
+    static LimitStep Judged(int pct, SearchStep step0, ProjectInput input, Dictionary<string, int> counts, string runsDir, TextWriter log)
     {
         var bad = step0.VerdictsByGroup.Where(v => !v.Value.Ok).OrderBy(v => Order(v.Value.Rule)).ToList();
         if (bad.Count == 0) return new LimitStep(pct, true, "", "", "");

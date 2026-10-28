@@ -187,7 +187,7 @@ public static class FilmHelper
             try
             {
                 if (File.Exists(logPath) && new FileInfo(logPath).Length > 1_000_000) File.Move(logPath, logPath + ".old", true);
-                File.AppendAllText(logPath, $"[{ASH.Core.SeoulTime.NowText}] {s}{Environment.NewLine}");
+                File.AppendAllText(logPath, $"[{StampedWriter.Stamp()}] {s}{Environment.NewLine}");
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         }

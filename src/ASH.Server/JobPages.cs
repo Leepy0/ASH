@@ -291,7 +291,7 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
 /* warning (over the utilization limit only): orange, not the red of a failure */
 .kpi.wn{--c:var(--orange)}.wn,.sym.o{color:var(--orange)}tr.ow td{background:var(--orange-b)}.bar.o i{background:var(--orange)}
 .box table{width:100%}.box table.gt{width:auto}.gt th,.gt td{text-align:center}.gt th button{text-align:center}.box h2{margin-top:0}.box .t4{margin-top:6px}
-.maps{display:flex;flex-wrap:wrap;gap:18px}.zw{position:relative}.zw .zb{position:absolute;right:8px;bottom:30px;display:flex;gap:4px}.zw .zb button{min-height:32px;min-width:36px;padding:0 10px;background:#fff;border:1px solid var(--line2)}
+.maps{display:flex;flex-wrap:wrap;gap:18px}.zs{position:relative;display:inline-block;max-width:100%}.zs svg{display:block;max-width:100%;height:auto}.zs .zb{position:absolute;right:8px;bottom:8px;display:flex;gap:4px}.zs .zb button{min-height:32px;min-width:36px;padding:0 10px;background:#fff;border:1px solid var(--line2)}
 .curves{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px}.curves svg{width:100%;height:auto;border-radius:10px}
 .files{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:8px}.files .row{font-size:14px}.files .row .t>div{font-family:Consolas,monospace;font-size:14px}
 .jt td{padding:11px 10px}
@@ -696,7 +696,8 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
     /// <summary>Paths in grey, blocks coloured by a value (highest = red), CPs as dots. Model coordinates, y up.
     /// <paramref name="bounds"/> and <paramref name="hiValue"/> replace this view's own extent and colour maximum, so several maps can share one scale.</summary>
     /// <summary>Marks the map svg for AnalysisPages.FitScript (wheel zoom, drag pan, 맞춤).</summary>
-    static string ZoomSvg(string html) => html.Replace("<svg ", "<svg class=\"bm\" ", StringComparison.Ordinal);
+    // the svg gets its own box so the zoom buttons sit in its corner, whatever the title and legends around it take
+    static string ZoomSvg(string html) => html.Replace("<svg ", "<div class=\"zs\"><svg class=\"bm\" ", StringComparison.Ordinal).Replace("</svg>", "</svg></div>", StringComparison.Ordinal);
 
     internal static string Map(JobView v, string title, Func<BlockView, double> value, Func<double, string> label, double w = 520, double h = 360, bool topLabels = false,
         (double X0, double X1, double Y0, double Y1)? bounds = null, double? hiValue = null)

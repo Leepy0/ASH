@@ -149,9 +149,9 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
             TryDelete(req);
             return;
         }
-        using (var log = new StreamWriter(jobs.LogPath(j.Id), true, new UTF8Encoding(false)) { AutoFlush = true })
+        using (var log = new StampedWriter(new StreamWriter(jobs.LogPath(j.Id), true, new UTF8Encoding(false)) { AutoFlush = true }))
         {
-            log.WriteLine($"[{SeoulTime.NowText}] 장면 후보 찾기 (결론 대수 {delta:+0;-0;+0}대)");
+            log.WriteLine($"장면 후보 찾기 (결론 대수 {delta:+0;-0;+0}대)");
             FindScenes(j, j.Decided, delta, log);
         }
         // latest wins: a request that came in meanwhile (another delta) stays for the next round
@@ -287,8 +287,8 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
         _timeouts = 0;
         var dir = films.FilmDir(f.Id);
         Directory.CreateDirectory(dir);
-        using var log = new StreamWriter(Path.Combine(dir, "film.log"), true, new UTF8Encoding(false)) { AutoFlush = true };
-        void Say(string s) => log.WriteLine($"[{SeoulTime.NowText}] {s}");
+        using var log = new StampedWriter(new StreamWriter(Path.Combine(dir, "film.log"), true, new UTF8Encoding(false)) { AutoFlush = true });
+        void Say(string s) => log.WriteLine(s);
         string? error = null;
         var cancelled = false;
         using var cts = CancellationTokenSource.CreateLinkedTokenSource(stop);
