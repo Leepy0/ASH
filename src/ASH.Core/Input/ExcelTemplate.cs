@@ -37,8 +37,11 @@ public static class ExcelTemplate
             new string[0]),
     };
 
+    /// <summary>Columns most inputs never touch: grouped (Excel outline) and collapsed in the template, behind "+" (E1). <see cref="InputSchema"/> reports them.</summary>
+    internal static readonly (string Sheet, string Col)[] Advanced = { };
+
     /// <summary>Columns picked from a drop-down: a fixed list ("a,b") or the names in another sheet's first column (sheet name). Re-applied on every update.</summary>
-    static readonly (string Sheet, string Col, string Source)[] Lists =
+    internal static readonly (string Sheet, string Col, string Source)[] Lists =
     {
         ("AGV_Types", "Kind", string.Join(",", VehicleKinds.All.Select(k => k.Name))),
         ("AGV_Groups", "Type", "AGV_Types"),
@@ -72,7 +75,7 @@ public static class ExcelTemplate
     /// <summary>Cells that need no input get this light green fill (RGB E2EFDA; the header is light blue, the example row light gray): the formula
     /// columns above and the Settings description column. Rows 3..LastListRow, so rows typed in later are covered too.</summary>
     public const int AutoFillRgb = 0xE2EFDA;
-    static readonly (string Sheet, string Col)[] AutoCols = { ("Materials", "CallThresholdTotal"), ("Materials", "UnloadThresholdTotal"), ("Settings", "Description") };
+    internal static readonly (string Sheet, string Col)[] AutoCols ={ ("Materials", "CallThresholdTotal"), ("Materials", "UnloadThresholdTotal"), ("Settings", "Description") };
 
     public static readonly (string Key, string Value, string Desc)[] SettingsDefaults =
     {
@@ -518,7 +521,7 @@ public static class ExcelTemplate
 
     /// <summary>CP types in the order of their columns in the helper sheet (C = 3 ...), and the cells that drop down one of them.</summary>
     static readonly string[] CpListTypes = { "load", "unload", "buffer", "rtnload", "rtnunload", "standby", "finish" };
-    static readonly (string Sheet, string Col, string CpType)[] CpLists =
+    internal static readonly (string Sheet, string Col, string CpType)[] CpLists =
     {
         ("Routes", "SupplyFromCP", "load"), ("Routes", "SupplyToCP", "unload"), ("Routes", "BufferCP", "buffer"),
         ("Routes", "ReturnFromCP", "rtnload"), ("Routes", "ReturnToCP", "rtnunload"),
