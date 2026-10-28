@@ -18,12 +18,16 @@ public sealed class PluginEntry : IExtensionApplication
         PluginLog.Write("Initialize " + typeof(PluginEntry).Assembly.Location);
         try { HookRibbon(); }
         catch (System.Exception ex) { Debug.WriteLine("ASH ribbon: " + ex); PluginLog.Write("ribbon hook failed", ex); } // never throw from Initialize
+        try { SaveCheck.Hook(); }
+        catch (System.Exception ex) { PluginLog.Write("save check hook failed", ex); }
         try { StartUpdateCheck(); }
         catch (System.Exception ex) { Debug.WriteLine("ASH update: " + ex); }
     }
 
     public void Terminate()
     {
+        try { SaveCheck.Unhook(); }
+        catch (System.Exception ex) { Debug.WriteLine("ASH save check: " + ex); }
         try { UnhookRibbon(); }
         catch (System.Exception ex) { Debug.WriteLine("ASH ribbon: " + ex); }
         try { StopUpdateCheck(); }
