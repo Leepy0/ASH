@@ -133,8 +133,9 @@ public sealed class AshReleaseToolTests : IDisposable
             Assert.True(SemVersion.TryParse(n.Version, out _), n.Version);
             Assert.NotEmpty(n.Title); Assert.InRange(n.Lines.Count, 1, 6);
         }
-        Assert.Equal("0.31.0", f.Notes[0].Version);
-        Assert.True(f.Notes[0].Important); Assert.True(f.Notes.Find(n => n.Version == "0.30.0")!.Important);
+        // newest first, whatever the newest note is by now
+        for (int i = 1; i < f.Notes.Count; i++) { SemVersion.TryParse(f.Notes[i - 1].Version, out var a); SemVersion.TryParse(f.Notes[i].Version, out var b); Assert.True(a!.CompareTo(b) > 0); }
+        Assert.True(f.Notes.Find(n => n.Version == "0.31.0")!.Important); Assert.True(f.Notes.Find(n => n.Version == "0.30.0")!.Important);
     }
 
     [Fact] public void Bad_Usage_And_Inputs_Exit_1()
