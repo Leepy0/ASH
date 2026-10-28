@@ -22,6 +22,8 @@ public sealed class QueueInfo
     [DataMember(Name = "enabled")] public bool Enabled { get; set; }
     /// <summary>Film work holding the queue ("영상 촬영 중"), counted in Ahead; null when none (or a 0.18 server).</summary>
     [DataMember(Name = "busy")] public string? Busy { get; set; }
+    /// <summary>The server makes the model from the source package (layout.tsv ...); false when the key is absent (older server: it needs the .arc).</summary>
+    [DataMember(Name = "generates")] public bool Generates { get; set; }
 }
 
 /// <summary>POST /api/jobs success body.</summary>
