@@ -9,11 +9,12 @@ using ClosedXML.Excel;
 namespace ASH.Plugin.Ui;
 
 /// <summary>
-/// AGVINPUT's input table: one tab per input sheet, a grid whose columns are the sheet's own row-1 headers (labels from <see cref="InputSchema"/> when it knows the
+/// AGVINPUT's supply settings table ("공급 설정"): one tab per input sheet, a grid whose columns are the sheet's own row-1 headers (labels from <see cref="InputSchema"/> when it knows the
 /// column), so filling input.xlsx needs no Excel. Auto columns are read-only, advanced ones hidden until "고급 열", list and CP columns drop down (free text stays
 /// allowed: a CP may not be drawn yet). A pause after an edit re-runs the input checks on the workbook with the edits laid over it and colours the cells
 /// (red = error, orange = warning, blue = changed, the message as tooltip). "저장" hands the cell edits to the caller, which writes the file and gives the
-/// workbook back as saved. Touches no ZWCAD type and no Excel: the caller owns both.
+/// workbook back as saved. Rows are deleted, copied and pasted (tab-separated text, as Excel does) in the grid; "엑셀로 내보내기" / "엑셀에서 불러오기" write and read
+/// the table as a plain workbook. Touches no ZWCAD type and no Excel: the caller owns both.
 /// </summary>
 public sealed class InputDialog : Form
 {
@@ -35,6 +36,8 @@ public sealed class InputDialog : Form
     readonly IReadOnlyCollection<string> _cpNames;
     readonly Action<IReadOnlyList<CellEdit>> _apply;
     readonly Func<XLWorkbook> _read;
+    readonly Func<string, XLWorkbook> _readOther;
+    readonly string _path;
 
     XLWorkbook _wb;
     Dictionary<string, InputTable> _tables = new Dictionary<string, InputTable>();  // as read: the saved state every diff is against
@@ -61,11 +64,12 @@ public sealed class InputDialog : Form
     /// <param name="cpNames">All CP names of the drawing, for the checks.</param>
     /// <param name="apply">Writes the cell edits to the file (throws when it cannot).</param>
     /// <param name="read">Reads the file again after a save.</param>
+    /// <param name="readOther">Reads another workbook (plain or encrypted) for "엑셀에서 불러오기".</param>
     public InputDialog(string path, XLWorkbook wb, IReadOnlyDictionary<string, List<string>> cpsByType, IReadOnlyCollection<string> cpNames,
-        Action<IReadOnlyList<CellEdit>> apply, Func<XLWorkbook> read, string note = "")
+        Action<IReadOnlyList<CellEdit>> apply, Func<XLWorkbook> read, Func<string, XLWorkbook> readOther, string note = "")
     {
-        _wb = wb; _cps = cpsByType; _cpNames = cpNames; _apply = apply; _read = read; _note = note;
-        Text = "ASH 입력 표 · " + System.IO.Path.GetFileName(path);
+        _wb = wb; _cps = cpsByType; _cpNames = cpNames; _apply = apply; _read = read; _readOther = readOther; _note = note; _path = path;
+        Text = "ASH 공급 설정 · " + System.IO.Path.GetFileName(path);
         Font = Theme.Base;
         ForeColor = Theme.Text;
         BackColor = Theme.Panel;
@@ -120,19 +124,48 @@ public sealed class InputDialog : Form
     {
         var page = new TabPage(TabNames.TryGetValue(sheet, out var ko) ? $"{ko} ({sheet})" : sheet) { BackColor = Theme.Panel, UseVisualStyleBackColor = false };
         var g = MakeGrid();
-        var add = Flat("행 추가", Theme.Panel, Theme.Text);
-        add.Size = new Size(88, 28);
-        add.FlatAppearance.BorderColor = Color.FromArgb(209, 213, 219);
-        add.FlatAppearance.BorderSize = 1;
-        add.Location = new Point(8, 6);
-        add.Click += (o, e) => AddRow(sheet);
-        var count = new Label { AutoSize = true, ForeColor = Theme.Muted, Location = new Point(106, 11) };
-        var top = new Panel { Dock = DockStyle.Top, Height = 40, BackColor = Theme.Panel };
-        top.Controls.AddRange(new Control[] { add, count });
+        var count = new Label { AutoSize = true, ForeColor = Theme.Muted, Margin = new Padding(4, 7, 0, 0) };
+        var top = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 40, BackColor = Theme.Panel, Padding = new Padding(8, 6, 8, 0), WrapContents = false };
+        top.Controls.AddRange(new Control[]
+        {
+            Tool("행 추가", () => AddRow(sheet)), Tool("행 삭제", () => DeleteRows(sheet)),
+            Tool("엑셀로 내보내기", ExportExcel), Tool("엑셀에서 불러오기", ImportExcel), count,
+        });
         _grids[sheet] = g; _counts[sheet] = count;
+        g.ContextMenuStrip = MakeMenu(sheet);
         page.Controls.Add(g); // Fill first, then the top bar docks before it
         page.Controls.Add(top);
         return page;
+    }
+
+    static Button Tool(string text, Action click)
+    {
+        var b = new Button
+        {
+            Text = text, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, MinimumSize = new Size(88, 28), Padding = new Padding(8, 0, 8, 0),
+            Margin = new Padding(0, 0, 8, 0), FlatStyle = FlatStyle.Flat, BackColor = Theme.Panel, ForeColor = Theme.Text, Font = Theme.Base, Cursor = Cursors.Hand, UseVisualStyleBackColor = false,
+        };
+        b.FlatAppearance.BorderColor = Color.FromArgb(209, 213, 219);
+        b.FlatAppearance.BorderSize = 1;
+        b.Click += (o, e) => click();
+        return b;
+    }
+
+    ContextMenuStrip MakeMenu(string sheet)
+    {
+        var m = new ContextMenuStrip { Font = Theme.Base };
+        var del = m.Items.Add("행 삭제"); del.Click += (o, e) => DeleteRows(sheet);
+        var copy = m.Items.Add("복사"); copy.Click += (o, e) => CopyCells(sheet);
+        var paste = m.Items.Add("붙여넣기"); paste.Click += (o, e) => PasteCells(sheet);
+        var add = m.Items.Add("행 추가"); add.Click += (o, e) => AddRow(sheet);
+        m.Opening += (o, e) => paste.Enabled = ClipboardHasText();
+        return m;
+    }
+
+    static bool ClipboardHasText()
+    {
+        try { return Clipboard.ContainsText(); }
+        catch (System.Runtime.InteropServices.ExternalException) { return false; } // another program holds the clipboard
     }
 
     DataGridView MakeGrid()
@@ -141,8 +174,9 @@ public sealed class InputDialog : Form
         {
             Dock = DockStyle.Fill, Font = Theme.Base, BackgroundColor = Theme.Panel, BorderStyle = BorderStyle.None, GridColor = Color.FromArgb(229, 231, 235),
             AllowUserToAddRows = false, AllowUserToDeleteRows = false, AllowUserToResizeRows = false, AllowUserToOrderColumns = false,
-            RowHeadersVisible = false, SelectionMode = DataGridViewSelectionMode.CellSelect, MultiSelect = true,
-            EnableHeadersVisualStyles = false, ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize,
+            RowHeadersVisible = true, RowHeadersWidthSizeMode = DataGridViewRowHeadersWidthSizeMode.DisableResizing,
+            SelectionMode = DataGridViewSelectionMode.RowHeaderSelect, MultiSelect = true, ClipboardCopyMode = DataGridViewClipboardCopyMode.Disable, // copy and paste are ours (ProcessCmdKey)
+            EnableHeadersVisualStyles = false, ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.DisableResizing,
             AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None, CellBorderStyle = DataGridViewCellBorderStyle.SingleHorizontal,
         };
         g.ColumnHeadersDefaultCellStyle.BackColor = Theme.Bg;
@@ -150,8 +184,16 @@ public sealed class InputDialog : Form
         g.ColumnHeadersDefaultCellStyle.SelectionBackColor = Theme.Bg;
         g.ColumnHeadersDefaultCellStyle.SelectionForeColor = Theme.Text;
         g.ColumnHeadersDefaultCellStyle.WrapMode = DataGridViewTriState.True;
+        g.ColumnHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
+        g.RowHeadersDefaultCellStyle.BackColor = Theme.Bg;
+        g.RowHeadersDefaultCellStyle.ForeColor = Theme.Muted;
+        g.RowHeadersDefaultCellStyle.SelectionBackColor = Theme.Hover;
+        g.RowHeadersDefaultCellStyle.SelectionForeColor = Theme.Text;
+        g.RowHeadersDefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
+        g.DefaultCellStyle.Alignment = DataGridViewContentAlignment.MiddleCenter;
         g.DefaultCellStyle.SelectionBackColor = Theme.Hover;
         g.DefaultCellStyle.SelectionForeColor = Theme.Text;
+        g.CellMouseDown += OnRightDown;
         g.CellValueChanged += (o, e) => { if (!_busy && e.RowIndex >= 0) Touch(); };
         g.CellBeginEdit += OnBeginEdit;
         g.EditingControlShowing += OnEditing;
@@ -205,18 +247,22 @@ public sealed class InputDialog : Form
         try
         {
             g.Rows.Clear(); g.Columns.Clear();
+            // headers of two lines (the labels wrap, so the columns can be narrow) and a row-number column to select rows by
+            g.ColumnHeadersHeight = TextRenderer.MeasureText("가", Theme.Base).Height * 2 + Px(12);
+            g.RowHeadersWidth = Px(44);
             foreach (var c in t.Columns) g.Columns.Add(MakeColumn(c));
             g.Rows.AddRange(t.Rows.Select(r => NewRow(g, t, r.Row, r.Values)).ToArray());
             ApplyAdvanced(g);
             FitColumns(g, t);
             var first = g.Columns.Cast<DataGridViewColumn>().FirstOrDefault(c => c.Visible);
             if (first != null) first.Frozen = true; // the name column stays in view while scrolling right
-            _counts[sheet].Text = "행 " + g.Rows.Count;
+            Counted(sheet);
         }
         finally { g.ResumeLayout(); _busy = false; }
     }
 
-    // widths from the text (measured here: AutoResizeColumns does nothing for a grid on a tab that was never shown); a long header wraps instead of widening the column
+    // widths from the text (measured here: AutoResizeColumns does nothing for a grid on a tab that was never shown); the header wraps on two lines, so it asks for
+    // half its label (but never less than its longest word)
     void FitColumns(DataGridView g, InputTable t)
     {
         int Text(string s) => TextRenderer.MeasureText(s, Theme.Base).Width;
@@ -224,7 +270,8 @@ public sealed class InputDialog : Form
         {
             var col = g.Columns[i];
             int cells = t.Rows.Take(300).Select(r => Text(r.Values[i])).DefaultIfEmpty(0).Max() + Px(((ColTag)col.Tag).Combo ? 36 : 18);
-            int head = Math.Min(Text(col.HeaderText) + Px(18), Px(150));
+            int word = col.HeaderText.Split(' ').Max(w => Text(w));
+            int head = Math.Max(Text(col.HeaderText) / 2 + Px(22), word + Px(16));
             col.Width = Math.Max(Px(56), Math.Min(Px(260), Math.Max(cells, head)));
         }
     }
@@ -257,7 +304,7 @@ public sealed class InputDialog : Form
         _busy = true;
         try { g.Rows.Add(NewRow(g, t, 0, new string[t.Columns.Count])); }
         finally { _busy = false; }
-        _counts[sheet].Text = "행 " + g.Rows.Count;
+        Counted(sheet);
         var col = g.Columns.Cast<DataGridViewColumn>().FirstOrDefault(c => c.Visible && !c.ReadOnly);
         if (col != null)
         {
@@ -265,6 +312,216 @@ public sealed class InputDialog : Form
             g.BeginEdit(true);
         }
         Touch();
+    }
+
+    /// <summary>The row count of the tab and the numbers in the row headers, after the rows changed.</summary>
+    void Counted(string sheet)
+    {
+        var g = _grids[sheet];
+        for (int i = 0; i < g.Rows.Count; i++) g.Rows[i].HeaderCell.Value = (i + 1).ToString();
+        _counts[sheet].Text = "행 " + g.Rows.Count;
+    }
+
+    string SheetOf(DataGridView g) => _grids.First(kv => kv.Value == g).Key;
+
+    // ---------- delete / copy / paste ----------
+
+    static List<int> SelectedRowIndexes(DataGridView g)
+    {
+        var rows = new SortedSet<int>(g.SelectedCells.Cast<DataGridViewCell>().Select(c => c.RowIndex));
+        if (rows.Count == 0 && g.CurrentCell != null) rows.Add(g.CurrentCell.RowIndex);
+        return rows.ToList();
+    }
+
+    /// <summary>Takes out the rows of the selected cells. Nothing is written before "저장": a row that was in the file is then deleted there (the rows below move up).</summary>
+    void DeleteRows(string sheet)
+    {
+        var g = _grids[sheet];
+        g.EndEdit();
+        var rows = SelectedRowIndexes(g);
+        if (rows.Count == 0) return;
+        _busy = true;
+        try { for (int k = rows.Count - 1; k >= 0; k--) g.Rows.RemoveAt(rows[k]); }
+        finally { _busy = false; }
+        Counted(sheet);
+        if (g.Rows.Count > 0)
+        {
+            var col = g.Columns.Cast<DataGridViewColumn>().FirstOrDefault(c => c.Visible);
+            if (col != null) g.CurrentCell = g[col.Index, Math.Min(rows[0], g.Rows.Count - 1)];
+        }
+        Touch();
+        _note = $"행 {rows.Count} 삭제";
+    }
+
+    /// <summary>The selected cells as tab-separated text (the visible columns of the selection), the way Excel copies.</summary>
+    void CopyCells(string sheet)
+    {
+        var g = _grids[sheet];
+        var cells = g.SelectedCells.Cast<DataGridViewCell>().Where(c => c.OwningColumn.Visible).ToList();
+        if (cells.Count == 0 && g.CurrentCell != null) cells.Add(g.CurrentCell);
+        if (cells.Count == 0) return;
+        var rows = cells.Select(c => c.RowIndex).Distinct().OrderBy(r => r).ToList();
+        var cols = cells.Select(c => c.ColumnIndex).Distinct().OrderBy(c => g.Columns[c].DisplayIndex).ToList();
+        var sel = new HashSet<DataGridViewCell>(cells);
+        var matrix = rows.Select(r => (IReadOnlyList<string>)cols.Select(c => sel.Contains(g[c, r]) ? Convert.ToString(g[c, r].Value) ?? "" : "").ToList()).ToList();
+        try { Clipboard.SetText(GridText.Format(matrix)); }
+        catch (System.Runtime.InteropServices.ExternalException) { _note = "클립보드 사용 중"; RunCheck(); return; }
+        _note = $"복사 {cells.Count}칸";
+        RunCheck();
+    }
+
+    /// <summary>Puts clipboard text (tab-separated rows) into the grid from the current cell on; rows missing at the bottom are added, read-only (Auto) columns skipped.</summary>
+    void PasteCells(string sheet)
+    {
+        var g = _grids[sheet]; var t = _tables[sheet];
+        string text;
+        try { text = Clipboard.ContainsText() ? Clipboard.GetText() : ""; }
+        catch (System.Runtime.InteropServices.ExternalException) { _note = "클립보드 사용 중"; RunCheck(); return; }
+        var data = GridText.Parse(text);
+        if (data.Count == 0) { _note = "붙여넣을 내용 없음"; RunCheck(); return; }
+        g.EndEdit();
+        var cols = g.Columns.Cast<DataGridViewColumn>().Where(c => c.Visible).OrderBy(c => c.DisplayIndex).Select(c => c.Index).ToList();
+        if (cols.Count == 0) return;
+        var cur = g.CurrentCell;
+        int startRow = cur?.RowIndex ?? 0, startPos = cur == null ? 0 : Math.Max(0, cols.IndexOf(cur.ColumnIndex));
+        var (cells, need, skipped) = GridText.Plan(data, startRow, startPos, cols, c => !g.Columns[c].ReadOnly);
+        int added = Math.Max(0, need - g.Rows.Count);
+        _busy = true;
+        g.SuspendLayout();
+        try
+        {
+            while (g.Rows.Count < need) g.Rows.Add(NewRow(g, t, 0, new string[t.Columns.Count]));
+            g.ClearSelection();
+            foreach (var p in cells)
+            {
+                var cell = g[p.Col, p.Row];
+                if (cell is DataGridViewComboBoxCell cb && !cb.Items.Contains(p.Value)) cb.Items.Add(p.Value); // a value outside the list cannot be held otherwise
+                cell.Value = p.Value;
+                cell.Selected = true;
+            }
+        }
+        finally { g.ResumeLayout(); _busy = false; }
+        Counted(sheet);
+        Touch();
+        _note = $"붙여넣기 {cells.Count}칸" + (added > 0 ? $" · 행 {added} 추가" : "") + (skipped > 0 ? $" · 건너뜀 {skipped}" : "");
+    }
+
+    // a right click on a cell outside the selection selects it (a row header: the row) before the menu opens
+    void OnRightDown(object? sender, DataGridViewCellMouseEventArgs e)
+    {
+        var g = (DataGridView)sender!;
+        if (e.Button != MouseButtons.Right || e.RowIndex < 0) return;
+        if (e.ColumnIndex >= 0 ? g[e.ColumnIndex, e.RowIndex].Selected : g.Rows[e.RowIndex].Selected) return;
+        var first = g.Columns.Cast<DataGridViewColumn>().FirstOrDefault(c => c.Visible);
+        int col = e.ColumnIndex >= 0 ? e.ColumnIndex : first?.Index ?? -1;
+        if (col < 0) return;
+        g.CurrentCell = g[col, e.RowIndex]; // clears the selection
+        if (e.ColumnIndex < 0) g.Rows[e.RowIndex].Selected = true;
+    }
+
+    // Ctrl+C / Ctrl+V on the grid (not while a cell is being edited: the cell's own text box has them)
+    protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+    {
+        if ((keyData == (Keys.Control | Keys.C) || keyData == (Keys.Control | Keys.V)) && ActiveControl is DataGridView g && _grids.ContainsValue(g) && !g.IsCurrentCellInEditMode)
+        {
+            if (keyData == (Keys.Control | Keys.C)) CopyCells(SheetOf(g)); else PasteCells(SheetOf(g));
+            return true;
+        }
+        return base.ProcessCmdKey(ref msg, keyData);
+    }
+
+    // ---------- export / import ----------
+
+    List<InputTable> Current() => _order.Where(s => _tables.ContainsKey(s) && _grids[s].Columns.Count > 0).Select(FromGrid).ToList();
+
+    /// <summary>All tabs as they are now (unsaved edits too) to a plain .xlsx the user picks: names in row 1, labels in row 2, as in input.xlsx.</summary>
+    void ExportExcel()
+    {
+        CommitAll();
+        using var dlg = new SaveFileDialog
+        {
+            Title = "엑셀로 내보내기", Filter = "Excel (*.xlsx)|*.xlsx", DefaultExt = "xlsx", AddExtension = true, OverwritePrompt = true,
+            FileName = System.IO.Path.GetFileNameWithoutExtension(_path) + "_공급 설정.xlsx", InitialDirectory = System.IO.Path.GetDirectoryName(_path) ?? "",
+        };
+        if (dlg.ShowDialog(this) != DialogResult.OK) return;
+        if (string.Equals(System.IO.Path.GetFullPath(dlg.FileName), System.IO.Path.GetFullPath(_path), StringComparison.OrdinalIgnoreCase))
+        {
+            MessageBox.Show(this, "작업 중인 파일입니다. 다른 이름으로 내보내세요.", Text, MessageBoxButtons.OK, MessageBoxIcon.Information);
+            return;
+        }
+        Cursor = Cursors.WaitCursor;
+        try
+        {
+            var tables = Current();
+            using (PluginLog.Time("AGVINPUT 내보내기")) InputTable.ExportFile(dlg.FileName, tables);
+            _note = $"내보냄 {System.IO.Path.GetFileName(dlg.FileName)} · 시트 {tables.Count} · 행 {tables.Sum(t => t.Rows.Count)}";
+            RunCheck();
+        }
+        catch (Exception ex)
+        {
+            PluginLog.Write("AGVINPUT export failed", ex);
+            MessageBox.Show(this, "내보내지 못했습니다: " + ex.Message.Split('\n')[0].Trim(), Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally { Cursor = Cursors.Default; }
+    }
+
+    /// <summary>The values of a chosen workbook into the grids by sheet and column name; they stay unsaved edits until "저장".</summary>
+    void ImportExcel()
+    {
+        CommitAll();
+        using var dlg = new OpenFileDialog
+        {
+            Title = "엑셀에서 불러오기", Filter = "Excel (*.xlsx)|*.xlsx", CheckFileExists = true,
+            InitialDirectory = System.IO.Path.GetDirectoryName(_path) ?? "",
+        };
+        if (dlg.ShowDialog(this) != DialogResult.OK) return;
+        Cursor = Cursors.WaitCursor;
+        try
+        {
+            var current = Current();
+            InputTable.ImportReport rep; List<InputTable> result;
+            using (PluginLog.Time("AGVINPUT 불러오기"))
+            {
+                using var src = _readOther(dlg.FileName);
+                (result, rep) = InputTable.Import(current, src);
+            }
+            if (rep.Sheets > 0)
+            {
+                _busy = true;
+                try
+                {
+                    for (int i = 0; i < current.Count; i++)
+                        if (!ReferenceEquals(result[i], current[i])) ReplaceRows(current[i].Sheet, result[i]);
+                }
+                finally { _busy = false; }
+                Touch();
+            }
+            _note = rep.Sheets == 0 ? $"불러올 시트·열 없음 · {System.IO.Path.GetFileName(dlg.FileName)}"
+                : $"불러옴 {System.IO.Path.GetFileName(dlg.FileName)} · 시트 {rep.Sheets}/{rep.SheetsAsked} · 행 {rep.Rows} · 열 {rep.ColumnsMatched}"
+                  + (rep.ColumnsMissing > 0 ? $" · 없는 열 {rep.ColumnsMissing}" : "") + (rep.ColumnsIgnored > 0 ? $" · 무시한 열 {rep.ColumnsIgnored}" : "");
+            RunCheck();
+        }
+        catch (Exception ex)
+        {
+            PluginLog.Write("AGVINPUT import failed", ex);
+            MessageBox.Show(this, "불러오지 못했습니다: " + ex.Message.Split('\n')[0].Trim(), Text, MessageBoxButtons.OK, MessageBoxIcon.Error);
+        }
+        finally { Cursor = Cursors.Default; }
+    }
+
+    // the grid's rows become the table's rows (tags = Excel rows, 0 = added); the saved state stays what every diff is against
+    void ReplaceRows(string sheet, InputTable table)
+    {
+        var g = _grids[sheet]; var saved = _tables[sheet];
+        g.SuspendLayout();
+        try
+        {
+            g.Rows.Clear();
+            g.Rows.AddRange(table.Rows.Select(r => NewRow(g, saved, r.Row, r.Values)).ToArray());
+            FitColumns(g, table);
+        }
+        finally { g.ResumeLayout(); }
+        Counted(sheet);
     }
 
     // ---------- choices ----------
@@ -352,12 +609,13 @@ public sealed class InputDialog : Form
         if (g.BeginEdit(true) && g.EditingControl is ComboBox cb) cb.DroppedDown = true;
     }
 
-    // Delete empties the selected cells (a cleared cell is saved as empty)
+    // Delete on whole rows (selected by their number) deletes the rows; on cells it empties them (a cleared cell is saved as empty)
     void OnKeyDown(object? sender, KeyEventArgs e)
     {
         var g = (DataGridView)sender!;
         if (e.KeyCode != Keys.Delete || g.IsCurrentCellInEditMode) return;
-        foreach (DataGridViewCell c in g.SelectedCells) if (!c.OwningColumn.ReadOnly && !c.ReadOnly) c.Value = "";
+        if (g.SelectedRows.Count > 0) DeleteRows(SheetOf(g));
+        else foreach (DataGridViewCell c in g.SelectedCells) if (!c.OwningColumn.ReadOnly && !c.ReadOnly) c.Value = "";
         e.Handled = true;
     }
 
@@ -435,10 +693,12 @@ public sealed class InputDialog : Form
         foreach (var c in _painted)
             if (c.DataGridView != null) { c.Style.BackColor = Color.Empty; c.ToolTipText = ""; }
         _painted.Clear();
+        // the Excel row a grid row lands on once saved (rows below a deleted one move up)
+        var where = edited.ToDictionary(kv => kv.Key, kv => _tables[kv.Key].Positions(kv.Value));
         DataGridViewCell? At(string sheet, int row, int col)
         {
             if (!edited.TryGetValue(sheet, out var t)) return null;
-            int r = t.Rows.FindIndex(x => x.Row == row), c = t.Columns.ToList().FindIndex(x => x.Number == col);
+            int r = Array.IndexOf(where[sheet], row), c = t.Columns.ToList().FindIndex(x => x.Number == col);
             return r < 0 || c < 0 ? null : _grids[sheet][c, r];
         }
         foreach (var e in edits)
