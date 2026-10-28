@@ -922,7 +922,7 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
         else if (v?.InputError != null) sb.Append($"<tr><th>입력</th><td class=\"bad\">▲ {H(v.InputError)}</td></tr>");
         sb.Append("</table></div></div>");
         sb.Append("<div class=\"box\"><h2>작업</h2><div class=\"scroll\"><table>");
-        sb.Append($"<tr><th>작업</th><td>{H(j.Id)}</td></tr><tr><th>프로젝트 / 안</th><td>{H(j.Project)} / {H(j.Plan)}</td></tr><tr><th>모델</th><td>{H(j.Model)}</td></tr>");
+        sb.Append($"<tr><th>작업</th><td>{H(j.Id)}</td></tr><tr><th>프로젝트 / 안</th><td>{H(j.Project)} / {H(j.Plan)}</td></tr><tr><th>모델</th><td>{H(j.Model)}{(j.ServerGenerated ? " · 서버에서 생성" : "")}</td></tr>");
         sb.Append($"<tr><th>보낸 사람</th><td>{H(j.Submitter)} ({H(j.Ip)})</td></tr><tr><th>보낸 시각 / 시작 / 끝(서울)</th><td>{H(When(j.CreatedUtc))} / {H(When(j.StartedUtc))} / {H(When(j.FinishedUtc))}</td></tr>");
         sb.Append("</table></div></div>");
         sb.Append("<div class=\"box\"><h2>올린 파일</h2><div class=\"scroll\"><table><tr><th>파일</th><th>크기(바이트)</th><th>SHA-256</th></tr>");

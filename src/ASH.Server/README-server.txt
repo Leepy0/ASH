@@ -39,6 +39,9 @@ ASH.Server - ASH 배포 서버 (최소판)
                       영상(films\)과 컷 미리보기(analyses\<id>\previews\)는 정리 대상이 아니다.
                     Enabled false 면 작업을 받지 않는다. WorkerEnabled false 면 받기만 하고 실행하지 않는다.
                     주의: 올린 모델의 로직(user_ext.m 등)이 서버에서 AutoMod 로 컴파일·실행된다. 사내망에서만 연다.
+                    새 플러그인은 모델 대신 원본(layout.tsv, input.cells.tsv, ash.settings.tsv)을 보내고, 서버가 접수할 때 모델을 만든다.
+                      입력 오류는 400 과 오류 목록으로 돌려준다. 옛 플러그인의 모델 패키지도 그대로 받는다.
+                      다시 돌리기는 원본 작업이면 지금 서버 버전의 생성기로 모델을 다시 만든다(job.log 의 "모델 생성" 줄).
                     작업 대기열은 http://서버:8082/admin/jobs, 결과는 홈(/)·분석(/analyses)에서 본다. 취소는 보낸 PC(같은 IP)나 관리자 암호로만 된다.
                     상세 탭의 실행 목록에서 "받기"를 누르면 그 실행의 모델(빌드 출력이 남아 있으면 <모델>.exe·.dir 포함)과
                       params.txt, run.bat 을 zip 으로 받는다. AutoMod 가 있는 PC 에서 풀고 run.bat 을 누르면 그 실행을 창으로 본다.

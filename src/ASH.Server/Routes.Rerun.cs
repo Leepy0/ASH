@@ -1,5 +1,6 @@
 using System.IO.Compression;
 using ASH.Core.Runner;
+using ASH.Server.Catalog;
 
 namespace ASH.Server;
 
@@ -24,7 +25,7 @@ internal static partial class Routes
             return Results.Redirect($"/jobs/{id}");
         });
 
-        app.MapPost("/jobs/{id}/rerun", async (string id, HttpContext ctx, JobStore js, AnalysisStore analyses, ReleaseStore rs, IConfiguration cfg, CancellationToken ct) =>
+        app.MapPost("/jobs/{id}/rerun", async (string id, HttpContext ctx, JobStore js, AnalysisStore analyses, ReleaseStore rs, AssetStore assets, ServerUpdater updater, IConfiguration cfg, CancellationToken ct) =>
         {
             if (!AcceptsJobs(cfg)) return Msg(403, "이 서버는 작업을 받지 않습니다(Jobs:Enabled=false).");
             if (!JobStore.IsValidId(id) || js.Get(id) is not { } j) return Msg(404, "작업이 없습니다.");
@@ -64,11 +65,13 @@ internal static partial class Routes
                 using (var zip = ZipFile.Open(js.UploadPath(nid), ZipArchiveMode.Update))
                     foreach (var e in zip.Entries.Where(e => e.FullName.Replace('\\', '/').StartsWith("runs/", StringComparison.OrdinalIgnoreCase)).ToList()) e.Delete();
                 var files = JobPackage.Extract(js.UploadPath(nid), js.ProjectDir(nid), j.Model);
+                // a source package has no .arc: the current generator makes the model again
+                var generated = ServerModelGen.Run(js.ProjectDir(nid), j.Model, assets, updater.Current, js.LogPath(nid));
                 var job = new JobInfo
                 {
                     Id = nid, Model = j.Model, Project = j.Project, Plan = j.Plan, Submitter = j.Submitter, Ip = ClientIp(ctx),
                     CreatedUtc = DateTime.UtcNow, Impact = false, InitialReps = 1, Files = files.ToList(), UploadBytes = new FileInfo(js.UploadPath(nid)).Length,
-                    FixedCounts = counts, VersionNote = note,
+                    FixedCounts = counts, VersionNote = note, ServerGenerated = generated,
                 };
                 js.Add(job);
                 // a plan deleted meanwhile leaves the new job unclassified (it is already queued)

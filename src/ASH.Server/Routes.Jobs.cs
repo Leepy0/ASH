@@ -1,4 +1,5 @@
 using ASH.Core.Runner;
+using ASH.Server.Catalog;
 using Microsoft.AspNetCore.Http.Features;
 
 namespace ASH.Server;
@@ -18,10 +19,10 @@ internal static partial class Routes
         {
             var q = Queue(js, fw);
             return Results.Json(new { ahead = q.Ahead, estimatedStart = q.EstimatedStartUtc?.ToString("yyyy-MM-ddTHH:mm:ssZ", System.Globalization.CultureInfo.InvariantCulture),
-                typicalMinutes = q.Typical?.TotalMinutes, enabled = WorkerOn(cfg) && AcceptsJobs(cfg), busy = fw.Busy });
+                typicalMinutes = q.Typical?.TotalMinutes, enabled = WorkerOn(cfg) && AcceptsJobs(cfg), busy = fw.Busy, generates = true });
         });
 
-        app.MapPost("/api/jobs", async (HttpContext ctx, JobStore js, AnalysisStore analyses, FilmWorker fw, IConfiguration cfg, CancellationToken ct) =>
+        app.MapPost("/api/jobs", async (HttpContext ctx, JobStore js, AnalysisStore analyses, FilmWorker fw, AssetStore assets, ServerUpdater updater, IConfiguration cfg, CancellationToken ct) =>
         {
             if (!AcceptsJobs(cfg)) return Msg(403, "이 서버는 작업을 받지 않습니다(Jobs:Enabled=false).");
             if (!ctx.Request.HasFormContentType) return Msg(400, "multipart/form-data가 필요합니다.");
@@ -51,10 +52,12 @@ internal static partial class Routes
             {
                 await using (var fs = File.Create(js.UploadPath(id))) await pkg.CopyToAsync(fs, ct);
                 var files = JobPackage.Extract(js.UploadPath(id), js.ProjectDir(id), model);
+                var generated = ServerModelGen.Run(js.ProjectDir(id), model, assets, updater.Current, js.LogPath(id)); // a source package: the model is made here
                 var job = new JobInfo
                 {
                     Id = id, Model = model, Project = Field("project", 100), Plan = Field("plan", 100), Submitter = Field("submitter", 60), Ip = ClientIp(ctx),
                     CreatedUtc = DateTime.UtcNow, Impact = form["impact"].ToString() != "0", InitialReps = 1, Files = files.ToList(), UploadBytes = pkg.Length,
+                    ServerGenerated = generated,
                 };
                 if (job.Project.Length == 0) job.Project = model;
                 if (JobPackage.HasResults(js.ProjectDir(id)))

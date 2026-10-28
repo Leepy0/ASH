@@ -30,6 +30,8 @@ public sealed class JobInfo
     public string Project { get; set; } = "";
     public string Plan { get; set; } = "";
     public string Model { get; set; } = "";
+    /// <summary>The server made the model from a source package (ServerModelGen); false = the plugin sent the .arc.</summary>
+    public bool ServerGenerated { get; set; }
     public string Submitter { get; set; } = "";
     public string Ip { get; set; } = "";
     public string State { get; set; } = JobState.Queued;
