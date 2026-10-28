@@ -102,10 +102,10 @@ public sealed class AgvPaletteControl : UserControl
             Theme.Section("CP 속성"), detailed,
             Theme.Caption("GROUP"), group,
             Theme.Caption("접두어  (마지막 TYPE에 적용)"), prefix, Theme.Caption("CAP  (숫자 또는 INF = 무제한)"), cap,
-            Theme.Section("그룹 보기"), GroupView(tabs),
             Theme.Section("CP 편집"),
-            Theme.Make("선택 CP 편집", GlyphKind.Cp, "AGVCPEDIT"), Theme.Make("CP 번호 다시 매기기", GlyphKind.BlockNum, "AGVCPRENUM"), Theme.Make("CP 경로 따라 이동", GlyphKind.Offset, "AGVCPMOVE"),
-            Theme.Section("루트 보기"), RouteViewPanel()));
+            Theme.Make("선택 CP 편집", GlyphKind.Cp, "AGVCPEDIT"), Theme.Make("CP 번호 다시 매기기", GlyphKind.BlockNum, "AGVCPRENUM"), Theme.Make("CP 경로 따라 이동", GlyphKind.Offset, "AGVCPMOVE")));
+        // the two views of the placed CPs: their own tab keeps the CP tab short
+        tabs.TabPages.Add(Page("루트", Theme.Section("그룹 보기"), GroupView(tabs), Theme.Section("루트 보기"), RouteViewPanel()));
 
         tabs.TabPages.Add(Page("교통제어", Theme.Section("자동 생성"),
             Theme.Make("block 자동 생성", GlyphKind.Block, "AGVBLOCKAUTO"), Theme.Make("블록 채번", GlyphKind.BlockNum, "AGVBLOCKNUM"), Theme.Make("교통제어 자동 생성", GlyphKind.Traffic, "AGVTRAFFIC")));
@@ -266,7 +266,7 @@ public sealed class AgvPaletteControl : UserControl
             busy = false;
             info.Text = groups.Count == 0 ? "CP가 있는 그룹이 없습니다" : $"그룹 {groups.Count}개 · CP {groups.Sum(g => g.Count)}개";
         };
-        tabs.SelectedIndexChanged += (o, e) => { if (!loaded && tabs.SelectedTab?.Text == "CP") AgvPalette.Send("AGVFIND"); }; // AGVFIND ends in Run, which fills the list
+        tabs.SelectedIndexChanged += (o, e) => { if (!loaded && tabs.SelectedTab?.Text == "루트") AgvPalette.Send("AGVFIND"); }; // AGVFIND ends in Run, which fills the list
 
         var panel = new Panel { Height = 220, Margin = new Padding(0, 0, 0, 4) };
         panel.Controls.Add(list); // Fill first: the docked edges then take their space before it
