@@ -21,6 +21,7 @@ builder.Services.AddSingleton(sp =>
     var rs = sp.GetRequiredService<ReleaseStore>();
     return new RunnerStore(rs.Dir, rs.Key, sp.GetRequiredService<ILoggerFactory>().CreateLogger<RunnerStore>());
 });
+builder.Services.AddSingleton(sp => new NoticeStore(sp.GetRequiredService<JobStore>().Dir, sp.GetRequiredService<ILoggerFactory>().CreateLogger<NoticeStore>()));
 builder.Services.AddSingleton<ServerUpdater>();
 builder.Services.AddSingleton<GitHubSync>();
 builder.Services.AddHostedService(sp => sp.GetRequiredService<GitHubSync>());
@@ -289,6 +290,7 @@ app.MapFilms();
 app.MapPreview();
 app.MapAdminFs();
 app.MapNotify();
+app.MapNotices();
 app.MapLimit();
 
 app.Run();

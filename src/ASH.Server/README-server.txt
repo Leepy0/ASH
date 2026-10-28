@@ -174,6 +174,7 @@ ASH.Server - ASH 배포 서버 (최소판)
 - Runner(ash-run) 배포: GitHub 릴리스의 ASH.Runner.json 과 ASH-Runner-x.y.z-win-x64.zip 을 크기·SHA-256 확인 후 runner\ 폴더에 보관하고,
   분석 PC 의 ash-run 이 작업 시작 전에 /api/ash/runner 로 받은 매니페스트를 github.com 릴리스와 대조한 뒤(같을 때만) 스스로 교체한다.
   github.com 에 접속할 수 없거나 내용이 다르면 "update skipped: ..." 한 줄을 내고 지금 버전으로 작업을 계속한다. 설정 페이지 "Runner(ash-run)" 줄에서 확인한다.
+- 공지: 릴리스의 ASH.Notes.json(저장소 release-notes\ 폴더) 내용을 "검토 대기"로 가져온다. 관리 > 공지 탭에서 고치고 "공지"를 눌러야 PC 에 보인다. 자세한 내용은 docs\server-install.md 의 "공지".
 - 서명 키를 다시 쓰는 경우에만: 서버 exe 를 교체한 뒤 설정 페이지의 서명 키 ID 가 교체 전과 같은지 확인한다.
 - 롤백: publish-release.ps1 -Force 로 낮은 버전을 올려도 이미 새 버전을 쓰는 PC 는 내려가지 않는다(서버 버전이 더 낮다는 안내만 나온다).
   되돌리려면 옛 코드를 더 높은 버전 번호로 다시 빌드해 게시한다.

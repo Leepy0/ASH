@@ -40,7 +40,7 @@ public static class ServerPages
 .note{max-width:640px;margin:40px auto 0}
 </style>";
 
-    static readonly (string Key, string Name, string Href)[] Tabs = { ("jobs", "작업 현황", "/admin/settings"), ("catalog", "기준 정보", "/admin/types"), ("server", "서버 설정", "/admin/settings?tab=server") };
+    static readonly (string Key, string Name, string Href)[] Tabs = { ("jobs", "작업 현황", "/admin/settings"), ("catalog", "기준 정보", "/admin/types"), ("notices", "공지", "/admin/notices"), ("server", "서버 설정", "/admin/settings?tab=server") };
 
     /// <summary>The admin tab bar (a segmented control) shared by /admin/settings (작업 현황, 서버 설정) and /admin/types (기준 정보), with the logout button at its end.</summary>
     public static string AdminTabs(string on)

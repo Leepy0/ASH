@@ -100,6 +100,43 @@ public sealed class AshReleaseToolTests : IDisposable
         Assert.Equal(before, File.ReadAllText(P("k\\ash-signing.pem")));
     }
 
+    [Fact] public void Notes_Bundles_Every_Version_Newest_First_And_Warns_About_A_Missing_One()
+    {
+        Directory.CreateDirectory(P("rn"));
+        File.WriteAllText(P("rn\\0.9.0.md"), "# 아홉\n- 가\n", new UTF8Encoding(false));
+        File.WriteAllText(P("rn\\0.10.0.md"), "# 열\n중요\n- 나\n- 다\n", new UTF8Encoding(false));
+        File.WriteAllText(P("rn\\README.md"), "# 설명\n- 무시", new UTF8Encoding(false));
+        File.WriteAllText(P("rn\\memo.md"), "# 메모", new UTF8Encoding(false));
+        var r = Run("notes", "--dir", P("rn"), "--version", "0.11.0", "--out", P("ASH.Notes.json"));
+        Assert.Equal(0, r.rc); // a missing note for the released version only warns
+        Assert.Contains("0.11.0", r.o); Assert.Contains("memo.md", r.o);
+        var bytes = File.ReadAllBytes(P("ASH.Notes.json"));
+        Assert.NotEqual(0xEF, bytes[0]); // no BOM
+        var f = NotesFile.Parse(bytes);
+        Assert.Equal(new[] { "0.10.0", "0.9.0" }, f.Notes.ConvertAll(n => n.Version).ToArray()); // 0.10.0 is newer than 0.9.0
+        Assert.True(f.Notes[0].Important); Assert.Equal("열", f.Notes[0].Title); Assert.Equal(new[] { "나", "다" }, f.Notes[0].Lines.ToArray());
+        Assert.False(f.Notes[1].Important);
+        Assert.Equal(0, Run("notes", "--dir", P("none"), "--out", P("e.json")).rc); // no folder: an empty file, still a release asset
+        Assert.Empty(NotesFile.Parse(File.ReadAllBytes(P("e.json"))).Notes);
+    }
+
+    [Fact] public void The_Repos_Release_Notes_Parse()
+    {
+        var d = AppContext.BaseDirectory;
+        while (d != null && !Directory.Exists(Path.Combine(d, "release-notes"))) d = Path.GetDirectoryName(d);
+        Assert.NotNull(d);
+        Assert.Equal(0, Run("notes", "--dir", Path.Combine(d!, "release-notes"), "--out", P("real.json")).rc);
+        var f = NotesFile.Parse(File.ReadAllBytes(P("real.json")));
+        Assert.True(f.Notes.Count >= 11);
+        foreach (var n in f.Notes)
+        {
+            Assert.True(SemVersion.TryParse(n.Version, out _), n.Version);
+            Assert.NotEmpty(n.Title); Assert.InRange(n.Lines.Count, 1, 6);
+        }
+        Assert.Equal("0.31.0", f.Notes[0].Version);
+        Assert.True(f.Notes[0].Important); Assert.True(f.Notes.Find(n => n.Version == "0.30.0")!.Important);
+    }
+
     [Fact] public void Bad_Usage_And_Inputs_Exit_1()
     {
         Assert.Equal(1, Run().rc);

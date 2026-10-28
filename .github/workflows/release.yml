@@ -95,7 +95,7 @@ jobs:
         run: |
           function Fail($m) { Write-Host "::error title=릴리스 생성::$($m -replace '[\r\n]+',' ')"; exit 1 }
           $v = $env:VERSION
-          $files = "ASH-Setup-$v.exe","ASH.json","ASH.Server.json","ASH.Runner.json","ASH-Plugin-$v.zip","ASH-Runner-$v-win-x64.zip","ASH-Server-$v-win-x64.zip" | ForEach-Object { "dist\$_" }
+          $files = "ASH-Setup-$v.exe","ASH.json","ASH.Server.json","ASH.Runner.json","ASH.Notes.json","ASH-Plugin-$v.zip","ASH-Runner-$v-win-x64.zip","ASH-Server-$v-win-x64.zip" | ForEach-Object { "dist\$_" }
           $missing = $files | Where-Object { -not (Test-Path $_) }
           if ($missing) { Fail "자산 없음: $($missing -join ', ') / dist 내용: $((Get-ChildItem dist -Name) -join ', ')" }
           # 태그가 없으면 이 커밋에 만든다
