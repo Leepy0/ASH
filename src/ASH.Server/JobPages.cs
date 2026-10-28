@@ -239,7 +239,7 @@ fetch('/admin/update-banner',{credentials:'same-origin',cache:'no-store'}).then(
 </script>";
 
 
-    /// <summary>Polls <paramref name="url"/> every 10 s and sets the data-field/data-bar/data-state elements (textContent only); shows #reload-bar when a watched job/film ends.</summary>
+    /// <summary>Polls <paramref name="url"/> every 5 s and sets the data-field/data-bar/data-state elements (textContent only); shows #reload-bar when a watched job/film ends.</summary>
     public static string PollScript(string url, IReadOnlyDictionary<string, string>? initialWatch = null) => @"<script>
 (function(){
   var prev=" + (initialWatch == null ? "null" : System.Text.Json.JsonSerializer.Serialize(initialWatch)) + @", reloading=false, net=document.getElementById('net'), timer=null;
@@ -250,7 +250,8 @@ fetch('/admin/update-banner',{credentials:'same-origin',cache:'no-store'}).then(
       var f=d.fields||{};
       Object.keys(f).forEach(function(k){
         var v=String(f[k]);
-        if(/\.bar$/.test(k)) document.querySelectorAll(sel('data-bar',k)+' i').forEach(function(e){ e.style.width=v+'%'; });
+        // data-bar sits on the <i> itself (most bars) or on its box (home's running card)
+        if(/\.bar$/.test(k)) document.querySelectorAll(sel('data-bar',k)).forEach(function(e){ var i=e.tagName==='I'?e:e.querySelector('i'); if(i) i.style.width=v+'%'; });
         else if(/\.state$/.test(k)) document.querySelectorAll(sel('data-state',k)).forEach(function(e){ e.className='state s-'+v; });
         document.querySelectorAll(sel('data-field',k)).forEach(function(e){ e.textContent=v; });
       });
@@ -267,7 +268,7 @@ fetch('/admin/update-banner',{credentials:'same-origin',cache:'no-store'}).then(
       if(d.active===false) clearInterval(timer);
     }).catch(function(){ if(net) net.textContent='연결 끊김 · 다시 시도 중'; });
   }
-  timer=setInterval(tick,10000); tick();
+  timer=setInterval(tick,5000); tick();
 })();
 </script>";
 
