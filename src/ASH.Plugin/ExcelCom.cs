@@ -141,7 +141,11 @@ internal static class ExcelCom
         int pid = 0;
         try
         {
+            // the file this command already opened in the kept hidden Excel: straight to it (asking the running Excel below could hand back that same Excel)
+            if (_depth > 0 && _books.TryGetValue(full, out var already)) return work((dynamic)already, false);
             try { running = Marshal.GetActiveObject("Excel.Application"); } catch (COMException) { running = null; }
+            // the kept hidden Excel may be the one the system lists as running: it is not the user's, and releasing it below would cut it off for the rest of the command
+            if (running != null && _app != null && ReferenceEquals((object)running, (object)_app)) running = null;
             if (running != null)
                 foreach (dynamic b in running.Workbooks)
                 {
