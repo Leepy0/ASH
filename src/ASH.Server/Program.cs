@@ -34,7 +34,7 @@ builder.Services.AddSingleton(sp => new FilmStore(sp.GetRequiredService<JobStore
 builder.Services.AddSingleton<IFilmAutoMod, AutoModFilm>();
 // AutoView program, AutoMod folder and ffmpeg are read from the settings at each film run (see LiveFilmRenderer)
 builder.Services.AddSingleton<ASH.Core.Film.IFilmRenderer>(sp => new LiveFilmRenderer(sp.GetRequiredService<IConfiguration>(),
-    new FilmHelper.Client(FilmHelper.DirOf(sp.GetRequiredService<JobStore>().Dir), FilmHelper.Wake, TimeSpan.FromSeconds(30))));
+    new FilmHelper.Client(FilmHelper.DirOf(sp.GetRequiredService<JobStore>().Dir), FilmHelper.Wake, TimeSpan.FromSeconds(30), () => FilmHelper.Diagnose(FilmHelper.DirOf(sp.GetRequiredService<JobStore>().Dir)))));
 builder.Services.AddSingleton<LimitWorker>();
 builder.Services.AddSingleton<FilmWorker>();
 builder.Services.AddSingleton<JobWorker>();

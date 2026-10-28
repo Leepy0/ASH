@@ -30,6 +30,21 @@ public class FilmHelperTests : IDisposable
     }
 
     [Fact]
+    public void No_Helper_Error_Carries_The_Diagnosis()
+    {
+        var dir = FilmHelper.DirOf(_jobs);
+        Directory.CreateDirectory(dir);
+        File.WriteAllText(Path.Combine(dir, "helper.log"), "[2026-10-28 10:00:00.000] 시작: 세션 1\n");
+        var why = FilmHelper.Diagnose(dir); // this PC has no ASH.FilmHelper task (or one of another test run): it must still answer, never throw
+        Assert.Contains("신호 파일 없음", why);
+        Assert.Contains("기록: [2026-10-28 10:00:00.000] 시작: 세션 1", why);
+        var res = new FilmHelper.Client(dir, null, TimeSpan.FromMilliseconds(200), () => "진단 내용").Render(Path.Combine(_jobs, "w"), "agv", "x", TimeSpan.FromMinutes(1), CancellationToken.None);
+        Assert.False(res.Ok);
+        Assert.StartsWith(FilmHelper.NotRunning, res.Error);
+        Assert.EndsWith("[진단] 진단 내용", res.Error);
+    }
+
+    [Fact]
     public async Task A_Render_Goes_To_The_Helper_And_Its_Result_Comes_Back()
     {
         var work = Path.Combine(_jobs, "films", "f1", "job1");

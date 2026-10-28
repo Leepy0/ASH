@@ -63,23 +63,72 @@ public static class FilmHelper
     public const string NotRunning = "로그온 세션의 AutoView 대리 실행기가 돌고 있지 않습니다. 서버는 서비스(세션 0)라 화면이 없어 AutoView가 그리지 못합니다. " +
         "서버 PC에 영상용 계정이 로그온해 있어야 하고, 처음 한 번 그 계정의 관리자 명령 프롬프트에서 \"ASH.Server.exe " + InstallArg + "\"로 등록합니다(docs\\server-install.md \"영상 촬영\").";
 
-    /// <summary>The service side: one render handed to the helper and waited for. Never throws for a failed run, like <see cref="IFilmRenderer.Render"/>.</summary>
-    public sealed class Client(string dir, Action? wake, TimeSpan startWait)
+    /// <summary>Why no helper beats, as words for the error: the task as Windows sees it, who is logged on, the last heartbeat and helper.log's last line.
+    /// Each part on its own: one that cannot be read is left out. Never throws.</summary>
+    public static string Diagnose(string dir)
+    {
+        var parts = new List<string>();
+        try
+        {
+            // Task Scheduler COM: numbers and names, not schtasks' localized text
+            dynamic svc = Activator.CreateInstance(Type.GetTypeFromProgID("Schedule.Service")!)!;
+            svc.Connect();
+            dynamic t = svc.GetFolder(@"\").GetTask(TaskName);
+            int state = t.State, last = t.LastTaskResult;
+            string user = t.Definition.Principal.UserId;
+            DateTime run = t.LastRunTime;
+            var st = state switch { 1 => "사용 안 함", 2 => "대기", 3 => "준비", 4 => "실행 중", _ => state.ToString() };
+            parts.Add($"작업 {TaskName}: {st} · 계정 {user} · 마지막 실행 {(run.Year < 2000 ? "없음" : run.ToString("yyyy-MM-dd HH:mm"))} · 결과 0x{last:X}");
+        }
+        catch (Exception e) when (e is FileNotFoundException || (uint)e.HResult == 0x80070002) { parts.Add($"작업 {TaskName} 없음(등록 필요)"); }
+        catch (Exception e) { parts.Add("작업 상태 읽기 실패: " + e.Message); } // a diagnosis must never be the error
+        try
+        {
+            var psi = new ProcessStartInfo("query.exe") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+            psi.ArgumentList.Add("user");
+            using var p = Process.Start(psi)!;
+            var lines = p.StandardOutput.ReadToEnd().Split('\n').Skip(1).Select(l => l.Trim().TrimStart('>').Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault()).Where(n => n is { Length: > 0 }).ToList();
+            p.WaitForExit(5000);
+            parts.Add(lines.Count == 0 ? "로그온한 사용자 없음" : "로그온: " + string.Join(", ", lines));
+        }
+        catch (Exception e) when (e is System.ComponentModel.Win32Exception or InvalidOperationException or IOException) { }
+        try
+        {
+            var beat = Path.Combine(dir, BeatFile);
+            if (!File.Exists(beat)) parts.Add("신호 파일 없음(대리 실행기가 한 번도 안 떴거나 시작하자마자 끝남)");
+            else
+            {
+                var f = File.ReadAllText(beat).Split('|');
+                var age = long.TryParse(f[0], out var ticks) ? DateTime.UtcNow - new DateTime(ticks, DateTimeKind.Utc) : (TimeSpan?)null;
+                parts.Add($"마지막 신호 {(age is { } a ? (a.TotalHours >= 1 ? $"{a.TotalHours:0.#}시간" : $"{a.TotalSeconds:0}초") + " 전" : "읽기 실패")}{(f.Length > 2 ? " · 세션 " + f[2] : "")}");
+            }
+            var log = Path.Combine(dir, "helper.log");
+            if (File.Exists(log) && File.ReadLines(log).LastOrDefault(l => l.Trim().Length > 0) is { } l) parts.Add("기록: " + (l.Length > 200 ? l[..200] : l));
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        return string.Join(" / ", parts);
+    }
+
+    /// <summary>The service side: one render handed to the helper and waited for. Never throws for a failed run, like <see cref="IFilmRenderer.Render"/>.
+    /// <paramref name="why"/> adds <see cref="Diagnose"/>'s facts to the "not running" error.</summary>
+    public sealed class Client(string dir, Action? wake, TimeSpan startWait, Func<string>? why = null)
     {
         DateTime _missingUtc = DateTime.MinValue;
+        string _missingWhy = "";
 
         public RenderResult Render(string workDir, string model, string script, TimeSpan timeout, CancellationToken ct)
         {
             static RenderResult Fail(string e, bool timedOut = false) => new(false, null, e, Array.Empty<string>(), timedOut);
+            string Missing() => _missingWhy.Length > 0 ? NotRunning + " [진단] " + _missingWhy : NotRunning;
             // no helper a moment ago: fail at once instead of waiting again for every cut of the film
             if (!Alive(dir, DateTime.UtcNow))
             {
-                if (DateTime.UtcNow - _missingUtc < TimeSpan.FromMinutes(2)) return Fail(NotRunning);
+                if (DateTime.UtcNow - _missingUtc < TimeSpan.FromMinutes(2)) return Fail(Missing());
                 wake?.Invoke();
                 var w = Stopwatch.StartNew();
                 while (!Alive(dir, DateTime.UtcNow))
                 {
-                    if (w.Elapsed > startWait) { _missingUtc = DateTime.UtcNow; return Fail(NotRunning); }
+                    if (w.Elapsed > startWait) { _missingUtc = DateTime.UtcNow; _missingWhy = why?.Invoke() ?? ""; return Fail(Missing()); }
                     if (ct.WaitHandle.WaitOne(500)) return Fail("취소되었습니다.");
                 }
             }
