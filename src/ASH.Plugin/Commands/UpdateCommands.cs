@@ -44,7 +44,7 @@ public sealed class UpdateCommands
         PaletteStatus.Set(text);
     }
 
-    private static void RunUpdate(Editor ed)
+    internal static void RunUpdate(Editor ed)
     {
         ed.WriteMessage("\n" + UpdateMessages.Current(UpdateNotifier.CurrentVersion));
         var (key, keyErr) = UpdateNotifier.LoadKey();

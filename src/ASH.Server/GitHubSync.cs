@@ -25,6 +25,7 @@ public sealed class GitHubSync : BackgroundService
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly ServerUpdater? _updater;
     private readonly RunnerStore? _runner;
+    private readonly NoticeStore? _notices;
 
     /// <summary>Null when the pull is off (GitHub:Enabled=false).</summary>
     public string? BaseUrl { get; }
@@ -33,18 +34,20 @@ public sealed class GitHubSync : BackgroundService
     public IReadOnlyList<IPAddress> DnsServers { get; private init; } = [];
     public string LastResult { get; private set; } = "아직 확인하지 않음";
     public string RunnerResult { get; private set; } = "아직 확인하지 않음";
+    public string NotesResult { get; private set; } = "아직 확인하지 않음";
     public DateTime? LastCheckUtc { get; private set; }
 
-    public GitHubSync(ReleaseStore store, RunnerStore runner, ServerUpdater updater, IConfiguration cfg, ILogger<GitHubSync> log)
+    public GitHubSync(ReleaseStore store, RunnerStore runner, ServerUpdater updater, NoticeStore notices, IConfiguration cfg, ILogger<GitHubSync> log)
         : this(store, cfg.GetValue("GitHub:Enabled", true) ? Url(cfg["GitHub:BaseUrl"]) : null,
-               TimeSpan.FromMinutes(Math.Max(0, cfg.GetValue("GitHub:CheckIntervalMin", 60))), new HttpClient(Handler(cfg["GitHub:Proxy"], DnsLookup.ParseServers(cfg["GitHub:Dns"]))), log, updater, runner)
+               TimeSpan.FromMinutes(Math.Max(0, cfg.GetValue("GitHub:CheckIntervalMin", 60))), new HttpClient(Handler(cfg["GitHub:Proxy"], DnsLookup.ParseServers(cfg["GitHub:Dns"]))), log, updater, runner, notices)
         => DnsServers = DnsLookup.ParseServers(cfg["GitHub:Dns"]);
 
-    internal GitHubSync(ReleaseStore store, string? baseUrl, TimeSpan interval, HttpClient http, ILogger log, ServerUpdater? updater = null, RunnerStore? runner = null)
+    internal GitHubSync(ReleaseStore store, string? baseUrl, TimeSpan interval, HttpClient http, ILogger log, ServerUpdater? updater = null, RunnerStore? runner = null, NoticeStore? notices = null)
     {
         _store = store;
         _updater = updater;
         _runner = runner;
+        _notices = notices;
         BaseUrl = baseUrl;
         Interval = interval;
         _http = http;
@@ -124,8 +127,24 @@ public sealed class GitHubSync : BackgroundService
         if (LastResult.StartsWith("거절") || LastResult.StartsWith("실패")) _log.LogWarning("GitHub 릴리스 확인 {Result}", LastResult);
         else _log.LogInformation("GitHub 릴리스 확인 {Result}", LastResult);
         await CheckRunnerAsync(ct);
+        await CheckNotesAsync(ct);
         // the server's own update last: it may stop this process
         if (_updater != null) await _updater.CheckAsync(_http, BaseUrl, ct);
+    }
+
+    // ASH.Notes.json of the latest release (every version's notes): into the store as drafts, an admin approves them. 404 = an older release without notes.
+    private async Task CheckNotesAsync(CancellationToken ct)
+    {
+        if (_notices == null || BaseUrl == null) return;
+        try
+        {
+            var json = await GetSmall(_http, $"{BaseUrl}/releases/latest/download/{NotesFile.FileName}", MaxManifestBytes, ct);
+            NotesResult = json == null ? $"최신 릴리스에 {NotesFile.FileName} 없음" : $"받음: 새로 오거나 바뀐 버전 {_notices.Pull(NotesFile.Parse(json))}개";
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception e) { NotesResult = "실패: " + (e is OperationCanceledException ? "응답 시간 초과" : e.Message); }
+        if (NotesResult.StartsWith("실패")) _log.LogWarning("공지 가져오기 {Result}", NotesResult);
+        else _log.LogInformation("공지 가져오기 {Result}", NotesResult);
     }
 
     private async Task CheckRunnerAsync(CancellationToken ct)

@@ -5,6 +5,7 @@
 # Also dist/ASH.json (release manifest: version, minSupported, SHA-256/size of the Setup exe)
 # and dist/ASH.Server.json: version/SHA-256/size of the server zip (running servers replace themselves from it).
 # and dist/ASH.Runner.json: the same for the runner zip (ash-run replaces itself from it, through the server).
+# and dist/ASH.Notes.json: release-notes/*.md of every version (AshRelease notes); the server pulls it for the 공지 page.
 # 무결성: 기본은 서명 없음. PC(플러그인·ash-run)가 사내 서버에서 받은 매니페스트를 github.com 릴리스의 같은 파일과 대조한다.
 #   서명은 선택: 저장소 루트에 update-key.pub가 있고 $env:ASH_SIGNING_KEY(개인키 PEM)가 있으면 .sig도 만든다(공개키만 있으면 오류).
 #   -MinSupported <ver>  PCs below this version are told to update (default: $env:ASH_MIN_SUPPORTED, else 0.0.0 = nobody is "below minimum").
@@ -122,4 +123,10 @@ function New-PackageManifest($product, $zipPath, $name) {
 }
 $serverManifest = New-PackageManifest 'ASH.Server' $serverZip 'ASH.Server.json'
 $runnerManifest = New-PackageManifest 'ASH.Runner' $runnerZip 'ASH.Runner.json'
-Get-Item $exe, $zip, $runnerZip, $serverZip, $manifest, "$manifest.sig", $serverManifest, "$serverManifest.sig", $runnerManifest, "$runnerManifest.sig" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ("{0}  {1:N0} bytes" -f $_.FullName, $_.Length) }
+# ASH.Notes.json: the notes of every version in release-notes/ (the server pulls it; an admin approves before any PC sees it). Not signed: nothing reaches a PC unapproved.
+# A missing release-notes/<version>.md only warns.
+$notesJson = "$dist\ASH.Notes.json"
+Remove-Item $notesJson -Force -ErrorAction SilentlyContinue
+dotnet $ashRelease notes --dir "$root\release-notes" --version $version --out $notesJson
+if ($LASTEXITCODE) { throw "AshRelease notes failed (exit $LASTEXITCODE)" }
+Get-Item $exe, $zip, $runnerZip, $serverZip, $manifest, "$manifest.sig", $serverManifest, "$serverManifest.sig", $runnerManifest, "$runnerManifest.sig", $notesJson -ErrorAction SilentlyContinue | ForEach-Object { Write-Host ("{0}  {1:N0} bytes" -f $_.FullName, $_.Length) }

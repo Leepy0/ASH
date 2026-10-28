@@ -19,6 +19,7 @@ internal static class UpdateNotifier
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(3);
     private static string? _message;   // written before _done, read after it
+    private static NoticeNotifier.Startup? _notices;   // same
     private static int _done;
     private static EventHandler? _idle;
 
@@ -54,6 +55,8 @@ internal static class UpdateNotifier
     private static async Task Work(string url)
     {
         string? m;
+        // one extra request, in parallel with the update check; never throws, null = nothing to show
+        var notices = UserSettings.TryNormalizeUrl(url, out var nu) ? NoticeNotifier.FetchAsync(new Uri(nu), Timeout) : Task.FromResult<NoticeNotifier.Startup?>(null);
         try
         {
             var (key, err) = LoadKey();
@@ -63,6 +66,7 @@ internal static class UpdateNotifier
         }
         catch (Exception e) { m = UpdateMessages.CheckFailed(e); }
         _message = m;
+        _notices = await notices.ConfigureAwait(false);
         Volatile.Write(ref _done, 1);
     }
 
@@ -73,11 +77,15 @@ internal static class UpdateNotifier
             if (Volatile.Read(ref _done) == 0) return;
             var m = _message;
             var doc = Application.DocumentManager.MdiActiveDocument;
-            if (m != null && doc == null) return; // nowhere to print yet, try again at the next idle
+            var n = _notices;
+            if ((m != null || n != null) && doc == null) return; // nowhere to print yet, try again at the next idle
             Stop();
-            if (m == null) return;
-            doc!.Editor.WriteMessage("\n" + m);
-            PaletteStatus.Set(m);
+            if (m != null)
+            {
+                doc!.Editor.WriteMessage("\n" + m);
+                PaletteStatus.Set(m);
+            }
+            if (n != null) NoticeNotifier.Present(doc!, n, m);
         }
         catch (Exception ex)
         {

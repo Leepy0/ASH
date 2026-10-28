@@ -4,7 +4,7 @@ using System.Drawing.Drawing2D;
 
 namespace ASH.Plugin.Ui;
 
-public enum GlyphKind { Init, Path, Reverse, Offset, Array, Split, Join, Fillet, Cp, Block, Traffic, Check, Export, Settings, Excel, Model, Update, PathType, ArrowSize, Search, Send, BlockNum, Run, Convert, Lite }
+public enum GlyphKind { Init, Path, Reverse, Offset, Array, Split, Join, Fillet, Cp, Block, Traffic, Check, Export, Settings, Excel, Model, Update, PathType, ArrowSize, Search, Send, BlockNum, Run, Convert, Lite, Notice, NoticeNew }
 
 /// <summary>Single-colour line icons drawn in code (no image files). Coordinates are in a unit square scaled to px.</summary>
 public static class Glyphs
@@ -139,6 +139,13 @@ public static class Glyphs
                     g.DrawLine(pen, P(0.5f + (float)(0.23 * Math.Cos(a)), 0.5f + (float)(0.23 * Math.Sin(a))), P(0.5f + (float)(0.37 * Math.Cos(a)), 0.5f + (float)(0.37 * Math.Sin(a))));
                 }
                 g.FillEllipse(fill, 0.43f, 0.43f, 0.14f, 0.14f);
+                break;
+            case GlyphKind.Notice: // bell; NoticeNew adds a red dot (unseen notices)
+            case GlyphKind.NoticeNew:
+                g.DrawArc(pen, 0.25f, 0.15f, 0.5f, 0.5f, 180, 180);
+                g.DrawLines(pen, new[] { P(0.25f, 0.4f), P(0.2f, 0.7f), P(0.8f, 0.7f), P(0.75f, 0.4f) });
+                g.DrawArc(pen, 0.42f, 0.74f, 0.16f, 0.14f, 0, 180);
+                if (kind == GlyphKind.NoticeNew) g.FillEllipse(Brushes.Crimson, 0.6f, 0.02f, 0.34f, 0.34f);
                 break;
             case GlyphKind.Lite: // big sheet shrinking into a small one (drawing lightening)
                 g.DrawRectangle(pen, 0.12f, 0.12f, 0.5f, 0.5f);

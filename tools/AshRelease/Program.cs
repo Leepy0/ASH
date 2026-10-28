@@ -31,6 +31,7 @@ public static class Program
                 case "sign": return Sign(opt, o);
                 case "verify": return Verify(opt, o, e);
                 case "check-resource": return CheckResource(opt, o, e);
+                case "notes": return Notes(opt, o, e);
                 default: return Usage(e);
             }
         }
@@ -49,6 +50,7 @@ public static class Program
         e.WriteLine("  AshRelease sign     --key <ash-signing.pem> --in <ASH.json>      (-> <ASH.json>.sig)");
         e.WriteLine("  AshRelease verify   --pub <update-key.pub> --in <ASH.json>");
         e.WriteLine("  AshRelease check-resource --dll <어셈블리> --name <리소스 이름>      (없으면 종료 코드 1)");
+        e.WriteLine("  AshRelease notes    --dir <release-notes> [--version <v>] --out <ASH.Notes.json>   (<v>.md가 없으면 경고만)");
         return 1;
     }
 
@@ -134,6 +136,27 @@ public static class Program
         }
         e.WriteLine("서명이 맞지 않습니다.");
         return 1;
+    }
+
+    /// <summary>ASH.Notes.json from every release-notes/&lt;version&gt;.md (newest first; a file whose name is no version is skipped with a warning).
+    /// A missing note for --version is a warning, never a failure: the release still ships.</summary>
+    private static int Notes(Dictionary<string, string> opt, TextWriter o, TextWriter e)
+    {
+        string dir = Req(opt, "dir"), outPath = Req(opt, "out");
+        var list = new List<(SemVersion V, VersionNote N)>();
+        if (Directory.Exists(dir))
+            foreach (var f in Directory.GetFiles(dir, "*.md"))
+            {
+                string name = Path.GetFileNameWithoutExtension(f);
+                if (!SemVersion.TryParse(name, out var v)) { if (!name.Equals("README", StringComparison.OrdinalIgnoreCase)) o.WriteLine($"경고: 버전 이름이 아닌 파일은 건너뜀: {Path.GetFileName(f)}"); continue; }
+                list.Add((v!, NotesFile.ParseMarkdown(name, File.ReadAllText(f, Encoding.UTF8))));
+            }
+        else o.WriteLine("경고: 릴리스 노트 폴더가 없음: " + dir);
+        if (opt.TryGetValue("version", out var want) && !list.Any(x => x.N.Version == want)) o.WriteLine($"경고: 이번 버전 {want}의 릴리스 노트(release-notes/{want}.md)가 없음");
+        list.Sort((a, b) => b.V.CompareTo(a.V));
+        File.WriteAllBytes(outPath, new NotesFile { Notes = list.Select(x => x.N).ToList() }.ToJson());
+        o.WriteLine($"공지 원본 작성: {outPath} (버전 {list.Count}개)");
+        return 0;
     }
 
     /// <summary>Exit 0 when the managed assembly embeds a manifest resource with this exact name (metadata only, nothing is loaded).</summary>
