@@ -79,6 +79,39 @@ public static class PathOps
                 Copy(a, a.Name + "_f", new Segment[] { arc }, keepId: false));
     }
 
+    /// <summary>
+    /// Two paths that do not touch (a gap, or running past each other): the last straight segment of one and the first of the other are extended (or trimmed)
+    /// to where their lines cross, then filleted as <see cref="Fillet"/> does. The order is found here: the path whose end runs towards the crossing comes first;
+    /// both orders possible → the one with less extension. Other segments of the paths are kept.
+    /// Null when the lines are parallel, the crossing lies behind the first line's start or past the second line's end, or the radius does not fit.
+    /// </summary>
+    public static (LayoutPath A, LayoutPath B, LayoutPath Fillet)? FilletExtended(LayoutPath x, LayoutPath y, double radius, double tol)
+    {
+        (LayoutPath A, LayoutPath B, LayoutPath Fillet)? Try(LayoutPath a, LayoutPath b, out double reach)
+        {
+            reach = double.MaxValue;
+            if (radius <= 0 || a.Segments.Count == 0 || b.Segments.Count == 0 || !(a.Segments[a.Segments.Count - 1] is LineSeg la) || !(b.Segments[0] is LineSeg lb)) return null;
+            if (la.Length <= tol || lb.Length <= tol) return null;
+            var u1 = Unit(la); var u2 = Unit(lb);
+            double cross = u1.X * u2.Y - u1.Y * u2.X;
+            if (Math.Abs(cross) < 1e-9) return null;
+            // crossing P = la.Start + s·u1 = lb.Start + t·u2
+            double dx = lb.Start.X - la.Start.X, dy = lb.Start.Y - la.Start.Y;
+            double s = (dx * u2.Y - dy * u2.X) / cross, t = (dx * u1.Y - dy * u1.X) / cross;
+            if (s <= tol || t >= lb.Length - tol) return null;
+            var p = new Point2(la.Start.X + u1.X * s, la.Start.Y + u1.Y * s);
+            reach = la.End.DistanceTo(p) + lb.Start.DistanceTo(p);
+            var f = Fillet(Copy(a, a.Name, new[] { new LineSeg(la.Start, p) }, keepId: true), Copy(b, b.Name, new[] { new LineSeg(p, lb.End) }, keepId: true), radius, tol);
+            if (f == null) return null;
+            var (fa, fb, arc) = f.Value;
+            return (Copy(a, a.Name, a.Segments.Take(a.Segments.Count - 1).Concat(fa.Segments), keepId: true),
+                    Copy(b, b.Name, fb.Segments.Concat(b.Segments.Skip(1)), keepId: true), arc);
+        }
+        var r1 = Try(x, y, out var d1);
+        var r2 = Try(y, x, out var d2);
+        return r1 != null && (r2 == null || d1 <= d2) ? r1 : r2;
+    }
+
     /// <summary>+1 when the point is left of the direction of travel at the nearest point of the path, -1 when right, 0 when on the path (within tol).</summary>
     public static int SideOf(LayoutPath p, Point2 pt, double tol)
     {
