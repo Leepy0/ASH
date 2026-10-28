@@ -24,7 +24,7 @@ public sealed class ModelCommands
 {
     public const string ExcelFileName = "input.xlsx";
 
-    private static readonly FindingCode[] Blocking =
+    internal static readonly FindingCode[] Blocking =
     {
         FindingCode.DanglingEnd, FindingCode.UnsplitIntersection, FindingCode.DuplicateCpName, FindingCode.DuplicatePathName, FindingCode.InvalidName,
         FindingCode.CpOffPath, FindingCode.UnnamedCp, FindingCode.DuplicateBlockName,
@@ -142,7 +142,7 @@ public sealed class ModelCommands
 
     /// <summary>Colours the cells the findings name (red = error, orange = warning, the message as a cell comment) and clears the marks of the last run. The file
     /// is edited directly; when that fails (company document encryption, or Excel has it locked) Excel makes the same edits. Never throws.</summary>
-    private static void MarkExcel(Editor ed, string xlsx, IReadOnlyList<Finding> findings)
+    internal static void MarkExcel(Editor ed, string xlsx, IReadOnlyList<Finding> findings)
     {
         try
         {
