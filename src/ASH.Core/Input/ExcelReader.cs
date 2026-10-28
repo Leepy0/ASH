@@ -12,6 +12,9 @@ public static class ExcelReader
 {
     static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
+    /// <summary>Values a blank cell of a folded advanced column stands for (the template's example values).</summary>
+    public const double UnloadThresholdBlank = 1, AccelBlank = 0.3;
+
     sealed class Row
     {
         readonly IXLWorksheet _ws; readonly Dictionary<string, int> _cols; readonly int _row;
@@ -139,7 +142,8 @@ public static class ExcelReader
         };
 
         foreach (var r in Rows(wb, "AGV_Types"))
-            p.AgvTypes.Add(new AgvType(r.Str("Type"), r.Num("SpeedLoaded"), r.Num("SpeedEmpty"), r.Num("Accel"), r.Num("Decel"),
+            // Accel and Decel sit among the folded advanced columns: blank = the example's 0.3 m/s²
+            p.AgvTypes.Add(new AgvType(r.Str("Type"), r.Num("SpeedLoaded"), r.Num("SpeedEmpty"), r.Num("Accel", AccelBlank), r.Num("Decel", AccelBlank),
                 r.Int("Capacity"), r.Num("LoadTime", 0), r.Num("UnloadTime", 0), r.Num("MTBF", 0), r.Num("MTTR", 0), r.Num("Length"), r.Num("Width"), r.Str("Color"), r.RowNum, r.StrIfColumn("Kind"),
                 r.OptNumIfColumn("SpeedLoadedCurve"), r.OptNumIfColumn("SpeedEmptyCurve"), r.StrIfColumn("Category"), r.StrIfColumn("Asset")));
         foreach (var r in Rows(wb, "AGV_Groups"))
@@ -167,14 +171,15 @@ public static class ExcelReader
             bool isFed = fed.Contains(r.Str("Material"));
             double per = r.Num("UnitsPerContainer");
             // a threshold is containers + units (either may be blank, not both), kept in containers as the model counts them
-            double Threshold(string col)
+            double Threshold(string col, double? blank = null)
             {
                 var box = r.OptNum(col); var qty = r.OptNumIfColumn(col + "Qty");
-                if (box == null && qty == null) return r.Num(col); // throws "empty", naming the column
+                if (box == null && qty == null) return blank ?? r.Num(col); // throws "empty", naming the column
                 return (box ?? 0) + (qty ?? 0) / (per > 0 ? per : 1);
             }
+            // UnloadThreshold sits among the folded advanced columns: blank = 1 container, as in the example row
             p.Materials.Add(new MaterialInfo(r.Str("Material"), r.Str("Station"), r.Str("Group"), r.Num("TaktTime", isFed ? 60 : (double?)null), r.Num("UnitsPerCycle", isFed ? 1 : (double?)null),
-                per, Threshold("CallThreshold"), Threshold("UnloadThreshold"), r.OptNum("InitStock"), r.OptNum("SafetyStock"), false, r.RowNum, r.StrIfColumn("Form"), r.OptNumIfColumn("LoadLength"), r.OptNumIfColumn("LoadWidth"), r.OptNumIfColumn("LoadHeight"), r.StrIfColumn("Flow")));
+                per, Threshold("CallThreshold"), Threshold("UnloadThreshold", UnloadThresholdBlank), r.OptNum("InitStock"), r.OptNum("SafetyStock"), false, r.RowNum, r.StrIfColumn("Form"), r.OptNumIfColumn("LoadLength"), r.OptNumIfColumn("LoadWidth"), r.OptNumIfColumn("LoadHeight"), r.StrIfColumn("Flow")));
             routeRows.Add(r);
         }
         foreach (var r in merged ? routeRows : Rows(wb, "Routes"))

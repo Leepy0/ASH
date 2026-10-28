@@ -31,7 +31,7 @@ public static class ExcelTemplate
             ("Form", "형태(목록에서 선택)", "Box"), ("SupplyFromCP", "load CP", "CP_LOAD"), ("SupplyToCP", "unload CP", "CP_UNLOAD"),
             ("ReturnFromCP", "rtnload CP(선택)", ""), ("ReturnToCP", "rtnunload CP(선택)", ""),
             ("Station", "공정명(메모)", ""), ("CallThresholdQty", "호출 임계(자재)", ""), ("CallThresholdTotal", "호출 임계 합계(용기, 자동)", ""),
-            ("UnloadThreshold", "언로딩 임계(용기)", "1"), ("UnloadThresholdQty", "언로딩 임계(자재)", ""), ("UnloadThresholdTotal", "언로딩 임계 합계(용기, 자동)", ""),
+            ("UnloadThreshold", "언로딩 임계(용기, 빈칸=1)", "1"), ("UnloadThresholdQty", "언로딩 임계(자재)", ""), ("UnloadThresholdTotal", "언로딩 임계 합계(용기, 자동)", ""),
             ("InitStock", "초기재고(- : 기본값)", ""), ("SafetyStock", "안전재고(- : 기본값)", ""),
             ("LoadLength", "적재물 길이(m, - : 기본값)", ""), ("LoadWidth", "적재물 폭(m, - : 기본값)", ""), ("LoadHeight", "적재물 높이(m, - : 기본값)", ""),
             ("Flow", "흐름(Supply 공급 / Output 빈 용기 공급+풀 용기 반출)", "Supply"), ("Use", "사용 여부 Y/N, 빈칸=Y", "Y"),
