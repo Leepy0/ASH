@@ -111,9 +111,9 @@ public sealed class JobWorker(JobStore store, IJobRunner runner, FilmWorker film
         cts.CancelAfter(TimeSpan.FromHours(hours));
         lock (_gate) { _runningId = job.Id; _runningCts = cts; }
         if (store.Get(job.Id)?.CancelRequested == true) cts.Cancel();
-        using var logFile = new StreamWriter(store.LogPath(job.Id), true, new System.Text.UTF8Encoding(false)) { AutoFlush = true };
+        using var logFile = new StampedWriter(new StreamWriter(store.LogPath(job.Id), true, new System.Text.UTF8Encoding(false)) { AutoFlush = true });
         var log = new LineWriter(logFile, line => store.Update(job.Id, j => j.LastLine = line.Length > 300 ? line[..300] : line));
-        void Phase(string p) { store.Update(job.Id, j => j.Phase = p); log.WriteLine($"[{ASH.Core.SeoulTime.NowText}] {p}"); }
+        void Phase(string p) { store.Update(job.Id, j => j.Phase = p); log.WriteLine(p); }
         int groupsLeft = 1;
         var progress = new SyncProgress<RunOutcome>(r =>
         {
@@ -136,7 +136,7 @@ public sealed class JobWorker(JobStore store, IJobRunner runner, FilmWorker film
         JobOutcome? o = null; string? error = null; bool cancelled = false;
         try
         {
-            log.WriteLine($"[{ASH.Core.SeoulTime.NowText}] 시작: {job.Project} / {job.Plan} / 모델 {job.Model} (보낸 사람 {job.Submitter}, {job.Ip})");
+            log.WriteLine($"시작: {job.Project} / {job.Plan} / 모델 {job.Model} (보낸 사람 {job.Submitter}, {job.Ip})");
             o = runner.Run(job, store.ProjectDir(job.Id), log, Phase, progress, Search, cts.Token);
             error = o.Error;
             // scene candidates for the cut editor (spec 6.2): one more run at the conclusion with the event log; a failure only leaves a note in scenes.json
@@ -160,11 +160,11 @@ public sealed class JobWorker(JobStore store, IJobRunner runner, FilmWorker film
         finally { lock (_gate) { _runningId = null; _runningCts = null; } }
         if (cancelled && stop.IsCancellationRequested && job.Source == JobSource.Server && store.Get(job.Id)?.CancelRequested != true)
         {
-            log.WriteLine($"[{ASH.Core.SeoulTime.NowText}] 서버 멈춤으로 중단 · 다시 대기(3번째면 실패)");
+            log.WriteLine($"서버 멈춤으로 중단 · 다시 대기(3번째면 실패)");
             store.RequeueCut(job.Id); // an update or restart cut it off: it continues first after the start
             return;
         }
-        log.WriteLine($"[{ASH.Core.SeoulTime.NowText}] 끝: {error ?? "정상"}");
+        log.WriteLine($"끝: {error ?? "정상"}");
         store.Update(job.Id, j =>
         {
             j.FinishedUtc = DateTime.UtcNow;

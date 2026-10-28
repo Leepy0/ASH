@@ -41,7 +41,7 @@
 |---|---|
 | CP의 GROUP | AGV_Groups 한 행씩(타입 `T_AGV`), StandbyCPs = 그 그룹의 standby CP |
 | load CP (낱개 배치) | 자재 `M001`, `M002` …. 같은 순서의 unload·buffer·rtnload·rtnunload CP와 짝을 지어 Routes에. **짝은 추측이므로 확인한다** |
-| "루트 순서 배치"로 놓은 CP | 루트마다 자재 이름 = load CP 이름(`L001`), Routes는 루트대로, FinishCP도 채움 |
+| "루트 순서 배치"로 놓은 CP | 루트마다 자재 하나(`M###`), Routes는 루트대로, FinishCP도 채움 |
 | 속도·T/T 같은 숫자 | 도면에서 알 수 없어 예시 값. 꼭 고친다 |
 
 `U` 갱신은 입력한 값을 두고 도면에서 새로 생긴 것(새 그룹, standby CP, 아직 Routes에 없는 load CP)만 뒤에 붙인다. 지운 CP·그룹은 지우지 않는다(검증이 알려 준다). `U`·`W` 모두 먼저 `input.bak.<날짜_시각>.xlsx`로 복사한다.

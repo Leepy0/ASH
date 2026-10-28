@@ -151,27 +151,27 @@ public static class ExcelTemplate
             if (groups.Count == 0) { var g = (string[])Ex("AGV_Groups").Clone(); g[1] = catalog![0].Name; seed["AGV_Groups"] = new List<string[]> { g }; }
         }
         // one-by-one CPs: within each group (a route never mixes groups) the n-th load by name pairs with the n-th unload / buffer / return CP by name
-        // (L001-U001-RL001-RU001, L002-U002-…). Fewer unloads than loads: the last unload; an optional type (buffer, returns) without an n-th stays blank
+        // (L001-U001-RL001-RU001, L002-U002-…). As many routes as the longest of load, unload and the returns: a shorter list repeats its last CP
+        // (L1 with U1,U2 = L1-U1, L1-U2; RU1 serves both); a group without a type leaves it blank. A buffer without an n-th stays blank
         var mats = new List<string[]>(); var routes = new List<string[]>();
         string At(List<string> list, int i) => i < list.Count ? list[i] : "";
         foreach (var g in l.Cps.Where(c => c.Type == "load" && !recorded.Contains(c.Name)).Select(c => c.Group).Distinct().ToList())
         {
             var loads = ByName(Names("load", g));
             var unload = ByName(Names("unload", g)); var buffer = ByName(Names("buffer", g)); var rl = ByName(Names("rtnload", g)); var ru = ByName(Names("rtnunload", g));
-            for (int i = 0; i < loads.Count; i++)
+            int n = new[] { loads.Count, unload.Count, rl.Count, ru.Count }.Max();
+            for (int i = 0; i < n; i++)
             {
                 var name = "M" + (mats.Count + 1).ToString("000");
                 var m = (string[])Ex("Materials").Clone(); m[0] = name; m[2] = g.Length > 0 ? g : (groups.Count > 0 ? groups[0] : m[2]); mats.Add(m);
-                routes.Add(new[] { name, loads[i], CpRoute.Pair(unload, i), At(buffer, i), At(rl, i), At(ru, i), "0", "0" });
+                routes.Add(new[] { name, CpRoute.Pair(loads, i), CpRoute.Pair(unload, i), At(buffer, i), CpRoute.Pair(rl, i), CpRoute.Pair(ru, i), "0", "0" });
             }
         }
-        // one material per load CP of a recorded sequence, named after the CP (a name taken, or one AutoMod cannot use, falls back to M###)
-        var taken = new HashSet<string>(mats.Select(m => m[0]));
+        // one material per load CP of a recorded sequence, M### like the one-by-one rows
         foreach (var r in routesOf)
             for (int i = 0; i < r.Load.Count; i++)
             {
-                string name = r.Load[i];
-                for (int n = mats.Count + 1; !InputValidator.IsAmText(name) || !taken.Add(name); n++) name = "M" + n.ToString("000");
+                var name = "M" + (mats.Count + 1).ToString("000");
                 var m = (string[])Ex("Materials").Clone(); m[0] = name; m[2] = r.Group.Length > 0 ? r.Group : (groups.Count > 0 ? groups[0] : m[2]); mats.Add(m);
                 routes.Add(new[] { name, r.Load[i], CpRoute.Pair(r.Unload, i), "", CpRoute.Pair(r.RtnLoad, i), CpRoute.Pair(r.RtnUnload, i), "0", "0" });
             }
@@ -344,21 +344,28 @@ public static class ExcelTemplate
         if (seed.TryGetValue("Routes", out var sr))
         {
             var mws = wb.Worksheet("Materials"); var rws = wb.Worksheet("Routes");
-            var from = new HashSet<string>(Values(rws, "SupplyFromCP"));
+            // (load, unload) of the rows already there: a load CP with more seed routes than rows (U2 added for L1) gets the missing ones
+            var have = new List<(string From, string To)>();
+            var rc = Columns(rws);
+            if (rc.TryGetValue("SupplyFromCP", out var fcol))
+                for (int r = 3, last = LastDataRow(rws); r <= last; r++)
+                {
+                    var f = rws.Cell(r, fcol).GetString().Trim();
+                    if (f.Length > 0) have.Add((f, rc.TryGetValue("SupplyToCP", out var tcol) ? rws.Cell(r, tcol).GetString().Trim() : ""));
+                }
             var names = new HashSet<string>(Values(mws, "Material").Concat(Values(rws, "Material")));
             var sm = seed["Materials"];
             var recordedOf = CpRoutes.From(layout!).SelectMany(r => r.Load.Select(l => (Load: l, Route: r))).GroupBy(x => x.Load).ToDictionary(x => x.Key, x => x.First().Route);
             for (int i = 0; i < sr.Count; i++)
             {
-                if (from.Contains(sr[i][1])) continue;
-                // a recorded sequence keeps the name the seed gave (the load CP's); the others take the next free M###
+                var key = (sr[i][1], sr[i][2]);
+                // a row the user edited (other unload) counts for its load: only routes beyond the rows there are added
+                if (have.Contains(key) || have.Count(h => h.From == key.Item1) >= sr.Count(x => x[1] == key.Item1)) continue;
+                have.Add(key);
+                // the next free M###
                 recordedOf.TryGetValue(sr[i][1], out var rec);
-                string name = sm[i][0];
-                if (rec == null || names.Contains(name))
-                {
-                    int n = 1;
-                    do name = "M" + (n++).ToString("000"); while (names.Contains(name));
-                }
+                string name; int n = 1;
+                do name = "M" + (n++).ToString("000"); while (names.Contains(name));
                 names.Add(name);
                 var m = (string[])sm[i].Clone(); m[0] = name;
                 var route = (string[])sr[i].Clone(); route[0] = name;

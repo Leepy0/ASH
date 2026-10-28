@@ -93,10 +93,17 @@ Routes의 SupplyFromCP / SupplyToCP / BufferCP / ReturnFromCP / ReturnToCP와 AG
 
 `AGVCPROUTE`가 놓은 CP는 블록에 같은 루트 번호가 붙어 도면에 남는다(XData `ASH_ROUTE`). `AGVEXCEL`은 이 CP들을 낱개 CP의 순서 짝짓기에서 빼고, 루트 하나씩 행을 만든다.
 
-- 루트의 load CP마다 Materials 한 행과 Routes 한 행. 자재 이름은 그 load CP 이름(`L001` 등). 이미 쓰는 이름이거나 AutoMod에서 못 쓰는 이름(한글 등)이면 `M###`.
+- 루트의 load CP마다 Materials 한 행과 Routes 한 행. 자재 이름은 낱개 CP 행과 같이 `M###`(비어 있는 다음 번호).
 - 그룹은 루트의 그룹. SupplyToCP, ReturnFromCP, ReturnToCP는 루트에서 같은 순서의 CP이고, 모자라면 마지막 CP(load 2개, unload 1개면 둘 다 그 unload로). BufferCP는 비운다.
 - AGV_Groups: StandbyCPs에 루트의 standby, FinishCP에 루트의 finish. FinishCP는 비어 있을 때만 채운다.
-- 이미 SupplyFromCP에 있는 load CP는 건너뛴다(두 번 실행해도 늘지 않음). T/T와 임계값은 예시 값이므로 고친다.
+- 이미 있는 load·unload 짝은 건너뛴다(두 번 실행해도 늘지 않음). T/T와 임계값은 예시 값이므로 고친다.
+
+## 낱개로 놓은 CP의 짝짓기
+
+그룹마다 load, unload, buffer, rtnload, rtnunload를 이름 순(`L2`가 `L10` 앞)으로 세우고 같은 순번끼리 한 루트로 묶는다. 루트 수는 load, unload, rtnload, rtnunload 중 가장 많은 것에 맞추고, 모자란 쪽은 마지막 CP를 다시 쓴다. 그 종류가 그룹에 없으면 비운다. buffer는 같은 순번이 없으면 비운다.
+
+- 예: 그룹 1에 `S1, L1, U1, U2, RL1, RL2, RU1` → `L1-U1-RL1-RU1`, `L1-U2-RL2-RU1` 두 루트(자재 `M001`, `M002`).
+- 갱신(`AGVEXCEL` U)은 시트에 없는 load·unload 짝만 더한다. 사용자가 unload를 고친 행도 그 load의 행 하나로 센다.
 - 무엇을 더했는지는 명령줄에 한 줄씩 나온다: `Materials·Routes: 경로 G1 (대기 S001 → 로딩 L001,L002 → …)의 자재 L001 추가`.
 
 ## 검증 표시 (빨강·주황 칸)

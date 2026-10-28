@@ -127,7 +127,7 @@ public sealed class CpCommands
         var req = CpViewRequest.Pending;
         CpViewRequest.Pending = null;
         var doc = Application.DocumentManager.MdiActiveDocument;
-        if (req == null) { doc.Editor.WriteMessage("\nCP 탭의 '그룹 보기'에서 실행합니다."); return; }
+        if (req == null) { doc.Editor.WriteMessage("\n루트 탭의 '그룹 보기'에서 실행합니다."); return; }
         PathCommands.Run(doc, "AGVCPVIEW", (db, tr) =>
         {
             CpViewer.Apply(db, tr, req.Mode, req.Selected);
