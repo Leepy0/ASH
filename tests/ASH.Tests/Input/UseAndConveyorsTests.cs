@@ -121,7 +121,7 @@ public class UseAndConveyorsTests
             using var wb = ExcelReader.Open(path);
             var m = wb.Worksheet("Materials");
             int c = Col(m, "Use");
-            Assert.Equal("사용 여부 Y/N, 빈칸=Y", m.Cell(2, c).GetString());
+            Assert.Equal("사용 여부", m.Cell(2, c).GetString());
             Assert.Equal("\"Y,N\"", m.Cell(3, c).GetDataValidation().Value);
             Assert.Equal("\"Y,N\"", m.Cell(1000, c).GetDataValidation().Value);
         }
@@ -230,9 +230,9 @@ public class UseAndConveyorsTests
             ExcelTemplate.Write(path);
             using var wb = ExcelReader.Open(path);
             var ws = wb.Worksheet("Conveyors");
-            Assert.Equal(new[] { "Conveyor", "Material", "ProductTakt", "UnitsPerProduct", "Speed", "Capacity", "ConsumeAt" }, Enumerable.Range(1, 7).Select(c => ws.Cell(1, c).GetString()));
-            Assert.All(Enumerable.Range(1, 7), c => Assert.NotEqual("", ws.Cell(2, c).GetString()));
-            Assert.All(Enumerable.Range(1, 7), c => Assert.Equal("", ws.Cell(3, c).GetString()));
+            Assert.Equal(new[] { "Conveyor", "Material", "ProductTakt", "Speed", "Capacity", "ConsumeAt" }, Enumerable.Range(1, 6).Select(c => ws.Cell(1, c).GetString()));
+            Assert.All(Enumerable.Range(1, 6), c => Assert.NotEqual("", ws.Cell(2, c).GetString()));
+            Assert.All(Enumerable.Range(1, 6), c => Assert.Equal("", ws.Cell(3, c).GetString()));
             Assert.Contains("Materials", ws.Cell(3, 2).GetDataValidation().Value);
             Assert.Empty(ExcelReader.Read(path).Conveyors);
         }
@@ -245,9 +245,10 @@ public class UseAndConveyorsTests
         var p = ReadThree(wb =>
         {
             AddConveyor(wb, 3, "CV001", "M002");
-            AddConveyor(wb, 4, "CV002", "M003", "45", "2", "0.5", "6", "12.5");
+            AddConveyor(wb, 4, "CV002", "M003", "45", "0.5", "6", "12.5");
             var m = wb.Worksheet("Materials");
-            m.Cell(5, Col(m, "TaktTime")).Value = ""; m.Cell(5, Col(m, "UnitsPerCycle")).Value = ""; // blank is fine for a conveyor-fed material
+            m.Cell(5, Col(m, "TaktTime")).Value = ""; // blank T/T is fine for a conveyor-fed material
+            m.Cell(5, Col(m, "UnitsPerCycle")).Value = 2; // one product takes the material's UnitsPerCycle
         });
         Assert.Equal(new ConveyorInfo("CV001", "M002", 60, 1, 0.3, null, null, 3), p.Conveyors[0]);
         Assert.Equal(new ConveyorInfo("CV002", "M003", 45, 2, 0.5, 6, 12.5, 4), p.Conveyors[1]);
@@ -269,7 +270,7 @@ public class UseAndConveyorsTests
             AddConveyor(wb, 3, "CV001", "NOPE");
             AddConveyor(wb, 4, "CV001", "M001");          // duplicate name
             AddConveyor(wb, 5, "CV002", "M001", "-5");    // second conveyor for M001, bad takt
-            AddConveyor(wb, 6, "CV003", "M002", "", "0", "0", "0", "-1");
+            AddConveyor(wb, 6, "CV003", "M002", "", "0", "0", "-1");
         });
         var err = Check(p).Where(f => f.Code == FindingCode.InputError).ToList();
         string At(string sheetRow) => string.Join("|", err.Where(e => e.EntityId == sheetRow).Select(e => e.Message));
@@ -277,7 +278,7 @@ public class UseAndConveyorsTests
         Assert.Contains("중복", At("Conveyors!4"));
         Assert.Contains("함께 소비", At("Conveyors!5")); Assert.Contains("ProductTakt", At("Conveyors!5"));
         var last = At("Conveyors!6");
-        foreach (var w in new[] { "UnitsPerProduct", "Speed", "Capacity", "ConsumeAt" }) Assert.Contains(w, last);
+        foreach (var w in new[] { "Speed", "Capacity", "ConsumeAt" }) Assert.Contains(w, last);
     }
 
     [Fact]
@@ -296,7 +297,7 @@ public class UseAndConveyorsTests
     [Fact]
     public void Conveyor_Capacity_Must_Be_A_Whole_Number()
     {
-        var ex = Assert.Throws<ExcelDataException>(() => ReadThree(wb => AddConveyor(wb, 3, "CV001", "M001", "", "", "", "2.5")));
+        var ex = Assert.Throws<ExcelDataException>(() => ReadThree(wb => AddConveyor(wb, 3, "CV001", "M001", "", "", "2.5")));
         Assert.Contains("Capacity", ex.Message);
     }
 

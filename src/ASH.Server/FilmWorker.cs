@@ -179,7 +179,7 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
                 // a result uploaded from a PC, or run folders already purged: build once in the job's folder
                 ModelBuilder.PrepareBuildDir(proj, j.Model);
                 var b = am.Build(proj, j.Model);
-                if (!b.Success) throw new InvalidOperationException("빌드 실패: " + FirstLine(b.MakeErrText + "\n" + b.Am2ErrText));
+                if (!b.Success) throw new InvalidOperationException("빌드 실패: " + FirstLine(b.MakeErrText + "\n" + b.Am2ErrText, b.Facts));
             }
             var o = am.Run(new RunRequest(proj, j.Model, input, new RunScenario(input.Settings.SeedBase, counts, Events: true), Jr.RunTimeout, Jr.DialogButton, AmHome: Jr.AmHome));
             log.WriteLine($"scenes: run {o.RunId} {(o.Success ? "ok" : "FAILED " + o.Error)}");
@@ -224,7 +224,7 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
     static Dictionary<string, string> UnloadCps(ProjectInput input) => input.Materials.GroupBy(m => m.Material).ToDictionary(g => g.Key, g =>
         input.Routes.FirstOrDefault(r => r.Material == g.Key)?.SupplyToCP ?? input.Stations.FirstOrDefault(s => s.Station == g.First().Station)?.CPName ?? "");
 
-    static string FirstLine(string s) => s.Split('\n').Select(x => x.Trim()).FirstOrDefault(x => x.Length > 0) ?? "(오류 출력 없음)";
+    static string FirstLine(string s, string facts = "") => s.Split('\n').Select(x => x.Trim()).FirstOrDefault(x => x.Length > 0) ?? $"(오류 파일 비어 있음 · {facts})";
 
     // ---------------- films ----------------
 
@@ -491,7 +491,7 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
         Phase("빌드");
         ModelBuilder.PrepareBuildDir(work, j.Model);
         var b = am.Build(work, j.Model);
-        if (!b.Success) throw new InvalidOperationException("빌드 실패: " + FirstLine(b.MakeErrText + "\n" + b.Am2ErrText));
+        if (!b.Success) throw new InvalidOperationException("빌드 실패: " + FirstLine(b.MakeErrText + "\n" + b.Am2ErrText, b.Facts));
         stop.ThrowIfCancellationRequested();
         Phase("모델 실행(기록)");
         var o = am.Run(new RunRequest(work, j.Model, input, new RunScenario(seed, counts), Jr.RunTimeout, Jr.DialogButton, RunsDir: Path.Combine(work, "runs"), AmHome: Jr.AmHome));

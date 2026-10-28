@@ -5,7 +5,8 @@ using System.IO;
 
 namespace ASH.Core.AutoMod
 {
-    public sealed record AmBuildResult(bool Success, string MakeErrText, string Am2ErrText, IReadOnlyList<string> ClosedDialogTitles);
+    /// <summary>Why a build failed when AutoMod's own error files stay empty: Facts = exit code or time-out, whether the dll was made, AutoMod's console output (last part).</summary>
+    public sealed record AmBuildResult(bool Success, string MakeErrText, string Am2ErrText, IReadOnlyList<string> ClosedDialogTitles, string Facts = "");
 
     public static class AmBuilder
     {
@@ -32,36 +33,45 @@ namespace ASH.Core.AutoMod
             var closed = new List<string>();
             var exe = FindBuildExe(amHome) ?? throw new FileNotFoundException("AutoMod 빌드 실행 파일이 없습니다: " + BuildExeCandidates(amHome));
             var psi = new ProcessStartInfo(exe, "-bq " + modelName)
-            { WorkingDirectory = modelDir, UseShellExecute = false };
+            { WorkingDirectory = modelDir, UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
             // AM's link.exe must win over any other link.exe (e.g. Git's usr\bin) on PATH.
             psi.EnvironmentVariables["PATH"] = Path.Combine(amHome, "bin") + ";" + Environment.GetEnvironmentVariable("PATH");
-            bool ok;
+            bool ok, timedOut = false;
+            int? exit = null;
+            var said = new System.Text.StringBuilder(); // the build's console output: often the only reason when make.err/am2err.dat stay empty
             var started = DateTime.UtcNow;
             using (var proc = Process.Start(psi))
             {
+                DataReceivedEventHandler keep = (_, e) => { if (e.Data == null) return; lock (said) { said.AppendLine(e.Data); if (said.Length > 8000) said.Remove(0, said.Length - 4000); } };
+                proc.OutputDataReceived += keep; proc.ErrorDataReceived += keep;
+                proc.BeginOutputReadLine(); proc.BeginErrorReadLine();
                 using (DialogCloser.Start(proc.Id, new[] { "Entity Limit" }, t => { lock (closed) closed.Add(t); }))
                 {
                     if (!proc.WaitForExit((int)timeout.TotalMilliseconds))
                     {
                         try { proc.Kill(); } catch (InvalidOperationException) { }
                         proc.WaitForExit();
-                        ok = false;
+                        ok = false; timedOut = true;
                     }
-                    else ok = proc.ExitCode == 0;
+                    else { proc.WaitForExit(); exit = proc.ExitCode; ok = exit == 0; }
                 }
             }
             // 64비트 빌드는 <모델>64.dll, 구버전은 <모델>.dll — 둘 중 이번 빌드에서 만든 것이 있으면 성공
             var dirPath = Path.Combine(modelDir, modelName + ".dir");
-            ok = ok && Array.Exists(new[] { modelName + "64.dll", modelName + ".dll" }, n =>
+            var made = Array.Exists(new[] { modelName + "64.dll", modelName + ".dll" }, n =>
             {
                 var dll = Path.Combine(dirPath, n);
                 return File.Exists(dll) && File.GetLastWriteTimeUtc(dll) >= started;
             }); // a stale dll from an earlier build is not success
+            ok = ok && made;
+            string output; lock (said) output = said.ToString().Trim();
+            var facts = (timedOut ? $"시간 초과({timeout.TotalMinutes:0}분)" : $"종료 코드 {exit}") + (made ? " · dll 있음" : " · dll 없음") +
+                        (output.Length > 0 ? " · 출력: " + (output.Length > 600 ? "…" + output.Substring(output.Length - 600) : output).Replace("\r", "").Replace("\n", " | ") : " · 출력 없음");
             lock (closed)
                 return new AmBuildResult(ok,
                     Read(Path.Combine(modelDir, modelName + ".dir", "make.err")),
                     Read(Path.Combine(modelDir, "am2err.dat")),
-                    closed.ToArray());
+                    closed.ToArray(), facts);
         }
 
         static string Read(string p) => File.Exists(p) ? File.ReadAllText(p) : "";

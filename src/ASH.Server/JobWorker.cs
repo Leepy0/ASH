@@ -39,7 +39,10 @@ public sealed class AutoModJobRunner(IConfiguration cfg) : IJobRunner
         {
             var text = string.Join("\n", new[] { b.MakeErrText, b.Am2ErrText }.Where(x => !string.IsNullOrWhiteSpace(x)));
             foreach (var l in text.Split('\n').Take(40)) log.WriteLine("build: " + l.TrimEnd());
-            return Fail("AutoMod 빌드 실패" + (text.Length > 0 ? ": " + text.Split('\n').First(x => x.Trim().Length > 0).Trim() : " (오류 출력 없음)"));
+            log.WriteLine("build: " + b.Facts);
+            // AutoMod's error files empty: the exit code, the dialogs it was stuck on and its console output are what is left to go on
+            return Fail("AutoMod 빌드 실패" + (text.Length > 0 ? ": " + text.Split('\n').First(x => x.Trim().Length > 0).Trim()
+                : $" (오류 파일 비어 있음 · {b.Facts}{(b.ClosedDialogTitles.Count > 0 ? " · 닫은 창 " + string.Join(", ", b.ClosedDialogTitles) : "")})"));
         }
         ct.ThrowIfCancellationRequested();
 
@@ -75,14 +78,15 @@ public sealed class JobWorker(JobStore store, IJobRunner runner, FilmWorker film
     {
         if (!Enabled) { logger.LogInformation("작업 실행이 꺼져 있습니다(Jobs:WorkerEnabled=false)."); return; }
         if (updater != null) updater.WorkerApplies = true;
-        // a staged server update is applied here only when an admin armed it ("after the running work"); once its swap has started nothing new is taken
-        async Task<bool> UpdateNow()
+        // a staged server update is applied here only when an admin armed it ("after the work"), and only once nothing is running or waiting
+        // (jobs, films, scene/limit/preview requests: the whole 진행 tab); once its swap has started nothing new is taken
+        async Task<bool> UpdateNow(bool idle)
         {
             if (updater is null) return false;
             if (!updater.Swapping) // "지금 업데이트" from the banner may have started it already
             {
-                if (updater is not { Armed: true, Waiting: { } v }) return false;
-                logger.LogInformation("작업 사이: 서버 업데이트 {Version} 적용", v);
+                if (!idle || updater is not { Armed: true, Waiting: { } v }) return false;
+                logger.LogInformation("작업이 모두 끝남: 서버 업데이트 {Version} 적용", v);
                 if (!await updater.ApplyPendingAsync()) return false;
             }
             try { await Task.Delay(Timeout.Infinite, stop); } catch (OperationCanceledException) { }
@@ -90,17 +94,20 @@ public sealed class JobWorker(JobStore store, IJobRunner runner, FilmWorker film
         }
         while (!stop.IsCancellationRequested)
         {
-            if (await UpdateNow()) return;
+            if (await UpdateNow(idle: false)) return;
             var job = store.TakeNext();
             if (job != null) await Task.Run(() => RunOne(job, stop), CancellationToken.None);
-            if (job != null && await UpdateNow()) return; // before the film work that would come next
+            if (job != null && await UpdateNow(idle: false)) return; // a "지금" swap started during the job
             var filmed = await Task.Run(() =>
             {
                 try { return films.RunNext(stop); }
                 catch (Exception e) { logger.LogError(e, "영상 작업 실패"); return false; }
             }, CancellationToken.None);
             if (job == null && !filmed)
+            {
+                if (await UpdateNow(idle: true)) return; // nothing ran and nothing waits: the armed update goes now
                 try { await store.WaitForWorkAsync(TimeSpan.FromSeconds(10), stop); } catch (OperationCanceledException) { return; }
+            }
         }
     }
 

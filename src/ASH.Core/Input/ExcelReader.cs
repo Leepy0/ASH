@@ -150,9 +150,10 @@ public static class ExcelReader
             p.Groups.Add(new AgvGroup(r.Str("Group"), r.Str("Type"), r.Int("MinCount"), r.Int("MaxCount"),
                 r.Str("StandbyCPs").Split(',').Select(s => s.Trim()).Where(s => s.Length > 0).ToList(), r.Str("Dispatch"), r.RowNum,
                 r.StrIfColumn("FinishCP") is { Length: > 0 } fin ? fin : null));
-        // Conveyors rows are read first: a conveyor-fed material gets TaktTime and UnitsPerCycle from them, so its Materials cells may be blank
+        // Conveyors rows are read first: a conveyor-fed material gets its TaktTime from them, so its Materials T/T may be blank. Units per product =
+        // the material's UnitsPerCycle (set below; an older workbook's UnitsPerProduct column is not read)
         foreach (var r in Rows(wb, "Conveyors", optional: true))
-            p.Conveyors.Add(new ConveyorInfo(r.Str("Conveyor"), r.Str("Material"), r.OptNumIfColumn("ProductTakt") ?? 60, r.OptNumIfColumn("UnitsPerProduct") ?? 1,
+            p.Conveyors.Add(new ConveyorInfo(r.Str("Conveyor"), r.Str("Material"), r.OptNumIfColumn("ProductTakt") ?? 60, 1,
                 r.OptNumIfColumn("Speed") ?? 0.3, r.OptIntIfColumn("Capacity"), r.OptNumIfColumn("ConsumeAt"), r.RowNum));
         var fed = new HashSet<string>(p.Conveyors.Select(c => c.Material));
         // the route cells sit on the material's own row (current template) or, in an older workbook, on a Routes sheet of their own
@@ -192,11 +193,15 @@ public static class ExcelReader
             p.Routes.RemoveAll(x => Off(x.Material));
             p.Conveyors.RemoveAll(x => Off(x.Material));
         }
-        // the Conveyors row replaces the takt clock of the material it feeds (the first row wins; the validator rejects a second)
-        foreach (var c in p.Conveyors)
+        // the Conveyors row replaces the takt clock of the material it feeds (the first row wins; the validator rejects a second); one product takes the
+        // material's UnitsPerCycle
+        for (int k = 0; k < p.Conveyors.Count; k++)
         {
+            var c = p.Conveyors[k];
             int i = p.Materials.FindIndex(m => m.Material == c.Material && !m.ConveyorFed);
-            if (i >= 0) p.Materials[i] = p.Materials[i] with { TaktTime = c.ProductTakt, UnitsPerCycle = c.UnitsPerProduct, ConveyorFed = true };
+            if (i < 0) continue;
+            p.Conveyors[k] = c with { UnitsPerProduct = p.Materials[i].UnitsPerCycle };
+            p.Materials[i] = p.Materials[i] with { TaktTime = c.ProductTakt, ConveyorFed = true };
         }
         // the container goes back when the route has a return CP (an old EmptyReturn column is ignored: it could contradict the route)
         for (int i = 0; i < p.Materials.Count; i++)

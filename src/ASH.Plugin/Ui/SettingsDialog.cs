@@ -66,8 +66,11 @@ public sealed class SettingsDialog : Form
         var values = SettingsFile.Lines(current).Select(l => l.Split(new[] { '\t' }, 2)).ToDictionary(a => a[0], a => a[1]);
         values[ServerKey] = serverUrl;
 
-        // right padding leaves room for the vertical scroll bar (17 px at 96 dpi, scaled with the form), so no horizontal one appears
-        var table = new TableLayoutPanel { Dock = DockStyle.Fill, AutoScroll = true, ColumnCount = 2, BackColor = Theme.Panel, Padding = new Padding(16, 4, 16 + 17, 12) };
+        // the table is as tall as its rows and a panel around it scrolls: a scrolling table gave its last row all the height left over (thousands of
+        // empty pixels to scroll through). Docked to the top, the table takes the panel's width without the scroll bar, so no horizontal one appears.
+        var table = new TableLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ColumnCount = 2, BackColor = Theme.Panel, Padding = new Padding(16, 4, 16, 12) };
+        var scroll = new Panel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = Theme.Panel };
+        scroll.Controls.Add(table);
         table.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize)); // as wide as the longest label, whatever the font size
         table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         int row = 0;
@@ -114,7 +117,7 @@ public sealed class SettingsDialog : Form
         };
         AcceptButton = ok;
         CancelButton = cancel;
-        Controls.Add(table); // Fill first, then the bottom bar docks before it
+        Controls.Add(scroll); // Fill first, then the bottom bar docks before it
         Controls.Add(bar);
         Theme.FitHeight(this, null);
     }

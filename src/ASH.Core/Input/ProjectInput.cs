@@ -32,7 +32,7 @@ public sealed record MaterialInfo(string Material, string Station, string Group,
     double? LoadLength = null, double? LoadWidth = null, double? LoadHeight = null, string Flow = "", bool ConveyorFed = false)
 {
     // ConveyorFed: a Conveyors row consumes this material (products passing the use point) instead of the takt clock; TaktTime and
-    // UnitsPerCycle then hold that row's ProductTakt and UnitsPerProduct, so every takt-based KPI and check keeps working unchanged.
+    // TaktTime then holds that row's ProductTakt (UnitsPerProduct = the material's UnitsPerCycle), so every takt-based KPI and check keeps working unchanged.
     /// <summary>Flow is Output (an unknown value is reported by the validator and treated as Supply).</summary>
     public bool IsOutput => MaterialFlows.Normalize(Flow) == MaterialFlows.Output;
 }

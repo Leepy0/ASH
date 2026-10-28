@@ -331,7 +331,7 @@ public class MaterialsRoutesTests
                 var g = wb.Worksheet("AGV_Groups"); g.Cell(3, Col(g, "MaxCount")).Value = "";
                 wb.Save();
             }
-            Assert.Equal("입력 필요: Materials 운반 그룹 1칸, T/T 2칸, 소요 원수 1칸, 용기당 자재 수량 1칸, 호출 임계 1칸, load CP 1칸, unload CP 1칸 · AGV_Groups 최대 대수 1칸",
+            Assert.Equal("입력 필요: Materials 운반 그룹 1칸, T/T 2칸, 소요 원수 1칸, 용기당 자재 수량 1칸, 호출 기준 1칸, load CP 1칸, unload CP 1칸 · AGV_Groups 최대 대수 1칸",
                 ExcelTemplate.Update(path, null).Last());
         }
         finally { File.Delete(path); }

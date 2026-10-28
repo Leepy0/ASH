@@ -45,6 +45,24 @@ public class SourceBuildTests
         return dir;
     }
 
+    /// <summary>What the server makes from a source package builds in AutoMod (only with ASH_AM_HOME set, like the other AutoMod tests).</summary>
+    [Fact]
+    public void Server_Made_Model_Builds_In_AutoMod()
+    {
+        var am = Environment.GetEnvironmentVariable("ASH_AM_HOME");
+        if (string.IsNullOrEmpty(am) || ASH.Core.AutoMod.AmBuilder.FindBuildExe(am) == null) return;
+        var src = Source(Loop());
+        try
+        {
+            var r = SourceBuild.Run(src, "m", (_, _) => Cel(), new List<string>());
+            Assert.DoesNotContain(r.Findings, f => f.Code == FindingCode.InputError);
+            ModelBuilder.PrepareBuildDir(src, "m");
+            var b = ASH.Core.AutoMod.AmBuilder.Build(am, src, "m", TimeSpan.FromMinutes(10));
+            Assert.True(b.Success, $"exit/dll 실패 · make.err [{b.MakeErrText}] · am2err [{b.Am2ErrText}] · 닫은 창 [{string.Join(",", b.ClosedDialogTitles)}]");
+        }
+        finally { Directory.Delete(src, true); }
+    }
+
     [Fact]
     public void Makes_The_Same_Arc_Files_As_AgvModel()
     {
