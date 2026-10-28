@@ -572,7 +572,7 @@ public static class ExcelTemplate
                 int n = named.Count(r => S(r, col).Length == 0 && !(col == "CallThreshold" && S(r, "CallThresholdQty").Length > 0)
                     && !((col == "TaktTime" || col == "UnitsPerCycle") && fed.Contains(S(r, cols[0]))));
                 var label = desc[Array.IndexOf(cols, col)];
-                if (n > 0) counts.Add($"{(label.IndexOf('(') > 0 ? label.Substring(0, label.IndexOf('(')) : label)} {n}칸");
+                if (n > 0) counts.Add($"{(label.IndexOf('(') > 0 ? label.Substring(0, label.IndexOf('(')) : label).Trim()} {n}칸");
             }
             if (counts.Count > 0) parts.Add($"{sheet} {string.Join(", ", counts)}");
         }
