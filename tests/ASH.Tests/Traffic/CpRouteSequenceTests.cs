@@ -57,7 +57,7 @@ public class CpRouteSequenceTests
     {
         var q = new CpRouteSequence();
         q.Placed(); q.Placed(); q.Placed();
-        Assert.Equal("[2/6] load 로딩 — 클릭: 배치, Enter/Space: 다음, S: 건너뛰기, Esc: 끝", q.Prompt());
+        Assert.Equal("(2/6) load 로딩 — 클릭: 배치, Enter/Space: 다음, S: 건너뛰기, Esc: 끝", q.Prompt());
         q.Next(); q.Placed(); q.Placed(); q.Next();
         q.Next(); q.Next();
         q.Placed();

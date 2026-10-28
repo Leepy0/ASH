@@ -41,7 +41,8 @@ public sealed class CpRouteSequence
     public int Count(string type) => _counts[System.Array.IndexOf(Types, type)];
 
     /// <summary>"[2/6] load 로딩 — 클릭: 배치, Enter/Space: 다음, S: 건너뛰기, Esc: 끝"</summary>
-    public string Prompt() => $"[{Index + 1}/{Types.Length}] {Type} {Labels[Index]} — 클릭: 배치, Enter/Space: 다음, S: 건너뛰기, Esc: 끝";
+    // round brackets: ZWCAD reads "[a/b]" in a prompt as clickable keywords
+    public string Prompt() => $"({Index + 1}/{Types.Length}) {Type} {Labels[Index]} — 클릭: 배치, Enter/Space: 다음, S: 건너뛰기, Esc: 끝";
 
     /// <summary>"G1: standby 1, load 2, unload 2, rtnload 0, rtnunload 0, finish 1"</summary>
     public string Summary(string group) => group + ": " + string.Join(", ", Types.Select((t, i) => $"{t} {_counts[i]}"));
