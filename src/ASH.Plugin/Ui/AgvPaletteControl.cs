@@ -162,7 +162,7 @@ public sealed class AgvPaletteControl : UserControl
             Theme.Section("검증"),Theme.Make("검증", GlyphKind.Check, "AGVCHECK"), checkResult,
             Theme.Caption("문제 목록 — 더블클릭하면 그 위치로 이동"), problems,
             // "모델 생성" also does what "내보내기" did (AGVEXPORT is still a command): <Model>.arc, and <Model>.dir when this PC has AutoMod
-            Theme.Section("모델"), Theme.Make("Excel 양식", GlyphKind.Excel, "AGVEXCEL"), Theme.Make("입력 표", GlyphKind.Excel, "AGVINPUT"), Theme.Make("모델 생성", GlyphKind.Model, "AGVMODEL"), Theme.Make("빌드·실행", GlyphKind.Run, "AGVRUN"),
+            Theme.Section("모델"), Theme.Make("Excel 양식", GlyphKind.Excel, "AGVEXCEL"), Theme.Make("공급 설정", GlyphKind.Excel, "AGVINPUT"), Theme.Make("모델 생성", GlyphKind.Model, "AGVMODEL"), Theme.Make("빌드·실행", GlyphKind.Run, "AGVRUN"),
             Theme.Make("서버로 보내기", GlyphKind.Send, "AGVSEND"), Theme.Make("결과 올리기", GlyphKind.Send, "AGVRESULTUP"),
             Theme.Make("엑셀·도면 비교", GlyphKind.Excel, "AGVEXCELDIFF"),
             Theme.Section("설정"), settings, layerColors));

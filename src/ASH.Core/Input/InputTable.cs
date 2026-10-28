@@ -91,36 +91,52 @@ public sealed class InputTable
     static int LastDataRow(IXLWorksheet ws) =>
         ws.CellsUsed(XLCellsUsedOptions.Contents).Where(c => !c.HasFormula && c.GetString().Length > 0).Select(c => c.Address.RowNumber).DefaultIfEmpty(0).Max();
 
-    /// <summary>The edits that turn this table (as read) into <paramref name="edited"/>: a changed or cleared cell (cleared = ""), and every non-empty row added at the
-    /// end (Row 0) as its cells, on the rows after <see cref="NextRow"/>. Auto columns are never written. Sorted by row, then column, so that a run of cells in one
-    /// row can be written in one go. A row added and left empty writes nothing. Appended rows that hold something get their Excel row in place (the caller maps
-    /// them back to its grid); calling this again on the same <paramref name="edited"/> gives the same edits.</summary>
+    string Cell(TableRow? r, int i) => r != null && i < r.Values.Length ? (r.Values[i] ?? "").Trim() : "";
+
+    /// <summary>The Excel row each row of <paramref name="edited"/> has once saved (same order). A row of this table that <paramref name="edited"/> no longer holds is
+    /// deleted: the rows below it move up (as Excel's Delete row does). A row added at the end (Row 0) that holds something goes after the last row left; an added row
+    /// left empty gets 0 (it is not written).</summary>
+    public int[] Positions(InputTable edited)
+    {
+        var kept = new HashSet<int>(edited.Rows.Where(r => r.Row > 0).Select(r => r.Row));
+        var gone = Rows.Select(r => r.Row).Where(r => !kept.Contains(r)).OrderBy(r => r).ToArray();
+        int next = NextRow - gone.Length;
+        var pos = new int[edited.Rows.Count];
+        for (int k = 0; k < pos.Length; k++)
+        {
+            var er = edited.Rows[k];
+            if (er.Row > 0) { int below = 0; while (below < gone.Length && gone[below] < er.Row) below++; pos[k] = er.Row - below; }
+            else pos[k] = Enumerable.Range(0, Columns.Count).Any(i => !Columns[i].Auto && Cell(er, i).Length > 0) ? next++ : 0;
+        }
+        return pos;
+    }
+
+    /// <summary>The edits that turn this table (as read) into <paramref name="edited"/>: a changed or cleared cell (cleared = ""), every non-empty row added at the end
+    /// (Row 0) as its cells, and for a deleted row the rows below it written one row up (the last rows cleared). Only values are written: formulas, formats and
+    /// lists stay where they are, so no row is removed from the sheet. Auto columns are never written. Sorted by row, then column, so that a run of cells in one
+    /// row can be written in one go. A row added and left empty writes nothing. <see cref="Positions"/> tells which Excel row each row of <paramref name="edited"/> lands on.</summary>
     public List<CellEdit> Diff(InputTable edited)
     {
         var was = new Dictionary<int, TableRow>();
         foreach (var r in Rows) was[r.Row] = r;
+        var pos = Positions(edited);
+        var now = new Dictionary<int, TableRow>();
+        for (int k = 0; k < pos.Length; k++) if (pos[k] > 0) now[pos[k]] = edited.Rows[k];
+        int last = Math.Max(NextRow - 1, pos.DefaultIfEmpty(0).Max());
         var edits = new List<CellEdit>();
-        int next = NextRow;
-        foreach (var er in edited.Rows)
+        for (int p = InputSchema.FirstDataRow; p <= last; p++)
         {
-            string Now(int i) => i < er.Values.Length ? (er.Values[i] ?? "").Trim() : "";
-            if (er.Row > 0)
+            was.TryGetValue(p, out var old); now.TryGetValue(p, out var cur);
+            if (old == null && cur == null) continue;
+            for (int i = 0; i < Columns.Count; i++)
             {
-                was.TryGetValue(er.Row, out var old);
-                for (int i = 0; i < Columns.Count; i++)
-                {
-                    if (Columns[i].Auto) continue;
-                    var before = old != null && i < old.Values.Length ? old.Values[i] : "";
-                    if (!Same(before, Now(i))) edits.Add(new CellEdit(Sheet, er.Row, Columns[i].Number, Now(i)));
-                }
-                continue;
+                if (Columns[i].Auto) continue;
+                var before = old != null && i < old.Values.Length ? old.Values[i] : "";
+                var after = Cell(cur, i);
+                if (!Same(before, after)) edits.Add(new CellEdit(Sheet, p, Columns[i].Number, after));
             }
-            var filled = Enumerable.Range(0, Columns.Count).Where(i => !Columns[i].Auto && Now(i).Length > 0).ToList();
-            if (filled.Count == 0) continue;
-            er.Row = next++;
-            foreach (var i in filled) edits.Add(new CellEdit(Sheet, er.Row, Columns[i].Number, Now(i)));
         }
-        return edits.OrderBy(e => e.Row).ThenBy(e => e.Col).ToList();
+        return edits;
     }
 
     // "1.0" typed over a number cell 1 is no change; "007" typed as "7" over a text cell is (the old text is not the number's own text)
@@ -147,6 +163,74 @@ public sealed class InputTable
         using var wb = ExcelReader.Open(path);
         Apply(wb, edits);
         ExcelTemplate.Save(wb, path);
+    }
+
+    /// <summary>The tables as a plain workbook: a sheet each, the column names in row 1 and the labels in row 2 (the input.xlsx layout, columns packed from A), the
+    /// rows from <see cref="InputSchema.FirstDataRow"/> as typed (numeric text as numbers). A row with nothing typed in the non-Auto columns is left out.</summary>
+    public static XLWorkbook Export(IEnumerable<InputTable> tables)
+    {
+        var wb = ExcelReader.NewWorkbook();
+        var edits = new List<CellEdit>();
+        foreach (var t in tables)
+        {
+            var ws = wb.AddWorksheet(t.Sheet);
+            for (int i = 0; i < t.Columns.Count; i++) { ws.Cell(1, i + 1).Value = t.Columns[i].Name; ws.Cell(2, i + 1).Value = t.Columns[i].Label; }
+            int r = InputSchema.FirstDataRow;
+            foreach (var row in t.Rows)
+            {
+                if (!Enumerable.Range(0, t.Columns.Count).Any(i => !t.Columns[i].Auto && t.Cell(row, i).Length > 0)) continue;
+                for (int i = 0; i < t.Columns.Count; i++) if (t.Cell(row, i).Length > 0) edits.Add(new CellEdit(t.Sheet, r, i + 1, t.Cell(row, i)));
+                r++;
+            }
+        }
+        Apply(wb, edits);
+        return wb;
+    }
+
+    /// <summary><see cref="Export"/> saved to <paramref name="path"/> (replaced), atomically.</summary>
+    public static void ExportFile(string path, IEnumerable<InputTable> tables)
+    {
+        using var wb = Export(tables);
+        ExcelTemplate.Save(wb, path);
+    }
+
+    /// <summary>What <see cref="Import"/> did: sheets taken (of the tables asked), rows put in, columns matched by name, columns of the table the file lacks (non-Auto),
+    /// columns of the file the table does not know (ignored).</summary>
+    public sealed record ImportReport(int Sheets, int SheetsAsked, int Rows, int ColumnsMatched, int ColumnsMissing, int ColumnsIgnored);
+
+    /// <summary>The tables with the values of <paramref name="src"/> (an exported or an input.xlsx-like file): per table the sheet of the same name, its columns matched
+    /// to the table's by their row-1 name. The file's rows replace the table's rows: the first ones take over the Excel rows the table's rows have (so they are
+    /// edits of those rows), the rest are added, a table row beyond them is dropped (deleted on saving). A column the file lacks, and every Auto column, keeps the value
+    /// the table row at the same place has (blank for an added row); a column of the file the table does not know is ignored. A table whose sheet is not in the file, or
+    /// shares no column name with it, is returned as it is.</summary>
+    public static (List<InputTable> Tables, ImportReport Report) Import(IReadOnlyList<InputTable> current, XLWorkbook src)
+    {
+        var result = new List<InputTable>();
+        int sheets = 0, rowsIn = 0, matched = 0, missing = 0, ignored = 0;
+        foreach (var t in current)
+        {
+            var s = Load(src, t.Sheet);
+            var map = new int[t.Columns.Count];
+            if (s != null)
+                for (int i = 0; i < map.Length; i++) map[i] = s.Columns.ToList().FindIndex(c => c.Name == t.Columns[i].Name);
+            if (s == null || map.All(m => m < 0)) { result.Add(t); continue; }
+            sheets++;
+            var rows = new List<TableRow>(s.Rows.Count);
+            for (int j = 0; j < s.Rows.Count; j++)
+            {
+                var old = j < t.Rows.Count ? t.Rows[j] : null;
+                var v = new string[t.Columns.Count];
+                for (int i = 0; i < v.Length; i++)
+                    v[i] = map[i] >= 0 && !t.Columns[i].Auto ? s.Rows[j].Values[map[i]] : old != null && i < old.Values.Length ? old.Values[i] : "";
+                rows.Add(new TableRow(old?.Row ?? 0, v));
+            }
+            rowsIn += rows.Count;
+            matched += map.Count(m => m >= 0);
+            missing += Enumerable.Range(0, map.Length).Count(i => map[i] < 0 && !t.Columns[i].Auto);
+            ignored += s.Columns.Count(c => t.Columns.All(x => x.Name != c.Name));
+            result.Add(t.With(rows));
+        }
+        return (result, new ImportReport(sheets, current.Count, rowsIn, matched, missing, ignored));
     }
 
     /// <summary>A workbook with the values of <paramref name="original"/> (every sheet, no formulas, formats or lists) and then the edits: what the file would hold

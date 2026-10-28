@@ -117,8 +117,129 @@ public class InputTableTests
             new CellEdit("AGV_Groups", 7, Col("MinCount"), "1"),
             new CellEdit("AGV_Groups", 8, Col("Group"), "G5"),
         }, edits);
-        Assert.Equal(new[] { 3, 4, 6, 7, 0, 8 }, e.Rows.Select(r => r.Row)); // the empty added row stays unassigned
-        Assert.Equal(edits, t.Diff(e));                                       // asking again changes nothing
+        Assert.Equal(new[] { 3, 4, 6, 7, 0, 8 }, t.Positions(e)); // the empty added row lands nowhere
+        Assert.Equal(edits, t.Diff(e));                           // asking again changes nothing
+    }
+
+    [Fact]
+    public void Deleting_A_Row_Moves_The_Rows_Below_Up_And_Clears_The_Last_One()
+    {
+        using var wb = Groups();                 // data on rows 3, 4 and 6
+        var t = InputTable.Load(wb, "AGV_Groups")!;
+        var e = Copy(t);
+        e.Rows.RemoveAt(0);                      // G1 (row 3) deleted: G2 -> row 3, G3 -> row 5
+        var added = Blank(t); added[Idx(t, "Group")] = "G4";
+        e.Rows.Add(new TableRow(0, added));      // an added row follows the last one left
+
+        Assert.Equal(new[] { 3, 5, 6 }, t.Positions(e));
+        using var saved = InputTable.Overlay(wb, t.Diff(e));
+        var back = InputTable.Load(saved, "AGV_Groups")!;
+        Assert.Equal(new[] { 3, 5, 6 }, back.Rows.Select(r => r.Row));
+        Assert.Equal(new[] { "G2", "G3", "G4" }, back.Rows.Select(r => r.Values[Idx(t, "Group")]));
+        Assert.Equal("memo", back.Rows[0].Values[Idx(t, "Extra")]);   // the whole row moved, its cells in other columns too
+        Assert.Equal("", back.Rows[0].Values[Idx(t, "Dispatch")]);    // and what G1 had there is gone
+        Assert.Equal("2.5", back.Rows[1].Values[Idx(t, "MinCount")]);
+    }
+
+    [Fact]
+    public void Deleting_The_Last_Row_Or_All_Rows_Clears_Their_Cells()
+    {
+        using var wb = Groups();
+        var t = InputTable.Load(wb, "AGV_Groups")!;
+        var last = Copy(t); last.Rows.RemoveAt(2);
+        var d = t.Diff(last);
+        Assert.All(d, x => { Assert.Equal(6, x.Row); Assert.Equal("", x.Value); });
+        Assert.NotEmpty(d);
+
+        var none = t.With(new List<TableRow>());
+        using var saved = InputTable.Overlay(wb, t.Diff(none));
+        Assert.Empty(InputTable.Load(saved, "AGV_Groups")!.Rows);
+        Assert.Empty(t.Diff(Copy(t)));                                  // nothing deleted, nothing written
+    }
+
+    [Fact]
+    public void SaveFile_Of_A_Deleted_Row_Keeps_The_Formulas_Of_The_Rows()
+    {
+        var path = Tmp();
+        try
+        {
+            using (var wb = Groups()) { for (int r = 3; r <= 6; r++) wb.Worksheet("AGV_Groups").Cell(r, 30).FormulaA1 = "=ROW()"; wb.SaveAs(path); }
+            InputTable t; InputTable e;
+            using (var wb = ExcelReader.Open(path)) { t = InputTable.Load(wb, "AGV_Groups")!; e = Copy(t); }
+            e.Rows.RemoveAt(1);
+            InputTable.SaveFile(path, t.Diff(e));
+            using var after = ExcelReader.Open(path);
+            for (int r = 3; r <= 6; r++) Assert.True(after.Worksheet("AGV_Groups").Cell(r, 30).HasFormula); // no row is removed from the sheet, only values move
+            Assert.Equal(new[] { "G1", "G3" }, InputTable.Load(after, "AGV_Groups")!.Rows.Select(r => r.Values[Idx(t, "Group")]));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void Export_Writes_Names_Labels_And_Values_And_Import_Reads_Them_Back_By_Name()
+    {
+        using var wb = Groups();
+        var t = InputTable.Load(wb, "AGV_Groups")!;
+        var e = Copy(t);
+        e.Rows[0].Values[Idx(t, "Type")] = "TX";                          // an unsaved edit is exported
+        e.Rows.Add(new TableRow(0, Blank(t)));                            // an empty added row is not
+        using var x = InputTable.Export(new[] { e });
+        var ws = x.Worksheet("AGV_Groups");
+        Assert.Equal("Group", ws.Cell(1, 1).GetString());
+        Assert.Equal(t.Columns[0].Label, ws.Cell(2, 1).GetString());
+        Assert.Equal("TX", ws.Cell(3, Idx(t, "Type") + 1).GetString());
+        Assert.Equal(XLDataType.Number, ws.Cell(3, Idx(t, "MaxCount") + 1).DataType);
+        Assert.True(ws.Cell(6, 1).IsEmpty());                             // 3 rows -> 3..5
+
+        // a table that was emptied takes the file's rows; the Excel rows of the old ones are kept for the first three
+        var (tables, rep) = InputTable.Import(new[] { t }, x);
+        Assert.Equal(new[] { 3, 4, 6 }, tables[0].Rows.Select(r => r.Row));
+        Assert.Equal("TX", tables[0].Rows[0].Values[Idx(t, "Type")]);
+        Assert.Equal(new InputTable.ImportReport(1, 1, 3, t.Columns.Count, 0, 0), rep);
+    }
+
+    [Fact]
+    public void Import_Matches_By_Name_Keeps_Missing_Columns_Replaces_Rows_And_Ignores_Unknown_Columns()
+    {
+        using var wb = Groups();
+        var t = InputTable.Load(wb, "AGV_Groups")!;     // G1,G2,G3 on rows 3,4,6; Extra column known to this table
+        using var src = ExcelReader.NewWorkbook();
+        var ws = src.AddWorksheet("AGV_Groups");
+        string[] heads = { "Type", "Group", "Nope" };      // another order, no Extra, no MaxCount, one unknown
+        for (int i = 0; i < heads.Length; i++) ws.Cell(1, i + 1).Value = heads[i];
+        ws.Cell(3, 1).Value = "TA"; ws.Cell(3, 2).Value = "N1"; ws.Cell(3, 3).Value = "zz";
+        ws.Cell(4, 1).Value = "TB"; ws.Cell(4, 2).Value = "N2";
+        src.AddWorksheet("Materials").Cell(1, 1).Value = "Material";      // a sheet the dialog has no table for: not asked
+
+        var (tables, rep) = InputTable.Import(new[] { t }, src);
+        var r = tables[0].Rows;
+        Assert.Equal(new[] { 3, 4 }, r.Select(x => x.Row));               // the third old row (6) is gone: deleted on saving
+        Assert.Equal(("N1", "TA"), (r[0].Values[Idx(t, "Group")], r[0].Values[Idx(t, "Type")]));
+        Assert.Equal("3", r[0].Values[Idx(t, "MaxCount")]);               // columns the file lacks stay
+        Assert.Equal("memo", r[1].Values[Idx(t, "Extra")]);
+        Assert.Equal(new InputTable.ImportReport(1, 1, 2, 2, t.Columns.Count - 2, 1), rep);
+        Assert.Equal(new[] { 3, 4, 6 }, t.Rows.Select(x => x.Row));       // the table asked is not changed
+
+        // saved: the diff writes the new values and clears row 6
+        using var saved = InputTable.Overlay(wb, t.Diff(tables[0]));
+        Assert.Equal(new[] { "N1", "N2" }, InputTable.Load(saved, "AGV_Groups")!.Rows.Select(x => x.Values[Idx(t, "Group")]));
+    }
+
+    [Fact]
+    public void Import_Leaves_A_Table_Alone_When_The_File_Has_No_Such_Sheet_Or_No_Column_Of_It()
+    {
+        using var wb = Groups();
+        var t = InputTable.Load(wb, "AGV_Groups")!;
+        using var none = ExcelReader.NewWorkbook();
+        none.AddWorksheet("Other").Cell(1, 1).Value = "x";
+        var (a, ra) = InputTable.Import(new[] { t }, none);
+        Assert.Same(t, a[0]);
+        Assert.Equal(0, ra.Sheets);
+
+        none.AddWorksheet("AGV_Groups").Cell(1, 1).Value = "Unknown";
+        var (b, rb) = InputTable.Import(new[] { t }, none);
+        Assert.Same(t, b[0]);
+        Assert.Equal(0, rb.Sheets);
     }
 
     [Fact]

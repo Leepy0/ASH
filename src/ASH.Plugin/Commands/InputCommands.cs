@@ -13,13 +13,17 @@ using Application = ZwSoft.ZwCAD.ApplicationServices.Application;
 
 namespace ASH.Plugin.Commands;
 
-/// <summary>AGVINPUT: the input table (<see cref="InputDialog"/>) to fill input.xlsx inside the plugin. The drawing is read once for its CP names (drop-downs, checks);
+/// <summary>AGVINPUT (also AGVSUPPLY): the supply settings table, "공급 설정" (<see cref="InputDialog"/>), to fill input.xlsx inside the plugin. The drawing is read once for its CP names (drop-downs, checks);
 /// the workbook is read once and written once per save. A plain file is read and written with ClosedXML (Excel holding it open sends the save to Excel's open copy);
 /// a company-encrypted file only Excel can open, so one hidden Excel serves the whole time the table is up: one read when it opens, one write per save.</summary>
 public sealed class InputCommands
 {
     [CommandMethod("AGVINPUT")]
     public void AgvInput() => Open();
+
+    /// <summary>The same table under the name the dialog goes by ("공급 설정").</summary>
+    [CommandMethod("AGVSUPPLY")]
+    public void AgvSupply() => Open();
 
     /// <summary>Opens the input table; also what a palette button calls.</summary>
     internal static void Open()
@@ -61,9 +65,9 @@ public sealed class InputCommands
                 Say($"{ModelCommands.ExcelFileName}에 입력 시트가 없습니다. AGVEXCEL의 U(갱신)로 양식을 채우세요.");
                 return;
             }
-            Say("AGVINPUT: 입력 표");
+            Say("AGVINPUT: 공급 설정");
             int saved;
-            using (var dlg = new InputDialog(xlsx, wb, InputTable.CpNamesByType(layout), CpNames(layout), edits => Write(xlsx, edits), () => ReadFile(xlsx, out _), note))
+            using (var dlg = new InputDialog(xlsx, wb, InputTable.CpNamesByType(layout), CpNames(layout), edits => Write(xlsx, edits), () => ReadFile(xlsx, out _), file => ReadFile(file, out _), note))
             {
                 Application.ShowModalDialog(dlg);
                 saved = dlg.SavedCells;
