@@ -33,7 +33,7 @@ public static class ModelBuilder
         if (r.VehicleOverrides != null) o = o with { VehicleOverrides = r.VehicleOverrides };
         if (r.MaterialOverrides != null)
         {
-            input = new ProjectInput { Settings = r.Input.Settings };
+            input = new ProjectInput { Settings = r.Input.Settings, RouteSheet = r.Input.RouteSheet };
             input.AgvTypes.AddRange(r.Input.AgvTypes); input.Groups.AddRange(r.Input.Groups); input.Materials.AddRange(r.MaterialOverrides);
             input.Routes.AddRange(r.Input.Routes); input.Stations.AddRange(r.Input.Stations); input.Ext.AddRange(r.Input.Ext);
             input.Conveyors.AddRange(r.Input.Conveyors);

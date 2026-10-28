@@ -67,7 +67,7 @@ public static class ExcelMarks
     public static int Apply(XLWorkbook wb, IEnumerable<Finding> findings, List<ExcelEdit>? log = null)
     {
         int changed = 0;
-        foreach (var (sheet, _, _, _) in ExcelTemplate.Sheets)
+        foreach (var sheet in ExcelTemplate.Sheets.Select(s => s.Sheet).Append("Routes")) // Routes: an older workbook's route sheet
         {
             if (!wb.TryGetWorksheet(sheet, out var ws)) continue;
             foreach (var cell in ws.CellsUsed(XLCellsUsedOptions.All).Where(c => c.HasComment && c.GetComment().Text.StartsWith(Prefix, StringComparison.Ordinal)).ToList())

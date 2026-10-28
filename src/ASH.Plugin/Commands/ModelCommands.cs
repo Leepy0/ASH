@@ -36,7 +36,7 @@ public sealed class ModelCommands
         var ed = Application.DocumentManager.MdiActiveDocument.Editor;
         try
         {
-            if (!ExportCommands.TryLoadSettings(ed, out _, out var dir)) return;
+            if (!ExportCommands.TryLoadSettings(ed, out var settings, out var dir)) return;
             var path = Path.Combine(dir, ExcelFileName);
             bool made = !File.Exists(path);
             List<string>? cpNames = null;
@@ -74,7 +74,13 @@ public sealed class ModelCommands
                 string Filled() => catalog != null ? $"\n카탈로그 타입 {catalog.Count}개로 AGV_Types를 채웠습니다."
                     : mode == "W" ? "\n서버 카탈로그를 읽지 못해 T_AGV 한 행으로 만들었습니다(AGVSERVER로 주소 확인)."
                     : "\n서버 카탈로그를 읽지 못해 AGV_Types는 그대로 둡니다(AGVSERVER로 주소 확인).";
-                if (mode == "W") { ExcelTemplate.Write(path, layout, catalog); ed.WriteMessage(Filled()); }
+                // settings.Scale (drawing units to metres) measures the routes for the suggested call thresholds
+                if (mode == "W")
+                {
+                    var notes = ExcelTemplate.Write(path, layout, catalog, settings.Scale);
+                    ed.WriteMessage(Filled());
+                    foreach (var c in notes) ed.WriteMessage($"\n  {c}");
+                }
                 else
                 {
                     List<string>? changes = null;
@@ -82,7 +88,7 @@ public sealed class ModelCommands
                     // the same update is worked out on the cells Excel reads, then Excel makes the edits and saves (the encryption stays on).
                     // An encrypted file is known by its first bytes and goes to Excel at once, without the direct try that can only fail.
                     if (!ExcelCom.Encrypted(path))
-                        try { using (PluginLog.Time("AGVEXCEL 직접 갱신")) changes = ExcelTemplate.Update(path, layout, catalog); }
+                        try { using (PluginLog.Time("AGVEXCEL 직접 갱신")) changes = ExcelTemplate.Update(path, layout, catalog, settings.Scale); }
                         catch (System.Exception ex) when (!(ex is OperationCanceledException))
                         {
                             ed.WriteMessage("\n파일을 직접 고치지 못해(" + ex.GetType().Name + ") Excel로 갱신합니다…");
@@ -91,12 +97,12 @@ public sealed class ModelCommands
                     if (changes == null)
                     {
                         var log = new List<ExcelEdit>();
-                        using (PluginLog.Time("AGVEXCEL Excel로 읽기·계산")) using (var wb = ExcelCom.Read(path, out _)) changes = ExcelTemplate.Update(wb, layout, log, catalog);
+                        using (PluginLog.Time("AGVEXCEL Excel로 읽기·계산")) using (var wb = ExcelCom.Read(path, out _)) changes = ExcelTemplate.Update(wb, layout, log, catalog, settings.Scale);
                         using (PluginLog.Time($"AGVEXCEL Excel로 쓰기({log.Count}개)")) ExcelCom.Apply(path, log);
                     }
                     ed.WriteMessage(Filled());
                     foreach (var c in changes) ed.WriteMessage($"\n  {c}");
-                    if (changes.Count == 0) ed.WriteMessage("\n  추가할 내용이 없습니다(드롭다운 목록만 다시 설정).");
+                    if (changes.All(c => c.StartsWith(ExcelTemplate.NeedPrefix, StringComparison.Ordinal))) ed.WriteMessage("\n  추가할 내용이 없습니다(드롭다운 목록만 다시 설정).");
                     if (catalog != null)
                     {
                         try

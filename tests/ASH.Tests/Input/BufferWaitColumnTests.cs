@@ -23,7 +23,7 @@ public class BufferWaitColumnTests
             ExcelTemplate.Write(path);
             using (var wb = ExcelReader.Open(path))
             {
-                var ws = wb.Worksheet("Routes"); int c = Col(ws, "BufferWaitSec");
+                var ws = wb.Worksheet("Materials"); int c = Col(ws, "BufferWaitSec");
                 Assert.StartsWith("버퍼 대기 허용(초", ws.Cell(2, c).GetString());
                 Assert.Equal(0, ws.Cell(3, c).GetDouble());
                 ws.Cell(3, c).Value = 90; wb.Save();
@@ -42,7 +42,7 @@ public class BufferWaitColumnTests
             ExcelTemplate.Write(path);
             using (var wb = ExcelReader.Open(path))
             {
-                var ws = wb.Worksheet("Routes");
+                var ws = wb.Worksheet("Materials");
                 ws.Column(Col(ws, "BufferWaitSec")).Delete();
                 ws.Cell(3, Col(ws, "BufferCP")).Value = "CP_BUF"; ws.Cell(3, Col(ws, "ExtraTime")).Value = 7;
                 wb.Save();
@@ -51,12 +51,12 @@ public class BufferWaitColumnTests
             Assert.Equal(0, old.BufferWaitSec);
 
             var changes = ExcelTemplate.Update(path, null);
-            Assert.Contains("Routes: BufferWaitSec 열 추가", changes);
+            Assert.Contains("Materials: BufferWaitSec 열 추가", changes);
             using (var wb = ExcelReader.Open(path))
             {
-                var ws = wb.Worksheet("Routes");
-                Assert.Equal(8, Col(ws, "BufferWaitSec")); // appended after the last column
-                Assert.StartsWith("버퍼 대기 허용(초", ws.Cell(2, 8).GetString());
+                var ws = wb.Worksheet("Materials"); int c = ExcelTemplate.Sheets.First(x => x.Sheet == "Materials").Cols.Length;
+                Assert.Equal(c, Col(ws, "BufferWaitSec")); // appended after the last column
+                Assert.StartsWith("버퍼 대기 허용(초", ws.Cell(2, c).GetString());
             }
             var r = Assert.Single(ExcelReader.Read(path).Routes);
             Assert.Equal(old with { Row = r.Row }, r); // typed data kept, the new column blank = 0
@@ -75,6 +75,6 @@ public class BufferWaitColumnTests
         Assert.Empty(InputValidator.Validate(p, new[] { "S", "L", "U", "B" }));
         p.Routes[0] = p.Routes[0] with { BufferWaitSec = -1 };
         var e = Assert.Single(InputValidator.Validate(p, new[] { "S", "L", "U", "B" }));
-        Assert.Equal(FindingCode.InputError, e.Code); Assert.Equal("Routes!3", e.EntityId); Assert.Contains("BufferWaitSec", e.Message);
+        Assert.Equal(FindingCode.InputError, e.Code); Assert.Equal("Materials!3", e.EntityId); Assert.Contains("BufferWaitSec", e.Message);
     }
 }

@@ -10,6 +10,11 @@ public class RoutePairingTests
 {
     static LayoutCp Cp(string name, string type, string group) => new() { Name = name, Type = type, Group = group };
 
+    /// <summary>A column of a seed row (template order); the route is on the material's row.</summary>
+    static int C(string col, string sheet = "Materials") => System.Array.IndexOf(ExcelTemplate.Sheets.First(s => s.Sheet == sheet).Cols, col);
+
+    static string Route(string[] m) => string.Join(" ", m[C("SupplyFromCP")], m[C("SupplyToCP")], m[C("ReturnFromCP")], m[C("ReturnToCP")]);
+
     [Fact]
     public void Seed_Pairs_Each_Load_With_The_Same_Groups_Cps_In_Name_Order()
     {
@@ -20,13 +25,13 @@ public class RoutePairingTests
             Cp("L001", "load", "G1"), Cp("RU001", "rtnunload", "G1"), Cp("U001", "unload", "G1"), Cp("RL001", "rtnload", "G1"), Cp("RU002", "rtnunload", "G1"),
             Cp("S001", "standby", "G1"), Cp("S002", "standby", "G2") })
             l.Cps.Add(c);
-        var routes = ExcelTemplate.Seed(l)["Routes"];
+        Assert.False(ExcelTemplate.Seed(l).ContainsKey("Routes"));
         var mats = ExcelTemplate.Seed(l)["Materials"];
-        string Row(string load) { var r = routes.Single(x => x[1] == load); return string.Join(" ", r[1], r[2], r[4], r[5]); }
+        string Row(string load) => Route(mats.Single(x => x[C("SupplyFromCP")] == load));
         Assert.Equal("L001 U001 RL001 RU001", Row("L001"));
         Assert.Equal("L002 U002 RL002 RU002", Row("L002"));
         Assert.Equal("L003 U003  ", Row("L003"));                                   // G2 has no return CPs: blank, not G1's
-        Assert.Equal("G2", mats.Single(m => m[0] == routes.Single(x => x[1] == "L003")[0])[2]);
+        Assert.Equal("G2", mats.Single(m => m[C("SupplyFromCP")] == "L003")[C("Group")]);
     }
 
     [Fact]
@@ -34,9 +39,9 @@ public class RoutePairingTests
     {
         var l = new ASH.Core.Layout.Layout();
         foreach (var c in new[] { Cp("L1", "load", "G1"), Cp("L2", "load", "G1"), Cp("U1", "unload", "G1"), Cp("U9", "unload", "G2"), Cp("L9", "load", "G2") }) l.Cps.Add(c);
-        var routes = ExcelTemplate.Seed(l)["Routes"];
-        Assert.Equal("U1", routes.Single(x => x[1] == "L2")[2]);
-        Assert.Equal("U9", routes.Single(x => x[1] == "L9")[2]);
+        var mats = ExcelTemplate.Seed(l)["Materials"];
+        Assert.Equal("U1", mats.Single(x => x[C("SupplyFromCP")] == "L2")[C("SupplyToCP")]);
+        Assert.Equal("U9", mats.Single(x => x[C("SupplyFromCP")] == "L9")[C("SupplyToCP")]);
     }
 
     [Fact]
@@ -44,18 +49,18 @@ public class RoutePairingTests
     {
         var seed = ExcelTemplate.Seed(OneLoadTwoUnloads(second: false));
         var type = seed["AGV_Groups"][0][1];
-        var kind = seed["AGV_Types"].First(t => t[0] == type)[16];
-        Assert.Equal(VehicleKinds.Find(kind)!.Carries[0], seed["Materials"][0][14]);
+        var kind = seed["AGV_Types"].First(t => t[0] == type)[C("Kind", "AGV_Types")];
+        Assert.Equal(VehicleKinds.Find(kind)!.Carries[0], seed["Materials"][0][C("Form")]);
 
         // the workbook's own types count on update: an ANT (trolley lifting) group gets Trolley
         var path = Path.Combine(Path.GetTempPath(), "ash_" + System.Guid.NewGuid().ToString("N") + ".xlsx");
         try
         {
             ExcelTemplate.Write(path, OneLoadTwoUnloads(second: false));
-            using (var wb = ExcelReader.Open(path)) { wb.Worksheet("AGV_Types").Cell(3, 17).Value = "Ant"; wb.Save(); }
+            using (var wb = ExcelReader.Open(path)) { wb.Worksheet("AGV_Types").Cell(3, C("Kind", "AGV_Types") + 1).Value = "Ant"; wb.Save(); }
             ExcelTemplate.Update(path, OneLoadTwoUnloads());
             using (var wb = ExcelReader.Open(path))
-                Assert.Equal("Trolley", wb.Worksheet("Materials").Cell(4, 15).GetString()); // the new M002 row
+                Assert.Equal("Trolley", wb.Worksheet("Materials").Cell(4, C("Form") + 1).GetString()); // the new M002 row
         }
         finally { File.Delete(path); }
     }
@@ -71,8 +76,8 @@ public class RoutePairingTests
     [Fact]
     public void More_Unloads_Than_Loads_Make_A_Route_Each_Reusing_The_Last_Load_And_Return()
     {
-        var routes = ExcelTemplate.Seed(OneLoadTwoUnloads())["Routes"];
-        Assert.Equal(new[] { "L1 U1 RL1 RU1", "L1 U2 RL2 RU1" }, routes.Select(r => string.Join(" ", r[1], r[2], r[4], r[5])));
+        var mats = ExcelTemplate.Seed(OneLoadTwoUnloads())["Materials"];
+        Assert.Equal(new[] { "L1 U1 RL1 RU1", "L1 U2 RL2 RU1" }, mats.Select(Route));
     }
 
     [Fact]
@@ -83,14 +88,15 @@ public class RoutePairingTests
         {
             ExcelTemplate.Write(path, OneLoadTwoUnloads(second: false));
             var changes = ExcelTemplate.Update(path, OneLoadTwoUnloads());
-            Assert.Single(changes, c => c.StartsWith("Materials·Routes"));
+            Assert.Single(changes, c => c.StartsWith("Materials: load CP"));
             using (var wb = ExcelReader.Open(path))
             {
-                var ws = wb.Worksheet("Routes");
-                var rows = ws.RowsUsed().Where(r => r.RowNumber() >= 3 && r.Cell(2).GetString().Length > 0).Select(r => r.Cell(2).GetString() + " " + r.Cell(3).GetString()).ToList();
+                var ws = wb.Worksheet("Materials");
+                int from = C("SupplyFromCP") + 1, to = C("SupplyToCP") + 1;
+                var rows = ws.RowsUsed().Where(r => r.RowNumber() >= 3 && r.Cell(from).GetString().Length > 0).Select(r => r.Cell(from).GetString() + " " + r.Cell(to).GetString()).ToList();
                 Assert.Equal(new[] { "L1 U1", "L1 U2" }, rows);
             }
-            Assert.Empty(ExcelTemplate.Update(path, OneLoadTwoUnloads()).Where(c => c.StartsWith("Materials·Routes"))); // nothing new the second time
+            Assert.Empty(ExcelTemplate.Update(path, OneLoadTwoUnloads()).Where(c => c.StartsWith("Materials: load CP"))); // nothing new the second time
         }
         finally { File.Delete(path); }
     }
@@ -115,7 +121,9 @@ public class RouteGroupCheckTests
         p.Routes.Add(new Route("M001", "L001", "U001", null, null, null, 0, Row: 4));
         var f = Assert.Single(RouteGroupCheck.Check(p, l));
         Assert.Equal(ASH.Core.Layout.FindingCode.InputError, f.Code);
-        Assert.Equal("Routes!3", f.EntityId);
+        Assert.Equal("Materials!3", f.EntityId); // the route is on the material's row
         Assert.Contains("SupplyToCP", f.Message); Assert.Contains("U003", f.Message);
+        p.RouteSheet = "Routes"; // an older workbook's own sheet
+        Assert.Equal("Routes!3", Assert.Single(RouteGroupCheck.Check(p, l)).EntityId);
     }
 }

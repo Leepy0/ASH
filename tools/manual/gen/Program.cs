@@ -94,12 +94,11 @@ void FillExcel(string xlsx)
     {
         Set(m, row, "Station", station); Set(m, row, "TaktTime", takt); Set(m, row, "UnitsPerCycle", 1); Set(m, row, "UnitsPerContainer", 10);
         Set(m, row, "CallThreshold", 3); Set(m, row, "UnloadThreshold", 1); Set(m, row, "InitStock", 5); Set(m, row, "SafetyStock", 1); Set(m, row, "Form", "Box");
+        Set(m, row, "ExtraTime", 0); Set(m, row, "BufferWaitSec", 0); // the route is on the material's row
     }
-    var r = wb.Worksheet("Routes");
-    foreach (var row in new[] { 3, 4 }) { Set(r, row, "ExtraTime", 0); Set(r, row, "BufferWaitSec", 0); }
     // the template's grey italic example look must go once real values are in
-    foreach (var ws in new[] { t, g, m, r }) foreach (var row in new[] { 3, 4 }) ws.Row(row).Style.Font.Italic = false;
-    foreach (var ws in new[] { t, g, m, r }) foreach (var row in new[] { 3, 4 }) ws.Row(row).Style.Font.FontColor = XLColor.Black;
+    foreach (var ws in new[] { t, g, m }) foreach (var row in new[] { 3, 4 }) ws.Row(row).Style.Font.Italic = false;
+    foreach (var ws in new[] { t, g, m }) foreach (var row in new[] { 3, 4 }) ws.Row(row).Style.Font.FontColor = XLColor.Black;
     wb.Save();
 }
 
@@ -163,7 +162,7 @@ switch (args[0])
         Report(l);
         var xlsx = Path.Combine(dir, "input.xlsx");
         File.Delete(xlsx);
-        ExcelTemplate.Write(xlsx, l);
+        foreach (var line in ExcelTemplate.Write(xlsx, l, null, 0.001)) Console.WriteLine("AGVEXCEL: " + line); // Scale 0.001 as the plugin passes it (mm drawing)
         FillExcel(xlsx);
         var input = ExcelReader.Read(xlsx, out var xw);
         foreach (var w in xw) Console.WriteLine("excel warning: " + w.Message);

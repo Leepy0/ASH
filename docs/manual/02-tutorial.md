@@ -151,8 +151,9 @@
 |---|---|
 | AGV_Types | 타입 `T_AGV` 한 행(예시 숫자) |
 | AGV_Groups | 그룹 `G1`, 타입 `T_AGV`, StandbyCPs `S001` |
-| Materials | `M001`, `M002`(그룹 G1, 예시 숫자) |
-| Routes | `M001`: L001 → U001, `M002`: L002 → U002 |
+| Materials | `M001`: L001 → U001, `M002`: L002 → U002(그룹 G1, 예시 숫자, 호출 임계는 경로 길이로 낸 제안 값 `3`) |
+
+명령줄 끝에 `Materials: M001 호출 임계 3 (제안)` 같은 줄과 `입력 필요 없음`이 나온다. Materials·AGV_Types의 고급 열(Station, InitStock·SafetyStock 등)은 접혀 있으니 열 머리글 위 **+** 로 펼친다.
 
 아래 칸만 고친다(나머지는 그대로). 다 고친 파일이 [example/input.xlsx](example/input.xlsx)다. 그 파일을 도면 폴더에 복사해 써도 된다.
 
@@ -167,11 +168,10 @@
 | AGV_Groups | G1 | MaxCount | `4` | 3 |
 | AGV_Groups | G1 | FinishCP | `F001` (드롭다운) | 빈칸 |
 | Materials | M001 | TaktTime | `40` | 60 |
-| Materials | M001, M002 | CallThreshold | `3` | 4 |
-| Materials | M001, M002 | InitStock / SafetyStock | `5` / `1` | 빈칸 / 빈칸 |
-| Materials | M001, M002 | Station | `조립1`, `조립2` (메모, 선택) | 빈칸 |
+| Materials | M001, M002 | InitStock / SafetyStock (고급 열) | `5` / `1` | 빈칸 / 빈칸 |
+| Materials | M001, M002 | Station (고급 열) | `조립1`, `조립2` (메모, 선택) | 빈칸 |
 
-그대로 두는 값: SpeedLoaded 1.0, Accel·Decel 0.3, Capacity 1, MTBF·MTTR 0, MinCount 1, Dispatch Nearest, M002 TaktTime 60, UnitsPerCycle 1, UnitsPerContainer 10, UnloadThreshold 1, Form Box, Flow Supply, Use Y, ExtraTime 0, BufferWaitSec 0.
+그대로 두는 값: SpeedLoaded 1.0, Accel·Decel 0.3, Capacity 1, MTBF·MTTR 0, MinCount 1, Dispatch Nearest, M002 TaktTime 60, UnitsPerCycle 1, UnitsPerContainer 10, CallThreshold 3(제안 값), UnloadThreshold 1, Form Box, Flow Supply, Use Y, ExtraTime 0, BufferWaitSec 0.
 
 저장한다. 이 입력은 ASH.Core 검증(`InputValidator`)에서 오류·경고 0건이다. 문제가 있는 칸은 다음 단계에서 빨강(오류)·주황(경고)으로 칠해지고 메모가 달린다.
 

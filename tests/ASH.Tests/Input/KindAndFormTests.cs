@@ -85,8 +85,8 @@ public class KindAndFormTests
             ExcelTemplate.Write(path);
             using (var wb = ExcelReader.Open(path))
             {
-                wb.Worksheet("AGV_Types").Column(17).Delete();  // Kind
-                wb.Worksheet("Materials").Column(15).Delete();  // Form
+                foreach (var (sheet, col) in new[] { ("AGV_Types", "Kind"), ("Materials", "Form") })
+                    wb.Worksheet(sheet).Column(Array.IndexOf(ExcelTemplate.Sheets.First(s => s.Sheet == sheet).Cols, col) + 1).Delete();
                 wb.Save();
             }
             var p = ExcelReader.Read(path);

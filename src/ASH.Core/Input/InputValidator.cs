@@ -164,7 +164,7 @@ public static class InputValidator
             foreach (var (col, v) in new[] { ("LoadLength", m.LoadLength), ("LoadWidth", m.LoadWidth), ("LoadHeight", m.LoadHeight) })
                 if (v.HasValue && !(v.Value > 0)) Err("Materials", m.Row, i, $"자재 '{m.Material}'의 {col}은(는) 0보다 커야 합니다(비우면 형태별 기본값).");
             if (MaterialFlows.Normalize(m.Flow) == null) Err("Materials", m.Row, i, $"자재 '{m.Material}'의 Flow '{m.Flow}'은(는) 알 수 없습니다. (Supply = 공급, Output = 빈 용기 공급 + 풀 용기 반출)");
-            else if (m.IsOutput && !m.EmptyReturn) Warn("Materials", m.Row, i, $"자재 '{m.Material}'은(는) Output(반출)인데 Routes에 ReturnFromCP/ReturnToCP가 없어 풀 용기를 가져가지 않습니다. 풀 용기를 내려놓을 곳(창고·다음 공정)을 ReturnToCP에 넣으세요.");
+            else if (m.IsOutput && !m.EmptyReturn) Warn("Materials", m.Row, i, $"자재 '{m.Material}'은(는) Output(반출)인데 ReturnFromCP/ReturnToCP가 없어 풀 용기를 가져가지 않습니다. 풀 용기를 내려놓을 곳(창고·다음 공정)을 ReturnToCP에 넣으세요.");
             var form = MaterialForms.Normalize(m.Form);
             if (form == null) Err("Materials", m.Row, i, $"자재 '{m.Material}'의 Form '{m.Form}'은(는) 알 수 없습니다. ({string.Join(" / ", MaterialForms.All)})");
             else
@@ -185,18 +185,21 @@ public static class InputValidator
             if (m.CallThreshold <= safety)
                 Warn("Materials", m.Row, i, $"자재 '{m.Material}': 호출 임계값이 안전재고 이하 — 대수와 무관하게 재고 판정 실패(CallThreshold {m.CallThreshold} <= SafetyStock {safety}).");
         }
+        // route cells on the material's own row (RouteSheet Materials): the material checks above already cover a blank or repeated name
+        var rs = input.RouteSheet; bool own = rs != "Materials";
         for (int i = 0; i < input.Routes.Count; i++)
         {
             var r = input.Routes[i];
-            Blank("Routes", r.Row, i, "Material", r.Material);
-            Blank("Routes", r.Row, i, "SupplyFromCP", r.SupplyFromCP);
-            Blank("Routes", r.Row, i, "SupplyToCP", r.SupplyToCP);
-            if (r.Material.Length > 0 && !mats.Contains(r.Material)) Err("Routes", r.Row, i, $"Material '{r.Material}'이(가) Materials에 없습니다.");
-            if (r.Material.Length > 0 && input.Routes.Take(i).Any(x => x.Material == r.Material)) Err("Routes", r.Row, i, $"자재 '{r.Material}'의 Routes 행이 중복되었습니다(자재당 1행).");
-            if (!(r.BufferWaitSec >= 0)) Err("Routes", r.Row, i, $"자재 '{r.Material}'의 BufferWaitSec(버퍼 대기 허용)은 0 이상이어야 합니다(비우면 0).");
+            if (own) Blank(rs, r.Row, i, "Material", r.Material);
+            Blank(rs, r.Row, i, "SupplyFromCP", r.SupplyFromCP);
+            Blank(rs, r.Row, i, "SupplyToCP", r.SupplyToCP);
+            // merged, only a model build's material overrides can leave a route without its material
+            if (r.Material.Length > 0 && !mats.Contains(r.Material)) Err(rs, r.Row, i, $"Material '{r.Material}'이(가) Materials에 없습니다.");
+            if (own && r.Material.Length > 0 && input.Routes.Take(i).Any(x => x.Material == r.Material)) Err(rs, r.Row, i, $"자재 '{r.Material}'의 Routes 행이 중복되었습니다(자재당 1행).");
+            if (!(r.BufferWaitSec >= 0)) Err(rs, r.Row, i, $"자재 '{r.Material}'의 BufferWaitSec(버퍼 대기 허용)은 0 이상이어야 합니다(비우면 0).");
             if (cps == null) continue;
             foreach (var (col, cp) in new[] { ("SupplyFromCP", r.SupplyFromCP), ("SupplyToCP", r.SupplyToCP), ("BufferCP", r.BufferCP), ("ReturnFromCP", r.ReturnFromCP), ("ReturnToCP", r.ReturnToCP) })
-                if (!string.IsNullOrWhiteSpace(cp) && !cps.Contains(cp!)) Err("Routes", r.Row, i, $"{col} '{cp}'이(가) 레이아웃에 없습니다.");
+                if (!string.IsNullOrWhiteSpace(cp) && !cps.Contains(cp!)) Err(rs, r.Row, i, $"{col} '{cp}'이(가) 레이아웃에 없습니다.");
         }
         for (int i = 0; i < input.Conveyors.Count; i++)
         {
