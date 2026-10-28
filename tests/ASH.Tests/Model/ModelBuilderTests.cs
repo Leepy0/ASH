@@ -33,6 +33,19 @@ public class ModelBuilderTests
         Assert.False(Directory.Exists(r.ArcDir));
     }
 
+    // AGVSEND checks the input without building: the same findings Build stops on (Excel rows, Conveyors rows against the drawing)
+    [Fact]
+    public void Validate_Gives_The_Findings_Build_Returns()
+    {
+        var input = LogicGeneratorTests.Sample();
+        input.Routes[0] = input.Routes[0] with { SupplyToCP = "NOPE" };
+        input.Conveyors.Add(new ASH.Core.Input.ConveyorInfo("CV9", "M1", 60, 1, 0.3, null, null));
+        var r = ModelBuilder.Build(Req(Tmp(), input), null, TimeSpan.Zero);
+        var v = ModelBuilder.Validate(input, Loop(), 1.0);
+        Assert.Contains(v, f => f.Code == ASH.Core.Layout.FindingCode.InputError);
+        Assert.Equal(r.Findings.Select(f => (f.Code, f.Message, f.EntityId)), v.Select(f => (f.Code, f.Message, f.EntityId)));
+    }
+
     [Fact]
     public void Success_Writes_All_Files_And_Keeps_Existing_User_Ext()
     {

@@ -115,6 +115,69 @@ public class JobPackageTests
         finally { Directory.Delete(proj, true); }
     }
 
+    static string SourceProject()
+    {
+        var proj = Path.Combine(Path.GetTempPath(), "ash_pkg_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(proj);
+        foreach (var p in JobPackage.RequiredSource) File.WriteAllText(Path.Combine(proj, p), "x");
+        return proj;
+    }
+
+    [Fact]
+    public void CreateSource_Sends_Layout_Cells_Settings_And_The_Drawing()
+    {
+        var proj = SourceProject();
+        try
+        {
+            Assert.Equal(new[] { "layout.tsv", "input.cells.tsv", "ash.settings.tsv" }, JobPackage.RequiredSource);
+            Assert.True(JobPackage.IsSource(proj, "m"));
+            File.WriteAllText(Path.Combine(proj, JobPackage.LocalDxf), "0\nEOF\n");
+            new ModelFrame("Meters", 1, 2, 0.001).Write(Path.Combine(proj, ModelFrame.FileName));
+            var dwg = Path.Combine(proj, "a.dwg"); File.WriteAllBytes(dwg, new byte[4]);
+            var zip = Path.Combine(proj, "p.zip");
+            var files = JobPackage.CreateSource(proj, zip, dwg);
+            Assert.Equal(new[] { "layout.tsv", "input.cells.tsv", "ash.settings.tsv", "drawing.dxf", "drawing.dwg", ModelFrame.FileName }, files.Select(f => f.Path));
+            using (var z = ZipFile.OpenRead(zip)) Assert.Equal(files.Select(f => f.Path), z.Entries.Select(e => e.FullName));
+            Assert.Equal(files.Count, JobPackage.Extract(zip, Path.Combine(proj, "out"), "m").Count); // the source form passes the server's check
+            Assert.True(JobPackage.IsSource(Path.Combine(proj, "out"), "m"));
+            File.Delete(Path.Combine(proj, "layout.tsv"));
+            Assert.False(JobPackage.IsSource(proj, "m"));
+            Assert.Contains("layout.tsv", Assert.Throws<InvalidOperationException>(() => JobPackage.CreateSource(proj, zip)).Message);
+        }
+        finally { Directory.Delete(proj, true); }
+    }
+
+    [Fact]
+    public void Model_Folder_Is_Not_Source()
+    {
+        var proj = Project(false, false);
+        try
+        {
+            foreach (var p in JobPackage.RequiredSource) File.WriteAllText(Path.Combine(proj, p), "x");
+            Assert.False(JobPackage.IsSource(proj, "m")); // the .arc is there: nothing to make
+        }
+        finally { Directory.Delete(proj, true); }
+    }
+
+    [Fact]
+    public void Extract_Rejects_A_Package_With_Neither_Form()
+    {
+        var proj = Path.Combine(Path.GetTempPath(), "ash_pkg_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(proj);
+        try
+        {
+            var zip = Path.Combine(proj, "p.zip");
+            using (var z = ZipFile.Open(zip, ZipArchiveMode.Create))
+                foreach (var n in new[] { "input.cells.tsv", "layout.tsv", "m.arc/agv.asy" })
+                    using (var w = new StreamWriter(z.CreateEntry(n).Open())) w.Write("x");
+            var ex = Assert.Throws<InvalidDataException>(() => JobPackage.Extract(zip, Path.Combine(proj, "out"), "m"));
+            Assert.Contains("m.arc/model.amo", ex.Message);
+            Assert.Contains("ash.settings.tsv", ex.Message);
+            Assert.False(Directory.Exists(Path.Combine(proj, "out")));
+        }
+        finally { Directory.Delete(proj, true); }
+    }
+
     [Fact]
     public void Package_Leaves_Out_A_Dxf_Over_The_Limit()
     {

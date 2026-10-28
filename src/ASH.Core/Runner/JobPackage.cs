@@ -16,6 +16,7 @@ public sealed record PackageFile(string Path, long Size, string Sha256);
 /// What the plugin sends to the server for a run: the model folder &lt;Model&gt;.arc (as AGVMODEL wrote it, without build output) and the cell snapshot
 /// input.cells.tsv. The workbook itself is not sent: company document encryption leaves it readable by Excel only, and the snapshot is exactly what the model
 /// was built from. The server builds the model itself, so no .exe or .dir is needed. The same rules check the zip on the server.
+/// The source form (<see cref="CreateSource"/>) carries layout.tsv and ash.settings.tsv instead of the .arc: the server then makes the model too (SourceBuild).
 /// </summary>
 public static class JobPackage
 {
@@ -35,6 +36,13 @@ public static class JobPackage
     /// <summary>Paths (inside the package) that must be there for a model name.</summary>
     public static IReadOnlyList<string> Required(string model) =>
         new[] { model + ".arc/agv.asy", model + ".arc/model.amo", model + ".arc/" + model + "~.asy", CellDump.FileName };
+
+    /// <summary>The source form: what the server builds the model from itself (SourceBuild) when the package has no &lt;Model&gt;.arc.</summary>
+    public static IReadOnlyList<string> RequiredSource { get; } = new[] { ASH.Core.Layout.LayoutSnapshot.FileName, CellDump.FileName, SettingsInPackage };
+
+    /// <summary>True when a project folder holds the source files and not the model's required .arc files: the model is still to be made.</summary>
+    public static bool IsSource(string projectDir, string model) =>
+        RequiredSource.All(p => File.Exists(Path.Combine(projectDir, p))) && Missing(projectDir, model).Count > 0;
 
     /// <summary>Missing required files in a project folder, as package paths; empty = ready to send.</summary>
     public static IReadOnlyList<string> Missing(string projectDir, string model) =>
@@ -61,11 +69,7 @@ public static class JobPackage
         var settings = Path.Combine(projectDir, SettingsInPackage);
         if (File.Exists(settings)) files.Add((SettingsInPackage, settings));
         files.Add((CellDump.FileName, Path.Combine(projectDir, CellDump.FileName)));
-        var dxf = Path.Combine(projectDir, LocalDxf);
-        if (File.Exists(dxf) && new FileInfo(dxf).Length <= MaxDxfBytes) files.Add((DxfInPackage, dxf));
-        if (dwgPath != null && File.Exists(dwgPath) && new FileInfo(dwgPath).Length <= MaxDwgBytes) files.Add((DwgInPackage, dwgPath));
-        var frame = Path.Combine(projectDir, ModelFrame.FileName);
-        if (File.Exists(frame)) files.Add((ModelFrame.FileName, frame));
+        AddDrawing(files, projectDir, dwgPath);
         if (includeResults)
         {
             // a local result: the summary, the decision and every run's result.tsv (the block maps); reports and AutoMod output stay at home
@@ -80,6 +84,31 @@ public static class JobPackage
                 if (File.Exists(r)) files.Add(("runs/" + Path.GetFileName(d) + "/result.tsv", r));
             }
         }
+        return Zip(files, zipPath);
+    }
+
+    /// <summary>Writes the source-form package (<see cref="RequiredSource"/> plus the drawing files as in <see cref="Create"/>): the server makes the model.
+    /// Throws InvalidOperationException naming the missing files.</summary>
+    public static IReadOnlyList<PackageFile> CreateSource(string projectDir, string zipPath, string? dwgPath = null)
+    {
+        var missing = RequiredSource.Where(p => !File.Exists(Path.Combine(projectDir, p))).ToList();
+        if (missing.Count > 0) throw new InvalidOperationException("보낼 파일이 없습니다: " + string.Join(", ", missing));
+        var files = RequiredSource.Select(p => (p, Path.Combine(projectDir, p))).ToList();
+        AddDrawing(files, projectDir, dwgPath);
+        return Zip(files, zipPath);
+    }
+
+    static void AddDrawing(List<(string Rel, string Full)> files, string projectDir, string? dwgPath)
+    {
+        var dxf = Path.Combine(projectDir, LocalDxf);
+        if (File.Exists(dxf) && new FileInfo(dxf).Length <= MaxDxfBytes) files.Add((DxfInPackage, dxf));
+        if (dwgPath != null && File.Exists(dwgPath) && new FileInfo(dwgPath).Length <= MaxDwgBytes) files.Add((DwgInPackage, dwgPath));
+        var frame = Path.Combine(projectDir, ModelFrame.FileName);
+        if (File.Exists(frame)) files.Add((ModelFrame.FileName, frame));
+    }
+
+    static IReadOnlyList<PackageFile> Zip(List<(string Rel, string Full)> files, string zipPath)
+    {
         var list = new List<PackageFile>();
         using (var fs = new FileStream(zipPath, FileMode.Create, FileAccess.Write))
         using (var zip = new ZipArchive(fs, ZipArchiveMode.Create))
@@ -129,8 +158,11 @@ public static class JobPackage
             total += e.Length;
             if (total > MaxTotalBytes) throw new InvalidDataException("압축을 푼 크기가 너무 큽니다.");
         }
+        // either form: the model (as AGVMODEL wrote it) or the source the server makes it from
         var missing = Required(model).Where(r => !names.Contains(r)).ToList();
-        if (missing.Count > 0) throw new InvalidDataException("필수 파일이 없습니다: " + string.Join(", ", missing));
+        var missingSource = RequiredSource.Where(r => !names.Contains(r)).ToList();
+        if (missing.Count > 0 && missingSource.Count > 0)
+            throw new InvalidDataException("필수 파일이 없습니다: " + string.Join(", ", missing) + " (원본 형식이면 " + string.Join(", ", missingSource) + ")");
         Directory.CreateDirectory(destDir);
         var root = Path.GetFullPath(destDir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
         foreach (var e in entries)

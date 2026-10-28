@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -9,8 +10,11 @@ using System.Windows.Forms;
 using ASH.Core;
 using ASH.Core.Analysis;
 using ASH.Core.Dxf;
+using ASH.Core.Layout;
+using ASH.Core.Model;
 using ASH.Core.Runner;
 using ASH.Core.Settings;
+using ASH.Plugin.Cad;
 using ASH.Plugin.Ui;
 using ZwSoft.ZwCAD.DatabaseServices;
 using ZwSoft.ZwCAD.EditorInput;
@@ -60,13 +64,8 @@ public sealed class ServerCommands
     private static void Send(Editor ed, string zip, bool results)
     {
         if (!ExportCommands.TryLoadSettings(ed, out var s, out var dir)) return;
-        var missing = JobPackage.Missing(dir, s.ModelName);
-        if (missing.Count > 0)
-        {
-            ed.WriteMessage("\n보낼 파일이 없습니다: " + string.Join(", ", missing));
-            Say(ed, "먼저 모델 생성(AGVMODEL)을 실행하세요.");
-            return;
-        }
+        // a normal send checks for the .arc only after the queue answer: a new server (generates) makes the model from the source itself
+        if (results && !ModelReady(ed, dir, s.ModelName)) return;
         if (results && JobPackage.MissingResults(dir) is { Count: > 0 } noRuns)
         {
             ed.WriteMessage("\n올릴 결과가 없습니다: " + string.Join(", ", noRuns));
@@ -88,6 +87,10 @@ public sealed class ServerCommands
         }
         catch (System.Exception e) when (IsNetwork(e)) { Fail(ed, "서버에 연결하지 못했습니다", e); return; }
         if (!q.Enabled && !results) { Say(ed, "이 서버는 작업을 실행하지 않습니다(서버 설정에서 꺼져 있음)."); return; }
+        // new server: send the source (drawing + Excel, checked here before anything leaves the PC); an old one or a result upload still gets the model
+        bool source = !results && q.Generates;
+        if (!results && !source && !ModelReady(ed, dir, s.ModelName)) return;
+        if (source && !PrepareSource(ed, s, dir)) return;
         // a 0.18 server has no /api/analyses: send unclassified and say so in the dialog
         IReadOnlyList<AnalysisSummary>? analyses = null;
         try
@@ -118,16 +121,17 @@ public sealed class ServerCommands
 
         var (abort, dwg) = results ? (false, null) : DwgToSend(ed); // ask before any package work; a result upload never carries the drawing
         if (abort) { PaletteStatus.Set("AGVSEND: 취소"); return; }
-        Say(ed, "패키지 만드는 중…");
+        Say(ed, source ? "원본 패키지 만드는 중…" : "패키지 만드는 중…");
         // the factory drawing and its coordinate frame go along for the server's cut editor and videos; a DXF failure is only a warning
         new ModelFrame(s.Units, s.Origin.X, s.Origin.Y, s.Scale).Write(Path.Combine(dir, ModelFrame.FileName));
         SaveDxf(ed, Path.Combine(dir, JobPackage.LocalDxf)); // own name: a drawing.dxf of the user's in this folder is left alone
         IReadOnlyList<PackageFile> files;
-        try { files = JobPackage.Create(dir, s.ModelName, zip, includeResults: results, dwgPath: dwg); }
+        IReadOnlyList<PackageFile> Pack(string? dwgPath) => source ? JobPackage.CreateSource(dir, zip, dwgPath) : JobPackage.Create(dir, s.ModelName, zip, includeResults: results, dwgPath: dwgPath);
+        try { files = Pack(dwg); }
         catch (IOException) when (dwg != null) // ZWCAD may hold the DWG open exclusively
         {
             ed.WriteMessage("\nDWG를 열 수 없어 DWG 없이 보냅니다.");
-            files = JobPackage.Create(dir, s.ModelName, zip, includeResults: results, dwgPath: null);
+            files = Pack(null);
         }
         Say(ed, $"서버로 보내는 중… (파일 {files.Count}개, {new FileInfo(zip).Length / 1048576.0:0.#} MB, 최대 {UploadTimeout.TotalMinutes:0}분)");
         var job = new JobSubmission(folder, drawing, s.ModelName, Environment.UserName,
@@ -152,6 +156,44 @@ public sealed class ServerCommands
             PluginLog.Write("AGVSEND rejected", e);
         }
         catch (System.Exception e) when (IsNetwork(e)) { Fail(ed, "전송하지 못했습니다", e); }
+    }
+
+    /// <summary>False (after saying so) when the model package for the old path is not there.</summary>
+    private static bool ModelReady(Editor ed, string dir, string model)
+    {
+        var missing = JobPackage.Missing(dir, model);
+        if (missing.Count == 0) return true;
+        ed.WriteMessage("\n보낼 파일이 없습니다: " + string.Join(", ", missing));
+        Say(ed, "먼저 모델 생성(AGVMODEL)을 실행하세요.");
+        return false;
+    }
+
+    /// <summary>Source send: reads the Excel input and the drawing, runs the model build's input checks (<see cref="ModelBuilder.Validate"/>), marks the Excel cells and writes
+    /// layout.tsv beside the snapshot. False (nothing to send, said why) on an input error, a declined drawing error or a missing/unreadable Excel.</summary>
+    private static bool PrepareSource(Editor ed, ProjectSettings s, string dir)
+    {
+        var xlsx = Path.Combine(dir, ModelCommands.ExcelFileName);
+        if (!File.Exists(xlsx)) { Say(ed, $"{ModelCommands.ExcelFileName}이 없습니다. 먼저 AGVEXCEL로 양식을 만들어 채우세요."); return false; }
+        Say(ed, "검증 중…");
+        bool ok = false;
+        PathCommands.Run(Application.DocumentManager.MdiActiveDocument, "AGVSEND", (db, tr) =>
+        {
+            PathCommands.FinalStatus = "AGVSEND: 보내지 않음";
+            var input = ModelCommands.LoadInput(ed, xlsx, dir);
+            if (input == null) return false;
+            var layout = DrawingReader.Read(db, tr);
+            int errors = CheckCommands.Report(ed, layout).Count(f => ModelCommands.Blocking.Contains(f.Code));
+            if (errors > 0 && PathCommands.Keyword(ed, $"\n오류 {errors}건이 있습니다. 계속할까요? [Y/N] <N>", "N", "Y", "N") != "Y") return false;
+            var findings = ModelBuilder.Validate(input, layout, SourceBuild.Options(input, s).Scale);
+            foreach (var f in findings.Where(f => f.Code != FindingCode.InputWarning)) ed.WriteMessage($"\n[{f.Code}] {f.Message}");
+            ModelCommands.MarkExcel(ed, xlsx, findings);
+            if (findings.Any(f => f.Code == FindingCode.InputError)) { ed.WriteMessage("\n입력 오류가 있어 보내지 않습니다."); return false; }
+            LayoutSnapshot.Write(layout, Path.Combine(dir, LayoutSnapshot.FileName));
+            PathCommands.FinalStatus = "AGVSEND: 검증 통과";
+            ok = true;
+            return false; // nothing in the drawing changed
+        }, refreshArrows: false, unitsPerMeter: UnitScale.FromSettings(s));
+        return ok;
     }
 
     /// <summary>The open drawing's on-disk path (null = send without DWG: untitled, refused, failed, over MaxDwgBytes); Abort = user cancelled. DBMOD != 0 asks to save first.</summary>

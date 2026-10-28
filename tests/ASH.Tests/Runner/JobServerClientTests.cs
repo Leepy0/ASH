@@ -33,6 +33,12 @@ public class JobServerClientTests
         Assert.Null(n.EstimatedStart); Assert.Null(n.TypicalMinutes); Assert.False(n.Enabled);
     }
 
+    [Fact] public void Queue_generates_defaults_to_false_for_older_servers()
+    {
+        Assert.False(JobServerClient.ParseQueue("{\"ahead\":0,\"enabled\":true}").Generates);
+        Assert.True(JobServerClient.ParseQueue("{\"ahead\":0,\"enabled\":true,\"generates\":true}").Generates);
+    }
+
     [Fact] public void Garbage_is_an_InvalidDataException()
     {
         Assert.Throws<InvalidDataException>(() => JobServerClient.ParseQueue("<html>"));
