@@ -190,6 +190,16 @@ public sealed class AgvPaletteControl : UserControl
         update.Width = 36;
         new ToolTip().SetToolTip(update, "업데이트 확인 (AGVUPDATE)");
         header.Controls.Add(update);
+        var notice = Theme.Make("공지", GlyphKind.Notice, "AGVNOTICE"); // icon-only like the update button; a red dot while unseen notices exist
+        notice.Text = "";
+        notice.TextAlign = notice.ImageAlign = ContentAlignment.MiddleCenter;
+        notice.Padding = Padding.Empty;
+        notice.Dock = DockStyle.Right;
+        notice.Width = 32;
+        new ToolTip().SetToolTip(notice, "공지 (AGVNOTICE)");
+        header.Controls.Add(notice);
+        PaletteStatus.NoticeMark = on => notice.Image = Glyphs.Draw(on ? GlyphKind.NoticeNew : GlyphKind.Notice, 20, Theme.Accent);
+        PaletteStatus.NoticeMark(PaletteStatus.NoticeUnseen);
 
         var status = new Label { Dock = DockStyle.Bottom, Height = 24, ForeColor = Theme.Muted, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft, Padding = new Padding(8, 0, 4, 0), Text = "준비" };
         PaletteStatus.Line = t => status.Text = t;

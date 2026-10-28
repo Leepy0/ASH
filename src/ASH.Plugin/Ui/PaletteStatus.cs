@@ -18,6 +18,11 @@ public static class PaletteStatus
     // "숨긴 그룹 N개" stays in front of every status text while the drawing has hidden CPs (set from the group list after each ASH command)
     private static string _hidden = "";
 
+    // dot on the palette's notice button while unseen notices exist (set by the startup check / AGVNOTICE; a palette built later reads it)
+    internal static Action<bool>? NoticeMark;
+    internal static bool NoticeUnseen { get; private set; }
+    public static void SetNoticeUnseen(bool on) { NoticeUnseen = on; NoticeMark?.Invoke(on); }
+
     public static void SetFindings(IReadOnlyList<FindingRow> rows) => Findings?.Invoke(rows);
     public static void SetObjects(IReadOnlyList<FoundObject> items) => Objects?.Invoke(items);
 
