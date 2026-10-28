@@ -83,7 +83,7 @@ public sealed class ServerCommands
         try
         {
             using var qc = new JobServerClient(new Uri(url));
-            q = Run(qc.GetQueueAsync, QueueTimeout);
+            using (PluginLog.Time("서버 대기열 조회")) q = Run(qc.GetQueueAsync, QueueTimeout);
         }
         catch (System.Exception e) when (IsNetwork(e)) { Fail(ed, "서버에 연결하지 못했습니다", e); return; }
         if (!q.Enabled && !results) { Say(ed, "이 서버는 작업을 실행하지 않습니다(서버 설정에서 꺼져 있음)."); return; }
@@ -96,7 +96,7 @@ public sealed class ServerCommands
         try
         {
             using var ac = new JobServerClient(new Uri(url));
-            analyses = Run(ac.GetAnalysesAsync, QueueTimeout);
+            using (PluginLog.Time("서버 분석 목록 조회")) analyses = Run(ac.GetAnalysesAsync, QueueTimeout);
         }
         catch (System.Exception e) when (IsNetwork(e) || e is InvalidDataException) { PluginLog.Write("AGVSEND analyses", e); }
 
@@ -124,10 +124,10 @@ public sealed class ServerCommands
         Say(ed, source ? "원본 패키지 만드는 중…" : "패키지 만드는 중…");
         // the factory drawing and its coordinate frame go along for the server's cut editor and videos; a DXF failure is only a warning
         new ModelFrame(s.Units, s.Origin.X, s.Origin.Y, s.Scale).Write(Path.Combine(dir, ModelFrame.FileName));
-        SaveDxf(ed, Path.Combine(dir, JobPackage.LocalDxf)); // own name: a drawing.dxf of the user's in this folder is left alone
+        using (PluginLog.Time("DXF 저장")) SaveDxf(ed, Path.Combine(dir, JobPackage.LocalDxf)); // own name: a drawing.dxf of the user's in this folder is left alone
         IReadOnlyList<PackageFile> files;
         IReadOnlyList<PackageFile> Pack(string? dwgPath) => source ? JobPackage.CreateSource(dir, zip, dwgPath) : JobPackage.Create(dir, s.ModelName, zip, includeResults: results, dwgPath: dwgPath);
-        try { files = Pack(dwg); }
+        try { using (PluginLog.Time("패키지 만들기")) files = Pack(dwg); }
         catch (IOException) when (dwg != null) // ZWCAD may hold the DWG open exclusively
         {
             ed.WriteMessage("\nDWG를 열 수 없어 DWG 없이 보냅니다.");
@@ -140,7 +140,8 @@ public sealed class ServerCommands
         try
         {
             using var client = new JobServerClient(new Uri(url));
-            var receipt = Run(ct => client.SubmitAsync(zip, job, ct), UploadTimeout);
+            JobReceipt receipt;
+            using (PluginLog.Time("업로드")) receipt = Run(ct => client.SubmitAsync(zip, job, ct), UploadTimeout);
             try { SendChoice.SaveJob(dir, receipt.Id); }
             catch (System.Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) { PluginLog.Write("ash.job.txt", ex); } // only AGVCAUSE's default
             Say(ed, results ? $"결과 올림: {receipt.Id}" : $"전송 완료: 작업 {receipt.Id} (앞에 {receipt.Ahead}건)" + (receipt.Version > 0 ? $" · v{receipt.Version}" : ""));
@@ -185,7 +186,8 @@ public sealed class ServerCommands
             var layout = DrawingReader.Read(db, tr);
             int errors = CheckCommands.Report(ed, layout).Count(f => ModelCommands.Blocking.Contains(f.Code));
             if (errors > 0 && PathCommands.Keyword(ed, $"\n오류 {errors}건이 있습니다. 계속할까요? [Y/N] <N>", "N", "Y", "N") != "Y") return false;
-            var findings = ModelBuilder.Validate(input, layout, SourceBuild.Options(input, s).Scale);
+            List<Finding> findings;
+            using (PluginLog.Time("입력 검증")) findings = ModelBuilder.Validate(input, layout, SourceBuild.Options(input, s).Scale);
             foreach (var f in findings.Where(f => f.Code != FindingCode.InputWarning)) ed.WriteMessage($"\n[{f.Code}] {f.Message}");
             ModelCommands.MarkExcel(ed, xlsx, findings);
             if (findings.Any(f => f.Code == FindingCode.InputError)) { ed.WriteMessage("\n입력 오류가 있어 보내지 않습니다."); return false; }

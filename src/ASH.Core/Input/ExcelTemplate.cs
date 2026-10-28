@@ -175,7 +175,17 @@ public static class ExcelTemplate
                 var m = (string[])Ex("Materials").Clone(); m[0] = name; m[2] = r.Group.Length > 0 ? r.Group : (groups.Count > 0 ? groups[0] : m[2]); mats.Add(m);
                 routes.Add(new[] { name, r.Load[i], CpRoute.Pair(r.Unload, i), "", CpRoute.Pair(r.RtnLoad, i), CpRoute.Pair(r.RtnUnload, i), "0", "0" });
             }
-        if (mats.Count > 0) { seed["Materials"] = mats; seed["Routes"] = routes; }
+        if (mats.Count > 0)
+        {
+            // each material's Form: the first one its group's vehicle kind carries (the example's would draw the validator's "cannot carry" warning)
+            var types = seed.TryGetValue("AGV_Types", out var ts) ? ts : new List<string[]> { Ex("AGV_Types") };
+            var gs2 = seed.TryGetValue("AGV_Groups", out var g0) ? g0 : new List<string[]> { Ex("AGV_Groups") };
+            int kindCol = Array.IndexOf(ColsOf("AGV_Types"), "Kind"), formCol = Array.IndexOf(ColsOf("Materials"), "Form");
+            var kindOf = types.Where(r => r.Length > kindCol).GroupBy(r => r[0]).ToDictionary(x => x.Key, x => x.First()[kindCol]);
+            var typeOf = gs2.GroupBy(r => r[0]).ToDictionary(x => x.Key, x => x.First()[1]);
+            foreach (var m in mats) m[formCol] = FormFor(m[2], typeOf, kindOf) ?? m[formCol];
+            seed["Materials"] = mats; seed["Routes"] = routes;
+        }
         var conv = ConveyorRows(l, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
         if (conv.Count > 0) seed["Conveyors"] = conv;
         return seed;
@@ -368,6 +378,9 @@ public static class ExcelTemplate
                 do name = "M" + (n++).ToString("000"); while (names.Contains(name));
                 names.Add(name);
                 var m = (string[])sm[i].Clone(); m[0] = name;
+                // the Form the group's vehicle carries, by the groups and types already in this workbook (the seed's are the drawing's defaults)
+                if (wb.TryGetWorksheet("AGV_Groups", out var gws2) && wb.TryGetWorksheet("AGV_Types", out var tws2)
+                    && FormFor(m[2], Pairs(gws2, "Group", "Type"), Pairs(tws2, "Type", "Kind")) is { } form) m[Array.IndexOf(ColsOf("Materials"), "Form")] = form;
                 var route = (string[])sr[i].Clone(); route[0] = name;
                 Append(mws, ColsOf("Materials"), m, log); Append(rws, ColsOf("Routes"), route, log);
                 changes.Add(rec != null
@@ -396,6 +409,24 @@ public static class ExcelTemplate
     }
 
     static string[] ColsOf(string sheet) => Sheets.First(x => x.Sheet == sheet).Cols;
+
+    /// <summary>The first form the vehicle kind of <paramref name="group"/>'s type carries; null when the group, type or kind is not known.</summary>
+    internal static string? FormFor(string group, IReadOnlyDictionary<string, string> typeOfGroup, IReadOnlyDictionary<string, string> kindOfType) =>
+        typeOfGroup.TryGetValue(group, out var t) && kindOfType.TryGetValue(t, out var k) && VehicleKinds.Find(k) is { Carries.Length: > 0 } kind ? kind.Carries[0] : null;
+
+    /// <summary>Column <paramref name="key"/> → column <paramref name="value"/> of a sheet's data rows (first row wins); empty when either column is missing.</summary>
+    static Dictionary<string, string> Pairs(IXLWorksheet ws, string key, string value)
+    {
+        var d = new Dictionary<string, string>(StringComparer.Ordinal);
+        var c = Columns(ws);
+        if (!c.TryGetValue(key, out var kc) || !c.TryGetValue(value, out var vc)) return d;
+        for (int r = 3, last = LastDataRow(ws); r <= last; r++)
+        {
+            var k = ws.Cell(r, kc).GetString().Trim();
+            if (k.Length > 0 && !d.ContainsKey(k)) d[k] = ws.Cell(r, vc).GetString().Trim();
+        }
+        return d;
+    }
 
     static List<string> Split(string csv) => csv.Split(',').Select(x => x.Trim()).Where(x => x.Length > 0).ToList();
 

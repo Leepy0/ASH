@@ -14,6 +14,7 @@ public static class DrawingReader
 
     public static CoreLayout Read(Database db, Transaction tr)
     {
+        using var time = PluginLog.Time("도면 읽기");
         var layout = new CoreLayout { Tolerance = 0.001 * DrawingUnits.PerMeter };
         var blockTags = new List<(Point2 Pos, Dictionary<string, string> Attrs, string Id)>();
         var rects = new List<(Polyline Pl, string Id)>();

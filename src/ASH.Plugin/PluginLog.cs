@@ -27,4 +27,16 @@ internal static class PluginLog
     }
 
     public static void Write(string what, Exception ex) => Write(what + ": " + ex);
+
+    /// <summary>`using (PluginLog.Time("…"))`: "시간 … 123 ms" when disposed, to find where a slow command spends its time.</summary>
+    public static IDisposable Time(string label) => new Timing(label);
+
+    private sealed class Timing : IDisposable
+    {
+        private readonly string _label;
+        private readonly System.Diagnostics.Stopwatch _sw = System.Diagnostics.Stopwatch.StartNew();
+        private bool _done;
+        public Timing(string label) { _label = label; }
+        public void Dispose() { if (_done) return; _done = true; Write($"시간 {_label}: {_sw.ElapsedMilliseconds} ms"); }
+    }
 }
