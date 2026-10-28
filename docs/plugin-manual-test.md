@@ -310,7 +310,7 @@ AutoMod 12.6이 있는 PC 필요(T16-2, T16-4), T16-5는 AutoMod가 없는 PC와
 | I3 AGV_Types의 Length를 1.2에서 2.4로 바꾸고 다시 `AGVMODEL` → 차량이 진행 방향으로 길어지고 롤러 수만 늘며 일그러지지 않음. Width도 같음 | | | |
 | I4 Materials의 Form을 Box / Pallet / Trolley로 바꿔 보면 AGV 위 적재물 그림이 상자 / 파레트 / 대차로 달라짐 | | | |
 | I5 LoadLength를 0.9로 바꾸면 그 자재의 적재물만 길어지고 모양이 일그러지지 않음 | | | |
-| I6 Form Box, EmptyReturn Y, Routes에 ReturnFromCP / ReturnToCP가 있는 자재: 공급 때 꽉 찬 상자, 돌아올 때 윗면이 열린 빈 상자 | | | |
+| I6 Form Box, EmptyReturn Y, 경로에 ReturnFromCP / ReturnToCP가 있는 자재: 공급 때 꽉 찬 상자, 돌아올 때 윗면이 열린 빈 상자 | | | |
 | I7 적재물이 AGV 위에 놓이는 높이가 어색하지 않음(너무 뜨거나 파묻히지 않음). 어색하면 높이를 알려 주세요 | | | |
 
 ## 대칭 차량, 삼색등, 높이 (0.10.1)
@@ -592,7 +592,7 @@ ZWCAD에서 확인한다. 대화상자 항목(UI1~UI5)은 Windows 디스플레�
 | RV4 다른 자재를 더블클릭 → 이전 루트가 사라지고 새 루트만 남음(`AGV_ROUTE` 위 개체가 겹쳐 쌓이지 않음). 같은 자재를 다시 → 같은 그림. 실행 취소(U) 한 번에 그 실행이 되돌아감 | | | |
 | RV5 도달 못 하는 구간: 경로 하나를 반전(`AGVREVERSE`)해 한 구간을 막고 그 자재 더블클릭 → 그 구간에 빨간 직선(두 CP 사이)과 "L003→U001 도달 불가" 글자, 나머지 구간은 정상, 명령줄에도 같은 줄. 상태줄에 "문제 N개". CP가 도면에 없는 이름이면 "A→Z CP 없음 (Z)" |  | | |
 | RV6 "지우기" 버튼 → `AGV_ROUTE` 위 개체가 모두 사라지고 다른 레이어는 그대로("지움 N개"). 이미 비었으면 "지울 것 없음". 명령줄에서 `AGVROUTE` → 자재 이름 목록과 "[지우기/CLEAR/자재…]" 선택, 자재 이름 입력이 팔레트 더블클릭과 같음, 지우기·Enter(취소) 동작 |  | | |
-| RV7 Excel을 고치고 저장한 뒤 더블클릭 → 바뀐 Routes가 바로 반영(파일 수정 시각이 바뀌면 다시 읽음). Excel에서 저장하지 않은 수정은 반영 안 됨. 암호화(NASCA)로 직접 못 읽는 파일도 AGVMODEL처럼 Excel로 읽음 | | | |
+| RV7 Excel을 고치고 저장한 뒤 더블클릭 → 바뀐 경로(Materials의 경로 열)가 바로 반영(파일 수정 시각이 바뀌면 다시 읽음). Excel에서 저장하지 않은 수정은 반영 안 됨. 암호화(NASCA)로 직접 못 읽는 파일도 AGVMODEL처럼 Excel로 읽음 | | | |
 | RV8 `AGVEXPORT`·`AGVMODEL`·`AGVCHECK`는 `AGV_ROUTE` 개체를 경로·CP로 읽지 않음(루트를 그린 채 실행해도 결과가 같음). 레이어 색상 대화상자에 "루트 보기" 줄이 있고 바꾼 색이 공급 구간·CP 원에 반영 | | | |
 
 ## 원인 표시 `AGVCAUSE` (서버 원인 탭 → 도면)
@@ -640,16 +640,30 @@ ZWCAD와 Excel 필요. 준비: 경로가 있는 도면에 G1 그룹의 standby·
 
 | 항목 | 날짜 | 결과 | 비고 |
 |---|---|---|---|
-| EX1 `input.xlsx`를 지우고 `AGVEXCEL` → Routes의 SupplyFromCP 칸을 누르면 드롭다운에 load CP 이름만, SupplyToCP는 unload, BufferCP는 buffer, ReturnFromCP는 rtnload, ReturnToCP는 rtnunload. AGV_Groups의 StandbyCPs는 standby, FinishCP는 finish. 숨김 시트 `_lists`가 있음(보이지 않음, 시트 탭 우클릭 "숨기기 취소"로 확인) | | | |
+| EX1 `input.xlsx`를 지우고 `AGVEXCEL` → Materials의 SupplyFromCP 칸을 누르면 드롭다운에 load CP 이름만, SupplyToCP는 unload, BufferCP는 buffer, ReturnFromCP는 rtnload, ReturnToCP는 rtnunload. AGV_Groups의 StandbyCPs는 standby, FinishCP는 finish. 숨김 시트 `_lists`가 있음(보이지 않음, 시트 탭 우클릭 "숨기기 취소"로 확인) | | | |
 | EX2 EX1의 칸에 도면에 없는 이름 입력 → 경고 대화상자("도면에 없는 CP 이름입니다 …"), "예"로 입력됨. 도면에서 load CP 하나를 지우고 `AGVEXCEL` U → 그 이름이 드롭다운에서 빠짐 | | | |
 | EX3 StandbyCPs 칸에 `SB1,SB2`를 직접 적고 `AGVEXCEL` U → 오류 없이 끝나고 StandbyCPs 열에 드롭다운이 없어짐. 쉼표 목록을 지우고 U → 드롭다운이 돌아옴 | | | |
-| EX4 `AGVCPROUTE`로 G1을 standby 1, load 2, unload 1, rtnload 1, rtnunload 1, finish 1로 배치 → `AGVEXCEL` U → 명령줄에 `Materials·Routes: 경로 G1 (대기 … → 로딩 L001,L002 → …)의 자재 L001 추가` 두 줄(L001, L002), `AGV_Groups: 그룹 G1 완료 CP F001 추가`. Excel의 Materials에 자재 `L001`, `L002`(그룹 G1), Routes에 SupplyFrom=그 load CP, SupplyTo=unload, ReturnFrom/To가 채워짐. 한 번 더 U → "추가할 내용이 없습니다" | | | |
+| EX4 `AGVCPROUTE`로 G1을 standby 1, load 2, unload 1, rtnload 1, rtnunload 1, finish 1로 배치 → `AGVEXCEL` U → 명령줄에 `Materials: 경로 G1 (대기 … → 로딩 L001,L002 → …)의 자재 M### 추가` 두 줄, `AGV_Groups: 그룹 G1 완료 CP F001 추가`. Excel의 Materials에 자재 두 행(그룹 G1), 같은 행에 SupplyFrom=그 load CP, SupplyTo=unload, ReturnFrom/To가 채워짐. 한 번 더 U → "추가할 내용이 없습니다" | | | |
 | EX5 `AGVCP`로 낱개로 놓은 load CP는 EX4처럼 이름이 `M###`이고 루트 CP와 짝지어지지 않음. 도면을 저장하고 닫았다가 다시 열어 `AGVEXCEL` U(루트 번호가 DWG에 남음) → EX4 결과가 그대로 | | | |
-| EX6 `AGVEXCELDIFF`(팔레트 "엑셀·도면 비교") → 문제 목록에 종류(도면에 없음·타입 불일치·미사용 CP·그룹 불일치)가 나옴. Routes의 SupplyToCP에 load CP 이름을 넣으면 "타입 불일치"(빨강), 어느 행도 쓰지 않는 CP는 "미사용 CP"(주황). CP 행을 더블클릭하면 그 CP로 이동, "도면에 없음" 행은 이동 안 함. 모두 맞으면 "엑셀과 도면이 일치합니다" | | | |
+| EX6 `AGVEXCELDIFF`(팔레트 "엑셀·도면 비교") → 문제 목록에 종류(도면에 없음·타입 불일치·미사용 CP·그룹 불일치)가 나옴. Materials의 SupplyToCP에 load CP 이름을 넣으면 "타입 불일치"(빨강), 어느 행도 쓰지 않는 CP는 "미사용 CP"(주황). CP 행을 더블클릭하면 그 CP로 이동, "도면에 없음" 행은 이동 안 함. 모두 맞으면 "엑셀과 도면이 일치합니다" | | | |
 | EX7 CP의 GROUP을 G2로 바꾼 뒤 `AGVEXCELDIFF` → 그 CP를 쓰는 행이 "그룹 불일치". `AGVCHECK`의 문제 목록은 이 명령이 덮어쓰고, `AGVCHECK`를 다시 하면 원래대로 | | | |
-| EX8 Routes의 SupplyToCP에 도면에 없는 이름을 넣고 `AGVEXCEL`(U) → 끝난 뒤 명령줄에 "Excel 표시: 오류 n건(빨강) …", 파일을 열면 그 칸이 빨갛고 칸에 마우스를 올리면 `ASH 검증(오류): …` 메모. `AGVMODEL`도 같은 표시를 새로 함 | | | |
+| EX8 Materials의 SupplyToCP에 도면에 없는 이름을 넣고 `AGVEXCEL`(U) → 끝난 뒤 명령줄에 "Excel 표시: 오류 n건(빨강) …", 파일을 열면 그 칸이 빨갛고 칸에 마우스를 올리면 `ASH 검증(오류): …` 메모. `AGVMODEL`도 같은 표시를 새로 함 | | | |
 | EX9 EX8의 칸을 고치고 `AGVMODEL`(또는 `AGVEXCEL` U) → 그 칸의 색과 메모가 사라짐. 직접 단 메모는 남음. 경고(호출 임계 등)는 주황. 문제가 없으면 "Excel 표시: 없음" | | | |
 | EX10 암호화(NASCA)된 파일: EX1(U), EX8~EX9를 반복 → "Excel로 갱신합니다…" 뒤 드롭다운·표시가 같게 나오고 파일은 여전히 암호화. Excel에서 연 채로 해도 열린 창에서 바뀌고 저장됨 | | | |
+
+## Materials 경로 합치기 · 고급 열 접기 · 호출 임계 제안 · 입력 필요 요약
+
+ZWCAD와 Excel 필요. 준비: 이전 버전(Routes 시트가 있는 양식)으로 만들고 값을 넣은 `input.xlsx`, mm 도면(Scale 0.001)에 G1 그룹 경로와 load·unload CP. 암호화(NASCA) 환경이 있으면 EX17도 한다.
+
+| 항목 | 날짜 | 결과 | 비고 |
+|---|---|---|---|
+| EX11 예전 양식에서 `AGVEXCEL` U → 명령줄 `Routes 시트를 Materials에 합침 N행`(경로 열 추가 줄은 따로 안 나옴). Excel: Routes 시트 없음, Materials 끝에 SupplyFromCP ~ BufferWaitSec 열(1·2행 머리글)과 각 자재 행의 값(BufferCP·ExtraTime·BufferWaitSec 포함). `input.bak.*.xlsx`에는 Routes 시트가 남아 있음. 이어서 `AGVMODEL` → 오류 없고 "모델 재생성 필요" 안내 없음(Routes 행이 자재와 같은 순서였던 경우) | | | |
+| EX12 예전 양식의 Routes에 같은 자재 행을 하나 더 넣고 U → `Routes 시트 유지(Materials에 합치지 않음): 자재당 경로 여러 행(M###), 모델은 자재당 1개`, Routes 시트와 값 그대로, Materials에 경로 열이 생기지 않음. 검증 표시는 Routes 시트의 그 행에 빨강. 중복 행을 지우고 U → EX11처럼 합쳐짐 | | | |
+| EX13 `input.xlsx`를 지우고 `AGVEXCEL` → Materials는 Material ~ ReturnToCP(11열)만 보이고, 나머지는 열 머리글 위 **+** 하나로 접혀 있음. AGV_Types는 Type ~ Kind만 보이고 나머지 접힘. + 를 누르면 펼쳐지고 값이 있음(UnloadThreshold 1 등) | | | |
+| EX14 EX11 뒤 Materials: 예전 열 순서 그대로, 고급 열 덩어리(Station ~ Use, BufferCP ~ BufferWaitSec)마다 + 가 있음. 펼친 채 저장하고 다시 U → 다시 접히지 않고 그룹 단계도 늘지 않음(+ 위에 2단계 버튼이 생기지 않음) | | | |
+| EX15 새 양식(W)에서 명령줄 `Materials: M001 호출 임계 n (제안)`이 자재마다 나오고 CallThreshold 칸이 그 값. 손으로 계산: 경로 길이(m) ÷ 적재 속도 + 로딩 + 언로딩 + 추가 시간 = 사이클, 용기 시간 = T/T × 용기당 수량 ÷ 소요 원수 → ⌈사이클 ÷ 용기 시간⌉ + 1(안전재고 + 1 이상). 한 칸을 비우고 다른 칸에 7을 넣은 뒤 U → 빈 칸만 채워지고 7은 그대로. Scale이 틀리거나 load→unload 경로가 끊긴 자재는 제안 줄이 없고 칸이 그대로 | | | |
+| EX16 W와 U의 마지막 줄이 `입력 필요 없음` 또는 `입력 필요: Materials T/T 1칸 · AGV_Groups 최대 대수 1칸`처럼 나옴. T/T 칸을 비우고 U → 그 칸 수가 맞음. Use를 N으로 한 행은 세지 않음. 추가한 것이 없으면 이 줄 뒤에 "추가할 내용이 없습니다" | | | |
+| EX17 암호화된 예전 양식에서 U(EX11~EX15) → "Excel로 갱신합니다…" 뒤 확인 창 없이 Routes 시트가 지워지고, 고급 열이 접혀 있고, 제안 값이 들어감. 파일은 여전히 암호화. Excel에서 연 채로 해도 같음 | | | |
 
 ## 경로 자동 연결 · 끊긴 끝 표시 · 흐름 보기 · 종류 붓
 
@@ -672,3 +686,51 @@ ZWCAD와 Excel 필요. 준비: 경로가 있는 도면에 G1 그룹의 standby·
 | FL2 `AGVFLOW` 실행 중 다시 `AGVFLOW` → 이전 화살표가 남지 않음. 도면을 닫아도 오류 없음 | | | |
 | PB1 팔레트 경로 탭 "종류 붓": 목록에서 양방향 → 버튼 → 경로를 차례로 클릭할 때마다 레이어·화살표가 바로 양방향으로 바뀜, Enter로 끝, 명령줄 "경로 n개를 양방향(으)로 변경". 경로가 아닌 객체 클릭 → "경로가 아닙니다" 후 계속. 단방향·spur·crab도 같음. 명령줄 `AGVPBRUSH`는 종류 질문(O/T/S/C)부터 | | | |
 | PB2 붓으로 여러 개 바꾸고 Enter 뒤 Ctrl+Z → 그 붓 실행 전체가 되돌아감(클릭별인지 전체인지 결과에 적기). Esc로 끝내도 이미 클릭한 경로는 바뀐 채 남음. 방향 반전(dir=1) 경로를 붓으로 바꿔도 진행 방향 유지 | | | |
+
+## 경로 정리 `AGVTIDY` · 저장할 때 검증 · 다음 할 일
+
+준비: 저장한 도면(Scale 1 또는 0.001) 하나. LINE·LWPOLYLINE을 `WALL` 같은 일반 레이어에 그려 둔다: 모서리에서 0.2 m 떨어진 L자 두 개, 서로 가로지르는 X 두 개, 다른 선 중간에서 0.2 m 못 미친 T 하나, 끝이 다른 선을 0.1 m 지나친 선 하나. 로그: `%APPDATA%\ASH\plugin.log`.
+
+| 항목 | 날짜 | 결과 | 비고 |
+|---|---|---|---|
+| TD1 선 전부를 먼저 선택해 두고 `AGVTIDY` → 질문 없이 실행. 명령줄에 변환 요약, `연결: …` 줄들, `교차 n개 …`, 검사 결과(`[코드] 메시지`), 마지막에 `변환 N · 분할 N · 연결 N · 오류 N`. 상태줄 "AGVTIDY: 변환 …". 경로가 `AGV_PATH` 레이어 단방향이 되고 화살표가 그려짐. L·T의 틈이 이어지고 X가 나뉨 | | | |
+| TD2 TD1의 지나친 선 → 다른 선 위로 끌려와 붙음(짧은 꼬리가 남지 않음). `AGVCHECK`를 이어서 하면 끊긴 끝·분할 안 된 교차 오류가 없음 | | | |
+| TD3 아무것도 선택하지 않고 `AGVTIDY` → "정리할 선·폴리선 선택 (Enter: 레이어 전체)". 객체를 고른 뒤 Enter → 대상 완료. 이번엔 선택 없이 바로 Enter → "정리할 레이어의 객체 하나 선택" → 하나 찍으면 "레이어 WALL: 객체 n개" 후 그 레이어 전부 처리. **Enter가 정말 레이어 질문으로 가는지(ZWCAD 빌드에 따라 None/Error)** 결과에 적기 | | | |
+| TD4 `AGVTIDY` 질문에서 Esc → 도면·명령줄 그대로, 상태줄 "AGVTIDY: 변경 없음". 레이어 질문에서 Esc도 같음 | | | |
+| TD5 이미 경로인 객체와 `AGV_` 레이어 객체만 선택 → "건너뜀: 이미 AGV 경로 n개 …", 요약 `변환 0 · 분할 0 · 연결 0 · 오류 …`, 도면은 그대로(Ctrl+Z 할 것 없음), 검사 결과는 나옴 | | | |
+| TD6 TD1 뒤 Ctrl+Z 한 번 → 변환·연결·분할·화살표가 모두 되돌아감. 끊긴 끝 빨간 원은 명령 뒤 다시 그려짐(GP1과 같음) | | | |
+| TD7 오류가 있는 도면에서 `AGVTIDY` → 검증 탭 문제 표에 행이 채워지고 마지막 줄의 오류 수가 표의 빨강(오류) 행 수와 맞음. 첫 문제 위치로 화면이 옮겨 감(AGVCHECK와 같음) | | | |
+| SV1 ASH 도면(경로·CP 있음, 팔레트 열림)을 Ctrl+S → 상태줄이 "검증: 오류 n · 경고 n (AGVCHECK)" 또는 "검증: 문제 없음"으로 바뀜. 명령줄에는 아무것도 안 나오고 화면이 안 움직이고 저장은 평소처럼 끝남. `plugin.log`에 "시간 저장 검증: n ms" | | | |
+| SV2 오류가 없는 도면 → "검증: 문제 없음". 경로 끝을 하나 끊고 저장 → 오류 수가 늘어남. 같은 도면에서 `AGVCHECK`를 하면 오류+경고(+원인 행)가 저장 검증보다 같거나 많음 | | | |
+| SV3 ASH를 한 번도 안 쓴 도면(`AGV_` 레이어 없음)을 저장 → 상태줄이 안 바뀌고 `plugin.log`에 "저장 검증" 시간이 없음 또는 아주 짧음. 큰 도면에서도 저장이 느려지지 않음 | | | |
+| SV4 `SaveAs`로 다른 이름 저장, `SAVEAS` DXF 저장, 자동 저장이 돌 때 → 오류 없음. DXF·자동 저장에는 검증이 안 돔(`.dwg`만). 새 이름으로 저장한 뒤의 설정 파일(`ash.settings.tsv`)은 새 폴더 기준 | | | |
+| SV5 도면을 둘 열고 저장 → 각 도면을 저장할 때 그 도면 검사. 새 도면(`NEW`)·`OPEN`으로 연 도면도 저장 때 동작(DocumentCreated 후크). 도면을 닫고 다시 열어도 오류·중복 실행 없음(`plugin.log`에 한 번만) | | | |
+| SV6 ASH 명령이 진행 중일 때 저장이 일어나면(예: `AGVPATH`의 PLINE 입력 중 다른 도면 저장. 재현이 안 되면 "재현 불가"로 적기) 검증이 돌지 않음(명령 이름에 `AGV`가 있으면 건너뜀). 명령이 끝난 뒤 저장하면 돔 | | | |
+| SV7 `%APPDATA%\ASH\ash.user.tsv`에 `SaveCheck`, 탭, `0` 한 줄 추가 → 저장해도 상태줄이 안 바뀜. 줄을 지우면 다시 동작. 파일을 읽을 수 없는 상태(잠금)여도 저장은 정상 | | | |
+| SV8 mm 도면(Scale 0.001): CP를 경로에서 0.04 m(40 도면 단위) 벗어난 곳에 놓고 저장 → CP 벗어남이 오류로 세어지지 않음, 0.06 m(60)면 세어짐(`AGVCHECK`와 같은 기준) | | | |
+| NS1 팔레트 맨 위(연결 후) "다음 할 일" 목록: 새 도면에서는 "명령을 실행하면 갱신". 아무 ASH 명령 한 번 → "경로 없음(AGVPATH)", "CP 없음(AGVCP)", (저장 안 한 도면이면) "도면 저장(QSAVE)" 순서로 나옴. 머리글이 "다음 할 일 n" | | | |
+| NS2 경로를 그림 → 목록에서 "경로 없음"이 사라짐. CP를 놓음(traffic만) → "CP 없음" 사라짐. G1 load CP만 놓음 → "그룹 G1: 대기 CP 없음". standby를 놓음 → 그 항목이 사라짐. 갈라지는 경로(경로 셋이 한 점)가 있고 block이 없으면 "block 없음(AGVTRAFFIC)" | | | |
+| NS3 항목 더블클릭: "경로 없음(AGVPATH)" → `AGVPATH` 실행. "그룹 …" 항목은 더블클릭해도 아무 일 없음. 명령 실행 중에 더블클릭 → "실행 중인 명령을 먼저 끝내세요." | | | |
+| NS4 도면 저장 → `input.xlsx 없음(AGVEXCEL)`(도면 폴더에 없을 때). `AGVEXCEL` 뒤 사라짐. `ash.settings.tsv 없음`은 ASH 명령이 그 파일을 만들기 때문에 보통 안 나옴(파일을 지우고 저장만 했을 때 나옴). 오류가 있으면 "검증 오류 n건(AGVCHECK)", 없어지면 사라짐. input.xlsx가 있고 모델(`<모델 이름>.arc`)이 없으면 "모델 없음(AGVMODEL)", `AGVMODEL` 뒤 사라짐 | | | |
+| NS5 input.xlsx가 없을 때 `ash.settings.tsv`의 Groups에 G2를 추가(`G2:T:3:1:2:1`) → 다음 명령 뒤 "그룹 G2: 대기 CP 없음 / load 없음"(CP가 있을 때). input.xlsx가 있으면 엑셀은 읽지 않으니 G2는 CP를 놓기 전에는 안 나옴 | | | |
+| NS6 모두 갖춘 도면 → 목록이 "할 일 없음" 한 줄, 머리글 "다음 할 일". 목록 높이가 항목 수(1~6줄)에 맞게 바뀌고, 항목이 7개 이상이면 스크롤 | | | |
+| NS7 큰 도면에서 `AGVFIND`·`AGVCHECK` 같은 명령 뒤 지연: `plugin.log`의 "… 다음 할 일: n ms"를 메모(도면 읽기 + 검사 한 번). 팔레트를 닫았을 때는 이 시간이 없어야 함 | | | |
+
+## 입력 표 (AGVINPUT)
+
+ZWCAD와 Excel 필요. 준비: G1 그룹의 standby·load·unload·rtnload·rtnunload·finish CP가 있는 저장된 도면과 `AGVEXCEL`로 만든 `input.xlsx`(자재·Routes 행 있음). 암호화(NASCA) 환경이 있으면 IN8~IN9도 한다. 빌드 PC에서는 표 창만 시험했고(Excel 연동 포함), ZWCAD 안에서 연 적은 없다.
+
+| 항목 | 날짜 | 결과 | 비고 |
+|---|---|---|---|
+| IN1 도면을 저장하지 않고 `AGVINPUT` → "도면을 먼저 저장하세요" 안내만. 저장한 도면에서 `input.xlsx`를 치우고 실행 → "input.xlsx이 없습니다. 먼저 AGVEXCEL로 양식을 만드세요." | | | |
+| IN2 `AGVINPUT` → 창 제목 "ASH 입력 표 · input.xlsx", 탭 자재·그룹·타입·컨베이어(파일에 있는 시트만). 열 머리글이 한글 이름이고 마우스를 올리면 열 이름(영문)과 설명. 자동 계산 열은 회색이고 고칠 수 없음. 열린 직후 아래 줄에 `오류 n · 경고 n`(또는 "문제 없음")이 `AGVMODEL`의 검사 결과와 같음 | | | |
+| IN3 드롭다운: 그룹 탭의 AGV 타입은 타입 탭의 이름들, 자재 탭의 운반 그룹은 그룹 탭의 이름들, 형태·흐름·사용 여부는 고정 목록, 완료 CP는 도면의 finish CP만. 대기 CP는 목록 없이 직접 적음. 칸의 ▾를 한 번 누르면 목록이 열리고(칸을 먼저 고르지 않아도), 타입 탭에 새 타입 이름을 적은 직후 그룹 탭 목록에 보임 | | | |
+| IN4 목록에 없는 값을 직접 적기(예: 도면에 없는 CP 이름) → 적히고, 0.5초쯤 뒤 그 칸이 빨강(툴팁 "… 레이아웃에 없습니다"). 숫자 칸에 글자를 적으면 그 칸이 빨강, 아래 줄 "읽기 오류 · …". 원래대로 고치면 색이 사라짐. 칸을 고르고 Delete → 비워짐 | | | |
+| IN5 "행 추가" → 맨 아래 빈 행에 커서가 가고 바로 입력됨. 값을 채우고 "저장" → 파일을 Excel로 열면 시트 맨 아래(기존 데이터 바로 다음 행)에 새 행, 가운데 정렬·드롭다운·다른 시트·메모는 그대로. 비워 둔 새 행은 파일에 안 생김 | | | |
+| IN6 칸 몇 개를 고치면 그 칸이 파랑, 아래 줄에 "변경 n칸", "저장"이 켜짐. 저장하면 "저장 n칸"이 나오고 파랑이 사라지며 "저장"이 꺼짐. 바로 다시 고쳐 저장해도 새 행이 두 번 생기지 않음(저장본과 견줌). 변경 없이 닫으면 묻지 않고, 변경이 있으면 "저장할까요?"(예·아니오·취소). 아니오 = 파일 그대로, 취소 = 창 유지 | | | |
+| IN7 같은 `input.xlsx`를 Excel로 열어 둔 채(저장 안 한 변경 하나 포함) `AGVINPUT` → 아래 줄에 "Excel에서 저장하지 않은 변경까지 포함해 읽었습니다." 표에서 고쳐 저장 → 열린 Excel 창에서 그 칸이 바뀌고 저장됨(저장 못 했다는 창 없음). 명령줄에 "AGVINPUT: n칸 저장" | | | |
+| IN8 암호화(NASCA) 파일: 열 때 몇 초 걸린 뒤(숨은 Excel이 읽음) 표가 뜸. 고치고 저장을 여러 번 → 두 번째부터는 거의 즉시, `%APPDATA%\ASH\plugin.log`에 `ExcelCom: input.xlsx opened` 한 줄과 "AGVINPUT Excel로 저장(n칸)" 시간. 창을 닫으면 작업 관리자에서 방금 생긴 EXCEL이 사라짐 | | | |
+| IN9 IN8 뒤 `input.xlsx`가 여전히 암호화(Excel만 열림, 메모장으로는 깨짐)이고 `AGVMODEL`이 고친 값으로 모델을 만듦. 저장 도중 Excel에서 그 파일을 편집 중이면 저장 실패 안내가 뜨고 표는 그대로(다시 저장 가능) | | | |
+| IN10 입력이 큰 파일(자재 100행 이상): 칸에 글을 칠 때 끊기지 않음. `plugin.log`의 "AGVINPUT 표 채우기"·"AGVINPUT 검사" ms를 메모(검사는 보통 수십 ms 이내여야 함). 디스플레이 배율 125 %·150 %에서 글자·열 너비·버튼이 잘리지 않음 | | | |
+| IN11 양식에 고급 열이 있으면(없으면 해당 없음) 처음엔 숨겨져 있고 "고급 열"을 체크하면 보이고 끄면 다시 숨음. 고급 열이 없는 양식에는 체크 칸이 없음 | | | |
+| IN12 `AGVMODEL`이 칠한 빨강 칸 메모가 있는 파일에서 표로 저장 → 메모·색은 파일에 그대로 남고(다음 `AGVMODEL`이 새로 칠함), 다른 열·시트가 달라지지 않음. 저장 뒤 `AGVMODEL`이 문제 없이 돎 | | | |

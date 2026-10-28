@@ -32,6 +32,7 @@ public sealed class AgvPaletteControl : UserControl
         new ToolTip().SetToolTip(brush, "경로를 차례로 클릭해 종류 적용 · Enter 끝 (AGVPBRUSH)");
         brush.Click += (o, e) => AgvPalette.Send("AGVPBRUSH " + "OTSC"[Math.Max(0, brushKind.SelectedIndex)]);
         tabs.TabPages.Add(Page("경로", Theme.Section("경로 그리기·편집"),
+            Theme.Make("경로 정리 (변환·연결·분할·검증)", GlyphKind.Convert, "AGVTIDY"),
             Theme.Make("경로 그리기", GlyphKind.Path, "AGVPATH"), Theme.Make("선·폴리선 → 경로 변환", GlyphKind.Convert, "AGVCONVERT"), Theme.Make("방향 반전", GlyphKind.Reverse, "AGVREVERSE"), Theme.Make("경로 종류 변경", GlyphKind.PathType, "AGVPTYPE"),
             Theme.Caption("종류 붓"), brushKind, brush,
             Theme.Make("평행 복제", GlyphKind.Offset, "AGVOFFSET"), Theme.Make("배열 복제", GlyphKind.Array, "AGVARRAY"),
@@ -161,7 +162,7 @@ public sealed class AgvPaletteControl : UserControl
             Theme.Section("검증"),Theme.Make("검증", GlyphKind.Check, "AGVCHECK"), checkResult,
             Theme.Caption("문제 목록 — 더블클릭하면 그 위치로 이동"), problems,
             // "모델 생성" also does what "내보내기" did (AGVEXPORT is still a command): <Model>.arc, and <Model>.dir when this PC has AutoMod
-            Theme.Section("모델"), Theme.Make("Excel 양식", GlyphKind.Excel, "AGVEXCEL"), Theme.Make("모델 생성", GlyphKind.Model, "AGVMODEL"), Theme.Make("빌드·실행", GlyphKind.Run, "AGVRUN"),
+            Theme.Section("모델"), Theme.Make("Excel 양식", GlyphKind.Excel, "AGVEXCEL"), Theme.Make("입력 표", GlyphKind.Excel, "AGVINPUT"), Theme.Make("모델 생성", GlyphKind.Model, "AGVMODEL"), Theme.Make("빌드·실행", GlyphKind.Run, "AGVRUN"),
             Theme.Make("서버로 보내기", GlyphKind.Send, "AGVSEND"), Theme.Make("결과 올리기", GlyphKind.Send, "AGVRESULTUP"),
             Theme.Make("엑셀·도면 비교", GlyphKind.Excel, "AGVEXCELDIFF"),
             Theme.Section("설정"), settings, layerColors));
@@ -195,6 +196,7 @@ public sealed class AgvPaletteControl : UserControl
         PaletteStatus.Check = n => checkResult.Text = n == 0 ? "마지막 검사 결과: 문제 없음" : $"마지막 검사 결과: {n}건";
 
         Controls.Add(tabs); // Fill first: later Top/Bottom controls dock before it
+        Controls.Add(NextStepsPanel.Create()); // added before the header, so it docks below it
         Controls.Add(header);
         Controls.Add(status);
     }

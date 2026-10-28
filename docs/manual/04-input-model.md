@@ -9,9 +9,10 @@
 | Settings | 설정 하나(Key / Value) | SimLength(h), Warmup(h), Replications, UtilMax(가동률 상한, 기본 0.75), SafetyStock |
 | AGV_Types | 차량 제원 하나 | 속도(적재·공차), 가감속, Capacity(용기 수), LoadTime·UnloadTime(초), Length·Width(m), Kind |
 | AGV_Groups | 차량 무리 하나 | Type, MinCount~MaxCount(찾을 범위), StandbyCPs, FinishCP(선택) |
-| Materials | 자재 하나 | Group, TaktTime(초), UnitsPerCycle, UnitsPerContainer, CallThreshold(호출 임계), InitStock·SafetyStock |
-| Routes | 자재의 운반 경로 하나 | SupplyFromCP(load) → SupplyToCP(unload), 선택: BufferCP, ReturnFromCP·ReturnToCP(빈 용기 회수) |
+| Materials | 자재 하나와 그 운반 경로 | Group, TaktTime(초), UnitsPerCycle, UnitsPerContainer, CallThreshold(호출 임계), Form, SupplyFromCP(load) → SupplyToCP(unload), 선택: ReturnFromCP·ReturnToCP(빈 용기 회수), BufferCP |
 | Conveyors (선택) | 컨베이어 하나 | Conveyor(CAD 이름 `CV###`), Material, ProductTakt |
+
+Materials와 AGV_Types는 기본 열이 앞에 있고, 나머지 고급 열(Station, 임계 자재 열·합계, 언로딩 임계, InitStock·SafetyStock, 적재물 크기, Flow, Use, BufferCP, ExtraTime, BufferWaitSec / 분류, 곡선 속도, 가감속, MTBF·MTTR, 색, 에셋)은 뒤에 묶여 접혀 있다. 열 머리글 위 **+** 로 펼친다. 예전 양식의 Routes 시트는 `AGVEXCEL` `U`가 Materials에 합친다(4.2).
 
 | 칸 색 | 뜻 |
 |---|---|
@@ -24,7 +25,7 @@
 
 - 호출 임계 = 용기 열 + 자재 열 ÷ 용기당 수량(옆의 "합계(자동)" 열에 보인다).
 - 숫자 칸의 `-`는 빈칸과 같다(기본값).
-- `Materials.Use`가 `N`인 자재는 모델·검증·결과에서 빠진다(그 자재의 Routes 행도).
+- `Materials.Use`가 `N`인 자재는 모델·검증·결과에서 빠진다(같은 행의 경로도).
 - `Materials.Flow` = `Output`이면 빈 용기 공급 + 풀 용기 반출(교환). 결과의 자재 이름에 "(반출)".
 - 가동 시간은 대기 CP에서 탄 순간부터 FinishCP(없으면 대기 CP) 도착까지.
 
@@ -40,11 +41,18 @@
 | 도면 → 엑셀 | 채워지는 것 |
 |---|---|
 | CP의 GROUP | AGV_Groups 한 행씩(타입 `T_AGV`), StandbyCPs = 그 그룹의 standby CP |
-| load CP (낱개 배치) | 자재 `M001`, `M002` …. 같은 순서의 unload·buffer·rtnload·rtnunload CP와 짝을 지어 Routes에. **짝은 추측이므로 확인한다** |
-| "루트 순서 배치"로 놓은 CP | 루트마다 자재 하나(`M###`), Routes는 루트대로, FinishCP도 채움 |
+| load CP (낱개 배치) | 자재 `M001`, `M002` …. 같은 순서의 unload·buffer·rtnload·rtnunload CP와 짝을 지어 같은 행의 경로 열에. **짝은 추측이므로 확인한다** |
+| "루트 순서 배치"로 놓은 CP | 루트마다 자재 하나(`M###`), 경로는 루트대로, FinishCP도 채움 |
+| 호출 임계 | 도면 경로 길이로 계산한 제안 값(빈칸·새 행만). 명령줄 `Materials: M001 호출 임계 3 (제안)` |
 | 속도·T/T 같은 숫자 | 도면에서 알 수 없어 예시 값. 꼭 고친다 |
 
-`U` 갱신은 입력한 값을 두고 도면에서 새로 생긴 것(새 그룹, standby CP, 아직 Routes에 없는 load CP)만 뒤에 붙인다. 지운 CP·그룹은 지우지 않는다(검증이 알려 준다). `U`·`W` 모두 먼저 `input.bak.<날짜_시각>.xlsx`로 복사한다.
+호출 임계 제안 = 공급 한 사이클(경로 길이 ÷ 적재 속도 + 로딩 + 언로딩 + 추가 시간) 동안 쓰는 용기 수(올림) + 1. 안전재고 + 1보다 작으면 그만큼 올린다. 입력한 값은 바꾸지 않는다.
+
+`U` 갱신은 입력한 값을 두고 도면에서 새로 생긴 것(새 그룹, standby CP, 아직 Materials에 없는 load CP)만 뒤에 붙인다. 지운 CP·그룹은 지우지 않는다(검증이 알려 준다). `U`·`W` 모두 먼저 `input.bak.<날짜_시각>.xlsx`로 복사한다.
+
+- 예전 양식(Routes 시트가 따로 있음)은 `U`가 경로를 Materials 행에 옮기고 Routes 시트를 지운다: `Routes 시트를 Materials에 합침 N행`. 한 자재에 Routes 행이 둘 이상이면 합치지 않고 이유를 알린다(모델은 자재당 경로 1개).
+- 열 순서는 바꾸지 않는다. 나란히 있는 고급 열끼리 묶어 접는다.
+- 마지막 줄은 빈 필수 칸 요약이다: `입력 필요: Materials T/T 3칸, 호출 임계 1칸 · AGV_Groups 최대 대수 1칸`(없으면 `입력 필요 없음`). `W`도 같은 줄을 낸다.
 
 ### 드롭다운
 
@@ -53,8 +61,8 @@
 | AGV_Types.Kind | Standard / Conveyor / Ant / Magnet |
 | AGV_Groups.Type, Dispatch | AGV_Types의 Type / Nearest, FIFO |
 | Materials.Group, Form, Flow, Use | AGV_Groups의 Group / Box, Pallet, Trolley / Supply, Output / Y, N |
-| Routes.Material, Conveyors.Material | Materials의 Material |
-| Routes의 CP 열, StandbyCPs, FinishCP | 도면의 CP 이름(열에 맞는 TYPE만: SupplyFromCP = load, SupplyToCP = unload …) |
+| Conveyors.Material | Materials의 Material |
+| Materials의 CP 열, StandbyCPs, FinishCP | 도면의 CP 이름(열에 맞는 TYPE만: SupplyFromCP = load, SupplyToCP = unload …) |
 
 CP 이름 드롭다운은 막지 않고 경고만 한다. 도면에 아직 없는 이름을 미리 적을 수 있다. StandbyCPs에 `S001,S002`처럼 쉼표 목록이 있으면 그 열에는 드롭다운을 걸지 않는다.
 
@@ -101,7 +109,7 @@ CP 이름 드롭다운은 막지 않고 경고만 한다. 도면에 아직 없�
 | 빌드·실행 | `AGVRUN` | 이 PC에 AutoMod가 있으면 빌드(필요할 때만) 후 AutoMod 창에서 연다. 눈으로 확인용 |
 | 결과 올리기 | `AGVRESULTUP` | 이 PC에서 `ash-run`으로 돌린 결과(`runs\`)를 모델과 함께 서버에 올린다 |
 
-`input.sig`는 입력 지문이다. 그룹·타입·자재·Routes·대기 CP·SimLength 등 모델에 굳는 값을 바꾸면 모델을 다시 만들어야 한다. T/T·임계값·재고·Warmup·반복 수는 실행마다 `params.txt`로 넘어가므로 다시 만들 필요가 없다. 그래도 헷갈리면 다시 "모델 생성".
+`input.sig`는 입력 지문이다. 그룹·타입·자재·경로·대기 CP·SimLength 등 모델에 굳는 값을 바꾸면 모델을 다시 만들어야 한다. T/T·임계값·재고·Warmup·반복 수는 실행마다 `params.txt`로 넘어가므로 다시 만들 필요가 없다. 그래도 헷갈리면 다시 "모델 생성".
 
 ## 4.6 서버로 보내기 (`AGVSEND`)
 
@@ -129,3 +137,34 @@ CP 이름 드롭다운은 막지 않고 경고만 한다. 도면에 아직 없�
 | 확인 실행 | 찾은 대수로 반복 실행해 다시 판정 |
 
 가동률 상한 초과는 실패가 아니라 경고(주황)다. 실패(빨강)는 자재 품절·생산 미달·교착·결과 없음뿐이다.
+
+## 4.7 입력 표 (`AGVINPUT`)
+
+Excel을 열지 않고 플러그인 안에서 `input.xlsx`를 채운다. 도면을 저장해 두고 `AGVEXCEL`로 양식을 만든 뒤 실행한다. 사내 문서 암호화로 Excel만 열 수 있는 파일도 된다.
+
+| 칸 | 뜻 |
+|---|---|
+| 탭 | 자재 · 그룹 · 타입 · 컨베이어. 파일에 있는 시트만 나온다 |
+| 열 | 파일 1행의 열 이름 그대로. 머리글에 마우스를 올리면 열 이름과 설명 |
+| 회색 열 | 자동 계산 칸. 고칠 수 없다 |
+| 드롭다운 | 형태·흐름·사용 여부 같은 목록 열, 그룹·타입·자재 이름 열, CP 열(도면에 있는 CP). 목록에 없는 값도 적을 수 있다(CP를 아직 안 그렸을 때). 대기 CP는 쉼표로 직접 적는다 |
+| 고급 열 | 잘 안 쓰는 열은 숨겨져 있다. 아래 "고급 열"을 체크하면 보인다 |
+| 행 추가 | 탭마다 있다. 새 행은 시트 맨 아래에 붙는다. 행 삭제는 없다(Excel에서 지운다) |
+| Delete 키 | 선택한 칸을 비운다 |
+
+| 칸 색 | 뜻 |
+|---|---|
+| 빨강 / 주황 | 입력 검사의 오류 / 경고. 칸에 마우스를 올리면 이유 |
+| 파랑 | 저장하지 않은 변경 |
+
+고치고 잠깐 쉬면 입력 검사(`AGVMODEL`과 같은 검사, 도면의 CP 이름 포함)가 다시 돌고, 아래 줄에 `오류 n · 경고 n · 변경 n칸`이 나온다. 줄에 마우스를 올리면 문제 목록. 숫자 칸에 글자를 적으면 `읽기 오류`가 나오고 그 칸만 빨갛게 되며, 고칠 때까지 다른 검사는 멈춘다.
+
+**저장**은 바뀐 칸과 새 행만 파일에 쓴다. 파일의 서식·드롭다운·다른 시트는 그대로다. 저장한 뒤 파일을 다시 읽어 이후 변경은 저장본과 견준다. "닫기"에 저장하지 않은 변경이 있으면 저장할지 묻는다.
+
+| 파일 | 읽기 | 저장 |
+|---|---|---|
+| 보통 파일 | 직접 읽는다 | 직접 쓴다 |
+| Excel이 열어 둔 파일 | Excel의 열린 창을 읽는다(저장 안 한 변경 포함, 안내가 나온다) | 열린 창에 쓰고 저장한다 |
+| 암호화된 파일 | Excel이 숨어서 한 번 읽는다(처음 몇 초) | 같은 숨은 Excel이 쓰고 저장한다. 암호화는 그대로. 창을 닫으면 Excel도 끝난다 |
+
+표로 저장해도 `AGVMODEL`·`AGVEXCEL`이 칠한 빨강·주황 칸과 메모는 그대로 남는다. 다음 `AGVMODEL`이 새로 칠한다. 계산 칸(호출 임계 합계)은 Excel이 계산하므로 직접 읽은 파일에서는 빈칸으로 보인다.

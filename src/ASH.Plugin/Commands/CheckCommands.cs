@@ -59,14 +59,28 @@ public sealed class CheckCommands
                 layout = DrawingReader.Read(db, tr);
                 findings = Report(ed, layout);
             }
-            var cause = CauseRows(ed, layout);
-            ed.WriteMessage($"\n검사 결과 {findings.Count + cause.Count}건");
-            Ui.PaletteStatus.SetCheck(findings.Count + cause.Count);
-            // only problems exist in this list; the palette shows them in a table and a double-click goes to the spot
-            Ui.PaletteStatus.SetFindings(findings.Select(f => new Ui.FindingRow(FindingText.Label(f.Code), f.EntityId ?? "", f.Message,
-                f.Where.X, f.Where.Y, !(f.Where.X == 0 && f.Where.Y == 0))).Concat(cause).ToList());
+            Publish(ed, layout, findings);
             return changed;
         }, refreshArrows: false);
+    }
+
+    /// <summary>The end of a check: the cause rows, "검사 결과 N건", and the palette's count and problem table (a double-click there goes to the spot).</summary>
+    internal static void Publish(Editor ed, CoreLayout layout, List<Finding> findings)
+    {
+        var cause = CauseRows(ed, layout);
+        ed.WriteMessage($"\n검사 결과 {findings.Count + cause.Count}건");
+        Ui.PaletteStatus.SetCheck(findings.Count + cause.Count);
+        // only problems exist in this list
+        Ui.PaletteStatus.SetFindings(findings.Select(f => new Ui.FindingRow(FindingText.Label(f.Code), f.EntityId ?? "", f.Message,
+            f.Where.X, f.Where.Y, !(f.Where.X == 0 && f.Where.Y == 0))).Concat(cause).ToList());
+    }
+
+    /// <summary>The check without a word: findings that block a model (ModelCommands.Blocking) and the others. Uses DrawingUnits.PerMeter like Report.</summary>
+    internal static (int Errors, int Warnings) Count(CoreLayout layout)
+    {
+        var findings = LayoutChecker.Check(layout, new CheckOptions(CpMaxOffset: new CheckOptions().CpMaxOffset * DrawingUnits.PerMeter));
+        int errors = findings.Count(f => ModelCommands.Blocking.Contains(f.Code));
+        return (errors, findings.Count - errors);
     }
 
     /// <summary>Prints every finding as "[code] message (x, y)" and zooms to the first one. Uses DrawingUnits.PerMeter for the CP offset limit and zoom width.</summary>

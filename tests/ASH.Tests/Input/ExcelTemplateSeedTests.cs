@@ -13,6 +13,10 @@ public class ExcelTemplateSeedTests
 {
     static LayoutCp Cp(string name, string type, string group) => new LayoutCp { Name = name, Type = type, Group = group };
 
+    static int Col(IXLWorksheet ws, string head) => Enumerable.Range(1, ws.LastColumnUsed()!.ColumnNumber()).First(c => ws.Cell(1, c).GetString() == head);
+
+    static readonly string[] NothingNeeded = { ExcelTemplate.NeedPrefix + " 없음" };
+
     static ASH.Core.Layout.Layout Drawing()
     {
         var l = new ASH.Core.Layout.Layout();
@@ -52,7 +56,7 @@ public class ExcelTemplateSeedTests
             ExcelTemplate.Write(path, Drawing());
             using (var wb = ExcelReader.Open(path)) // the user's work: a takt time, and an old-template AGV_Types.Group column
             {
-                wb.Worksheet("Materials").Cell(3, 4).Value = 99;
+                var m = wb.Worksheet("Materials"); m.Cell(3, Col(m, "TaktTime")).Value = 99;
                 var t = wb.Worksheet("AGV_Types"); t.Column(2).InsertColumnsBefore(1); t.Cell(1, 2).Value = "Group"; t.Cell(3, 2).Value = "A";
                 wb.Save();
             }
@@ -68,7 +72,7 @@ public class ExcelTemplateSeedTests
             Assert.Equal("L003", p.Routes[2].SupplyFromCP);
             using (var wb = ExcelReader.Open(path)) Assert.DoesNotContain("Group", wb.Worksheet("AGV_Types").Row(1).CellsUsed().Select(c => c.GetString()));
             Assert.Contains(changes, c => c.Contains("Group 열 삭제"));
-            Assert.Empty(ExcelTemplate.Update(path, l));                                  // nothing left to add
+            Assert.Equal(NothingNeeded, ExcelTemplate.Update(path, l));                   // nothing left to add, no blank required cell
             Assert.Equal(3, ExcelReader.Read(path).Routes.Count);
         }
         finally { File.Delete(path); }
@@ -84,8 +88,9 @@ public class ExcelTemplateSeedTests
             ExcelTemplate.Write(path, Drawing());
             using (var wb = ExcelReader.Open(path)) // an older workbook: EmptyReturn column, old description
             {
-                var m = wb.Worksheet("Materials"); m.Cell(1, 19).Value = "EmptyReturn"; m.Cell(3, 19).Value = "Y"; m.Cell(2, 2).Value = "공정명(선택·메모)";
-                wb.Worksheet("Routes").Delete();
+                var m = wb.Worksheet("Materials"); int er = m.LastColumnUsed()!.ColumnNumber() + 1;
+                m.Cell(1, er).Value = "EmptyReturn"; m.Cell(3, er).Value = "Y"; m.Cell(2, Col(m, "Station")).Value = "공정명(선택·메모)";
+                wb.Worksheet("Conveyors").Delete();
                 wb.Save();
             }
             var l = Drawing(); l.Cps.Add(Cp("SB4", "standby", "A")); l.Cps.Add(Cp("L003", "load", "C"));
@@ -130,10 +135,11 @@ public class ExcelTemplateSeedTests
             ExcelTemplate.Write(path, Drawing());
             ExcelTemplate.Update(path, Drawing()); // re-applied lists must not pile up
             using var wb = ExcelReader.Open(path);
-            var form = wb.Worksheet("Materials").Cell(3, 15).GetDataValidation();
+            int fc = Col(wb.Worksheet("Materials"), "Form");
+            var form = wb.Worksheet("Materials").Cell(3, fc).GetDataValidation();
             Assert.Equal("\"Box,Pallet,Trolley\"", form.Value);
             Assert.Contains("AGV_Types", wb.Worksheet("AGV_Groups").Cell(5, 2).GetDataValidation().Value);
-            Assert.Single(wb.Worksheet("Materials").DataValidations, v => v.Ranges.Any(r => r.RangeAddress.FirstAddress.ColumnNumber == 15));
+            Assert.Single(wb.Worksheet("Materials").DataValidations, v => v.Ranges.Any(r => r.RangeAddress.FirstAddress.ColumnNumber == fc));
         }
         finally { File.Delete(path); }
     }

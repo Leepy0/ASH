@@ -9,9 +9,10 @@ namespace ASH.Core.Settings;
 /// <summary>
 /// Per-PC (not per-drawing) settings at %APPDATA%\ASH\ash.user.tsv, "key\tvalue" lines. Unknown keys are ignored.
 /// LayerColors = the ASH layer colours the user changed ("AGV_PATH=1;AGV_CP_STANDBY=30", see LayerColors), kept per PC, not per drawing.
+/// SaveCheck = the quiet layout check after every save (default on; a line "SaveCheck\t0" turns it off).
 /// SYSTEM deployments (no user profile to write to) keep ServerUrl in %ProgramData%\ASH\ash.machine.tsv instead; the user file wins when its ServerUrl is non-empty.
 /// </summary>
-public sealed record UserSettings(string ServerUrl = "", double FilletRadiusM = 0, string LayerColors = "")
+public sealed record UserSettings(string ServerUrl = "", double FilletRadiusM = 0, string LayerColors = "", bool SaveCheck = true)
 {
     public const string FileName = "ash.user.tsv";
 
@@ -49,7 +50,8 @@ public sealed record UserSettings(string ServerUrl = "", double FilletRadiusM = 
         double.TryParse(kv.TryGetValue(nameof(FilletRadiusM), out var r) ? r : "", NumberStyles.Float, CultureInfo.InvariantCulture, out var radius);
         // normalised on the way in: a hand-edited value never reaches the layers as anything but valid colours
         var colors = ASH.Core.Layout.LayerColors.Format(ASH.Core.Layout.LayerColors.Parse(kv.TryGetValue(nameof(LayerColors), out var lc) ? lc : ""));
-        return new UserSettings(kv.TryGetValue(nameof(ServerUrl), out var u) ? u : "", radius > 0 ? radius : 0, colors);
+        var check = !(kv.TryGetValue(nameof(SaveCheck), out var sc) && (sc == "0" || sc.Equals("false", StringComparison.OrdinalIgnoreCase) || sc.Equals("off", StringComparison.OrdinalIgnoreCase)));
+        return new UserSettings(kv.TryGetValue(nameof(ServerUrl), out var u) ? u : "", radius > 0 ? radius : 0, colors, check);
     }
 
     public void Save(string? path = null)
@@ -60,6 +62,7 @@ public sealed record UserSettings(string ServerUrl = "", double FilletRadiusM = 
         if (FilletRadiusM > 0) text += $"{nameof(FilletRadiusM)}\t{FilletRadiusM.ToString("R", CultureInfo.InvariantCulture)}\r\n";
         var colors = ASH.Core.Layout.LayerColors.Format(ASH.Core.Layout.LayerColors.Parse(LayerColors));
         if (colors.Length > 0) text += $"{nameof(LayerColors)}\t{colors}\r\n";
+        if (!SaveCheck) text += $"{nameof(SaveCheck)}\t0\r\n";
         File.WriteAllText(path, text, new UTF8Encoding(false));
     }
 

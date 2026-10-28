@@ -123,6 +123,19 @@ public sealed class PathCommands
     {
         var ids = ConvertTargets(Ed, db, tr);
         if (ids == null) return false;
+        var (_, made) = ConvertPaths(db, tr, Ed, ids);
+        if (made.Count == 0) { FinalStatus = "AGVCONVERT: 변환할 선·폴리선 없음"; return false; }
+        AutoConnect(db, tr, Ed, made);
+        var layout = DrawingReader.Read(db, tr); // every path, new and old, as AGVSPLIT with Enter
+        SplitCuts(db, tr, Ed, layout.Paths, layout.Tolerance);
+        Ed.WriteMessage("\n" + PathConvert.Guidance);
+        return true;
+    });
+
+    /// <summary>Turns the lines/polylines among ids into one-way paths and prints the summary (what was skipped, and why). Returns how many objects were
+    /// converted and the ids of the new paths (empty when nothing converted: the drawing is untouched then).</summary>
+    private static (int Sources, List<string> Made) ConvertPaths(Database db, Transaction tr, Editor ed, ObjectId[] ids)
+    {
         var names = DrawingReader.Read(db, tr).Paths.Select(p => p.Name).ToList();
         var skipped = new Dictionary<string, int>();
         var sources = new List<string>();
@@ -141,27 +154,77 @@ public sealed class PathCommands
             made.AddRange(PathConvert.Pieces(segs!, (false, false, false), names));
             sources.Add(e.Handle.ToString());
         }
-        Ed.WriteMessage("\n" + PathConvert.Summary(sources.Count, made.Count, skipped));
-        if (made.Count == 0) { FinalStatus = "AGVCONVERT: 변환할 선·폴리선 없음"; return false; }
+        ed.WriteMessage("\n" + PathConvert.Summary(sources.Count, made.Count, skipped));
+        if (made.Count == 0) return (0, new List<string>());
         DrawingWriter.ReplacePaths(db, tr, sources, made);
-        AutoConnect(db, tr, Ed, made.Select(p => p.Id).ToList());
-        var layout = DrawingReader.Read(db, tr); // every path, new and old, as AGVSPLIT with Enter
-        SplitPaths(db, tr, Ed, layout.Paths, layout.Tolerance);
-        Ed.WriteMessage("\n" + PathConvert.Guidance);
-        return true;
+        return (sources.Count, made.Select(p => p.Id).ToList());
+    }
+
+    // ---------- AGVTIDY: convert, connect end gaps, split at crossings, check -- the usual first clean-up of a drawn layout in one step ----------
+
+    [CommandMethod("AGVTIDY", CommandFlags.UsePickSet)]
+    public void AgvTidy() => Run(Doc, "AGVTIDY", (db, tr) =>
+    {
+        var ids = TidyTargets(Ed, db, tr);
+        if (ids == null) return false; // Esc: nothing happened
+        // the order of AGVCONVERT: connect before splitting, so an end that overshoots another path is pulled back instead of left as a stub
+        var (sources, made) = ConvertPaths(db, tr, Ed, ids);
+        int linked = 0, cuts = 0;
+        if (made.Count > 0)
+        {
+            linked = AutoConnect(db, tr, Ed, made);
+            var layout = DrawingReader.Read(db, tr);
+            cuts = SplitCuts(db, tr, Ed, layout.Paths, layout.Tolerance);
+        }
+        // the check as AGVCHECK prints it (list in the palette, zoom to the first problem), without its questions
+        var check = DrawingReader.Read(db, tr);
+        var findings = CheckCommands.Report(Ed, check);
+        CheckCommands.Publish(Ed, check, findings);
+        var line = $"변환 {sources} · 분할 {cuts} · 연결 {linked} · 오류 {findings.Count(f => ModelCommands.Blocking.Contains(f.Code))}";
+        Ed.WriteMessage("\n" + line);
+        FinalStatus = "AGVTIDY: " + line;
+        return made.Count > 0;
     });
+
+    // Already selected, a selection, or Enter for everything on the layer of one picked object. Null: Esc.
+    private static ObjectId[]? TidyTargets(Editor ed, Database db, Transaction tr)
+    {
+        var imp = Implied(ed);
+        if (imp != null) return imp;
+        var sel = ed.GetSelection(new PromptSelectionOptions { MessageForAdding = "\n정리할 선·폴리선 선택 (Enter: 레이어 전체)" });
+        if (sel.Status == PromptStatus.OK) return sel.Value.GetObjectIds();
+        // Enter on an empty selection (ZWCAD reports it as None or Error, depending on the build); Esc is Cancel
+        return sel.Status == PromptStatus.None || sel.Status == PromptStatus.Error ? LayerObjects(ed, db, tr, "\n정리할 레이어의 객체 하나 선택") : null;
+    }
 
     internal static ObjectId ModelSpaceId(Database db, Transaction tr) => ((BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead))[BlockTableRecord.ModelSpace];
 
-    // Already selected, a selection, or everything on the layer of one picked object. Never the whole drawing: walls are lines too.
-    private static ObjectId[]? ConvertTargets(Editor ed, Database db, Transaction tr)
+    // PICKFIRST: what was selected before the command; the selection is cleared so it does not linger.
+    private static ObjectId[]? Implied(Editor ed)
     {
         var imp = ed.SelectImplied();
-        if (imp.Status == PromptStatus.OK && imp.Value.Count > 0)
-        {
-            ed.SetImpliedSelection(new ObjectId[0]);
-            return imp.Value.GetObjectIds();
-        }
+        if (imp.Status != PromptStatus.OK || imp.Value.Count == 0) return null;
+        ed.SetImpliedSelection(new ObjectId[0]);
+        return imp.Value.GetObjectIds();
+    }
+
+    // Everything on the layer of one picked object. Never the whole drawing: walls are lines too.
+    private static ObjectId[]? LayerObjects(Editor ed, Database db, Transaction tr, string msg)
+    {
+        var pick = ed.GetEntity(msg);
+        if (pick.Status != PromptStatus.OK) return null;
+        var layer = ((Entity)tr.GetObject(pick.ObjectId, OpenMode.ForRead)).Layer;
+        var all = DrawingReader.ModelSpace(db, tr, OpenMode.ForRead)
+            .Where(i => tr.GetObject(i, OpenMode.ForRead) is Entity e && DrawingReader.Eq(e.Layer, layer)).ToArray();
+        ed.WriteMessage($"\n레이어 {layer}: 객체 {all.Length}개");
+        return all;
+    }
+
+    // Already selected, a selection, or everything on the layer of one picked object.
+    private static ObjectId[]? ConvertTargets(Editor ed, Database db, Transaction tr)
+    {
+        var imp = Implied(ed);
+        if (imp != null) return imp;
         var mode = Keyword(ed, "\n변환 대상 [선택(S)/레이어(L)] <선택>", "S", "S", "L");
         if (mode == null) return null;
         if (mode == "S")
@@ -170,13 +233,7 @@ public sealed class PathCommands
             var sel = ed.GetSelection(new PromptSelectionOptions { MessageForAdding = "\n경로로 바꿀 선·폴리선 선택" });
             return sel.Status == PromptStatus.OK ? sel.Value.GetObjectIds() : null;
         }
-        var pick = ed.GetEntity("\n변환할 레이어의 객체 하나 선택");
-        if (pick.Status != PromptStatus.OK) return null;
-        var layer = ((Entity)tr.GetObject(pick.ObjectId, OpenMode.ForRead)).Layer;
-        var all = DrawingReader.ModelSpace(db, tr, OpenMode.ForRead)
-            .Where(i => tr.GetObject(i, OpenMode.ForRead) is Entity e && DrawingReader.Eq(e.Layer, layer)).ToArray();
-        ed.WriteMessage($"\n레이어 {layer}: 객체 {all.Length}개");
-        return all;
+        return LayerObjects(ed, db, tr, "\n변환할 레이어의 객체 하나 선택");
     }
 
     private static string ConvertType(Entity e) => e switch
@@ -283,7 +340,7 @@ public sealed class PathCommands
 
     // Commands after which the gap markers (AGV_PATH_GAP) are redrawn and counted in the status line.
     private static readonly HashSet<string> PathEditCommands = new HashSet<string>
-        { "AGVPATH", "AGVCONVERT", "AGVPTYPE", "AGVPBRUSH", "AGVREVERSE", "AGVOFFSET", "AGVARRAY", "AGVSPLIT", "AGVJOIN", "AGVFILLET", "AGVCONNECT" };
+        { "AGVPATH", "AGVCONVERT", "AGVTIDY", "AGVPTYPE", "AGVPBRUSH", "AGVREVERSE", "AGVOFFSET", "AGVARRAY", "AGVSPLIT", "AGVJOIN", "AGVFILLET", "AGVCONNECT" };
 
     /// <summary>Erases the old gap markers and circles every dangling end (layer colour) and one-way dead end (orange). Returns the status text.</summary>
     private static string RefreshGapMarkers(Database db, Transaction tr)
@@ -505,14 +562,17 @@ public sealed class PathCommands
     });
 
     /// <summary>Splits the given paths at every intersection and rewrites the drawing. True when anything changed.</summary>
-    internal static bool SplitPaths(Database db, Transaction tr, Editor ed, IReadOnlyList<LayoutPath> paths, double tol)
+    internal static bool SplitPaths(Database db, Transaction tr, Editor ed, IReadOnlyList<LayoutPath> paths, double tol) => SplitCuts(db, tr, ed, paths, tol) > 0;
+
+    /// <summary>As <see cref="SplitPaths"/>; returns how many cuts were made (every cut adds one piece).</summary>
+    private static int SplitCuts(Database db, Transaction tr, Editor ed, IReadOnlyList<LayoutPath> paths, double tol)
     {
         var r = PathSplitter.SplitAll(paths, tol);
         var split = r.Paths.Where(p => p.Id.Contains("#")).ToList(); // pieces carry "<original id>#k"
         var removed = split.Select(p => p.Id.Substring(0, p.Id.IndexOf('#'))).Distinct().ToList();
         DrawingWriter.ReplacePaths(db, tr, removed, split);
         ed.WriteMessage($"\n교차 {r.IntersectionCount}개, 경로 {paths.Count}개 → {r.Paths.Count}개");
-        return removed.Count > 0;
+        return split.Count - removed.Count;
     }
 
     [CommandMethod("AGVJOIN", CommandFlags.UsePickSet)]
@@ -654,6 +714,7 @@ public sealed class PathCommands
                 bool changed;
                 using (PluginLog.Time(cmd + " 본문")) changed = body(doc.Database, tr);
                 using (PluginLog.Time(cmd + " 그룹 목록")) RefreshCpGroups(doc.Database, tr);
+                QueueNextSteps(changed);
                 if (!changed) { Ui.PaletteStatus.Set(FinalStatus ?? $"{cmd}: 변경 없음"); FinalStatus = null; return; }
                 if (refreshArrows) DrawingWriter.RefreshDirectionArrows(doc.Database, tr);
                 string? gaps = null;
@@ -689,6 +750,37 @@ public sealed class PathCommands
         if (!Ui.PaletteStatus.WantsGroups) return;
         try { Ui.PaletteStatus.SetGroups(CpViewer.Scan(db, tr)); }
         catch (System.Exception ex) { PluginLog.Write("CP group list", ex); }
+    }
+
+    static bool _nextQueued, _nextFilled;
+
+    /// <summary>The palette's "다음 할 일" list is refilled once the command is over and ZWCAD is idle (a full read and check of the drawing must not
+    /// lengthen the command), coalescing several commands into one read, and only after a command that changed the drawing (or the first time).</summary>
+    private static void QueueNextSteps(bool changed)
+    {
+        if (!Ui.NextStepsPanel.Wanted || (!changed && _nextFilled) || _nextQueued) return;
+        _nextQueued = true;
+        Application.Idle += NextStepsOnIdle;
+    }
+
+    private static void NextStepsOnIdle(object sender, EventArgs e)
+    {
+        Application.Idle -= NextStepsOnIdle;
+        _nextQueued = false;
+        var doc = Application.DocumentManager.MdiActiveDocument;
+        if (doc == null || !Ui.NextStepsPanel.Wanted) return;
+        try
+        {
+            using (PluginLog.Time("다음 할 일"))
+            using (doc.LockDocument())
+            using (var tr = doc.Database.TransactionManager.StartTransaction())
+            {
+                Ui.NextStepsPanel.Update(doc.Name, DrawingReader.Read(doc.Database, tr));
+                tr.Commit();
+            }
+            _nextFilled = true;
+        }
+        catch (System.Exception ex) { PluginLog.Write("다음 할 일 목록", ex); } // never fails anything: the list just stays as it was
     }
 
     /// <summary>Paths that were already selected when the command started (PICKFIRST). The selection is cleared so it does not linger.</summary>

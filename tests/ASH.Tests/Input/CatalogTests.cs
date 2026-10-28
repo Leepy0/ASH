@@ -21,7 +21,8 @@ public class CatalogTests
         var cols = ExcelTemplate.Sheets.First(s => s.Sheet == "AGV_Types").Cols;
         var row = CatalogType.ToTemplateRow(TA());
         Assert.Equal(cols.Length, row.Length);
-        Assert.Equal("T_A", row[0]); Assert.Equal("0.5", row[3]); Assert.Equal("", row[5]); Assert.Equal("", row[17]);
+        string At(string col) => row[Array.IndexOf(cols, col)];
+        Assert.Equal("T_A", At("Type")); Assert.Equal("0.5", At("SpeedLoadedCurve")); Assert.Equal("", At("SpeedEmptyCurve")); Assert.Equal("", At("Asset"));
         Assert.Equal("Standard", row[Array.IndexOf(cols, "Kind")]);
     }
 

@@ -9,7 +9,10 @@ public class ExcelRoundTripTests
 {
     static string Tmp() => Path.Combine(Path.GetTempPath(), "ash_" + Guid.NewGuid().ToString("N") + ".xlsx");
 
-    static readonly string[] TypeCols = { "Type", "Category", "SpeedLoaded", "SpeedLoadedCurve", "SpeedEmpty", "SpeedEmptyCurve", "Accel", "Decel", "Capacity", "LoadTime", "UnloadTime", "MTBF", "MTTR", "Length", "Width", "Color", "Kind", "Asset" };
+    // basic columns first, then the advanced ones (grouped behind "+")
+    static readonly string[] TypeCols = { "Type", "SpeedLoaded", "SpeedEmpty", "Capacity", "LoadTime", "UnloadTime", "Length", "Width", "Kind", "Category", "SpeedLoadedCurve", "SpeedEmptyCurve", "Accel", "Decel", "MTBF", "MTTR", "Color", "Asset" };
+
+    static int Col(IXLWorksheet ws, string head) => Enumerable.Range(1, ws.LastColumnUsed()!.ColumnNumber()).First(c => ws.Cell(1, c).GetString() == head);
 
     [Fact]
     public void Template_Has_Curve_Category_Asset_Columns_In_Order()
@@ -59,7 +62,7 @@ public class ExcelRoundTripTests
             using (var wb = new XLWorkbook(path))
             {
                 var ws = wb.Worksheet("AGV_Types");
-                ws.Cell(3, 4).Value = "-"; ws.Cell(3, 6).Value = "0.7";
+                ws.Cell(3, Col(ws, "SpeedLoadedCurve")).Value = "-"; ws.Cell(3, Col(ws, "SpeedEmptyCurve")).Value = "0.7";
                 wb.Save();
             }
             var t = ExcelReader.Read(path).AgvTypes[0];
@@ -77,7 +80,8 @@ public class ExcelRoundTripTests
             ExcelTemplate.Write(path);
             using (var wb = new XLWorkbook(path))
             {
-                Assert.Equal(6, wb.Worksheets.Count);
+                Assert.Equal(5, wb.Worksheets.Count); // no Routes sheet: the route is on the Materials row
+                Assert.False(wb.TryGetWorksheet("Routes", out _));
                 foreach (var (sheet, cols, _, _) in ExcelTemplate.Sheets)
                     for (int c = 0; c < cols.Length; c++)
                         Assert.Equal(cols[c], wb.Worksheet(sheet).Cell(1, c + 1).GetString());
@@ -103,9 +107,9 @@ public class ExcelRoundTripTests
             {
                 SetSetting(wb, "SimLength", "2.5");
                 var m = wb.Worksheet("Materials");
-                m.Cell(3, 1).Value = "M9"; m.Cell(3, 4).Value = "45.5"; m.Cell(3, 13).Value = 3; m.Cell(3, 14).Value = "-";
+                m.Cell(3, 1).Value = "M9"; m.Cell(3, Col(m, "TaktTime")).Value = "45.5"; m.Cell(3, Col(m, "InitStock")).Value = 3; m.Cell(3, Col(m, "SafetyStock")).Value = "-";
                 wb.Worksheet("AGV_Groups").Cell(3, 5).Value = "A, B";
-                wb.Worksheet("Routes").Cell(3, 4).Value = "CP_BUF";
+                m.Cell(3, Col(m, "BufferCP")).Value = "CP_BUF";
                 wb.Save();
             }
             var p = ExcelReader.Read(path);
@@ -116,7 +120,8 @@ public class ExcelRoundTripTests
             Assert.Null(p.Materials[0].SafetyStock);
             Assert.False(p.Materials[0].EmptyReturn);
             Assert.Equal(new[] { "A", "B" }, p.Groups[0].StandbyCPs);
-            Assert.Equal("CP_BUF", p.Routes[0].BufferCP);
+            Assert.Equal(("M9", "CP_BUF", 3), (p.Routes[0].Material, p.Routes[0].BufferCP, p.Routes[0].Row));
+            Assert.Equal("Materials", p.RouteSheet);
             Assert.Null(p.Routes[0].ReturnFromCP);
         }
         finally { File.Delete(path); }
@@ -155,7 +160,7 @@ public class ExcelRoundTripTests
         try
         {
             ExcelTemplate.Write(path);
-            using (var wb = new XLWorkbook(path)) { wb.Worksheet("Materials").Cell(3, 4).Value = "abc"; wb.Save(); }
+            using (var wb = new XLWorkbook(path)) { var m = wb.Worksheet("Materials"); m.Cell(3, Col(m, "TaktTime")).Value = "abc"; wb.Save(); }
             var ex = Assert.Throws<ExcelDataException>(() => ExcelReader.Read(path));
             Assert.Contains("Materials", ex.Message);
             Assert.Contains("3행", ex.Message);
@@ -181,8 +186,9 @@ public class ExcelRoundTripTests
             ExcelTemplate.Write(path);
             using (var wb = new XLWorkbook(path))
             {
-                var ws = wb.Worksheet("Routes");
-                ws.Cell(5, 1).Value = "M002"; ws.Cell(5, 2).Value = "CP2"; ws.Cell(5, 3).Value = "CP3"; // row 4 blank
+                var ws = wb.Worksheet("Materials");
+                ws.Row(3).CopyTo(ws.Row(5)); // row 4 blank
+                ws.Cell(5, 1).Value = "M002"; ws.Cell(5, Col(ws, "SupplyFromCP")).Value = "CP2"; ws.Cell(5, Col(ws, "SupplyToCP")).Value = "CP3";
                 wb.Save();
             }
             var p = ExcelReader.Read(path);
@@ -202,8 +208,8 @@ public class ExcelRoundTripTests
             ExcelTemplate.Write(path);
             using (var wb = new XLWorkbook(path))
             {
-                var r = wb.Worksheet("Routes"); r.Cell(3, 5).Value = from; r.Cell(3, 6).Value = to;
-                var m = wb.Worksheet("Materials"); m.Cell(1, 19).Value = "EmptyReturn"; m.Cell(3, 19).Value = "Y"; // an old column is ignored
+                var m = wb.Worksheet("Materials"); m.Cell(3, Col(m, "ReturnFromCP")).Value = from; m.Cell(3, Col(m, "ReturnToCP")).Value = to;
+                int old = m.LastColumnUsed()!.ColumnNumber() + 1; m.Cell(1, old).Value = "EmptyReturn"; m.Cell(3, old).Value = "Y"; // an old column is ignored
                 wb.Save();
             }
             Assert.Equal(expected, ExcelReader.Read(path).Materials[0].EmptyReturn);
@@ -221,7 +227,9 @@ public class ExcelRoundTripTests
             ExcelTemplate.Write(path); // UnitsPerContainer 10
             using (var wb = new XLWorkbook(path))
             {
-                var m = wb.Worksheet("Materials"); m.Cell(3, 7).Value = boxes; m.Cell(3, 8).Value = units; m.Cell(3, 10).Value = boxes; m.Cell(3, 11).Value = units;
+                var m = wb.Worksheet("Materials");
+                m.Cell(3, Col(m, "CallThreshold")).Value = boxes; m.Cell(3, Col(m, "CallThresholdQty")).Value = units;
+                m.Cell(3, Col(m, "UnloadThreshold")).Value = boxes; m.Cell(3, Col(m, "UnloadThresholdQty")).Value = units;
                 wb.Save();
             }
             var mat = ExcelReader.Read(path).Materials[0];
@@ -237,7 +245,7 @@ public class ExcelRoundTripTests
         try
         {
             ExcelTemplate.Write(path);
-            using (var wb = new XLWorkbook(path)) { wb.Worksheet("Materials").Cell(3, 7).Value = ""; wb.Save(); }
+            using (var wb = new XLWorkbook(path)) { var m = wb.Worksheet("Materials"); m.Cell(3, Col(m, "CallThreshold")).Value = ""; wb.Save(); }
             Assert.Contains("CallThreshold", Assert.Throws<ExcelDataException>(() => ExcelReader.Read(path)).Message);
         }
         finally { File.Delete(path); }
@@ -250,8 +258,8 @@ public class ExcelRoundTripTests
         try
         {
             ExcelTemplate.Write(path);
-            using (var wb = new XLWorkbook(path)) { wb.Worksheet("Routes").Delete(); wb.Save(); }
-            Assert.Contains("Routes", Assert.Throws<FormatException>(() => ExcelReader.Read(path)).Message);
+            using (var wb = new XLWorkbook(path)) { wb.Worksheet("AGV_Groups").Delete(); wb.Save(); }
+            Assert.Contains("AGV_Groups", Assert.Throws<FormatException>(() => ExcelReader.Read(path)).Message);
         }
         finally { File.Delete(path); }
     }

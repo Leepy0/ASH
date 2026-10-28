@@ -45,6 +45,21 @@ public class UserSettingsTests
         Assert.Equal("AGV_PATH=1", UserSettings.Load(p).LayerColors);
     }
 
+    [Fact] public void SaveCheck_Is_On_By_Default_Writes_A_Line_Only_When_Off_And_Survives_Other_Saves()
+    {
+        var p = Tmp();
+        new UserSettings("http://a:1").Save(p);
+        Assert.DoesNotContain("SaveCheck", File.ReadAllText(p));
+        Assert.True(UserSettings.Load(p).SaveCheck);
+        (UserSettings.Load(p) with { SaveCheck = false }).Save(p);
+        Assert.Contains("SaveCheck\t0\r\n", File.ReadAllText(p));
+        Assert.False(UserSettings.Load(p).SaveCheck);
+        (UserSettings.Load(p) with { ServerUrl = "http://x:2" }).Save(p);
+        Assert.False(UserSettings.Load(p).SaveCheck);
+        File.WriteAllText(p, "SaveCheck\toff\n");
+        Assert.False(UserSettings.Load(p).SaveCheck);
+    }
+
     [Fact] public void Load_Ignores_Unknown_Keys_And_Blank_Lines()
     {
         var p = Tmp();

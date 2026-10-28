@@ -12,6 +12,9 @@ public static class ExcelReader
 {
     static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
+    /// <summary>Values a blank cell of a folded advanced column stands for (the template's example values).</summary>
+    public const double UnloadThresholdBlank = 1, AccelBlank = 0.3;
+
     sealed class Row
     {
         readonly IXLWorksheet _ws; readonly Dictionary<string, int> _cols; readonly int _row;
@@ -139,7 +142,8 @@ public static class ExcelReader
         };
 
         foreach (var r in Rows(wb, "AGV_Types"))
-            p.AgvTypes.Add(new AgvType(r.Str("Type"), r.Num("SpeedLoaded"), r.Num("SpeedEmpty"), r.Num("Accel"), r.Num("Decel"),
+            // Accel and Decel sit among the folded advanced columns: blank = the example's 0.3 m/s²
+            p.AgvTypes.Add(new AgvType(r.Str("Type"), r.Num("SpeedLoaded"), r.Num("SpeedEmpty"), r.Num("Accel", AccelBlank), r.Num("Decel", AccelBlank),
                 r.Int("Capacity"), r.Num("LoadTime", 0), r.Num("UnloadTime", 0), r.Num("MTBF", 0), r.Num("MTTR", 0), r.Num("Length"), r.Num("Width"), r.Str("Color"), r.RowNum, r.StrIfColumn("Kind"),
                 r.OptNumIfColumn("SpeedLoadedCurve"), r.OptNumIfColumn("SpeedEmptyCurve"), r.StrIfColumn("Category"), r.StrIfColumn("Asset")));
         foreach (var r in Rows(wb, "AGV_Groups"))
@@ -151,6 +155,11 @@ public static class ExcelReader
             p.Conveyors.Add(new ConveyorInfo(r.Str("Conveyor"), r.Str("Material"), r.OptNumIfColumn("ProductTakt") ?? 60, r.OptNumIfColumn("UnitsPerProduct") ?? 1,
                 r.OptNumIfColumn("Speed") ?? 0.3, r.OptIntIfColumn("Capacity"), r.OptNumIfColumn("ConsumeAt"), r.RowNum));
         var fed = new HashSet<string>(p.Conveyors.Select(c => c.Material));
+        // the route cells sit on the material's own row (current template) or, in an older workbook, on a Routes sheet of their own
+        bool merged = wb.TryGetWorksheet("Materials", out var mws) && Enumerable.Range(1, mws.LastColumnUsed()?.ColumnNumber() ?? 0).Any(c => mws.Cell(1, c).GetString().Trim() == "SupplyFromCP");
+        if (!merged && mws != null && !wb.TryGetWorksheet("Routes", out _)) throw new FormatException("Materials 시트에 'SupplyFromCP' 열이 없습니다(AGVEXCEL 갱신으로 열 추가).");
+        p.RouteSheet = merged ? "Materials" : "Routes";
+        var routeRows = new List<Row>();
         foreach (var r in Rows(wb, "Materials"))
         {
             if (!r.Use())
@@ -162,16 +171,18 @@ public static class ExcelReader
             bool isFed = fed.Contains(r.Str("Material"));
             double per = r.Num("UnitsPerContainer");
             // a threshold is containers + units (either may be blank, not both), kept in containers as the model counts them
-            double Threshold(string col)
+            double Threshold(string col, double? blank = null)
             {
                 var box = r.OptNum(col); var qty = r.OptNumIfColumn(col + "Qty");
-                if (box == null && qty == null) return r.Num(col); // throws "empty", naming the column
+                if (box == null && qty == null) return blank ?? r.Num(col); // throws "empty", naming the column
                 return (box ?? 0) + (qty ?? 0) / (per > 0 ? per : 1);
             }
+            // UnloadThreshold sits among the folded advanced columns: blank = 1 container, as in the example row
             p.Materials.Add(new MaterialInfo(r.Str("Material"), r.Str("Station"), r.Str("Group"), r.Num("TaktTime", isFed ? 60 : (double?)null), r.Num("UnitsPerCycle", isFed ? 1 : (double?)null),
-                per, Threshold("CallThreshold"), Threshold("UnloadThreshold"), r.OptNum("InitStock"), r.OptNum("SafetyStock"), false, r.RowNum, r.StrIfColumn("Form"), r.OptNumIfColumn("LoadLength"), r.OptNumIfColumn("LoadWidth"), r.OptNumIfColumn("LoadHeight"), r.StrIfColumn("Flow")));
+                per, Threshold("CallThreshold"), Threshold("UnloadThreshold", UnloadThresholdBlank), r.OptNum("InitStock"), r.OptNum("SafetyStock"), false, r.RowNum, r.StrIfColumn("Form"), r.OptNumIfColumn("LoadLength"), r.OptNumIfColumn("LoadWidth"), r.OptNumIfColumn("LoadHeight"), r.StrIfColumn("Flow")));
+            routeRows.Add(r);
         }
-        foreach (var r in Rows(wb, "Routes"))
+        foreach (var r in merged ? routeRows : Rows(wb, "Routes"))
             p.Routes.Add(new Route(r.Str("Material"), r.Str("SupplyFromCP"), r.Str("SupplyToCP"), r.OptStr("BufferCP"),
                 r.OptStr("ReturnFromCP"), r.OptStr("ReturnToCP"), r.Num("ExtraTime", 0), r.RowNum, r.OptNumIfColumn("BufferWaitSec") ?? 0));
         // a disabled material takes its Routes row and any Conveyors row with it

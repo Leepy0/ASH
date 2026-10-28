@@ -62,7 +62,7 @@ public sealed class RouteCommands
             var route = RouteView.Build(DrawingReader.Read(db, tr), input!, material);
             if (route == null)
             {
-                ed.WriteMessage($"\n{material}: Excel Routes에 행이 없습니다.");
+                ed.WriteMessage($"\n{material}: Excel {input!.RouteSheet}에 경로 행이 없습니다.");
                 PathCommands.FinalStatus = $"AGVROUTE: {material} 루트 행 없음";
                 return erased > 0;
             }
