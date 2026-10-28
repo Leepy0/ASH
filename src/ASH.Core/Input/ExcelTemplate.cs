@@ -150,18 +150,19 @@ public static class ExcelTemplate
             // no drawing group: the example group must point at a type that exists
             if (groups.Count == 0) { var g = (string[])Ex("AGV_Groups").Clone(); g[1] = catalog![0].Name; seed["AGV_Groups"] = new List<string[]> { g }; }
         }
-        var loads = new List<LayoutCpRef>();
-        foreach (var c in l.Cps) if (c.Type == "load" && !recorded.Contains(c.Name)) loads.Add(new LayoutCpRef(c.Name, c.Group));
+        // one-by-one CPs: within each group (a route never mixes groups) the n-th load by name pairs with the n-th unload / buffer / return CP by name
+        // (L001-U001-RL001-RU001, L002-U002-…). Fewer unloads than loads: the last unload; an optional type (buffer, returns) without an n-th stays blank
         var mats = new List<string[]>(); var routes = new List<string[]>();
-        if (loads.Count > 0)
+        string At(List<string> list, int i) => i < list.Count ? list[i] : "";
+        foreach (var g in l.Cps.Where(c => c.Type == "load" && !recorded.Contains(c.Name)).Select(c => c.Group).Distinct().ToList())
         {
-            var unload = Names("unload"); var buffer = Names("buffer"); var rl = Names("rtnload"); var ru = Names("rtnunload");
-            string At(List<string> list, int i) => i < list.Count ? list[i] : "";
+            var loads = ByName(Names("load", g));
+            var unload = ByName(Names("unload", g)); var buffer = ByName(Names("buffer", g)); var rl = ByName(Names("rtnload", g)); var ru = ByName(Names("rtnunload", g));
             for (int i = 0; i < loads.Count; i++)
             {
-                var name = "M" + (i + 1).ToString("000");
-                var m = (string[])Ex("Materials").Clone(); m[0] = name; m[2] = loads[i].Group.Length > 0 ? loads[i].Group : (groups.Count > 0 ? groups[0] : m[2]); mats.Add(m);
-                routes.Add(new[] { name, loads[i].Name, At(unload, i), At(buffer, i), At(rl, i), At(ru, i), "0", "0" });
+                var name = "M" + (mats.Count + 1).ToString("000");
+                var m = (string[])Ex("Materials").Clone(); m[0] = name; m[2] = g.Length > 0 ? g : (groups.Count > 0 ? groups[0] : m[2]); mats.Add(m);
+                routes.Add(new[] { name, loads[i], CpRoute.Pair(unload, i), At(buffer, i), At(rl, i), At(ru, i), "0", "0" });
             }
         }
         // one material per load CP of a recorded sequence, named after the CP (a name taken, or one AutoMod cannot use, falls back to M###)
@@ -178,12 +179,11 @@ public static class ExcelTemplate
         return seed;
     }
 
-    private readonly struct LayoutCpRef
-    {
-        public LayoutCpRef(string name, string group) { Name = name; Group = group; }
-        public string Name { get; }
-        public string Group { get; }
-    }
+    /// <summary>CP names in natural order: prefix, then the trailing number as a number (L2 before L10), then the name.</summary>
+    internal static List<string> ByName(IEnumerable<string> names) =>
+        names.OrderBy(n => n.TrimEnd('0', '1', '2', '3', '4', '5', '6', '7', '8', '9'), StringComparer.OrdinalIgnoreCase)
+            .ThenBy(n => { var d = n.Substring(n.TrimEnd('0', '1', '2', '3', '4', '5', '6', '7', '8', '9').Length); return d.Length == 0 ? -1 : long.TryParse(d, out var v) ? v : long.MaxValue; })
+            .ThenBy(n => n, StringComparer.Ordinal).ToList();
 
     public static void Write(string path) => Write(path, null);
 
