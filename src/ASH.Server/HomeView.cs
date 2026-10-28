@@ -22,6 +22,10 @@ public sealed record ConclusionCard(string AnalysisId, string Name, string JobId
 public sealed record FilmCard(string FilmId, string AnalysisId, string Name, string State, int Done, int Total, string Eta);
 /// <summary>보고서 lane: an analysis' latest finished film; JobId = the version the report is taken from (selected, else the film's first), null when gone.</summary>
 public sealed record ReportCard(string AnalysisId, string Name, string FilmId, string? JobId, string? Plan, int Version, bool Selected, int? Total, DateTime? FinishedUtc);
+/// <summary>진행 tab: one piece of work that waits for or holds the worker. Kind = 분석 | 영상 | 장면 | 한계 | 미리보기; Status = "실행 중 · 단계" or "대기 n번째".</summary>
+public sealed record WorkItem(string Id, string Kind, string Title, string Status, string Href, bool Running, bool Mine = false);
+/// <summary>Worker work besides jobs and films (scene requests, production-limit runs, cut previews), from <see cref="FilmWorker.Waiting"/>, in the order it is taken.</summary>
+public sealed record OtherWork(string Kind, string Id, string JobId, string Href, bool Running, string? Phase = null, string? Label = null);
 public sealed record PlanChip(string PlanId, string PlanName, string JobId, int Version, string State, int? Total, double? Progress, bool Selected);
 public sealed record AnalysisRow(string Id, string Name, bool Active, bool Mine, int Plans, int Versions, int Selected, int Films, DateTime? LastSentUtc, IReadOnlyList<PlanChip> Chips, IReadOnlyList<string> Submitters);
 
@@ -30,12 +34,14 @@ public sealed record HomeView(RunningCard? Running, bool WorkerOn, int QueuedCou
     public IReadOnlyList<ConclusionCard> Conclusions { get; init; } = [];
     public IReadOnlyList<FilmCard> Films { get; init; } = [];
     public IReadOnlyList<ReportCard> Reports { get; init; } = [];
+    /// <summary>진행 tab: every queued or running piece of work, running first, then by kind in queue order.</summary>
+    public IReadOnlyList<WorkItem> Work { get; init; } = [];
 
     static string Hm(DateTime utc) => SeoulTime.FromUtc(utc).ToString("HH:mm");
 
     public static HomeView Build(IReadOnlyList<AnalysisInfo> analyses, IReadOnlyList<JobInfo> jobs, IReadOnlyList<FilmInfo> films, FilmInfo? filming,
         (int Ahead, DateTime? Start, TimeSpan? Typical) queue, bool workerOn, int parallel, string ip, bool? me, DateTime nowUtc, FileRoutes.FileQuery? tags = null,
-        JobStore? store = null)
+        JobStore? store = null, IReadOnlyList<OtherWork>? other = null)
     {
         var names = Mine.Names(jobs, ip);
         var hasMine = jobs.Any(j => Mine.Is(j, ip, names));
@@ -74,6 +80,22 @@ public sealed record HomeView(RunningCard? Running, bool WorkerOn, int QueuedCou
         var queued = queuedJobs.Select((j, i) => new QueuedLine(j.Id, Title(j),
             queue.Typical is { } t && (filmFree ?? queue.Start - t * queuedJobs.Count) is { } first ? Hm(first + t * i) : null, j.Submitter, Mine.Is(j, ip, names))).ToList();
 
+        // 진행 tab: all work, whatever the 내 것/전체 toggle and tags say (the queue is shared)
+        static string Status(string? phase) => "실행 중" + (string.IsNullOrEmpty(phase) ? "" : " · " + phase);
+        var work = jobs.Where(j => j.State == JobState.Running).Select(j => new WorkItem(j.Id, "분석", Title(j), Status(j.Phase), "/jobs/" + j.Id, true, Mine.Is(j, ip, names))).ToList();
+        work.AddRange(queued.Select((q, i) => new WorkItem(q.JobId, "분석", q.Title, $"대기 {i + 1}번째" + (q.Start != null ? $" · {q.Start} 시작" : ""), "/jobs/" + q.JobId, false, q.Mine)));
+        var fq = 0;
+        foreach (var f in films.Where(f => f.State is JobState.Queued or JobState.Running).OrderBy(f => f.State == JobState.Running ? 0 : 1).ThenBy(f => f.CreatedUtc))
+            work.Add(new(f.Id, "영상", $"{f.AnalysisName} › 영상", f.State == JobState.Running ? $"실행 중 · 컷 {f.Done}/{f.Items.Count}" : $"대기 {++fq}번째", "/films/" + f.Id, f.State == JobState.Running));
+        foreach (var g in (other ?? []).GroupBy(o => o.Kind))
+        {
+            var n = 0;
+            foreach (var o in g)
+                work.Add(new(o.Kind + ":" + o.Id, o.Kind, (jobs.FirstOrDefault(j => j.Id == o.JobId) is { } oj ? Title(oj) : o.JobId) + (o.Label != null ? " · " + o.Label : ""),
+                    o.Running ? Status(o.Phase) : $"대기 {++n}번째", o.Href, o.Running));
+        }
+        work = work.OrderBy(w => w.Running ? 0 : 1).ToList(); // stable: kinds keep their queue order
+
         var rows = new List<AnalysisRow>();
         var conclusions = new List<ConclusionCard>(); var filmCards = new List<FilmCard>(); var reports = new List<ReportCard>();
         foreach (var a in analyses)
@@ -111,7 +133,7 @@ public sealed record HomeView(RunningCard? Running, bool WorkerOn, int QueuedCou
             jobs.Count(j => j.AnalysisId == null))
         {
             Conclusions = conclusions.OrderByDescending(c => c.FinishedUtc).ToList(), Films = filmCards,
-            Reports = reports.OrderByDescending(x => x.FinishedUtc).ToList(),
+            Reports = reports.OrderByDescending(x => x.FinishedUtc).ToList(), Work = work,
         };
     }
 }

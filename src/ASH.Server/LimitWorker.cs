@@ -77,7 +77,10 @@ public sealed class LimitWorker(JobStore jobs, IFilmAutoMod am, IConfiguration c
     }
 
     /// <summary>A job whose request waits, null when none.</summary>
-    public JobInfo? Next() => jobs.All().LastOrDefault(j => File.Exists(Req(jobs, j.Id)) && Read(jobs, j.Id)?.Done != true);
+    public JobInfo? Next() => jobs.All().LastOrDefault(j => Waits(jobs, j.Id));
+
+    /// <summary>Whether the job's limit run is queued or running.</summary>
+    public static bool Waits(JobStore js, string id) => File.Exists(Req(js, id)) && Read(js, id)?.Done != true;
 
     public void RunStep(JobInfo j, CancellationToken stop)
     {

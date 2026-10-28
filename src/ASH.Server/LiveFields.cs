@@ -80,6 +80,7 @@ public static class LiveFields
         {
             f[$"chip.{c.JobId}.text"] = ChipText(c); w[c.JobId] = c.State;
         }
+        foreach (var x in v.Work) w.TryAdd(x.Id, x.Running ? JobState.Running : JobState.Queued); // scene/limit/preview work: reload when it starts or ends
         return Make(f, w);
     }
 

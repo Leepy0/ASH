@@ -118,4 +118,26 @@ public class HomePageTests
         Assert.DoesNotContain("창고 이전", await env.Http.GetStringAsync("/analyses?q=kim"));
         Assert.Contains("창고 이전", await env.Http.GetStringAsync("/analyses?q=창고"));
     }
+
+    [Fact] public async Task Progress_Tab_Lists_All_Waiting_Work_By_Kind()
+    {
+        using var env = new JobEnv(worker: false);
+        Assert.Contains("data-panel=\"prog\" role=\"tabpanel\" hidden", await env.Http.GetStringAsync("/")); // nothing waits: 결과 first
+        var a = await env.SendFiled("라인 증설", "A안"); var b = await env.SendFiled("창고 이전", "B안");
+        File.WriteAllText(Path.Combine(env.Store.JobDir(a), FilmWorker.ScenesRequest), "{\"delta\":1}");
+        File.WriteAllText(Path.Combine(env.Store.JobDir(b), LimitWorker.RequestFile), LimitWorker.Queued);
+        env.Factory.Services.GetRequiredService<FilmStore>().Add(new FilmInfo { Request = new("20261023-000000-ffff", "x", ["c1"], [a], 640, 480, 10, "joined", false, null, 0, null),
+            AnalysisName = "라인 증설", State = JobState.Queued, CreatedUtc = DateTime.UtcNow, Items = { new FilmItem() } });
+        var html = await env.Http.GetStringAsync("/");
+        Assert.Contains("data-panel=\"prog\" role=\"tabpanel\">", html); Assert.Contains("data-panel=\"board\" role=\"tabpanel\" hidden", html);
+        Assert.Contains("data-tab=\"prog\" role=\"tab\" class=\"on\" aria-selected=\"true\">진행<em>5</em>", html);
+        foreach (var s in new[] { $"class=\"row wk c-blue\" href=\"/jobs/{a}\"", $"class=\"row wk c-blue\" href=\"/jobs/{b}\"", "class=\"row wk c-orange\" href=\"/films/20261023-000000-ffff\"",
+                     $"class=\"row wk c-indigo\" href=\"/jobs/{a}\"", $"class=\"row wk c-green\" href=\"/jobs/{b}\"", "대기 1번째", "대기 2번째", "<span class=\"tag c-gray\">미리보기</span>", "작업 실행 꺼짐" })
+            Assert.Contains(s, html);
+        Assert.DoesNotContain("결품", html);
+        var board = await env.Http.GetStringAsync("/?tab=board");
+        Assert.Contains("data-panel=\"prog\" role=\"tabpanel\" hidden", board); Assert.Contains("data-panel=\"board\" role=\"tabpanel\">", board);
+        var api = JsonDocument.Parse(await env.Http.GetStringAsync("/api/home?me=0")).RootElement;
+        Assert.Equal("queued", api.GetProperty("watch").GetProperty("장면:" + a).GetString()); // a poll reloads when it starts
+    }
 }

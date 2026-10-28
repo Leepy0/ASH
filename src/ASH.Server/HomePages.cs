@@ -3,7 +3,7 @@ using static ASH.Server.JobPages;
 
 namespace ASH.Server;
 
-/// <summary>The home page (/) and the analysis list (/analyses): running card, queue line, 내 것만|전체 toggle and the 진행 중/완료 analysis lists.</summary>
+/// <summary>The home page (/): 진행 | 결과 tabs, 내 것만|전체 toggle and the tag filter.</summary>
 public static class HomePages
 {
     // Remembers the toggle in localStorage.ashMe; opened without ?me it jumps to the saved side. Inline, nothing external.
@@ -46,31 +46,55 @@ document.querySelectorAll('a[data-me]').forEach(function(a){
 .grp .wn b{color:var(--orange)}
 .qn{flex:none;width:28px;height:28px;border-radius:14px;background:var(--gray-b);color:var(--sub2);display:grid;place-items:center;font-weight:700;font-size:13px}.qn.me{background:var(--blue-b);color:var(--blue-d)}
 .row .n{font-size:18px;font-weight:700;white-space:nowrap}.row .n small{font-size:13px;color:var(--sub2)}
+[data-panel][hidden]{display:none}.lanes.one{grid-auto-columns:minmax(260px,760px);justify-content:center}
+.kinds{display:flex;gap:6px;flex-wrap:wrap;justify-content:center}.row.wk{border-left:4px solid var(--c)}.row.wk>.tag{flex:none}
 .tagf{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:0}.tagf label{display:flex;gap:4px;align-items:center;font-size:13px;color:var(--sub2)}.tagf select{width:auto;min-height:30px;padding:2px 6px}
 </style>";
+
+    /// <summary>진행 colours by kind (the legend shows them all).</summary>
+    static readonly (string Kind, string Cls)[] Kinds = { ("분석", "c-blue"), ("영상", "c-orange"), ("장면", "c-indigo"), ("한계", "c-green"), ("미리보기", "c-gray") };
+    static string KindClass(string kind) => Kinds.FirstOrDefault(k => k.Kind == kind).Cls ?? "c-gray";
+
+    // both panels are in the page; a click swaps them without a reload and keeps the choice in the address (a poll reload stays there)
+    static string Tabs(string tab, int work) =>
+        "<nav class=\"segc\" role=\"tablist\" aria-label=\"탭\" style=\"align-self:flex-start;margin-bottom:12px\">" +
+        $"<a href=\"?tab=prog\" data-tab=\"prog\" role=\"tab\"{(tab == "prog" ? " class=\"on\" aria-selected=\"true\"" : " aria-selected=\"false\"")}>진행<em>{work}</em></a>" +
+        $"<a href=\"?tab=board\" data-tab=\"board\" role=\"tab\"{(tab == "board" ? " class=\"on\" aria-selected=\"true\"" : " aria-selected=\"false\"")}>결과</a></nav>" + @"<script>
+document.querySelectorAll('a[data-tab]').forEach(function(a){
+  a.addEventListener('click',function(e){
+    e.preventDefault(); var t=a.getAttribute('data-tab');
+    document.querySelectorAll('a[data-tab]').forEach(function(b){ var on=b===a; b.classList.toggle('on',on); b.setAttribute('aria-selected',on); });
+    document.querySelectorAll('[data-panel]').forEach(function(p){ p.hidden=p.getAttribute('data-panel')!==t; });
+    try{ var u=new URL(location.href); u.searchParams.set('tab',t); history.replaceState(null,'',u); }catch(x){}
+  });
+});
+</script>";
 
     static string Md(DateTime? utc) => utc is { } t ? ASH.Core.SeoulTime.FromUtc(t).ToString("MM/dd", System.Globalization.CultureInfo.InvariantCulture) : "-";
     static string LaneHead(string cls, string name, int count, string small = "") =>
         $"<section class=\"lane {cls}\" aria-label=\"{name}\"><div class=\"lane-h\"><b>{name}</b><span class=\"cnt\">{count}</span>{(small.Length > 0 ? "<small>" + small + "</small>" : "")}</div><div class=\"lane-b\">";
     const string LaneEnd = "</div></section>";
 
-    /// <summary>The home page: four lanes 진행 | 결론 확인 | 영상 | 보고서 filling the window, the 내 것/전체 toggle and the tag filter in the header row.</summary>
-    public static string Home(HomeView v, string tagFilter, string tagQuery, string? pollScript)
+    /// <summary>The home page: tabs 진행 (all queued/running work, by kind) | 결과 (lanes 결론 확인 | 보고서) filling the window, the 내 것/전체 toggle and the tag filter
+    /// in the header row. <paramref name="tab"/> = prog | board; default 진행 while work waits or runs.</summary>
+    public static string Home(HomeView v, string tagFilter, string tagQuery, string? pollScript, string? tab = null)
     {
+        tab = tab is "prog" or "board" ? tab : v.Work.Count > 0 ? "prog" : "board";
         var sb = new StringBuilder(PollSlots + ToggleScript(v.Me)); // first, so a saved choice redirects before the lists are painted
         sb.Append(HomeCss);
         sb.Append($"<div class=\"head\"><h1>{(v.Me ? "내 작업" : "전체 작업")}</h1><nav class=\"segc\" aria-label=\"보기\">" +
             $"<a href=\"/?me=1{H(tagQuery)}\" data-me=\"1\"{(v.Me ? " class=\"on\" aria-current=\"true\"" : "")}>내 것</a>" +
             $"<a href=\"/?me=0{H(tagQuery)}\" data-me=\"0\"{(v.Me ? "" : " class=\"on\" aria-current=\"true\"")}>전체</a></nav>").Append(SaveScript);
         sb.Append($"<span class=\"sp\"></span><form class=\"tagf\"><input type=\"hidden\" name=\"me\" value=\"{(v.Me ? 1 : 0)}\">{tagFilter}<button>검색</button></form></div>");
-        sb.Append("<div class=\"lanes\">");
+        sb.Append(Tabs(tab, v.Work.Count));
 
-        // 1. 진행: the running job (or film) and the queue
-        sb.Append(LaneHead("c-blue", "진행", (v.Running != null ? 1 : 0) + v.QueuedCount, $"대기 <span data-field=\"queued.count\">{v.QueuedCount}</span>건"));
+        // 진행 tab: the running job (or film) as a card, then every piece of work that waits or runs, coloured by kind
+        sb.Append($"<div class=\"lanes one\" data-panel=\"prog\" role=\"tabpanel\"{(tab == "prog" ? "" : " hidden")}>");
+        sb.Append(LaneHead("c-blue", "진행", v.Work.Count, $"분석 대기 <span data-field=\"queued.count\">{v.QueuedCount}</span>건"));
         if (v.Running is { } r)
         {
             var href = H(r.Href ?? "/jobs/" + r.JobId);
-            sb.Append($"<div class=\"card hot\"{(r.Note.Length > 0 ? $" title=\"{H(r.Note)}\"" : "")}><div class=\"t4\"><span data-field=\"running.statetext\">{H(JobState.Korean(r.State))}</span>" +
+            sb.Append($"<div class=\"card hot\"{(r.Note.Length > 0 ? $" title=\"{H(r.Note)}\"" : "")}><div class=\"t4\"><span class=\"tag {(r.Href == null ? "c-blue\">분석" : "c-orange\">영상")}</span> <span data-field=\"running.statetext\">{H(JobState.Korean(r.State))}</span>" +
                 $"<span data-field=\"running.sep\">{(r.Phase != null ? " · " : "")}</span><span data-field=\"running.phase\">{H(r.Phase ?? "")}</span></div>" +
                 $"<a class=\"t2\" href=\"{href}\">{H(r.Name ?? r.Title)}</a><div class=\"t4\">{H(r.Sub ?? "")}</div>" +
                 $"<div class=\"t1\" data-field=\"running.progress\">{Pct(r.Progress)}</div><div class=\"pv\" data-bar=\"running.bar\"><i style=\"width:{Math.Round((r.Progress ?? 0) * 100)}%\"></i></div>" +
@@ -79,12 +103,15 @@ document.querySelectorAll('a[data-me]').forEach(function(a){
             if (r.Failed > 0) sb.Append($"<div class=\"warn\" role=\"alert\">▲ {(r.Href == null ? "실행" : "컷")} {r.Failed}{(r.Href == null ? "회" : "개")} 실패 <a href=\"{href}\">원인 보기</a></div>");
             sb.Append("</div>");
         }
-        else sb.Append($"<div class=\"empty\">실행 중인 작업 없음{(v.WorkerOn ? "" : " · 작업 실행 꺼짐")}</div>");
-        if (v.Queued.Count > 0) sb.Append("<div class=\"sec\">대기열</div>");
-        foreach (var (q, i) in v.Queued.Select((q, i) => (q, i)))
-            sb.Append($"<a class=\"row\" href=\"/jobs/{H(q.JobId)}\"><span class=\"qn{(q.Mine ? " me" : "")}\">{i + 1}</span><span class=\"t\"><div>{H(q.Title)}{(q.Mine ? " <span class=\"tag blue\">내 작업</span>" : "")}</div>" +
-                $"<small>{H(q.Submitter.Length > 0 ? q.Submitter : "-")} · {(q.Start != null ? H(q.Start) + " 시작" : "시작 시각 미정")}</small></span></a>");
-        sb.Append(LaneEnd);
+        else if (!v.Work.Any(w => w.Running)) sb.Append($"<div class=\"empty\">실행 중인 작업 없음{(v.WorkerOn ? "" : " · 작업 실행 꺼짐")}</div>");
+        if (v.Work.Count > 0) sb.Append("<div class=\"kinds\">").Append(string.Concat(Kinds.Select(k => $"<span class=\"tag {k.Cls}\">{k.Kind}</span>"))).Append("</div>");
+        foreach (var w in v.Work.Where(w => w.Id != v.Running?.JobId))
+            sb.Append($"<a class=\"row wk {KindClass(w.Kind)}\" href=\"{H(w.Href)}\"><span class=\"tag\">{H(w.Kind)}</span><span class=\"t\"><div>{H(w.Title)}{(w.Mine ? " <span class=\"tag blue\">내 작업</span>" : "")}</div>" +
+                $"<small>{H(w.Status)}</small></span></a>");
+        sb.Append(LaneEnd).Append("</div>");
+
+        // 결과 tab
+        sb.Append($"<div class=\"lanes\" data-panel=\"board\" role=\"tabpanel\"{(tab == "board" ? "" : " hidden")}>");
 
         // 2. 결론 확인: a conclusion and no film yet
         sb.Append(LaneHead("c-indigo", "결론 확인", v.Conclusions.Count));
@@ -99,18 +126,6 @@ document.querySelectorAll('a[data-me]').forEach(function(a){
                 $"<div class=\"acts\"><a class=\"btn\" href=\"/analyses/{H(c.AnalysisId)}\">결론 보기</a><a class=\"btn pri\" href=\"/analyses/{H(c.AnalysisId)}/cuts?job={H(c.JobId)}\">영상 만들기</a></div></div>");
         }
         if (v.Conclusions.Count == 0) sb.Append("<div class=\"empty\">결론이 나오면 여기에 나타납니다</div>");
-        sb.Append(LaneEnd);
-
-        // 3. 영상: films queued or being made
-        sb.Append(LaneHead("c-orange", "영상", v.Films.Count));
-        foreach (var f in v.Films)
-        {
-            var k = "film." + H(f.FilmId);
-            sb.Append($"<div class=\"card\"><a class=\"t2\" href=\"/films/{H(f.FilmId)}\">{H(f.Name)}</a><div class=\"t1\"><span data-field=\"{k}.done\">{f.Done} / {f.Total}</span><small>컷</small></div>" +
-                $"<div class=\"pv\" data-bar=\"{k}.bar\"><i style=\"width:{(f.Total == 0 ? 0 : Math.Round(100.0 * f.Done / f.Total))}%\"></i></div><div class=\"t4\" data-field=\"{k}.note\">{H(LiveFields.FilmNote(f))}</div>" +
-                $"<div class=\"acts\"><a class=\"btn\" href=\"/films/{H(f.FilmId)}\">진행 보기</a></div></div>");
-        }
-        if (v.Films.Count == 0) sb.Append("<div class=\"empty\">결론을 확인한 뒤<br>\"영상 만들기\"로 여기에 추가</div>");
         sb.Append(LaneEnd);
 
         // 4. 보고서: the latest finished film as a card, older ones as rows

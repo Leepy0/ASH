@@ -62,7 +62,7 @@ public static class ServerSettings
         new("GitHub:Enabled", "GitHub 가져오기", "새 릴리스를 github.com에서 가져옵니다.", SettingKind.Bool, "true", false),
         new("GitHub:BaseUrl", "저장소 주소", "https 저장소 주소.", SettingKind.Text, GitHubSync.DefaultBaseUrl, false, Check: v => Try(() => GitHubSync.Url(v))),
         new("GitHub:CheckIntervalMin", "확인 간격(분)", "0 = 시작할 때만.", SettingKind.Int, "60", false, 0, 10080),
-        new("GitHub:UpdateServer", "서버 자동 업데이트", "서버 프로그램도 새 버전으로 스스로 교체합니다.", SettingKind.Bool, "true", false),
+        new("GitHub:UpdateServer", "서버 업데이트 받기", "새 서버 버전을 받아 두고 관리자 화면 위 띠로 알림. 적용은 관리자가(지금 · 작업 끝나고).", SettingKind.Bool, "true", false),
         new("GitHub:Proxy", "프록시", "비우면 PC 설정, none = 직접 연결, 또는 http://프록시:포트.", SettingKind.Text, "", false, Check: ProxyCheck),
         new("GitHub:Dns", "DNS 서버", "비우면 PC의 DNS. 예: 8.8.8.8, 1.1.1.1", SettingKind.Text, "", false, Check: v => Try(() => DnsLookup.ParseServers(v))),
         new("Urls", "서버 주소·포트", "예: http://0.0.0.0:8082. 포트를 바꾸면 방화벽 규칙도 바꿉니다.", SettingKind.Text, "http://0.0.0.0:8082", false, Check: UrlsCheck),
@@ -71,7 +71,7 @@ public static class ServerSettings
     ];
 
     /// <summary>Section title of a key for the page.</summary>
-    public static string Section(string key) => key.StartsWith("Jobs:") ? "작업 실행" : key.StartsWith("Film:") ? "영상 촬영" : key.StartsWith("GitHub:") ? "GitHub 가져오기·자동 업데이트" : "서버";
+    public static string Section(string key) => key.StartsWith("Jobs:") ? "작업 실행" : key.StartsWith("Film:") ? "영상 촬영" : key.StartsWith("GitHub:") ? "GitHub 가져오기·서버 업데이트" : "서버";
 
     /// <summary>Error text, or null with the value normalized (trimmed, "true"/"false", plain integer).</summary>
     public static string? Validate(SettingDef d, string? raw, out string value)

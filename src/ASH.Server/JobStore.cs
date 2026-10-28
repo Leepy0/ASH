@@ -45,6 +45,8 @@ public sealed class JobInfo
     public bool Resume { get; set; }
     /// <summary>How many times this job was queued again after it failed or was cancelled.</summary>
     public int Retries { get; set; }
+    /// <summary>Times a server stop (update, restart) cut it off and it was queued again; the third time it fails (<see cref="JobStore.CutTooOften"/>).</summary>
+    public int Interrupts { get; set; }
     public int RunsDone { get; set; }
     public int RunsFailed { get; set; }
     /// <summary>SearchEstimate.Expected from the search start (raised once the runs pass it); null for old jobs and local uploads.</summary>
@@ -102,8 +104,13 @@ public sealed class JobStore
             {
                 var j = JsonSerializer.Deserialize<JobInfo>(File.ReadAllText(p), Json);
                 if (j == null || j.Id != Path.GetFileName(d)) continue;
-                // the run in flight when the server stopped cannot be picked up again: its model processes are gone
-                if (j.State == JobState.Running) { j.State = JobState.Failed; j.Error = "서버가 다시 시작되어 중단되었습니다. 다시 보내 주세요."; j.FinishedUtc = DateTime.UtcNow; Write(j); }
+                // cut off by a stop the worker could not record (killed): queued again to continue from its finished runs, as the worker does on a clean stop
+                if (j.State == JobState.Running)
+                {
+                    if (j.Source == JobSource.Server) CutOff(j);
+                    else { j.State = JobState.Failed; j.Error = "서버가 다시 시작되어 중단되었습니다. 다시 보내 주세요."; j.FinishedUtc = DateTime.UtcNow; }
+                    Write(j);
+                }
                 _jobs[j.Id] = j;
             }
             catch (Exception e) when (e is JsonException or IOException) { log.LogWarning("작업 정보를 읽지 못했습니다: {Path}: {Error}", p, e.Message); }
@@ -207,16 +214,34 @@ public sealed class JobStore
         lock (_gate)
         {
             if (!_jobs.TryGetValue(id, out var j) || j.State is not (JobState.Failed or JobState.Cancelled) || j.Source != JobSource.Server) return false;
-            j.State = JobState.Queued; j.Resume = resume; j.Retries++;
+            Reset(j, resume); j.Retries++; j.Interrupts = 0;
             j.CreatedUtc = DateTime.UtcNow; // its place in the queue: behind what waits now
-            j.StartedUtc = j.FinishedUtc = null; j.CancelRequested = false;
-            j.RunsDone = j.RunsFailed = 0; j.RunSeconds = 0; j.ExpectedRuns = null; j.Partial = null;
-            j.Phase = null; j.LastLine = null; j.Error = null; j.ExitCode = 0; j.Decided = null; j.Clusters = null;
-            j.ConfirmRunIds = new(); j.Warnings = new(); j.FailureMessages = new();
             try { Write(j); } catch (IOException e) { _log.LogWarning("job.json 저장 실패 {Id}: {Error}", id, e.Message); }
         }
         _signal.Release();
         return true;
+    }
+
+    /// <summary>A server job cut off by a server stop (update, restart): queued again at its old place (first) to continue from the runs it finished.</summary>
+    /// <summary>The third time (a job that keeps the server from staying up would loop) it fails instead.</summary>
+    public void RequeueCut(string id) => Update(id, CutOff);
+
+    public const int MaxRequeues = 2;
+    public const string CutTooOften = "재시작으로 3번 중단 · 실패 처리";
+
+    static void CutOff(JobInfo j)
+    {
+        if (++j.Interrupts > MaxRequeues) { j.State = JobState.Failed; j.Error = CutTooOften; j.Phase = null; j.FinishedUtc = DateTime.UtcNow; return; }
+        Reset(j, true);
+    }
+
+    static void Reset(JobInfo j, bool resume)
+    {
+        j.State = JobState.Queued; j.Resume = resume;
+        j.StartedUtc = j.FinishedUtc = null; j.CancelRequested = false;
+        j.RunsDone = j.RunsFailed = 0; j.RunSeconds = 0; j.ExpectedRuns = null; j.Partial = null;
+        j.Phase = null; j.LastLine = null; j.Error = null; j.ExitCode = 0; j.Decided = null; j.Clusters = null;
+        j.ConfirmRunIds = new(); j.Warnings = new(); j.FailureMessages = new();
     }
 
     /// <summary>Wakes the worker (a job was added) or times out.</summary>

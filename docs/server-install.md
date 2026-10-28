@@ -22,8 +22,8 @@
      - `CheckIntervalMin` 기본 60(분). 0이면 서비스 시작 때 한 번만 확인. 시작 10초 뒤 첫 확인.
      - `Proxy` 비우면 PC 프록시 설정, `none`이면 직접 연결, 또는 `http://proxy.corp:8080`. 서비스(LocalSystem)는 로그인 사용자의 프록시 설정을 쓰지 않으므로, 콘솔 실행으로는 되는데 서비스로는 실패하면 여기에 적는다.
      - `Dns` 비우면 PC의 DNS를 쓴다. 사내 DNS가 github.com을 못 찾으면 쓸 수 있는 DNS 서버 IP를 적는다(예: `"8.8.8.8, 1.1.1.1"` 또는 사내 외부용 DNS). GitHub 주소(다운로드가 넘겨지는 release-assets.githubusercontent.com 포함)를 그 DNS에서 먼저 찾고, 답이 없으면 PC의 DNS로 다시 찾는다. UDP 53번 포트로 나간다. 프록시를 쓰면 프록시 이름도 같은 순서로 찾는다.
-     - `UpdateServer` 기본 true. 서버 프로그램 자신도 자동으로 새 버전으로 바꾼다(5절 "서버 자동 업데이트"). false면 서버 exe는 수동 교체.
-     - `Enabled` false면 끈다(수동 업로드만 사용, 서버 자동 업데이트도 꺼짐).
+     - `UpdateServer` 기본 true(설정 화면 이름 "서버 업데이트 받기"). 새 서버 버전을 받아 두기만 하고, 적용은 관리자가 화면 위 띠에서 고른다(5절 "서버 업데이트"). false면 받지도 않으며 서버 exe는 수동 교체. 키 이름은 예전 그대로라 기존 appsettings.json이 그대로 동작한다.
+     - `Enabled` false면 끈다(수동 업로드만 사용, 서버 업데이트 받기도 꺼짐).
      - 가져온 릴리스도 업로드와 똑같이 크기·SHA-256을 확인하고(GitHub에서 HTTPS로 받은 것은 그대로 믿는다. 서명은 요구하지 않는다), 서버 버전보다 높을 때만 게시한다.
    - `Admin:Password` — 관리자 암호(웹 설정·작업 대기열·분석 삭제·타입 관리·수동 업로드). 4~20자, 영문·숫자·특수문자를 섞어 쓸 수 있고 공백·한글은 안 됨. 비워 두면 기본값 `ash!23`. **다른 사람이 닿는 서버는 반드시 바꾼다.** 규칙에 맞지 않으면 관리자 기능이 모두 꺼진다. 0.22 이하의 `Admin:Token`은 읽지 않는다.
    - `Urls` — 기본 `http://0.0.0.0:8082`. 포트를 바꾸면 아래 방화벽·`/server:` 주소도 같이 바꾼다. 주소를 여러 개 쓰려면 `;`로 잇는다(https는 5절 "완료·실패 알림").
@@ -44,7 +44,7 @@
    - 윈도우 표시 언어가 한국어 등이라 `Administrators`/`SYSTEM` 이름이 통하지 않으면 SID로 준다: `icacls "%ProgramData%\ASH.Server" /inheritance:r /grant:r "*S-1-5-32-544:(OI)(CI)F" "*S-1-5-18:(OI)(CI)F"` (`*S-1-5-32-544` = Administrators, `*S-1-5-18` = SYSTEM). 설치 폴더 명령도 같다.
    - `sc qc`의 `BINARY_PATH_NAME`이 `"C:\Program Files\ASH.Server\ASH.Server.exe"`처럼 따옴표로 감싸졌는지 확인한다(경로에 공백이 있다).
    - `Releases:Dir`을 다른 곳으로 바꿨다면 그 폴더에 같은 `mkdir`/`icacls`를 한다.
-   - 서비스는 기본적으로 LocalSystem으로 돈다. LocalService로 바꾸면 설치 폴더에 쓸 수 없어 **서버 자동 업데이트가 교체 단계에서 실패한다**(이전 버전 유지, `update\apply.log`에 기록). 그래도 권한을 줄이려고 LocalService로 바꾼다면 `sc config ASH.Server obj= "NT AUTHORITY\LocalService"` 뒤에 배포 폴더에 수정 권한, 설치 폴더에 읽기 권한을 준다.
+   - 서비스는 기본적으로 LocalSystem으로 돈다. LocalService로 바꾸면 설치 폴더에 쓸 수 없어 **서버 업데이트가 교체 단계에서 실패한다**(이전 버전 유지, `update\apply.log`에 기록). 그래도 권한을 줄이려고 LocalService로 바꾼다면 `sc config ASH.Server obj= "NT AUTHORITY\LocalService"` 뒤에 배포 폴더에 수정 권한, 설치 폴더에 읽기 권한을 준다.
      ```bat
      icacls "%ProgramData%\ASH.Server" /grant "NT AUTHORITY\LocalService:(OI)(CI)M"
      icacls "C:\Program Files\ASH.Server" /grant "NT AUTHORITY\LocalService:(OI)(CI)RX"
@@ -78,7 +78,7 @@ New-EventLog -LogName Application -Source ASH.Server
 
 ### 서명 없는 업로드 (`Update:AllowUnsigned`)
 
-기본값은 `true`다. 서버는 서명 없는 `ASH.json`, Runner, 서버 자동 업데이트를 모두 받는다. 관리자 수동 업로드(`publish-release.ps1`)도 서명 없이 받지만, PC가 github.com과 대조하므로 GitHub 릴리스와 다른 파일은 설치되지 않는다. `"Update": { "AllowUnsigned": false }`로 두면 서명 없는 업로드를 거절한다. 키가 없는 빌드에서는 쓰지 말 것.
+기본값은 `true`다. 서버는 서명 없는 `ASH.json`, Runner, 서버 업데이트를 모두 받는다. 관리자 수동 업로드(`publish-release.ps1`)도 서명 없이 받지만, PC가 github.com과 대조하므로 GitHub 릴리스와 다른 파일은 설치되지 않는다. `"Update": { "AllowUnsigned": false }`로 두면 서명 없는 업로드를 거절한다. 키가 없는 빌드에서는 쓰지 말 것.
 
 ## 2. 릴리스 절차 (릴리스 PC)
 
@@ -97,7 +97,7 @@ scripts\build-release.ps1 -MinSupported 0.1.0 -Notes notes.txt     # dist\ 에 S
 gh release create v<버전> dist\ASH-Setup-<버전>.exe dist\ASH.json dist\ASH.Server.json dist\ASH.Runner.json dist\ASH-Plugin-<버전>.zip dist\ASH-Runner-<버전>-win-x64.zip dist\ASH-Server-<버전>-win-x64.zip --title "v<버전>" --notes-file notes.txt
 ```
 
-- 정식 릴리스(초안·시험판 아님)에 `ASH.json`, `ASH-Setup-<버전>.exe`가 반드시 있어야 서버가 가져간다. 서버 자동 업데이트에는 `ASH.Server.json`, `ASH-Server-<버전>-win-x64.zip`, ash-run 배포에는 `ASH.Runner.json`, `ASH-Runner-<버전>-win-x64.zip`도 필요하다(`build-release.ps1`이 함께 만든다). 태그는 `v<버전>`(매니페스트의 version과 같게). 위 7개 자산이 전부 올라가야 한다.
+- 정식 릴리스(초안·시험판 아님)에 `ASH.json`, `ASH-Setup-<버전>.exe`가 반드시 있어야 서버가 가져간다. 서버 업데이트에는 `ASH.Server.json`, `ASH-Server-<버전>-win-x64.zip`, ash-run 배포에는 `ASH.Runner.json`, `ASH-Runner-<버전>-win-x64.zip`도 필요하다(`build-release.ps1`이 함께 만든다). 태그는 `v<버전>`(매니페스트의 version과 같게). 위 7개 자산이 전부 올라가야 한다.
 - 서버는 `CheckIntervalMin`(기본 60분) 안에 가져간다. 바로 반영하려면 서버에서 `sc stop ASH.Server && sc start ASH.Server`.
 - 서버가 GitHub에 닿지 않는 곳이면 수동 업로드를 쓴다(서버 `Admin:Password` 필요):
   ```powershell
@@ -159,12 +159,12 @@ SYSTEM으로 실행해도 로그온한 대화형 사용자가 있고 그 사용�
 
 왼쪽 사이드바는 홈 · 분석 · 영상 · 보관함 · 관리다(평소 아이콘만, 마우스를 올리면 펼쳐진다). 관리 위의 종 버튼이 알림이다.
 
-- **홈**(`http://<서버>:8082/`): 네 구획 진행 | 결론 확인 | 영상 | 보고서. 내 것만 | 전체 전환. 열어 둔 채로 10초마다 갱신하고(대기→실행 전환은 자동 새로 고침, 60초마다 전체를 다시 읽음) 서버와 끊기면 "연결 끊김"을 띄운다.
+- **홈**(`http://<서버>:8082/`): 탭 **진행** | **결과**(`?tab=prog|board`, 기본은 일이 있으면 진행). 진행 탭은 대기·실행 중인 일 전부(분석 작업, 영상, 장면 후보 찾기, 생산량 한계, 컷 미리보기)를 종류별 색(범례)과 "대기 n번째 · 실행 중 · 단계"로 보여 주고, 실행 중인 작업은 진행률 카드로 맨 위에 둔다. 결과 탭은 구획 결론 확인 | 보고서. 내 것만 | 전체 전환(진행 탭은 늘 전체 대기열). 열어 둔 채로 10초마다 갱신하고(대기→실행 전환은 자동 새로 고침, 60초마다 전체를 다시 읽음) 서버와 끊기면 "연결 끊김"을 띄운다.
 - **분석**(`/analyses`, `/analyses/{id}`): 목록 + 탭 결론 · 비교 · 영상 · 버전(`?tab=conclusion|compare|films|status`). 영상 탭에서 완성 영상을 보고 `all.zip`으로 컷 파일을 한 번에 받는다.
 - **보고서**(`/analyses/{id}/report`, `/analyses/{id}/report.pptx`): 아래 "보고서".
 - **영상**(`/films`): 영상 목록. 영상 하나는 `/films/{id}`, 컷 편집기(영상 만들기)는 `/analyses/{id}/cuts`.
 - **보관함**(`/files`): 보낸 파일을 찾아 받는 화면(검색, `continue.zip`).
-- **관리**(`/admin/settings`): 서버 상태(자동 업데이트, GitHub 가져오기, 무결성 확인, 수동 업로드, 서버 시각)와 배포(현재 버전, 설치 파일, Runner, 이전 버전)도 여기 있다. 전체 작업 대기열은 `/admin/jobs`(옛 `/jobs`는 301).
+- **관리**(`/admin/settings`): 서버 상태(서버 업데이트, GitHub 가져오기, 무결성 확인, 수동 업로드, 서버 시각)와 배포(현재 버전, 설치 파일, Runner, 이전 버전)도 여기 있다. 전체 작업 대기열은 `/admin/jobs`(옛 `/jobs`는 301).
 - JSON: `/api/home`, `/api/analyses/{id}/status`, `/api/films`, `/api/films/{id}`, `/api/me/events`(알림).
 
 ### 웹 설정과 서비스 재시작 (`/admin/settings`)
@@ -185,7 +185,7 @@ SYSTEM으로 실행해도 로그온한 대화형 사용자가 있고 그 사용�
 - **찾아보기:** 경로 설정(`Jobs:AmHome`, `Jobs:Dir`, `Film:FfmpegPath`, `Film:AviewExe`, `Releases:Dir`) 옆의 "찾아보기…"는 브라우저가 아니라 **서버 PC**의 드라이브·폴더(파일을 고르는 항목은 파일도)를 보여 주는 대화상자다. 폴더를 열어 "이 폴더 선택"(파일은 클릭)하면 입력칸이 채워지고, 저장은 따로 눌러야 한다. 목록은 이름만 읽는 관리자 전용 `GET /admin/fs?path=&files=1`(설정 화면과 같은 로그인)이 주며 파일 내용은 읽지 않는다. 열 수 없는 폴더는 안내만 나온다.
 - **실행 원본 압축:** `Jobs:KeepRunsDays`(기본 30일, 0 = 그대로 둠)가 지나면 끝난 작업의 `runs\<실행>` 폴더들을 작업 폴더의 `runs.zip` 하나로 묶어(임시 이름으로 쓰고 옮김, 읽어 검증한 뒤에야) 원본 폴더를 지운다. 빌드 출력(`<모델>.dir`, `.exe`)과 작업 슬롯은 다시 만들 수 있어 지운다. `runs.zip` 받기는 그 압축 파일을 그대로 주고, 결과 화면·Excel 보고서는 미리 저장한 `blocks.tsv`/`stats.tsv`로 그대로 열린다. 압축 전에 `runs.zip`을 받으면 그때 만들어 작업 폴더에 남기고, 압축할 때 같은 이름으로 바꿔 넣는다. 압축한 뒤 파일이 없으면 410이고, 작업이 끝나기 전에는 받을 수 없다(409). 확인은 서버를 켠 1분 뒤부터 한 시간마다 하며, 영상(`films\`)과 장면 후보 파일은 건드리지 않는다.
 - **저장:** 모든 값을 먼저 검사한다(정수 범위, 켬/끔, `Urls`·`GitHub:BaseUrl`·`GitHub:Proxy`·`GitHub:Dns` 형식). 하나라도 틀리면 아무것도 쓰지 않는다. 통과하면 파일을 다시 읽어 바뀐 키만 고치고(모르는 키는 그대로) 임시 파일로 쓴 뒤 `File.Replace`로 바꿔 넣으며, 이전 파일은 `appsettings.json.yyyyMMdd-HHmmss.bak`으로 남는다. 파일 안의 `//` 주석은 저장 때 없어진다(.bak에는 남음). `Jobs:AmHome`에 AutoMod 빌드 exe가 없으면 경고만 한다.
-- **재시작:** "서비스 다시 시작"은 자동 업데이트의 `update\apply-update.bat`을 파일 교체 없이(stage `-`) 실행해 `sc stop` → 이 프로세스가 끝나기를 기다림 → `sc start`를 한다(기록은 `update\apply.log`). 서비스는 자기 자신을 동기적으로 다시 시작할 수 없어서 분리된 배치가 한다. 실행 중인 작업이 있으면 확인란을 체크해야 하며 그 작업은 "서버가 다시 시작되어 중단되었습니다"로 실패 처리된다. 콘솔로 실행 중이거나 등록된 서비스의 exe가 다르면 버튼 대신 이유가 나온다.
+- **재시작:** "서비스 다시 시작"은 서버 업데이트의 `update\apply-update.bat`을 파일 교체 없이(stage `-`) 실행해 `sc stop` → 이 프로세스가 끝나기를 기다림 → `sc start`를 한다(기록은 `update\apply.log`). 서비스는 자기 자신을 동기적으로 다시 시작할 수 없어서 분리된 배치가 한다. 실행 중인 작업이 있으면 확인란을 체크해야 하며, 끊긴 작업은 재시작 뒤 대기열 맨 앞에서 이어서 하고 끊긴 영상은 처음부터 다시 만든다(아래 "서버 업데이트와 실행 중인 작업"). 콘솔로 실행 중이거나 등록된 서비스의 exe가 다르면 버튼 대신 이유가 나온다.
 - 서비스 계정이 설치 폴더에 쓸 수 없으면(LocalService) 저장이 실패하고 파일은 바뀌지 않는다.
 
 ### 관리자의 분석 삭제 (`/admin/analyses/{id}/delete`)
@@ -196,19 +196,23 @@ SYSTEM으로 실행해도 로그온한 대화형 사용자가 있고 그 사용�
 - **확인:** 분석 이름을 그대로 입력해야 지워진다(다르면 400, 아무것도 지우지 않음). POST는 `Origin` 검사와 관리자 로그인(또는 `X-ASH-Admin-Token` 헤더)이 필요하다.
 - **영상이 대기 중이거나 만드는 중이면** 409로 거절한다. 영상 페이지에서 취소한 뒤 다시 한다.
 
-### 서버 자동 업데이트 (AGV_FOTA_GATEWAY와 같은 방식)
+### 서버 업데이트 (AGV_FOTA_GATEWAY와 같은 방식)
 
-서버는 GitHub 확인 때마다(`CheckIntervalMin`) 자기 버전도 확인해 새 버전이면 스스로 바꾼다.
+서버는 GitHub 확인 때마다(`CheckIntervalMin`) 자기 버전도 확인해 새 버전이면 **받아 두기만 한다.** 스스로 적용하지 않는다(예전의 "작업 사이 자동 적용"과 "한가하면 바로 적용"은 없앴다). 적용은 관리자가 화면 위 띠에서 고른다(아래 2번).
 
 1. 최신 릴리스의 `ASH.Server.json`을 HTTPS로 읽는다(GitHub에서 받은 것은 그대로 믿는다. 서명은 요구하지 않는다).
-2. `ASH-Server-<버전>-win-x64.zip`을 받아 크기·SHA-256을 매니페스트의 값과 대조하고, 설치 폴더의 `update\v<버전>\`에 푼다.
+2. `ASH-Server-<버전>-win-x64.zip`을 받아 크기·SHA-256을 매니페스트의 값과 대조하고, 설치 폴더의 `update\v<버전>\`에 푼다. 상태 화면: "받아 둠 — 관리자 적용 대기".
+   - 관리자로 로그인한 브라우저에는 모든 화면 맨 위에 띠 **"업데이트 <버전> 준비됨"**과 **업데이트** 단추가 뜬다. 로그인 안 한 사람에게는 아무것도 안 보인다(띠는 `/admin/update-banner`가 관리자 쿠키나 `X-ASH-Admin-Token`을 볼 때만 준다).
+   - **지금 업데이트**: 바로 교체한다. 작업·영상이 돌고 있으면 띠에 "실행 중 작업 중단 · 재시작 뒤 이어서"가 붙는다. 끊긴 일은 아래 "서버 업데이트와 실행 중인 작업"대로 다시 돈다.
+   - **진행 중 작업 끝나고 업데이트**: 작업 일꾼이 하던 일을 마친 다음 틈에 교체한다(일이 없으면 곧바로). 띠는 "작업 끝나면 업데이트 <버전>"과 **취소**로 바뀐다. 작업 실행이 꺼진 서버(`Jobs:WorkerEnabled=false`)는 기다릴 일이 없어 바로 교체한다.
+   - 받아 둔 것은 메모리에만 기억한다. 서버가 다른 이유로 다시 시작되면 다음 확인 때 다시 받는다. 더 높은 버전을 받으면 "작업 끝나고" 선택은 풀린다(다시 고른다). 교체 배치가 시작되지 않으면 받아 둔 것을 그대로 두어 다시 누를 수 있다.
 3. `update\apply-update.bat`이 서비스를 멈추고, 지금 exe를 `ASH.Server.exe.prev`로 바꾼 뒤 새 파일을 복사한다. **`appsettings.json`은 덮어쓰지 않는다.** `Releases:Dir`의 배포 파일도 그대로다.
 4. 서비스를 다시 시작하고 60초 안에 `http://127.0.0.1:<포트>/healthz/version`이 새 버전을 돌려주면 끝. 이전 exe는 `ASH.Server.exe.old`로 남는다.
-5. 응답이 없으면 이전 exe로 **자동 되돌리고**(실패한 exe는 `ASH.Server.exe.bad`) 다시 시작한다. 그 버전은 `update\skip-auto.txt`에 적혀 다시 시도하지 않는다. 더 높은 버전을 릴리스하면 다시 시도한다.
+5. 응답이 없으면 이전 exe로 **자동 되돌리고**(실패한 exe는 `ASH.Server.exe.bad`) 다시 시작한다. 그 버전은 `update\skip-auto.txt`에 적혀 다시 받지 않는다. 더 높은 버전을 릴리스하면 다시 받는다.
 
-결과는 설정 페이지의 "서버 프로그램 … 자동 업데이트"와 "지난 업데이트" 줄, `update\apply.log`, 이벤트 로그에 남는다.
+결과는 설정 페이지의 "서버 프로그램 … 업데이트"와 "지난 업데이트" 줄, `update\apply.log`, 이벤트 로그에 남는다.
 
-자동 교체는 이 조건에서만 한다(아니면 설정 페이지에 이유가 나온다): `ASH.Server.exe --install`로 등록한 Windows 서비스로 실행 중, 배포용 단일 exe(zip의 것), `GitHub:Enabled`와 `GitHub:UpdateServer`가 true.
+받기·교체는 이 조건에서만 한다(아니면 설정 페이지에 이유가 나온다): `ASH.Server.exe --install`로 등록한 Windows 서비스로 실행 중, 배포용 단일 exe(zip의 것), `GitHub:Enabled`와 `GitHub:UpdateServer`가 true.
 
 ### Runner(ash-run) 배포
 
@@ -234,9 +238,15 @@ sc start ASH.Server
 
 `/admin/types`의 에셋 절에서 타입마다 3D 파일(STL 또는 OBJ)을 올리면 서버가 부품별 상자로 단순화해 AutoMod `.cel`과 미리보기를 만든다. 올릴 수 있는 크기는 `Catalog:AssetMaxMb`(기본 50)다. STEP(`.stp`/`.step`)은 서버에 변환기가 없으니 CAD에서 STL로 내보내 올린다. 플러그인의 `AGVEXCEL`이 만드는 입력 파일에는 `AGV_Types`의 Asset 열 드롭다운용 숨김 `_lists` 시트가 생기며, Asset을 비우면 기본 차량 그림(Length×Width 상자)을 쓴다. 결과 화면 입력 탭의 AGV 타입 표에 타입별 에셋 이름이 보인다. 확인 항목은 `docs/plugin-manual-test.md`의 AS1~AS7.
 
-### 서버 업데이트와 실행 중인 작업 (0.26.6)
+### 서버 업데이트와 실행 중인 작업
 
-새 서버 버전을 찾았을 때 작업이나 영상이 돌고 있으면 바로 교체하지 않는다. 새 버전을 받아 `update<버전>`에 풀어 두고(상태 화면: "받아 둠 — 지금 하는 작업이 끝나면 적용"), 작업 일꾼이 하던 일을 끝낸 순간에 교체한다. 그동안 새 작업은 시작하지 않고, 대기 중인 작업은 재시작 뒤 이어서 실행된다. 작업 실행이 꺼진 서버(`Jobs:WorkerEnabled=false`)는 예전처럼 바로 교체한다. 설정 화면의 "다시 시작"은 관리자가 직접 고르는 것이라 기다리지 않는다.
+교체는 관리자가 고를 때만 한다(위 "서버 업데이트"). "진행 중 작업 끝나고"를 고르면 작업 일꾼이 하던 일을 끝낸 틈에 교체하고, 그 뒤로 새 일은 시작하지 않는다. 대기 중인 작업은 재시작 뒤 이어서 실행된다.
+
+서버가 일하는 도중에 멈추면(지금 업데이트, 설정 화면의 "다시 시작", 서비스 중지) 끊긴 일은 버리지 않는다.
+- 서버 작업: 대기열의 **원래 자리(맨 앞)**로 돌아가 **이어서 하기**로 다시 돈다(끝난 실행은 다시 돌리지 않음). 멈추는 동안 기록하지 못하고 프로세스가 끝났어도 다음 시작 때 같은 처리를 한다. PC에서 올린 결과는 예전처럼 실패로 둔다.
+- 영상: 원래 자리로 돌아가 처음부터 다시 만든다.
+- 같은 작업·영상이 이렇게 3번째 끊기면 다시 넣지 않고 "재시작으로 3번 중단 · 실패 처리"로 끝낸다(횟수는 job.json의 `Interrupts`, film.json의 `interrupts`). 관리자가 이어서 하기·처음부터 다시를 누르면 횟수는 0부터.
+- 컷 미리보기는 실패로 남는다(다시 누른다).
 
 ### 실패한 작업 다시 실행 (0.26.6)
 
@@ -257,7 +267,7 @@ sc start ASH.Server
    - 다른 계정을 쓰려면 끝에 `도메인\계정`을 붙인다. 등록은 ① 그 계정에 `Jobs:Dir` 수정 권한(icacls, AutoView가 서비스가 만든 작업 폴더에 써야 함)과 설치 폴더 읽기·실행 권한(관리자 전용으로 잠근 폴더의 exe를 실행해야 함. 그래서 이 계정은 `appsettings.json`의 관리자 암호도 읽을 수 있으니 영상 전용 계정을 쓴다) ② 작업 스케줄러 `ASH.FilmHelper`(로그온할 때, 사용자가 로그온한 경우에만, 보통 권한) ③ 지금 바로 시작을 한다. 해제: `--uninstall-film-helper`.
    - 서비스와 대리 실행기는 `Jobs:Dirilm-helper\`의 파일로 주고받는다(`heartbeat.txt` 2초마다, 요청 `req-*.json`, 결과 `res-*.json`, 기록 `helper.log`). 대리 실행기는 AutoView·AutoMod·ffmpeg 경로를 `appsettings.json`에서 직접 읽고 `Jobs:Dir` 안의 폴더만 다룬다.
    - 대리 실행기가 없으면 서비스가 `schtasks /Run`으로 한 번 깨우고 30초 기다린다. 그래도 없으면 컷이 "로그온 세션의 AutoView 대리 실행기가 돌고 있지 않습니다"로 바로 실패한다(2분 동안 다시 기다리지 않음).
-   - 서버 자동 업데이트로 exe가 바뀌면 대리 실행기는 하던 렌더를 마치고 끝나고, 다음 렌더 때 서비스가 새 exe로 다시 깨운다.
+   - 서버 업데이트로 exe가 바뀌면 대리 실행기는 하던 렌더를 마치고 끝나고, 다음 렌더 때 서비스가 새 exe로 다시 깨운다.
    - 그 계정은 로그온을 유지한다(재부팅 뒤 자동 로그온이 필요하면 전용 계정에만 설정). 원격 데스크톱 연결을 끊거나 화면을 잠그면 그리지 못할 수 있으니, 원격으로 들어갔다면 로그오프하지 말고 콘솔로 돌려놓고 나온다.
    - 서버를 서비스가 아니라 로그온한 콘솔에서 실행하면(세션 1 이상) 대리 실행기 없이 직접 그린다.
 4. 컷 하나가 `Film:CutTimeoutMin`(기본 20분)을 넘으면 AutoView를 끊고 그 컷만 실패한다. 영상 페이지 `/films/{id}`에 컷별 상태와 `film.log`가 나온다. F0(화면 배율 기준값)는 영상마다 자동 보정 컷(1프레임 렌더 2번)으로 정한다. 보정 렌더 한 번의 제한은 `Film:CalibrationTimeoutMin`(기본 3분)이다. 넘으면 영상을 멈추지 않고 추정값으로 계속하며, 영상 페이지에 "주의: 화면 배율 보정 실패, 추정값 사용 — <진단>" 경고가 붙는다. AutoView가 정말 멈춘 상태면 바로 다음 컷도 시간 초과가 되고, 연속 2회 시간 초과 규칙으로 영상이 멈춘다("AutoView가 응답하지 않아 중단했습니다").
@@ -338,7 +348,7 @@ sc start ASH.Server
      ```
      사용자는 인증서 이름과 같은 주소 `https://서버:8443/`로 접속한다. 방화벽에 8443도 연다. 주의:
      - `install-service.bat`은 `Urls`의 **첫 포트**만 방화벽에 열고 응답을 확인한다. http 주소를 첫째로 두고 https 포트는 손으로 연다.
-     - `Urls`에 https만 두면 서버 자동 업데이트가 새 버전 응답 확인(`/healthz/version`, http 전용)을 건너뛴다(`update\apply.log`에 "no http address, health check skipped"). 새 버전이 안 떠도 자동으로 되돌리지 못한다.
+     - `Urls`에 https만 두면 서버 업데이트가 새 버전 응답 확인(`/healthz/version`, http 전용)을 건너뛴다(`update\apply.log`에 "no http address, health check skipped"). 새 버전이 안 떠도 자동으로 되돌리지 못한다.
      - 인증서 파일과 암호는 `appsettings.json`처럼 관리자만 읽게 잠근다(1절). `Kestrel`은 웹 설정에 없고 파일에서 직접 고친다.
      - ZWCAD가 여는 작업 페이지도 https이려면 플러그인 서버 주소(`AGVSERVER`)를 https로 바꾼다. 인증서를 신뢰하지 않으면 플러그인이 "서버 인증서 오류"를 낸다(6절).
   2. **PC의 Chrome/Edge 기업 정책**으로 그 http 주소를 보안 연결로 취급하게 한다. 정책 `OverrideSecurityRestrictionsOnInsecureOrigin`의 목록에 `http://서버:8082`를 넣어(그룹 정책 또는 레지스트리) 배포하고 브라우저를 다시 시작한다. 서버는 그대로 http다. 이 정책은 브라우저 동작이라 이 저장소에서 시험하지 않았다. 적용한 PC에서 종 버튼이 "알림 켜기"로 바뀌는지 확인한다(`docs/plugin-manual-test.md`의 NT 항목).

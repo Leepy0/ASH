@@ -95,6 +95,12 @@ public sealed class PreviewStore
         }
     }
 
+    /// <summary>Queued and running previews, the running one first, then in the order they are taken.</summary>
+    public IReadOnlyList<PreviewInfo> Active()
+    {
+        lock (_gate) return _items.Values.Where(x => x.State is JobState.Queued or JobState.Running).OrderBy(x => x.State == JobState.Running ? 0 : 1).ThenBy(x => x.RequestedUtc).Select(Clone).ToList();
+    }
+
     /// <summary>Previews queued before this one (any analysis).</summary>
     public int Ahead(PreviewInfo p) { lock (_gate) return _items.Values.Count(x => x.State == JobState.Queued && x.RequestedUtc < p.RequestedUtc); }
 }

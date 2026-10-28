@@ -14,11 +14,12 @@ using Microsoft.Win32;
 namespace ASH.Server;
 
 /// <summary>
-/// Server self-update, the AGV_FOTA_GATEWAY way: the signed server zip from the GitHub release is checked (signature, size, SHA-256),
-/// unpacked to &lt;exe folder&gt;\update\v&lt;ver&gt;, and apply-update.bat swaps the files with the service stopped:
+/// Server self-update, the AGV_FOTA_GATEWAY way: the signed server zip from the GitHub release is checked (signature, size, SHA-256) and
+/// unpacked to &lt;exe folder&gt;\update\v&lt;ver&gt; on its own; it is applied only when an admin says so (banner: now, or at the worker's next gap).
+/// Then apply-update.bat swaps the files with the service stopped:
 /// current exe -&gt; .prev, copy the new files (appsettings.json is kept), .prev -&gt; .old, start, and if /healthz/version does not answer the new
 /// version within 60 s the old exe is put back (failed one kept as .bad). The result is in update\pending.txt and reported at the next start;
-/// a version that failed is not tried again automatically (update\skip-auto.txt) until a newer one is released.
+/// a version that failed is not downloaded again (update\skip-auto.txt) until a newer one is released.
 /// Runs only as the registered Windows service from the published single-file exe, with an embedded signing key.
 /// </summary>
 public sealed class ServerUpdater
@@ -43,23 +44,38 @@ public sealed class ServerUpdater
     public string? PreviousRun { get; }
     private string SkipPath => Path.Combine(_dir, "skip-auto.txt");
 
-    /// <summary>Set by the job worker when it runs: an update found while it works is then only downloaded and staged, and the worker applies it
-    /// between two pieces of work (<see cref="ApplyPendingAsync"/>), so a running job or film is never cut off. Off (no worker): applied at once.</summary>
+    /// <summary>Set by the job worker when it runs: "after the work" then means at its next gap (<see cref="ApplyPendingAsync"/>). Off (no worker): nothing runs, so it is applied at once.</summary>
     public bool WorkerApplies { get; set; }
     volatile Pending? _pending;
     sealed record Pending(string Stage, string Version);
-    /// <summary>The version staged and waiting for the worker to finish, or null.</summary>
+    /// <summary>The version downloaded and staged, waiting for an admin to apply it (never applied on its own), or null.</summary>
     public string? Waiting => _pending?.Version;
-    static string WaitText(string v) => $"{v} 받아 둠 — 지금 하는 작업이 끝나면 적용합니다(대기 중인 작업은 업데이트 뒤 이어서 실행)";
+    /// <summary>An admin chose "after the running work": the worker applies <see cref="Waiting"/> at its next gap. Off again on cancel.</summary>
+    public bool Armed { get; set; }
+    /// <summary>A swap started: the server stops in a moment, so the worker takes nothing new.</summary>
+    public bool Swapping { get; private set; }
+    static string WaitText(string v) => $"{v} 받아 둠 — 관리자 적용 대기";
 
-    /// <summary>The worker, between two pieces of work: starts the staged swap. True when it started (the server stops in a moment, so the worker
-    /// takes nothing new); false when nothing waited or the batch failed (then it carries on, the result is in <see cref="LastResult"/>).</summary>
-    public async Task<bool> ApplyPendingAsync()
+    /// <summary>The swap itself (the batch); tests replace it.</summary>
+    internal Func<string, string, Task> SwapAsync;
+    /// <summary>Keeps a staged version for the admin (also used by tests).</summary>
+    internal void Stage(string stage, string version) { _pending = new Pending(stage, version); Armed = false; }
+
+    /// <summary>The worker, between two pieces of work: starts the staged swap when an admin armed it. True when it started (the server stops in a
+    /// moment, so the worker takes nothing new); false when nothing was armed or the batch failed (then it carries on, the result is in <see cref="LastResult"/>).</summary>
+    public Task<bool> ApplyPendingAsync() => Armed ? ApplyNowAsync() : Task.FromResult(false);
+
+    /// <summary>Starts the staged swap now (admin "지금 업데이트"); work still running is cut off and queued again at the next start. False when nothing waited or the batch failed.</summary>
+    public async Task<bool> ApplyNowAsync()
     {
-        if (_pending is not { } p) return false;
-        _pending = null;
-        try { await RunBatchAsync(p.Stage, p.Version); LastResult = $"{p.Version} 적용 중 — 하던 작업을 마친 뒤 서비스가 재시작됩니다(약 10초)"; return true; }
-        catch (Exception e) { LastResult = "실패: " + e.Message; _log.LogWarning("서버 자동 업데이트 {Result}", LastResult); return false; }
+        if (Interlocked.Exchange(ref _pending, null) is not { } p) return false; // the banner and the worker may both ask: one swap only
+        Armed = false;
+        try { await SwapAsync(p.Stage, p.Version); Swapping = true; LastResult = $"{p.Version} 적용 중 — 서비스 재시작(약 10초)"; return true; }
+        catch (Exception e)
+        {
+            Interlocked.CompareExchange(ref _pending, p, null); // the batch did not start, nothing changed: the admin can try again
+            LastResult = "실패: " + e.Message; _log.LogWarning("서버 업데이트 {Result}", LastResult); return false;
+        }
     }
 
     public ServerUpdater(ReleaseStore store, IConfiguration cfg, IServer server, IHostApplicationLifetime life, ILogger<ServerUpdater> log)
@@ -69,6 +85,7 @@ public sealed class ServerUpdater
         _life = life;
         _log = log;
         _dir = Path.Combine(AppContext.BaseDirectory, "update");
+        SwapAsync = (stage, version) => RunBatchAsync(stage, version);
         Current = (typeof(ServerUpdater).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "0.0.0").Split('+')[0];
         DisabledReason = !cfg.GetValue("GitHub:Enabled", true) ? "GitHub 가져오기가 꺼짐"
             : !cfg.GetValue("GitHub:UpdateServer", true) ? "GitHub:UpdateServer=false"
@@ -76,7 +93,7 @@ public sealed class ServerUpdater
             : File.Exists(Path.Combine(AppContext.BaseDirectory, "ASH.Server.dll")) ? "배포용 단일 exe가 아님(개발 빌드)" // single-file publish has no dll next to the exe
             : !ServiceUsesThisExe() ? $"서비스 {ServiceCommand.ServiceName}에 등록된 exe가 지금 실행 중인 exe가 아님"
             : null;
-        if (DisabledReason != null) LastResult = "자동 교체 안 함: " + DisabledReason;
+        if (DisabledReason != null) LastResult = "업데이트 받지 않음: " + DisabledReason;
         RestartDisabledReason = !OperatingSystem.IsWindows() || !WindowsServiceHelpers.IsWindowsService() ? "Windows 서비스로 실행 중이 아님(콘솔 실행) — 직접 끄고 다시 실행하세요"
             : !ServiceUsesThisExe() ? $"서비스 {ServiceCommand.ServiceName}에 등록된 exe가 지금 실행 중인 exe가 아님"
             : null;
@@ -108,15 +125,15 @@ public sealed class ServerUpdater
         catch (Exception) { return false; }
     }
 
-    /// <summary>One check against the GitHub release; never throws except on cancellation. Starts the swap and stops the server when a newer signed server zip is found.</summary>
+    /// <summary>One check against the GitHub release; never throws except on cancellation. A newer signed server zip is downloaded and staged (<see cref="Waiting"/>), never applied here.</summary>
     public async Task CheckAsync(HttpClient http, string baseUrl, CancellationToken ct)
     {
         if (DisabledReason != null) return;
         try { LastResult = await Check(http, baseUrl, ct); }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception e) { LastResult = "실패: " + (e is OperationCanceledException ? "응답 시간 초과" : e.Message); }
-        if (LastResult.StartsWith("실패") || LastResult.StartsWith("거절")) _log.LogWarning("서버 자동 업데이트 {Result}", LastResult);
-        else _log.LogInformation("서버 자동 업데이트 {Result}", LastResult);
+        if (LastResult.StartsWith("실패") || LastResult.StartsWith("거절")) _log.LogWarning("서버 업데이트 확인 {Result}", LastResult);
+        else _log.LogInformation("서버 업데이트 확인 {Result}", LastResult);
     }
 
     private async Task<string> Check(HttpClient http, string baseUrl, CancellationToken ct)
@@ -128,7 +145,7 @@ public sealed class ServerUpdater
         if (!SemVersion.TryParse(Current, out var cur) || latest!.CompareTo(cur) <= 0) return $"최신({Current})";
         if (_pending?.Version == m.Version) return WaitText(m.Version);
         if (File.Exists(SkipPath) && File.ReadAllText(SkipPath).Trim() == m.Version)
-            return $"{m.Version}은(는) 지난 교체에 실패해 자동 적용하지 않음(update\\apply.log 확인, 더 높은 버전이 나오면 다시 시도)";
+            return $"{m.Version}은(는) 지난 교체에 실패해 다시 받지 않음(update\\apply.log 확인, 더 높은 버전이 나오면 다시 시도)";
 
         var tag = $"{baseUrl}/releases/download/v{Uri.EscapeDataString(m.Version)}";
         // 키 없는 빌드(기본)는 github.com HTTPS로 받은 매니페스트를 그대로 믿는다
@@ -155,9 +172,9 @@ public sealed class ServerUpdater
         TryDeleteFile(part);
         if (!File.Exists(Path.Combine(stage, ExeName))) return $"거절: 서버 zip에 {ExeName}이(가) 없음";
 
-        if (WorkerApplies) { _pending = new Pending(stage, m.Version); return WaitText(m.Version); }
-        await RunBatchAsync(stage, m.Version);
-        return $"{m.Version} 적용 중 — 서비스가 재시작됩니다(약 10초)";
+        // only staged: an admin applies it from the banner (now, or at the worker's next gap)
+        Stage(stage, m.Version);
+        return WaitText(m.Version);
     }
 
     /// <summary>apply=false: restart only (stage "-"), nothing is reported at the next start.</summary>
@@ -178,7 +195,7 @@ public sealed class ServerUpdater
             using (Process.Start(psi)) { }
             if (!await WaitStartedAsync(_dir, BatchStartTimeout))
                 throw new InvalidOperationException($"교체 배치가 {BatchStartTimeout.TotalSeconds:0}초 안에 시작되지 않음 — 서버는 그대로 실행합니다(update\\apply.log 확인)");
-            _log.LogWarning(apply ? "서버 자동 업데이트: {Version} 교체 배치 시작 ({Args})" : "설정 페이지 요청: {Version} 서비스 재시작 배치 시작 ({Args})", version, args);
+            _log.LogWarning(apply ? "서버 업데이트: {Version} 교체 배치 시작 ({Args})" : "설정 페이지 요청: {Version} 서비스 재시작 배치 시작 ({Args})", version, args);
             _ = Task.Delay(1500).ContinueWith(_ => _life.StopApplication());
         }
         catch
@@ -200,7 +217,7 @@ public sealed class ServerUpdater
             var ver = p.Length > 1 ? p[1].Trim() : "?";
             var msg = p.Length == 0 ? "알 수 없는 결과" : p[0] switch
             {
-                "apply" => ver == Current ? $"서버 {ver}(으)로 자동 업데이트됨" : $"{ver} 적용 뒤에도 버전이 {Current} — update\\apply.log 확인",
+                "apply" => ver == Current ? $"서버 {ver}(으)로 업데이트됨" : $"{ver} 적용 뒤에도 버전이 {Current} — update\\apply.log 확인",
                 "apply-reverted" => $"{ver}이(가) {HealthTimeoutSec}초 안에 응답하지 않아 {Current}(으)로 자동 되돌림(실패한 exe는 {ExeName}.bad) — update\\apply.log 확인",
                 "apply-unhealthy" => $"{ver}이(가) 응답하지 않았지만 되돌릴 이전 exe가 없음 — update\\apply.log 확인",
                 "apply-failed" => $"{ver} 파일 교체 실패 — {Current} 유지, update\\apply.log 확인",

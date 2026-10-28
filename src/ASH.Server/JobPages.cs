@@ -171,8 +171,17 @@ document.querySelectorAll('table.sort').forEach(function(t){
         foreach (var n in Nav) side.Append(NavLink(n.Key, n.Label, n.Href, nav));
         side.Append(Bell).Append(NavLink("admin", "관리", "/admin/settings", nav, "end")).Append("</nav>");
         return "<!doctype html><html lang=\"ko\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>" + H(title) + "</title>" +
-            "<style>" + Css + NavCss + NotifyCss + "</style></head><body>" + side + "<main" + (fill ? " class=\"fillpage\"" : "") + ">" + body + "</main>" + NotifyScript + script + "</body></html>";
+            "<style>" + Css + NavCss + NotifyCss + "</style></head><body>" + side + "<main" + (fill ? " class=\"fillpage\"" : "") + "><div id=\"upd\"></div>" + body + "</main>" + NotifyScript + UpdateScript + script + "</body></html>";
     }
+
+    /// <summary>Fills #upd with the update banner; the admin cookie lives under /admin, so only a logged-in admin gets one (others get 204).
+    /// Each form's back field becomes this page.</summary>
+    internal const string UpdateScript = @"<script>
+fetch('/admin/update-banner',{credentials:'same-origin',cache:'no-store'}).then(function(r){ return r.status===200?r.text():''; }).then(function(h){
+  if(!h) return; var u=document.getElementById('upd'); u.innerHTML=h;
+  u.querySelectorAll('input[name=back]').forEach(function(i){ i.value=location.pathname+location.search; });
+}).catch(function(){});
+</script>";
 
     /// <summary>Sidebar bell above 관리: the only place that asks for notification permission (never on load). The script sets its state, label and tooltip.</summary>
     const string Bell = "<button type=\"button\" id=\"bell\" class=\"bell\" aria-label=\"알림\" title=\"알림\"><i aria-hidden=\"true\"></i><span id=\"bell-t\">알림</span></button>";

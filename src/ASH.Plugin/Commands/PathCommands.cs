@@ -584,7 +584,7 @@ public sealed class PathCommands
                 near = null;
             }
         }
-        else { Ed.WriteMessage("\n경로를 1개(안의 모든 모서리) 또는 2개(맞닿은 두 경로)만 선택하세요."); return false; }
+        else { Ed.WriteMessage("\n경로를 1개(안의 모든 모서리) 또는 2개(두 경로, 떨어져 있어도 연장해 필렛)만 선택하세요."); return false; }
 
         double def = SavedFillet();
         var rr = Ed.GetDistance(new PromptDistanceOptions("\n반경") { AllowNegative = false, AllowZero = false, DefaultValue = def, UseDefaultValue = true });
@@ -602,8 +602,9 @@ public sealed class PathCommands
             return true;
         }
 
-        var f = PathOps.Fillet(a!, b, rr.Value, layout.Tolerance);
-        if (f == null) { Ed.WriteMessage("\n필렛 불가: 두 경로 모두 직선 하나짜리, 앞 끝점 = 뒤 시작점, 평행 아님, 반경에 비해 충분한 길이여야 합니다."); return false; }
+        // touching ends first; else (a gap, or crossing past each other) the two lines are extended to where they meet
+        var f = PathOps.Fillet(a!, b, rr.Value, layout.Tolerance) ?? PathOps.FilletExtended(a!, b, rr.Value, layout.Tolerance);
+        if (f == null) { Ed.WriteMessage("\n필렛 불가: 맞닿는 끝의 구간이 직선, 평행 아님, 연장선 교점이 두 경로 바깥 끝 사이, 반경에 비해 충분한 길이여야 합니다."); return false; }
         var names = new HashSet<string>(layout.Paths.Select(q => q.Name));
         string baseName = f.Value.Fillet.Name;
         for (int k = 1; names.Contains(f.Value.Fillet.Name); k++) f.Value.Fillet.Name = baseName + "_" + k;

@@ -24,6 +24,30 @@ public class PathOpsTests
     }
 
     [Fact]
+    public void Fillet_Extended_Bridges_A_Gap_In_Either_Order()
+    {
+        // a stops 2 short of the corner, b starts 2 above it: the lines meet at (10, 0)
+        foreach (var (x, y) in new[] { (L.Line("a", 0, 0, 8, 0), L.Line("b", 10, 2, 10, 10)), (L.Line("b", 10, 2, 10, 10), L.Line("a", 0, 0, 8, 0)) })
+        {
+            Assert.Null(PathOps.Fillet(x, y, 2, 0.001));
+            var f = PathOps.FilletExtended(x, y, 2, 0.001)!.Value;
+            Assert.Equal("a", f.A.Name); Assert.Equal("b", f.B.Name);
+            Assert.Equal(8, f.A.End.X, 9); Assert.Equal(0, f.A.End.Y, 9); Assert.Equal(10, f.B.Start.X, 9); Assert.Equal(2, f.B.Start.Y, 9);
+            var arc = Assert.IsType<ArcSeg>(f.Fillet.Segments[0]); Assert.Equal(90, arc.SweepDeg, 9); Assert.Equal(8, arc.Center.X, 9); Assert.Equal(2, arc.Center.Y, 9);
+        }
+    }
+
+    [Fact]
+    public void Fillet_Extended_Trims_Paths_That_Run_Past_Each_Other_And_Refuses_Parallels()
+    {
+        var f = PathOps.FilletExtended(L.Line("a", 0, 0, 12, 0), L.Line("b", 10, -2, 10, 10), 2, 0.001)!.Value;
+        Assert.Equal(8, f.A.End.X, 9); Assert.Equal(0, f.A.End.Y, 9);
+        Assert.Equal(10, f.B.Start.X, 9); Assert.Equal(2, f.B.Start.Y, 9);
+        Assert.Null(PathOps.FilletExtended(L.Line("a", 0, 0, 8, 0), L.Line("b", 10, 2, 20, 2), 2, 0.001));   // parallel
+        Assert.Null(PathOps.FilletExtended(L.Line("a", 0, 0, 8, 0), L.Line("b", 10, 1, 10, 2), 3, 0.001));   // too short for the radius
+    }
+
+    [Fact]
     public void Fillet_Inserts_Cw_Arc_On_Right_Turn()
     {
         var f = PathOps.Fillet(L.Line("a",0,0,10,0), L.Line("b",10,0,10,-10), 2, 0.001)!.Value;
