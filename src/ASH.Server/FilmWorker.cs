@@ -272,6 +272,9 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
     /// AutoView may differ, which made 10 s cuts come out as 5 s). Worker thread only.</summary>
     double _step = 0.5;
 
+    /// <summary>Set by a failed F0 calibration: the version's work copy is kept whole to look into (worker thread only).</summary>
+    bool _keepWork;
+
     /// <summary>Calibration renders span up to this many simulation seconds at time scale 1, so the frame count gives the display step.</summary>
     const double CalSpan = 4;
 
@@ -371,12 +374,14 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
     void Version(FilmInfo f, JobInfo j, ProjectInput input, Dictionary<string, int> counts, int seed, List<CutSpec> cuts, string work, Action<string> say, CancellationToken stop)
     {
         var clean = false;
+        _keepWork = false;
         try { clean = MakeVersion(f, j, input, counts, seed, cuts, work, say, stop); }
         finally
         {
             try
             {
-                if (clean) { if (Directory.Exists(work)) Directory.Delete(work, true); }
+                if (_keepWork) say($"작업 폴더 남김(F0 보정 실패 조사용: {j.Model}.avw\\camera.des, cal_on/cal_off 동영상): {work}");
+                else if (clean) { if (Directory.Exists(work)) Directory.Delete(work, true); }
                 else Prune(work, j.Model);
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { say($"작업 폴더를 정리하지 못함: {e.Message}"); }
@@ -593,6 +598,9 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
             "time " + t.ToString("0.###", C),
             CameraScript.View(scene.Cx * 1e6, scene.Cy * 1e6, 0, scene.Cx * 1e6, scene.Cy * 1e6, 30480000, 0, 1, 0, 1, legacy),
             "record movie", "time " + (t + span).ToString("0.###", C), "generate movie", "");
+        // the scripts beside the movies: AutoView keeps only the last camera.des, and these two are what a failed calibration is looked into with
+        try { foreach (var hide in new[] { false, true }) File.WriteAllText(Path.Combine(work, hide ? "cal_off.des" : "cal_on.des"), Script(hide, Path.Combine(work, hide ? "cal_off" : "cal_on"))); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
         var on = Render(work, model, Script(false, Path.Combine(work, "cal_on")), CalTimeout, stop);
         var off = on.Ok ? Render(work, model, Script(true, Path.Combine(work, "cal_off")), CalTimeout, stop) : on;
         stop.ThrowIfCancellationRequested(); // a cancelled render is not a calibration failure
@@ -617,7 +625,12 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
             if (f0 > guess / 3 && f0 < guess * 3) return f0;
             say("경고: 보정값이 첫 추정과 너무 달라 첫 추정을 씁니다.");
         }
-        else say($"경고: F0 보정 실패({why ?? "표시가 보이지 않음"}) → 첫 추정 1.19 × 장면 대각선 = {guess:0.##} m를 씁니다.");
+        else
+        {
+            say($"경고: F0 보정 실패({why ?? "표시가 보이지 않음"}) → 첫 추정 1.19 × 장면 대각선 = {guess:0.##} m를 씁니다.");
+            // the renders that missed the mark are the evidence (an empty or one-colour picture says camera/units, not the mark): the work copy stays whole
+            _keepWork = true;
+        }
         warn(why == null ? CalWarning : $"{CalWarning} — {why}");
         logger.LogWarning("F0 보정 실패, 첫 추정 사용 {Work}", work);
         return guess;

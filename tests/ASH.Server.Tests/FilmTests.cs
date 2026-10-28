@@ -380,6 +380,9 @@ public class FilmTests
         Assert.Equal((1, 0), (f.Done, f.Failed)); // filmed with the estimate
         Assert.Equal("A안 v1: " + FilmWorker.CalWarning, f.Warnings.Single());
         Assert.Contains(FilmWorker.CalWarning, await env.Http.GetStringAsync("/films/" + f.Id));
+        var work = Path.Combine(env.Factory.Services.GetRequiredService<FilmStore>().FilmDir(f.Id), j1); // kept whole to look into, with both calibration scripts
+        Assert.True(File.Exists(Path.Combine(work, "cal_on.des")));
+        Assert.True(File.Exists(Path.Combine(work, "cal_off.des")));
     }
 
     [Fact]

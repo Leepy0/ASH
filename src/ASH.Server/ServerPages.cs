@@ -103,6 +103,10 @@ public static class ServerPages
         sb.Append("<dt>GitHub 가져오기</dt><dd>").Append(g.BaseUrl == null ? "꺼짐"
             : H(g.BaseUrl) + $" <span class=\"muted\">({g.Interval.TotalMinutes:0}분마다, DNS {(g.DnsServers.Count == 0 ? "PC 기본" : H(string.Join(", ", g.DnsServers)))})</span>").Append("</dd>");
         sb.Append("<dt>마지막 확인(서울)</dt><dd>").Append(g.LastCheckUtc is { } lc ? H(SeoulTime.Text(lc)) + " — " + H(g.LastResult) : H(g.LastResult)).Append("</dd>");
+        // the scheduled check now: plugin (ASH), Runner and the server itself; a new server is only staged (the banner applies it)
+        if (g.BaseUrl != null)
+            sb.Append("<dt>최신 버전</dt><dd><form method=\"post\" action=\"/admin/check-updates\" style=\"margin:0\" onsubmit=\"this.querySelector('button').disabled=true;this.querySelector('button').textContent='확인 중…'\">" +
+                "<button class=\"btn\" title=\"GitHub에서 플러그인·Runner·서버 최신 버전을 지금 확인합니다. 새 플러그인·Runner는 받아 게시하고, 새 서버는 받아만 둡니다(위 띠에서 적용).\">지금 확인</button></form></dd>");
         sb.Append("<dt>무결성 확인</dt><dd>").Append(s.Key == null
             ? (s.AllowUnsigned ? "없음 — PC가 github.com 릴리스와 대조해 확인" : "<b class=\"bad\">서명 키 없음 — 업로드 거절(Update:AllowUnsigned=false)</b>")
             : H(s.Key.KeyId)).Append("</dd>");
