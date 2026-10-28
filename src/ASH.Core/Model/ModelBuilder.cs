@@ -40,6 +40,7 @@ public static class ModelBuilder
         }
         var findings = InputValidator.Validate(input, l.Cps.Select(c => c.Name).ToList());
         findings.AddRange(ConveyorCheck.Check(input, l, o.Scale)); // Conveyors rows against the AGV_CONV polylines
+        findings.AddRange(RouteGroupCheck.Check(input, l)); // Routes rows pointing at another group's CPs
         if (findings.Any(f => f.Code == FindingCode.InputError)) return new ModelBuildResult(arc, null, findings, Warn(findings));
 
         // supply-cycle check only on valid input; route lengths in meters (SpeedLoaded is m/s)
