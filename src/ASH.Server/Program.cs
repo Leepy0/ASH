@@ -226,6 +226,19 @@ app.MapPost("/admin/update", async (HttpContext ctx, ReleaseStore rs, AdminSessi
     return Html(ServerPages.Message("서버 업데이트", $"<div class=\"msg ok\">{WebUtility.HtmlEncode(v)} 적용 중 · 15초 뒤 홈</div>", "/"));
 });
 
+// 최신 버전 확인: the scheduled GitHub check (ASH = plugin, Runner, then the server, which only stages) at once; the 서버 설정 tab shows the results
+app.MapPost("/admin/check-updates", async (HttpContext ctx, ReleaseStore rs, AdminSessions sessions, GitHubSync g) =>
+{
+    if (DenyPost(ctx, rs, sessions) is { } deny) return deny;
+    if (g.BaseUrl == null) return Html(ServerPages.Message("최신 버전 확인", "<div class=\"msg warn\">GitHub 가져오기 꺼짐(GitHub:Enabled=false)</div><p><a href=\"/admin/settings?tab=server\">돌아가기</a></p>"), 409);
+    using var cts = CancellationTokenSource.CreateLinkedTokenSource(ctx.RequestAborted);
+    cts.CancelAfter(TimeSpan.FromMinutes(5)); // a new setup is downloaded here
+    try { await g.CheckOnceAsync(cts.Token); }
+    catch (OperationCanceledException) { return Html(ServerPages.Message("최신 버전 확인", "<div class=\"msg bad\">시간 초과(5분)</div><p><a href=\"/admin/settings?tab=server\">돌아가기</a></p>"), 504); }
+    app.Logger.LogInformation("최신 버전 확인(웹, {Ip})", ClientIp(ctx));
+    return Results.Redirect("/admin/settings?tab=server");
+});
+
 app.MapGet("/admin/jobs", (HttpContext ctx, ReleaseStore rs, AdminSessions sessions, JobStore js, FilmWorker fw, IConfiguration cfg, AnalysisStore st) =>
 {
     ctx.Response.Headers.CacheControl = "no-store";

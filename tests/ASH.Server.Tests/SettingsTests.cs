@@ -229,6 +229,19 @@ public class SettingsTests
     }
 
     [Fact]
+    public async Task Check_updates_needs_an_admin_and_says_when_the_GitHub_pull_is_off()
+    {
+        using var e = new SettingsEnv(); // GitHub:Enabled=false: no network in tests
+        Assert.Equal(HttpStatusCode.Unauthorized, (await e.Post("/admin/check-updates")).StatusCode);
+        await e.Login();
+        Assert.Equal(HttpStatusCode.Forbidden, (await e.Post("/admin/check-updates", origin: "http://evil.example")).StatusCode);
+        var r = await e.Post("/admin/check-updates");
+        Assert.Equal(HttpStatusCode.Conflict, r.StatusCode);
+        Assert.Contains("GitHub 가져오기 꺼짐", await r.Content.ReadAsStringAsync());
+        Assert.DoesNotContain("/admin/check-updates", await e.Http.GetStringAsync("/admin/settings?tab=server")); // no button while it is off
+    }
+
+    [Fact]
     public async Task With_an_invalid_admin_password_settings_and_restart_are_off()
     {
         using var e = new SettingsEnv(token: "abc"); // 3 characters: below the rule

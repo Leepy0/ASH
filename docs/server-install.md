@@ -98,7 +98,7 @@ gh release create v<버전> dist\ASH-Setup-<버전>.exe dist\ASH.json dist\ASH.S
 ```
 
 - 정식 릴리스(초안·시험판 아님)에 `ASH.json`, `ASH-Setup-<버전>.exe`가 반드시 있어야 서버가 가져간다. 서버 업데이트에는 `ASH.Server.json`, `ASH-Server-<버전>-win-x64.zip`, ash-run 배포에는 `ASH.Runner.json`, `ASH-Runner-<버전>-win-x64.zip`도 필요하다(`build-release.ps1`이 함께 만든다). 태그는 `v<버전>`(매니페스트의 version과 같게). 위 7개 자산이 전부 올라가야 한다.
-- 서버는 `CheckIntervalMin`(기본 60분) 안에 가져간다. 바로 반영하려면 서버에서 `sc stop ASH.Server && sc start ASH.Server`.
+- 서버는 `CheckIntervalMin`(기본 60분) 안에 가져간다. 바로 반영하려면 관리 → 서버 설정의 **최신 버전 "지금 확인"** 버튼(플러그인·Runner는 받아 게시, 새 서버는 받아만 두고 띠에서 적용).
 - 서버가 GitHub에 닿지 않는 곳이면 수동 업로드를 쓴다(서버 `Admin:Password` 필요):
   ```powershell
   $env:ASH_ADMIN_TOKEN = '<서버 appsettings.json 의 Admin:Password>'      # 명령줄·기록에 남기지 않으려고 환경 변수로
@@ -131,6 +131,7 @@ gh release create v<버전> dist\ASH-Setup-<버전>.exe dist\ASH.json dist\ASH.S
 - 주소는 두 곳에 저장된다. **PC 공용** `%ProgramData%\ASH\ash.machine.tsv`(관리자·SYSTEM만 쓰기, 일반 사용자는 읽기)에는 항상 쓰고, 대상 사용자를 알 수 있으면 `%APPDATA%\ASH\ash.user.tsv`(`ServerUrl`)에도 쓴다. 플러그인은 사용자 파일의 `ServerUrl`이 비어 있지 않으면 그것을, 아니면 PC 공용 값을 쓴다.
 - 이미 설치한 PC는 ZWCAD 명령 `AGVSERVER`로 주소를 넣거나 바꾼다(사용자 파일에 저장).
 - 주소가 있으면 ZWCAD 시작 때(3초 제한) 새 버전을 확인해 명령줄에 한 줄 알리고, `AGVUPDATE`가 서버의 `ASH.json`을 github.com의 같은 버전 릴리스와 바이트 단위로 대조하고, 같을 때만 설치 파일을 `%TEMP%\ASH-update\`에 받아 SHA-256·크기를 확인한 뒤 탐색기로 연다. ZWCAD를 완전히 종료한 뒤 그 파일을 실행한다. 시작 때의 새 버전 알림은 대조하지 않는다(알림만, 설치는 `AGVUPDATE`에서 대조).
+- `AGVUPDATE`는 서버를 먼저 묻고, 서버 주소가 없거나 서버에 닿지 않으면 github.com 릴리스를 직접 확인해 받는다. 서버가 "최신"이라고 해도 github.com을 한 번 더 확인해 더 새 버전이 있으면 그것을 받는다(서버의 GitHub 가져오기가 막혀 있어도 PC는 최신을 받음).
 - 업데이트를 하려면 PC가 github.com(및 리디렉션되는 release-assets.githubusercontent.com / objects.githubusercontent.com)에 HTTPS로 접속할 수 있어야 한다. PC의 프록시 설정(로그인 계정 자격 증명)을 쓴다. 접속할 수 없거나 내용이 다르면 "업데이트 중단(github.com에 접속할 수 없어 배포 정보를 대조하지 못했습니다)" 같은 줄을 출력하고 설치하지 않는다.
 - 서버 없이도: `ASH-Setup` 창은 열릴 때 github.com의 최신 릴리스(`releases/latest/download/ASH.json`)를 직접 확인하고, 더 새 버전이면 "최신 설치 파일 받아 설치"로 그 `ASH-Setup`을 받아(SHA-256·크기 확인) 실행한다. ZWCAD를 켜서 `AGVUPDATE`를 할 필요가 없다. 실패하면 한 줄 안내만 하고 그 exe의 버전으로 설치한다(README "설치" 절).
 - 주소는 `http(s)://호스트[:포트][/경로]` 형식만 받는다(사용자 정보 `user@`, `?query`, `#fragment` 불가).
