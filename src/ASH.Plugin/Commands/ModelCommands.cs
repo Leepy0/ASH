@@ -45,6 +45,7 @@ public sealed class ModelCommands
             var mode = made ? "W" : PathCommands.Keyword(ed, $"\n{ExcelFileName}이(가) 이미 있습니다. O=열기, U=갱신(입력 유지, 도면에 새로 생긴 것만 추가), W=덮어쓰기(새 양식) [O/U/W] <O>", "O", "O", "U", "W");
             if (mode == null) return;
             if (mode == "W" && !made && PathCommands.Keyword(ed, "\n입력한 내용이 모두 새 양식으로 바뀝니다(기존 파일은 백업). 덮어쓸까요? [Y/N] <N>", "N", "Y", "N") != "Y") return;
+            ExcelCom.Begin(); // update, check and marks share one hidden Excel when the file is encrypted
             if (mode != "O") // the file starts from what the drawing has now: group names, standby CPs, one route per load CP
             {
                 var doc = Application.DocumentManager.MdiActiveDocument;
@@ -95,6 +96,7 @@ public sealed class ModelCommands
                 }
             }
             if (mode != "O" && cpNames != null) ValidateAndMark(ed, path, dir, cpNames); // red / orange cells for what the checks object to
+            ExcelCom.End(); // before the user's Excel opens the file below
             ed.WriteMessage(mode == "O" ? $"\n기존 Excel 입력을 엽니다: {path}" : mode == "U" ? $"\nExcel 입력을 갱신했습니다: {path}" : $"\nExcel 양식을 만들었습니다: {path}");
             try { Process.Start(new ProcessStartInfo(path) { UseShellExecute = true }); }
             catch (System.ComponentModel.Win32Exception ex) { ed.WriteMessage($"\nExcel 파일을 열지 못했습니다(연결 프로그램 없음?): {ex.Message}"); }
@@ -107,6 +109,7 @@ public sealed class ModelCommands
             ed.WriteMessage($"\nAGVEXCEL 오류: {ex.Message} (Excel에서 셀을 편집 중이면 마치고, 그래도 안 되면 {ExcelFileName}을(를) 닫고 다시 하세요)");
             Ui.PaletteStatus.Set("AGVEXCEL 오류");
         }
+        finally { ExcelCom.End(); } // no-op when it ended above
     }
 
     /// <summary>Excel input against the drawing: CPs named in Excel but not drawn, drawn CPs no row uses, CP types and groups that do not fit. The list goes to the
@@ -181,6 +184,7 @@ public sealed class ModelCommands
         // only the model files: even with AutoMod on this PC the build is left to AGVRUN (to watch it here) or the server (AGVSEND), whichever is wanted
         bool hasAutoMod = AmBuilder.FindBuildExe(s.AmHome) != null;
         bool toServer = false;
+        using var excel = ExcelCom.Session(); // read and marks (and the send it offers) share one hidden Excel when the file is encrypted
         PathCommands.Run(doc, "AGVMODEL", (db, tr) =>
         {
             var input = LoadInput(ed, xlsx, dir);

@@ -176,6 +176,7 @@ public sealed class ServerCommands
         if (!File.Exists(xlsx)) { Say(ed, $"{ModelCommands.ExcelFileName}이 없습니다. 먼저 AGVEXCEL로 양식을 만들어 채우세요."); return false; }
         Say(ed, "검증 중…");
         bool ok = false;
+        using var excel = ExcelCom.Session(); // read and marks share one hidden Excel when the file is encrypted
         PathCommands.Run(Application.DocumentManager.MdiActiveDocument, "AGVSEND", (db, tr) =>
         {
             PathCommands.FinalStatus = "AGVSEND: 보내지 않음";
