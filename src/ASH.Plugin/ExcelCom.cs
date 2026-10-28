@@ -105,6 +105,22 @@ internal static class ExcelCom
             switch (e)
             {
                 case DeleteColumnEdit d: sheet.Columns[d.Col].Delete(); break;
+                case DeleteSheetEdit:
+                    // no "delete this sheet?" prompt: the user's own Excel may be the one doing it
+                    dynamic xl = wb.Application; bool alerts = xl.DisplayAlerts;
+                    xl.DisplayAlerts = false;
+                    try { sheet.Delete(); } finally { xl.DisplayAlerts = alerts; }
+                    break;
+                case GroupColumnsEdit g:
+                    // OutlineLevel 1 = not grouped: a run grouped already (an earlier update) would only get another level
+                    bool grouped = false;
+                    for (int k = g.FirstCol; k <= g.LastCol && !grouped; k++) grouped = (int)sheet.Columns[k].OutlineLevel > 1;
+                    if (grouped) break;
+                    dynamic cols = sheet.Range[sheet.Columns[g.FirstCol], sheet.Columns[g.LastCol]];
+                    cols.EntireColumn.Group();
+                    // collapsed: the summary column is the one right of the group (Excel's default)
+                    try { sheet.Columns[g.LastCol + 1].ShowDetail = false; } catch (COMException) { cols.EntireColumn.Hidden = true; }
+                    break;
                 case CellEdit c:
                     // a run of edits on the next cells of the same row (an appended row) goes in one Range.Value2
                     int n = 1;

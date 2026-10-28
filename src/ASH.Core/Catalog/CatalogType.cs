@@ -46,13 +46,15 @@ public sealed class CatalogType
     public static string[] ToTemplateRow(CatalogType t)
     {
         var d = t.Defaults;
-        return new[]
+        var v = new Dictionary<string, string>
         {
-            t.Name, t.Category, N(d.SpeedLoadedStraight), Curve(d.SpeedLoadedCurve, d.SpeedLoadedStraight),
-            N(d.SpeedEmptyStraight), Curve(d.SpeedEmptyCurve, d.SpeedEmptyStraight), N(d.Accel), N(d.Decel),
-            d.Capacity.ToString(CultureInfo.InvariantCulture), N(d.LoadTime), N(d.UnloadTime), N(d.MTBF), N(d.MTTR),
-            N(d.Length), N(d.Width), d.Color, t.Kind, "",
+            ["Type"] = t.Name, ["Category"] = t.Category, ["SpeedLoaded"] = N(d.SpeedLoadedStraight), ["SpeedLoadedCurve"] = Curve(d.SpeedLoadedCurve, d.SpeedLoadedStraight),
+            ["SpeedEmpty"] = N(d.SpeedEmptyStraight), ["SpeedEmptyCurve"] = Curve(d.SpeedEmptyCurve, d.SpeedEmptyStraight), ["Accel"] = N(d.Accel), ["Decel"] = N(d.Decel),
+            ["Capacity"] = d.Capacity.ToString(CultureInfo.InvariantCulture), ["LoadTime"] = N(d.LoadTime), ["UnloadTime"] = N(d.UnloadTime), ["MTBF"] = N(d.MTBF), ["MTTR"] = N(d.MTTR),
+            ["Length"] = N(d.Length), ["Width"] = N(d.Width), ["Color"] = d.Color, ["Kind"] = t.Kind,
         };
+        var cols = System.Array.Find(ExcelTemplate.Sheets, s => s.Sheet == "AGV_Types").Cols;
+        return System.Array.ConvertAll(cols, c => v.TryGetValue(c, out var x) ? x : "");
     }
 }
 

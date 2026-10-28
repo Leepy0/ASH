@@ -56,6 +56,9 @@ public sealed class ProjectInput
     public List<AgvGroup> Groups { get; } = new List<AgvGroup>();
     public List<MaterialInfo> Materials { get; } = new List<MaterialInfo>();
     public List<Route> Routes { get; } = new List<Route>();
+    /// <summary>The sheet the route cells (SupplyFromCP ...) live on: "Materials" (a route per material row, Route.Row = that row) or "Routes" (an older
+    /// workbook's own sheet). Findings about a route name this sheet, so their Excel marks land on the route's cells.</summary>
+    public string RouteSheet { get; set; } = "Materials";
     public List<StationInfo> Stations { get; } = new List<StationInfo>();
     public List<ExtHook> Ext { get; } = new List<ExtHook>();
     public List<ConveyorInfo> Conveyors { get; } = new List<ConveyorInfo>();

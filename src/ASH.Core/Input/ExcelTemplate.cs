@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using ASH.Core.Layout;
 using ClosedXML.Excel;
@@ -8,28 +9,33 @@ namespace ASH.Core.Input;
 
 public static class ExcelTemplate
 {
-    // sheet -> (columns, descriptions, example row). Single source of truth; ExcelReader uses the same names.
+    // sheet -> (columns, descriptions, example row). Single source of truth; ExcelReader uses the same names. Basic columns first, then the Advanced ones.
     public static readonly (string Sheet, string[] Cols, string[] Desc, string[] Example)[] Sheets =
     {
         ("Settings", new[] { "Key", "Value", "Description" }, new[] { "키", "값", "설명 (연녹색 칸은 입력 불필요)" }, new string[0]),
-        ("AGV_Types",
-            new[] { "Type", "Category", "SpeedLoaded", "SpeedLoadedCurve", "SpeedEmpty", "SpeedEmptyCurve", "Accel", "Decel", "Capacity", "LoadTime", "UnloadTime", "MTBF", "MTTR", "Length", "Width", "Color", "Kind", "Asset" },
-            new[] { "타입명", "분류(메모)", "적재 속도(m/s)", "적재 곡선 속도(m/s, 빈칸=직선)", "공차 속도(m/s)", "공차 곡선 속도(m/s, 빈칸=직선)", "가속(m/s²)", "감속(m/s²)", "용기 수", "로딩(초)", "언로딩(초)", "MTBF(초, 0=없음)", "MTTR(초)", "길이(m)", "폭(m)", "색상", "형상(목록에서 선택)", "에셋(C에서 채움)" },
-            // the example keeps neutral values: SpeedEmpty = SpeedLoaded, one container per trip, no breakdowns
-            new[] { "T_EX", "", "1.0", "", "1.0", "", "0.3", "0.3", "1", "20", "20", "0", "0", "1.2", "0.8", "Blue", "Standard", "" }),
+        // the example keeps neutral values: SpeedEmpty = SpeedLoaded, one container per trip, no breakdowns
+        S("AGV_Types",
+            ("Type", "타입명", "T_EX"), ("SpeedLoaded", "적재 속도(m/s)", "1.0"), ("SpeedEmpty", "공차 속도(m/s)", "1.0"), ("Capacity", "용기 수", "1"),
+            ("LoadTime", "로딩(초)", "20"), ("UnloadTime", "언로딩(초)", "20"), ("Length", "길이(m)", "1.2"), ("Width", "폭(m)", "0.8"), ("Kind", "형상(목록에서 선택)", "Standard"),
+            ("Category", "분류(메모)", ""), ("SpeedLoadedCurve", "적재 곡선 속도(m/s, 빈칸=직선)", ""), ("SpeedEmptyCurve", "공차 곡선 속도(m/s, 빈칸=직선)", ""),
+            ("Accel", "가속(m/s²)", "0.3"), ("Decel", "감속(m/s²)", "0.3"), ("MTBF", "MTBF(초, 0=없음)", "0"), ("MTTR", "MTTR(초)", "0"), ("Color", "색상", "Blue"), ("Asset", "에셋(C에서 채움)", "")),
         ("AGV_Groups",
             new[] { "Group", "Type", "MinCount", "MaxCount", "StandbyCPs", "Dispatch", "FinishCP" },
             new[] { "그룹명", "AGV 타입", "최소 대수", "최대 대수", "대기 CP", "Nearest / FIFO", "작업 완료 CP" },
             new[] { "G_EX", "T_EX", "1", "3", "CP_STBY", "Nearest", "" }),
-        // thresholds are containers + units (each may be blank: ExcelReader adds them up in containers); EmptyReturn follows the route's return CPs
-        ("Materials",
-            new[] { "Material", "Station", "Group", "TaktTime", "UnitsPerCycle", "UnitsPerContainer", "CallThreshold", "CallThresholdQty", "CallThresholdTotal", "UnloadThreshold", "UnloadThresholdQty", "UnloadThresholdTotal", "InitStock", "SafetyStock", "Form", "LoadLength", "LoadWidth", "LoadHeight", "Flow", "Use" },
-            new[] { "자재명", "공정명(메모)", "운반 그룹", "T/T(초)", "소요 원수", "용기당 자재 수량", "호출 임계(용기)", "호출 임계(자재)", "호출 임계 합계(용기, 자동)", "언로딩 임계(용기)", "언로딩 임계(자재)", "언로딩 임계 합계(용기, 자동)", "초기재고(- : 기본값)", "안전재고(- : 기본값)", "형태(목록에서 선택)", "적재물 길이(m, - : 기본값)", "적재물 폭(m, - : 기본값)", "적재물 높이(m, - : 기본값)", "흐름(Supply 공급 / Output 빈 용기 공급+풀 용기 반출)", "사용 여부 Y/N, 빈칸=Y" },
-            new[] { "M001", "", "G_EX", "60", "1", "10", "4", "", "", "1", "", "", "", "", "Box", "", "", "", "Supply", "Y" }), // Call 4 > Settings SafetyStock 2
-        ("Routes",
-            new[] { "Material", "SupplyFromCP", "SupplyToCP", "BufferCP", "ReturnFromCP", "ReturnToCP", "ExtraTime", "BufferWaitSec" },
-            new[] { "자재명", "load CP", "unload CP", "buffer CP(선택)", "rtnload CP(선택)", "rtnunload CP(선택)", "추가 시간(초)", "버퍼 대기 허용(초, 넘는 시간만 비가동)" },
-            new[] { "M001", "CP_LOAD", "CP_UNLOAD", "", "", "", "0", "0" }),
+        // thresholds are containers + units (each may be blank: ExcelReader adds them up in containers); EmptyReturn follows the route's return CPs.
+        // The route (an older template's Routes sheet) is on the material's row: one route per material.
+        S("Materials",
+            ("Material", "자재명", "M001"), ("Group", "운반 그룹", "G_EX"), ("TaktTime", "T/T(초)", "60"), ("UnitsPerCycle", "소요 원수", "1"), ("UnitsPerContainer", "용기당 자재 수량", "10"),
+            ("CallThreshold", "호출 임계(용기)", "4"), // Call 4 > Settings SafetyStock 2
+            ("Form", "형태(목록에서 선택)", "Box"), ("SupplyFromCP", "load CP", "CP_LOAD"), ("SupplyToCP", "unload CP", "CP_UNLOAD"),
+            ("ReturnFromCP", "rtnload CP(선택)", ""), ("ReturnToCP", "rtnunload CP(선택)", ""),
+            ("Station", "공정명(메모)", ""), ("CallThresholdQty", "호출 임계(자재)", ""), ("CallThresholdTotal", "호출 임계 합계(용기, 자동)", ""),
+            ("UnloadThreshold", "언로딩 임계(용기)", "1"), ("UnloadThresholdQty", "언로딩 임계(자재)", ""), ("UnloadThresholdTotal", "언로딩 임계 합계(용기, 자동)", ""),
+            ("InitStock", "초기재고(- : 기본값)", ""), ("SafetyStock", "안전재고(- : 기본값)", ""),
+            ("LoadLength", "적재물 길이(m, - : 기본값)", ""), ("LoadWidth", "적재물 폭(m, - : 기본값)", ""), ("LoadHeight", "적재물 높이(m, - : 기본값)", ""),
+            ("Flow", "흐름(Supply 공급 / Output 빈 용기 공급+풀 용기 반출)", "Supply"), ("Use", "사용 여부 Y/N, 빈칸=Y", "Y"),
+            ("BufferCP", "buffer CP(선택)", ""), ("ExtraTime", "추가 시간(초)", "0"), ("BufferWaitSec", "버퍼 대기 허용(초, 넘는 시간만 비가동)", "0")),
         // optional sheet, no example row: a material named here is consumed by the conveyor's products instead of the takt clock
         ("Conveyors",
             new[] { "Conveyor", "Material", "ProductTakt", "UnitsPerProduct", "Speed", "Capacity", "ConsumeAt" },
@@ -37,8 +43,26 @@ public static class ExcelTemplate
             new string[0]),
     };
 
+    static (string, string[], string[], string[]) S(string sheet, params (string Col, string Desc, string Example)[] c) =>
+        (sheet, c.Select(x => x.Col).ToArray(), c.Select(x => x.Desc).ToArray(), c.Select(x => x.Example).ToArray());
+
     /// <summary>Columns most inputs never touch: grouped (Excel outline) and collapsed in the template, behind "+" (E1). <see cref="InputSchema"/> reports them.</summary>
-    internal static readonly (string Sheet, string Col)[] Advanced = { };
+    internal static readonly (string Sheet, string Col)[] Advanced =
+        new[] { "Station", "CallThresholdQty", "CallThresholdTotal", "UnloadThreshold", "UnloadThresholdQty", "UnloadThresholdTotal", "InitStock", "SafetyStock",
+            "LoadLength", "LoadWidth", "LoadHeight", "Flow", "Use", "BufferCP", "ExtraTime", "BufferWaitSec" }.Select(c => ("Materials", c))
+        .Concat(new[] { "Category", "SpeedLoadedCurve", "SpeedEmptyCurve", "Accel", "Decel", "MTBF", "MTTR", "Color", "Asset" }.Select(c => ("AGV_Types", c))).ToArray();
+
+    /// <summary>The route columns of Materials: an older workbook has them on a Routes sheet of their own (with Material first), which Update merges in.</summary>
+    internal static readonly string[] RouteCols = { "SupplyFromCP", "SupplyToCP", "BufferCP", "ReturnFromCP", "ReturnToCP", "ExtraTime", "BufferWaitSec" };
+
+    /// <summary>Cells a named row cannot do without; <see cref="NeedSummary"/> counts the blank ones. CallThreshold also counts as filled by CallThresholdQty.</summary>
+    static readonly (string Sheet, string Col)[] Required =
+        new[] { "Group", "TaktTime", "UnitsPerCycle", "UnitsPerContainer", "CallThreshold", "SupplyFromCP", "SupplyToCP" }.Select(c => ("Materials", c))
+        .Concat(new[] { "Type", "MinCount", "MaxCount", "StandbyCPs" }.Select(c => ("AGV_Groups", c)))
+        .Concat(new[] { "SpeedLoaded", "SpeedEmpty", "Capacity", "LoadTime", "UnloadTime" }.Select(c => ("AGV_Types", c))).ToArray();
+
+    /// <summary>The start of the change line that sums up the blank required cells (always the last line of Write's and Update's list).</summary>
+    public const string NeedPrefix = "입력 필요";
 
     /// <summary>Columns picked from a drop-down: a fixed list ("a,b") or the names in another sheet's first column (sheet name). Re-applied on every update.</summary>
     internal static readonly (string Sheet, string Col, string Source)[] Lists =
@@ -50,7 +74,6 @@ public static class ExcelTemplate
         ("Materials", "Form", string.Join(",", MaterialForms.All)),
         ("Materials", "Flow", string.Join(",", MaterialFlows.All)),
         ("Materials", "Use", "Y,N"),
-        ("Routes", "Material", "Materials"),
         ("Conveyors", "Material", "Materials"),
     };
 
@@ -59,7 +82,7 @@ public static class ExcelTemplate
     static readonly (string Sheet, string Col, string Why)[] Obsolete =
     {
         ("AGV_Types", "Group", "그룹의 타입은 AGV_Groups의 Type으로만 정합니다"),
-        ("Materials", "EmptyReturn", "빈 용기 회수는 Routes의 rtnload/rtnunload CP로 정합니다"),
+        ("Materials", "EmptyReturn", "빈 용기 회수는 rtnload/rtnunload CP로 정합니다"),
     };
 
     const int LastListRow = 1000;
@@ -156,38 +179,37 @@ public static class ExcelTemplate
         // one-by-one CPs: within each group (a route never mixes groups) the n-th load by name pairs with the n-th unload / buffer / return CP by name
         // (L001-U001-RL001-RU001, L002-U002-…). As many routes as the longest of load, unload and the returns: a shorter list repeats its last CP
         // (L1 with U1,U2 = L1-U1, L1-U2; RU1 serves both); a group without a type leaves it blank. A buffer without an n-th stays blank
-        var mats = new List<string[]>(); var routes = new List<string[]>();
+        var mats = new List<string[]>();
         string At(List<string> list, int i) => i < list.Count ? list[i] : "";
+        int groupCol = MatCol("Group");
+        void Add(string group, string from, string to, string buffer, string rl, string ru)
+        {
+            var m = (string[])Ex("Materials").Clone();
+            m[MatCol("Material")] = "M" + (mats.Count + 1).ToString("000");
+            m[groupCol] = group.Length > 0 ? group : (groups.Count > 0 ? groups[0] : m[groupCol]);
+            m[MatCol("SupplyFromCP")] = from; m[MatCol("SupplyToCP")] = to; m[MatCol("BufferCP")] = buffer; m[MatCol("ReturnFromCP")] = rl; m[MatCol("ReturnToCP")] = ru;
+            mats.Add(m);
+        }
         foreach (var g in l.Cps.Where(c => c.Type == "load" && !recorded.Contains(c.Name)).Select(c => c.Group).Distinct().ToList())
         {
             var loads = ByName(Names("load", g));
             var unload = ByName(Names("unload", g)); var buffer = ByName(Names("buffer", g)); var rl = ByName(Names("rtnload", g)); var ru = ByName(Names("rtnunload", g));
             int n = new[] { loads.Count, unload.Count, rl.Count, ru.Count }.Max();
-            for (int i = 0; i < n; i++)
-            {
-                var name = "M" + (mats.Count + 1).ToString("000");
-                var m = (string[])Ex("Materials").Clone(); m[0] = name; m[2] = g.Length > 0 ? g : (groups.Count > 0 ? groups[0] : m[2]); mats.Add(m);
-                routes.Add(new[] { name, CpRoute.Pair(loads, i), CpRoute.Pair(unload, i), At(buffer, i), CpRoute.Pair(rl, i), CpRoute.Pair(ru, i), "0", "0" });
-            }
+            for (int i = 0; i < n; i++) Add(g, CpRoute.Pair(loads, i), CpRoute.Pair(unload, i), At(buffer, i), CpRoute.Pair(rl, i), CpRoute.Pair(ru, i));
         }
         // one material per load CP of a recorded sequence, M### like the one-by-one rows
         foreach (var r in routesOf)
-            for (int i = 0; i < r.Load.Count; i++)
-            {
-                var name = "M" + (mats.Count + 1).ToString("000");
-                var m = (string[])Ex("Materials").Clone(); m[0] = name; m[2] = r.Group.Length > 0 ? r.Group : (groups.Count > 0 ? groups[0] : m[2]); mats.Add(m);
-                routes.Add(new[] { name, r.Load[i], CpRoute.Pair(r.Unload, i), "", CpRoute.Pair(r.RtnLoad, i), CpRoute.Pair(r.RtnUnload, i), "0", "0" });
-            }
+            for (int i = 0; i < r.Load.Count; i++) Add(r.Group, r.Load[i], CpRoute.Pair(r.Unload, i), "", CpRoute.Pair(r.RtnLoad, i), CpRoute.Pair(r.RtnUnload, i));
         if (mats.Count > 0)
         {
             // each material's Form: the first one its group's vehicle kind carries (the example's would draw the validator's "cannot carry" warning)
             var types = seed.TryGetValue("AGV_Types", out var ts) ? ts : new List<string[]> { Ex("AGV_Types") };
             var gs2 = seed.TryGetValue("AGV_Groups", out var g0) ? g0 : new List<string[]> { Ex("AGV_Groups") };
-            int kindCol = Array.IndexOf(ColsOf("AGV_Types"), "Kind"), formCol = Array.IndexOf(ColsOf("Materials"), "Form");
+            int kindCol = Array.IndexOf(ColsOf("AGV_Types"), "Kind"), formCol = MatCol("Form");
             var kindOf = types.Where(r => r.Length > kindCol).GroupBy(r => r[0]).ToDictionary(x => x.Key, x => x.First()[kindCol]);
             var typeOf = gs2.GroupBy(r => r[0]).ToDictionary(x => x.Key, x => x.First()[1]);
-            foreach (var m in mats) m[formCol] = FormFor(m[2], typeOf, kindOf) ?? m[formCol];
-            seed["Materials"] = mats; seed["Routes"] = routes;
+            foreach (var m in mats) m[formCol] = FormFor(m[groupCol], typeOf, kindOf) ?? m[formCol];
+            seed["Materials"] = mats;
         }
         var conv = ConveyorRows(l, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
         if (conv.Count > 0) seed["Conveyors"] = conv;
@@ -206,12 +228,14 @@ public static class ExcelTemplate
             .ThenBy(n => { var d = n.Substring(n.TrimEnd('0', '1', '2', '3', '4', '5', '6', '7', '8', '9').Length); return d.Length == 0 ? -1 : long.TryParse(d, out var v) ? v : long.MaxValue; })
             .ThenBy(n => n, StringComparer.Ordinal).ToList();
 
-    public static void Write(string path) => Write(path, null);
+    public static List<string> Write(string path) => Write(path, null);
 
-    /// <summary>The template; with a layout, its CP names and groups fill the rows that would otherwise hold the example.</summary>
-    public static void Write(string path, ASH.Core.Layout.Layout? layout, IReadOnlyList<ASH.Core.Catalog.CatalogType>? catalog = null)
+    /// <summary>The template; with a layout, its CP names and groups fill the rows that would otherwise hold the example. <paramref name="scale"/> (drawing
+    /// units to metres, 0 = unknown) lets the seeded rows get a suggested CallThreshold. Returns the suggestions, then the <see cref="NeedPrefix"/> line.</summary>
+    public static List<string> Write(string path, ASH.Core.Layout.Layout? layout, IReadOnlyList<ASH.Core.Catalog.CatalogType>? catalog = null, double scale = 0)
     {
         var seed = layout == null && (catalog == null || catalog.Count == 0) ? new Dictionary<string, List<string[]>>() : Seed(layout, catalog);
+        var changes = new List<string>();
         FontFreeGraphicEngine.Install(); // before the workbook: it creates the default (font parsing) engine right away
         using var wb = new XLWorkbook();
         foreach (var (sheet, cols, desc, example) in Sheets)
@@ -254,25 +278,40 @@ public static class ExcelTemplate
         ApplyTotals(wb);
         ApplyAutoFill(wb);
         ApplyCenter(wb);
+        ApplyOutline(wb);
+        // the seeded rows hold the example's threshold, not a typed one: a suggestion may replace it
+        if (layout != null && seed.TryGetValue("Materials", out var sm)) SuggestCalls(wb, layout, scale, Enumerable.Range(3, sm.Count).ToList(), changes, null);
+        changes.Add(NeedSummary(wb));
         Save(wb, path);
+        return changes;
     }
 
     /// <summary>Brings an existing input up to date without touching what is typed in it: missing sheets, columns and Settings keys are added, obsolete
     /// columns deleted, the description row refreshed, and with a layout the drawing's new groups, their new standby CPs and new load CPs (each as a material
-    /// with its route) are appended. Existing rows are matched by group name and by SupplyFromCP, never overwritten. Returns one line per change.</summary>
-    public static List<string> Update(string path, ASH.Core.Layout.Layout? layout, IReadOnlyList<ASH.Core.Catalog.CatalogType>? catalog = null)
+    /// with its route) are appended. Existing rows are matched by group name and by SupplyFromCP, never overwritten. An older workbook's Routes sheet is
+    /// merged into Materials. Blank CallThresholds get a suggestion (with a layout and <paramref name="scale"/>, drawing units to metres; 0 = unknown).
+    /// Returns one line per change, the <see cref="NeedPrefix"/> line last.</summary>
+    public static List<string> Update(string path, ASH.Core.Layout.Layout? layout, IReadOnlyList<ASH.Core.Catalog.CatalogType>? catalog = null, double scale = 0)
     {
         using var wb = ExcelReader.Open(path);
-        var changes = Update(wb, layout, null, catalog);
+        var changes = Update(wb, layout, null, catalog, scale);
         Save(wb, path);
         return changes;
     }
 
     /// <summary>Update on a workbook in memory, not saved. <paramref name="log"/> gets every change in order, for a file only Excel can write (see ExcelEdit).</summary>
-    public static List<string> Update(XLWorkbook wb, ASH.Core.Layout.Layout? layout, List<ExcelEdit>? log = null, IReadOnlyList<ASH.Core.Catalog.CatalogType>? catalog = null)
+    public static List<string> Update(XLWorkbook wb, ASH.Core.Layout.Layout? layout, List<ExcelEdit>? log = null, IReadOnlyList<ASH.Core.Catalog.CatalogType>? catalog = null, double scale = 0)
     {
         var changes = new List<string>();
         var seed = layout == null && (catalog == null || catalog.Count == 0) ? new Dictionary<string, List<string[]>>() : Seed(layout, catalog);
+        // an older workbook keeps its routes on a Routes sheet: they move onto the Materials rows, unless that would not read back the same (legacy)
+        List<(string Material, string[] Values)>? moving = null;
+        bool legacy = false;
+        if (wb.TryGetWorksheet("Routes", out var oldRoutes) && !(wb.TryGetWorksheet("Materials", out var om) && Columns(om).ContainsKey("SupplyFromCP")))
+        {
+            moving = RouteRows(oldRoutes, om, out var why);
+            if (moving == null) { legacy = true; changes.Add($"Routes 시트 유지(Materials에 합치지 않음): {why}"); }
+        }
         foreach (var (sheet, cols, desc, _) in Sheets)
         {
             if (!wb.TryGetWorksheet(sheet, out var ws))
@@ -299,13 +338,27 @@ public static class ExcelTemplate
                     if (ws.Cell(2, c).GetString() != desc[i]) { Set(ws, 2, c, desc[i], log); described = true; }
                     continue;
                 }
+                bool route = sheet == "Materials" && RouteCols.Contains(cols[i]);
+                if (route && legacy) continue; // a SupplyFromCP column would make the reader take the routes from Materials
                 Set(ws, 1, next, cols[i], log); Set(ws, 2, next, desc[i], log);
                 ws.Cell(1, next).Style.Font.Bold = true; ws.Cell(1, next).Style.Fill.BackgroundColor = XLColor.LightBlue;
                 FitWidth(ws, next, 2);
                 next++;
-                changes.Add($"{sheet}: {cols[i]} 열 추가");
+                if (!(route && moving != null)) changes.Add($"{sheet}: {cols[i]} 열 추가"); // the merge says it in one line
             }
             if (described) changes.Add($"{sheet}: 2행 설명 갱신");
+        }
+        if (moving != null)
+        {
+            var mws = wb.Worksheet("Materials"); var at = Columns(mws);
+            foreach (var (mat, vals) in moving)
+            {
+                int row = RowOf(mws, "Material", mat);
+                for (int k = 0; k < RouteCols.Length; k++)
+                    if (vals[k].Length > 0) Set(mws, row, at[RouteCols[k]], vals[k], log);
+            }
+            wb.Worksheet("Routes").Delete(); log?.Add(new DeleteSheetEdit("Routes"));
+            changes.Add($"Routes 시트를 Materials에 합침 {moving.Count}행");
         }
         var set = wb.Worksheet("Settings");
         var keys = new HashSet<string>(Values(set, "Key"), StringComparer.OrdinalIgnoreCase);
@@ -354,9 +407,12 @@ public static class ExcelTemplate
                 }
             }
         }
-        if (seed.TryGetValue("Routes", out var sr))
+        var fresh = new List<int>(); // Materials rows added here: their CallThreshold is the example's, not typed
+        if (seed.TryGetValue("Materials", out var sm))
         {
-            var mws = wb.Worksheet("Materials"); var rws = wb.Worksheet("Routes");
+            // the routes are on the material rows, or on a Routes sheet kept for a workbook that could not be merged
+            var mws = wb.Worksheet("Materials"); var rws = legacy ? wb.Worksheet("Routes") : mws;
+            int fromCol = MatCol("SupplyFromCP"), toCol = MatCol("SupplyToCP");
             // (load, unload) of the rows already there: a load CP with more seed routes than rows (U2 added for L1) gets the missing ones
             var have = new List<(string From, string To)>();
             var rc = Columns(rws);
@@ -366,29 +422,29 @@ public static class ExcelTemplate
                     var f = rws.Cell(r, fcol).GetString().Trim();
                     if (f.Length > 0) have.Add((f, rc.TryGetValue("SupplyToCP", out var tcol) ? rws.Cell(r, tcol).GetString().Trim() : ""));
                 }
-            var names = new HashSet<string>(Values(mws, "Material").Concat(Values(rws, "Material")));
-            var sm = seed["Materials"];
+            var names = new HashSet<string>(Values(mws, "Material").Concat(legacy ? Values(rws, "Material") : new List<string>()));
             var recordedOf = CpRoutes.From(layout!).SelectMany(r => r.Load.Select(l => (Load: l, Route: r))).GroupBy(x => x.Load).ToDictionary(x => x.Key, x => x.First().Route);
-            for (int i = 0; i < sr.Count; i++)
+            var where = legacy ? "Materials·Routes" : "Materials";
+            for (int i = 0; i < sm.Count; i++)
             {
-                var key = (sr[i][1], sr[i][2]);
+                var key = (sm[i][fromCol], sm[i][toCol]);
                 // a row the user edited (other unload) counts for its load: only routes beyond the rows there are added
-                if (have.Contains(key) || have.Count(h => h.From == key.Item1) >= sr.Count(x => x[1] == key.Item1)) continue;
+                if (have.Contains(key) || have.Count(h => h.From == key.Item1) >= sm.Count(x => x[fromCol] == key.Item1)) continue;
                 have.Add(key);
                 // the next free M###
-                recordedOf.TryGetValue(sr[i][1], out var rec);
+                recordedOf.TryGetValue(key.Item1, out var rec);
                 string name; int n = 1;
                 do name = "M" + (n++).ToString("000"); while (names.Contains(name));
                 names.Add(name);
-                var m = (string[])sm[i].Clone(); m[0] = name;
+                var m = (string[])sm[i].Clone(); m[MatCol("Material")] = name;
                 // the Form the group's vehicle carries, by the groups and types already in this workbook (the seed's are the drawing's defaults)
                 if (wb.TryGetWorksheet("AGV_Groups", out var gws2) && wb.TryGetWorksheet("AGV_Types", out var tws2)
-                    && FormFor(m[2], Pairs(gws2, "Group", "Type"), Pairs(tws2, "Type", "Kind")) is { } form) m[Array.IndexOf(ColsOf("Materials"), "Form")] = form;
-                var route = (string[])sr[i].Clone(); route[0] = name;
-                Append(mws, ColsOf("Materials"), m, log); Append(rws, ColsOf("Routes"), route, log);
+                    && FormFor(m[MatCol("Group")], Pairs(gws2, "Group", "Type"), Pairs(tws2, "Type", "Kind")) is { } form) m[MatCol("Form")] = form;
+                fresh.Add(Append(mws, ColsOf("Materials"), m, log)); // legacy: Materials has no route columns, so only the material's cells
+                if (legacy) Append(rws, new[] { "Material" }.Concat(RouteCols).ToArray(), new[] { name }.Concat(RouteCols.Select(c => m[MatCol(c)])).ToArray(), log);
                 changes.Add(rec != null
-                    ? $"Materials·Routes: 경로 {rec.Group} ({rec.Describe()})의 자재 {name} 추가(T/T·임계값 확인 필요)"
-                    : $"Materials·Routes: load CP {sr[i][1]}의 자재 {name} 추가(T/T·임계값·unload CP 확인 필요)");
+                    ? $"{where}: 경로 {rec.Group} ({rec.Describe()})의 자재 {name} 추가(T/T·임계값 확인 필요)"
+                    : $"{where}: load CP {key.Item1}의 자재 {name} 추가(T/T·임계값·unload CP 확인 필요)");
             }
         }
         // named AGV_CONV conveyors without a Conveyors row get one (the sheet itself was added above when the workbook lacked it)
@@ -402,7 +458,144 @@ public static class ExcelTemplate
         ApplyTotals(wb, log);
         ApplyAutoFill(wb, log);
         ApplyCenter(wb, log);
+        ApplyOutline(wb, log);
+        if (layout != null) SuggestCalls(wb, layout, scale, fresh, changes, log);
+        changes.Add(NeedSummary(wb));
         return changes;
+    }
+
+    /// <summary>The rows of an older workbook's Routes sheet as (material, <see cref="RouteCols"/> values); null with the reason when moving them onto the
+    /// Materials rows would not read back the same: a material with several routes, a route row without a material or with one Materials lacks, a
+    /// material name on two Materials rows.</summary>
+    static List<(string Material, string[] Values)>? RouteRows(IXLWorksheet rws, IXLWorksheet? mws, out string why)
+    {
+        why = "";
+        var at = Columns(rws);
+        var rows = new List<(string Material, string[] Values)>();
+        for (int r = 3, last = LastDataRow(rws); r <= last; r++)
+        {
+            string Get(string col) => at.TryGetValue(col, out var c) ? Text(rws.Cell(r, c)) : "";
+            var vals = RouteCols.Select(Get).ToArray();
+            var mat = Get("Material");
+            if (mat.Length == 0 && vals.All(v => v.Length == 0)) continue;
+            if (mat.Length == 0) { why = $"{r}행 자재 이름 없음"; return null; }
+            rows.Add((mat, vals));
+        }
+        var mats = mws == null ? new List<string>() : Values(mws, "Material");
+        string? Names(IEnumerable<string> n) => n.Any() ? string.Join(",", n.Distinct()) : null;
+        if (Names(rows.GroupBy(x => x.Material).Where(g => g.Count() > 1).Select(g => g.Key)) is { } multi) why = $"자재당 경로 여러 행({multi}), 모델은 자재당 1개";
+        else if (Names(rows.Select(x => x.Material).Where(m => !mats.Contains(m))) is { } orphan) why = $"Materials에 없는 자재({orphan})";
+        else if (Names(mats.GroupBy(m => m).Where(g => g.Count() > 1).Select(g => g.Key)) is { } dup) why = $"Materials 자재 이름 중복({dup})";
+        return why.Length > 0 ? null : rows;
+    }
+
+    /// <summary>A cell as text: a number in invariant digits (what a CellEdit and the reader both take), other values trimmed.</summary>
+    static string Text(IXLCell c) => c.DataType == XLDataType.Number ? c.GetDouble().ToString("R", CultureInfo.InvariantCulture) : c.GetString().Trim();
+
+    static double? Num(IXLCell c)
+    {
+        if (c.DataType == XLDataType.Number) return c.GetDouble();
+        return double.TryParse(c.GetString().Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var d) ? d : null;
+    }
+
+    /// <summary>The suggested CallThreshold (containers) for a material: the containers one supply cycle uses, rounded up, plus one; at least the safety stock
+    /// plus one and one takt's use (the validator warns below either). The cycle is <see cref="InputValidator.SupplyCapacity"/>'s: route length (m) /
+    /// SpeedLoaded + LoadTime + UnloadTime + ExtraTime; a container lasts TaktTime × UnitsPerContainer / UnitsPerCycle. Null when a number cannot be used.</summary>
+    internal static int? SuggestCall(double lengthM, double speedLoaded, double loadTime, double unloadTime, double extraTime, double takt, double unitsPerCycle, double unitsPerContainer, double safety)
+    {
+        if (!(speedLoaded > 0) || !(takt > 0) || !(unitsPerCycle > 0) || !(unitsPerContainer > 0) || !(lengthM >= 0)) return null;
+        double cycle = lengthM / speedLoaded + loadTime + unloadTime + Math.Max(0, extraTime), lasts = takt * unitsPerContainer / unitsPerCycle;
+        int n = (int)Math.Ceiling(cycle / lasts - 1e-9) + 1;
+        return Math.Max(n, Math.Max((int)Math.Floor(safety) + 1, (int)Math.Ceiling(unitsPerCycle / unitsPerContainer - 1e-9)));
+    }
+
+    /// <summary>E2: <see cref="SuggestCall"/> into each named Materials row whose CallThreshold is blank (and its unit part too) or that this run added
+    /// (<paramref name="fresh"/>: the example's value). The route length comes from the drawing (as ModelBuilder gets it: GroupClusters' SupplyLength ×
+    /// scale), the vehicle from the row's group. A row whose length, vehicle or numbers are not known keeps its cell; nothing without a scale.</summary>
+    static void SuggestCalls(XLWorkbook wb, ASH.Core.Layout.Layout layout, double scale, ICollection<int> fresh, List<string> changes, List<ExcelEdit>? log)
+    {
+        if (!(scale > 0) || !wb.TryGetWorksheet("Materials", out var ws) || !wb.TryGetWorksheet("AGV_Groups", out var gws) || !wb.TryGetWorksheet("AGV_Types", out var tws)) return;
+        var at = Columns(ws);
+        if (!at.TryGetValue("CallThreshold", out var cc)) return;
+        // the route cells: on the row itself, or on the Routes sheet an older workbook kept
+        var rws = at.ContainsKey("SupplyFromCP") ? ws : wb.TryGetWorksheet("Routes", out var old) ? old : null;
+        if (rws == null) return;
+        var rat = Columns(rws); var tat = Columns(tws);
+        string S(IXLWorksheet s, Dictionary<string, int> a, int r, string col) => a.TryGetValue(col, out var c) ? s.Cell(r, c).GetString().Trim() : "";
+        double? N(IXLWorksheet s, Dictionary<string, int> a, int r, string col) => a.TryGetValue(col, out var c) ? Num(s.Cell(r, c)) : null;
+        var rows = new List<(int Row, string Name, int RouteRow)>();
+        var input = new ProjectInput();
+        for (int r = 3, last = LastDataRow(ws); r <= last; r++)
+        {
+            var name = S(ws, at, r, "Material");
+            if (name.Length == 0 || !fresh.Contains(r) && (S(ws, at, r, "CallThreshold").Length > 0 || S(ws, at, r, "CallThresholdQty").Length > 0)) continue;
+            int rr = rws == ws ? r : RowOf(rws, "Material", name);
+            string from = rr == 0 ? "" : S(rws, rat, rr, "SupplyFromCP"), to = rr == 0 ? "" : S(rws, rat, rr, "SupplyToCP");
+            if (from.Length == 0 || to.Length == 0) continue; // a lone CP would measure 0
+            rows.Add((r, name, rr));
+            input.Routes.Add(new Route(name, from, to, S(rws, rat, rr, "BufferCP") is { Length: > 0 } b ? b : null, null, null, 0));
+        }
+        if (rows.Count == 0) return;
+        var len = ASH.Core.Runner.GroupClusters.Build(layout, input, new ASH.Core.Traffic.TrafficTable()).SupplyLength; // no groups: the traffic blocks are not used
+        var typeOf = Pairs(gws, "Group", "Type");
+        double safetyDefault = wb.TryGetWorksheet("Settings", out var set) && RowOf(set, "Key", "SafetyStock") is var sr && sr > 0 ? N(set, Columns(set), sr, "Value") ?? 2 : 2;
+        foreach (var (r, name, rr) in rows)
+        {
+            if (!len.TryGetValue(name, out var length) || !typeOf.TryGetValue(S(ws, at, r, "Group"), out var type)) continue;
+            int tr = RowOf(tws, "Type", type);
+            double? speed = tr == 0 ? null : N(tws, tat, tr, "SpeedLoaded"), takt = N(ws, at, r, "TaktTime"), perCycle = N(ws, at, r, "UnitsPerCycle"), perBox = N(ws, at, r, "UnitsPerContainer");
+            if (speed == null || takt == null || perCycle == null || perBox == null) continue;
+            var n = SuggestCall(length * scale, speed.Value, N(tws, tat, tr, "LoadTime") ?? 0, N(tws, tat, tr, "UnloadTime") ?? 0, N(rws, rat, rr, "ExtraTime") ?? 0,
+                takt.Value, perCycle.Value, perBox.Value, N(ws, at, r, "SafetyStock") ?? safetyDefault);
+            if (n == null) continue;
+            Set(ws, r, cc, n.Value.ToString(CultureInfo.InvariantCulture), log);
+            changes.Add($"Materials: {name} 호출 임계 {n} (제안)");
+        }
+    }
+
+    /// <summary>E5: one line of the blank <see cref="Required"/> cells on rows that have a name, per sheet and column ("입력 필요: Materials T/T 3칸 · …").
+    /// A Use N row needs nothing; a conveyor-fed material takes TaktTime and UnitsPerCycle from Conveyors; CallThresholdQty fills CallThreshold.</summary>
+    static string NeedSummary(XLWorkbook wb)
+    {
+        var fed = new HashSet<string>(wb.TryGetWorksheet("Conveyors", out var cv) ? Values(cv, "Material") : new List<string>());
+        var parts = new List<string>();
+        foreach (var sheet in Required.Select(x => x.Sheet).Distinct())
+        {
+            if (!wb.TryGetWorksheet(sheet, out var ws)) continue;
+            var at = Columns(ws); var cols = ColsOf(sheet); var desc = Sheets.First(x => x.Sheet == sheet).Desc;
+            string S(int r, string col) => at.TryGetValue(col, out var c) ? ws.Cell(r, c).GetString().Trim() : "";
+            var named = Enumerable.Range(3, Math.Max(0, LastDataRow(ws) - 2)).Where(r => S(r, cols[0]).Length > 0 && S(r, "Use").ToUpperInvariant() is not ("N" or "아니오" or "0")).ToList();
+            var counts = new List<string>();
+            foreach (var (_, col) in Required.Where(x => x.Sheet == sheet))
+            {
+                if (!at.ContainsKey(col)) continue;
+                int n = named.Count(r => S(r, col).Length == 0 && !(col == "CallThreshold" && S(r, "CallThresholdQty").Length > 0)
+                    && !((col == "TaktTime" || col == "UnitsPerCycle") && fed.Contains(S(r, cols[0]))));
+                var label = desc[Array.IndexOf(cols, col)];
+                if (n > 0) counts.Add($"{(label.IndexOf('(') > 0 ? label.Substring(0, label.IndexOf('(')) : label)} {n}칸");
+            }
+            if (counts.Count > 0) parts.Add($"{sheet} {string.Join(", ", counts)}");
+        }
+        return parts.Count == 0 ? NeedPrefix + " 없음" : $"{NeedPrefix}: {string.Join(" · ", parts)}";
+    }
+
+    /// <summary>E1: each run of side-by-side <see cref="Advanced"/> columns is grouped (Excel outline) and collapsed, behind "+". Columns are never moved, so
+    /// an older workbook may get several runs; a run already grouped is left as it is (grouping again would add a level).</summary>
+    static void ApplyOutline(XLWorkbook wb, List<ExcelEdit>? log = null)
+    {
+        foreach (var sheet in Advanced.Select(a => a.Sheet).Distinct())
+        {
+            if (!wb.TryGetWorksheet(sheet, out var ws)) continue;
+            var adv = new HashSet<int>(Columns(ws).Where(kv => Advanced.Contains((sheet, kv.Key))).Select(kv => kv.Value));
+            foreach (var first in adv.Where(c => !adv.Contains(c - 1)).OrderBy(c => c).ToList())
+            {
+                int last = first; while (adv.Contains(last + 1)) last++;
+                if (Enumerable.Range(first, last - first + 1).Any(c => ws.Column(c).OutlineLevel > 0)) continue;
+                var run = ws.Columns(first, last);
+                run.Group(); run.Collapse(); // Group(true) does not hide them (ClosedXML 0.102)
+                log?.Add(new GroupColumnsEdit(sheet, first, last));
+            }
+        }
     }
 
     static void Set(IXLWorksheet ws, int r, int c, string v, List<ExcelEdit>? log)
@@ -412,6 +605,9 @@ public static class ExcelTemplate
     }
 
     static string[] ColsOf(string sheet) => Sheets.First(x => x.Sheet == sheet).Cols;
+
+    /// <summary>The index of a Materials column in the template's (and a seed row's) order.</summary>
+    static int MatCol(string col) => Array.IndexOf(ColsOf("Materials"), col);
 
     /// <summary>The first form the vehicle kind of <paramref name="group"/>'s type carries; null when the group, type or kind is not known.</summary>
     internal static string? FormFor(string group, IReadOnlyDictionary<string, string> typeOfGroup, IReadOnlyDictionary<string, string> kindOfType) =>
@@ -460,13 +656,14 @@ public static class ExcelTemplate
         return 0;
     }
 
-    /// <summary>A row after the last used one, each value under its template column wherever that column is in this sheet.</summary>
-    static void Append(IXLWorksheet ws, string[] cols, string[] values, List<ExcelEdit>? log)
+    /// <summary>A row after the last used one, each value under its template column wherever that column is in this sheet. Returns the row.</summary>
+    static int Append(IXLWorksheet ws, string[] cols, string[] values, List<ExcelEdit>? log)
     {
         var at = Columns(ws);
         int r = Math.Max(3, LastDataRow(ws) + 1);
         for (int i = 0; i < cols.Length && i < values.Length; i++)
             if (values[i].Length > 0 && at.TryGetValue(cols[i], out var c)) Set(ws, r, c, values[i], log);
+        return r;
     }
 
     /// <summary>The last row holding a typed value (formula cells, such as the totals, do not count).</summary>
@@ -523,8 +720,8 @@ public static class ExcelTemplate
     static readonly string[] CpListTypes = { "load", "unload", "buffer", "rtnload", "rtnunload", "standby", "finish" };
     internal static readonly (string Sheet, string Col, string CpType)[] CpLists =
     {
-        ("Routes", "SupplyFromCP", "load"), ("Routes", "SupplyToCP", "unload"), ("Routes", "BufferCP", "buffer"),
-        ("Routes", "ReturnFromCP", "rtnload"), ("Routes", "ReturnToCP", "rtnunload"),
+        ("Materials", "SupplyFromCP", "load"), ("Materials", "SupplyToCP", "unload"), ("Materials", "BufferCP", "buffer"),
+        ("Materials", "ReturnFromCP", "rtnload"), ("Materials", "ReturnToCP", "rtnunload"),
         ("AGV_Groups", "StandbyCPs", "standby"), ("AGV_Groups", "FinishCP", "finish"),
     };
     const string CpMsg = "도면에 없는 CP 이름입니다. 그대로 쓰려면 예";
@@ -644,11 +841,15 @@ public static class ExcelTemplate
     }
 }
 
-/// <summary>One change <see cref="ExcelTemplate.Update(XLWorkbook, ASH.Core.Layout.Layout?, List{ExcelEdit}?)"/> made, in order, so that Excel itself can
+/// <summary>One change <see cref="ExcelTemplate.Update(XLWorkbook, ASH.Core.Layout.Layout?, List{ExcelEdit}?, IReadOnlyList{ASH.Core.Catalog.CatalogType}?, double)"/> made, in order, so that Excel itself can
 /// repeat it on a file only Excel can write (company document encryption). Columns and rows are 1-based, as they were when the edit was made.</summary>
 public abstract record ExcelEdit(string Sheet);
 public sealed record AddSheetEdit(string Sheet, bool Hidden = false) : ExcelEdit(Sheet);
 public sealed record DeleteColumnEdit(string Sheet, int Col) : ExcelEdit(Sheet);
+/// <summary>The whole sheet deleted (an older workbook's Routes sheet, once merged into Materials).</summary>
+public sealed record DeleteSheetEdit(string Sheet) : ExcelEdit(Sheet);
+/// <summary>Columns FirstCol..LastCol grouped (Excel outline) and collapsed; left alone when any of them is grouped already.</summary>
+public sealed record GroupColumnsEdit(string Sheet, int FirstCol, int LastCol) : ExcelEdit(Sheet);
 public sealed record CellEdit(string Sheet, int Row, int Col, string Value) : ExcelEdit(Sheet);
 /// <summary>One R1C1 formula over rows FirstRow..LastRow of a column.</summary>
 public sealed record FormulaEdit(string Sheet, int Col, int FirstRow, int LastRow, string FormulaR1C1) : ExcelEdit(Sheet);

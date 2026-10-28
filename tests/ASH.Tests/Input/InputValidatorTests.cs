@@ -76,6 +76,7 @@ public class InputValidatorTests
     public void Validate_Flags_Material_Without_Route_And_Duplicate_Route()
     {
         var p = Good();
+        p.RouteSheet = "Routes"; // an older workbook: a Routes sheet of its own can hold two rows for one material
         p.Routes.Add(p.Routes[0] with { Row = 5 });
         Assert.Equal("Routes!5", Assert.Single(InputValidator.Validate(p, Cps)).EntityId);
         p.Routes.Clear();
@@ -93,7 +94,9 @@ public class InputValidatorTests
         p.Routes[0] = p.Routes[0] with { SupplyToCP = "NOPE", BufferCP = "ALSO" };
         var f = InputValidator.Validate(p, Cps);
         Assert.Equal(2, f.Count);
-        Assert.All(f, x => { Assert.Equal(FindingCode.InputError, x.Code); Assert.Equal("Routes!3", x.EntityId); });
+        Assert.All(f, x => { Assert.Equal(FindingCode.InputError, x.Code); Assert.Equal("Materials!3", x.EntityId); }); // the route is on the material's row
+        p.RouteSheet = "Routes";
+        Assert.All(InputValidator.Validate(p, Cps), x => Assert.Equal("Routes!3", x.EntityId));
         Assert.Empty(InputValidator.Validate(p, null)); // no layout -> CP check skipped
     }
 
@@ -141,6 +144,7 @@ public class InputValidatorTests
     public void Validate_Reports_Source_Row_After_Blank_Row()
     {
         var p = Good();
+        p.RouteSheet = "Routes";
         p.Routes.Add(p.Routes[0] with { Material = "NOPE", Row = 7 });
         Assert.Equal("Routes!7", Assert.Single(InputValidator.Validate(p, Cps)).EntityId);
     }
@@ -154,7 +158,7 @@ public class InputValidatorTests
         foreach (var cps in new IReadOnlyCollection<string>?[] { Cps, null })
         {
             var f = InputValidator.Validate(p, cps);
-            Assert.Equal(2, f.Count(x => x.EntityId == "Routes!3"));
+            Assert.Equal(2, f.Count(x => x.EntityId == "Materials!3"));
             Assert.Contains(f, x => x.EntityId == "Stations!3");
         }
     }

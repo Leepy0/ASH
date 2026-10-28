@@ -25,11 +25,11 @@ public class UseAndConveyorsTests
             ExcelTemplate.Write(path);
             using (var wb = ExcelReader.Open(path))
             {
-                var m = wb.Worksheet("Materials"); var r = wb.Worksheet("Routes");
+                var m = wb.Worksheet("Materials"); // the route is on the material's row
                 for (int i = 1; i <= 2; i++)
                 {
-                    m.Row(3).CopyTo(m.Row(3 + i)); r.Row(3).CopyTo(r.Row(3 + i));
-                    m.Cell(3 + i, 1).Value = "M00" + (i + 1); r.Cell(3 + i, 1).Value = "M00" + (i + 1);
+                    m.Row(3).CopyTo(m.Row(3 + i));
+                    m.Cell(3 + i, 1).Value = "M00" + (i + 1);
                 }
                 edit?.Invoke(wb);
                 wb.Save();
@@ -71,7 +71,7 @@ public class UseAndConveyorsTests
             ExcelTemplate.Write(path, null);
             using var wb = ExcelReader.Open(path);
             AssertCentered(wb);
-            Assert.Equal(60, wb.Worksheet("Materials").Cell(3, 4).GetDouble()); // values are untouched
+            Assert.Equal(60, wb.Worksheet("Materials").Cell(3, Col(wb.Worksheet("Materials"), "TaktTime")).GetDouble()); // values are untouched
         }
         finally { File.Delete(path); }
     }
@@ -191,7 +191,7 @@ public class UseAndConveyorsTests
             Assert.Single(p.Materials); Assert.Empty(p.DisabledMaterials);
             Assert.Contains(ExcelTemplate.Update(path, null), c => c == "Materials: Use 열 추가");
             using var wb2 = ExcelReader.Open(path);
-            Assert.Equal("Use", wb2.Worksheet("Materials").Cell(1, 20).GetString());
+            Assert.Equal("Use", wb2.Worksheet("Materials").Cell(1, ExcelTemplate.Sheets.First(x => x.Sheet == "Materials").Cols.Length).GetString()); // appended last
             Assert.Single(ExcelReader.Read(path).Materials);
         }
         finally { File.Delete(path); }

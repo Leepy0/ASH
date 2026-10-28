@@ -27,6 +27,8 @@ public class ExcelDrawingLinkTests
 
     static string Tmp() => Path.Combine(Path.GetTempPath(), "link-" + System.Guid.NewGuid().ToString("N") + ".xlsx");
 
+    static int Col(IXLWorksheet ws, string head) => Enumerable.Range(1, ws.LastColumnUsed()!.ColumnNumber()).First(c => ws.Cell(1, c).GetString() == head);
+
     static List<string> Column(IXLWorksheet ws, int col) =>
         Enumerable.Range(1, 100).Select(r => ws.Cell(r, col).GetString()).TakeWhile(s => s.Length > 0).ToList();
 
@@ -50,18 +52,19 @@ public class ExcelDrawingLinkTests
             Assert.Equal(new[] { "RU1" }, Column(lists, 7));               // rtnunload
             Assert.Equal(new[] { "SB1" }, Column(lists, 8));               // standby
             Assert.Equal(new[] { "FN1" }, Column(lists, 9));               // finish
-            var routes = wb.Worksheet("Routes");
+            var routes = wb.Worksheet("Materials"); // the route columns are on the material rows
             string Src(IXLWorksheet ws, int col) => ws.Cell(5, col).GetDataValidation().Value;
-            Assert.Contains("_lists!$C$1:$C$2", Src(routes, 2));           // SupplyFromCP
-            Assert.Contains("_lists!$D$1:$D$1", Src(routes, 3));           // SupplyToCP
-            Assert.Contains("_lists!$E$1:$E$1", Src(routes, 4));           // BufferCP
-            Assert.Contains("_lists!$F$1:$F$1", Src(routes, 5));
-            Assert.Contains("_lists!$G$1:$G$1", Src(routes, 6));
+            int from = Col(routes, "SupplyFromCP");
+            Assert.Contains("_lists!$C$1:$C$2", Src(routes, from));
+            Assert.Contains("_lists!$D$1:$D$1", Src(routes, Col(routes, "SupplyToCP")));
+            Assert.Contains("_lists!$E$1:$E$1", Src(routes, Col(routes, "BufferCP")));
+            Assert.Contains("_lists!$F$1:$F$1", Src(routes, Col(routes, "ReturnFromCP")));
+            Assert.Contains("_lists!$G$1:$G$1", Src(routes, Col(routes, "ReturnToCP")));
             var groups = wb.Worksheet("AGV_Groups");
             Assert.Contains("_lists!$H$1:$H$1", Src(groups, 5));           // StandbyCPs
             Assert.Contains("_lists!$I$1:$I$1", Src(groups, 7));           // FinishCP
-            Assert.Equal(XLErrorStyle.Warning, routes.Cell(5, 2).GetDataValidation().ErrorStyle);
-            Assert.Single(routes.DataValidations, v => v.Ranges.Any(r => r.RangeAddress.FirstAddress.ColumnNumber == 2));
+            Assert.Equal(XLErrorStyle.Warning, routes.Cell(5, from).GetDataValidation().ErrorStyle);
+            Assert.Single(routes.DataValidations, v => v.Ranges.Any(r => r.RangeAddress.FirstAddress.ColumnNumber == from));
         }
         finally { File.Delete(path); }
     }
@@ -121,7 +124,7 @@ public class ExcelDrawingLinkTests
             ExcelTemplate.Update(wb, Drawing(), log);
             Assert.Contains(log, e => e is AddSheetEdit a && a.Sheet == "_lists" && a.Hidden);
             Assert.Contains(log, e => e is CellEdit c && c.Sheet == "_lists" && c.Col == 3 && c.Row == 2 && c.Value == "L002");
-            Assert.Contains(log, e => e is ListEdit x && x.Sheet == "Routes" && x.Formula == "=_lists!$C$1:$C$2" && x.Warn);
+            Assert.Contains(log, e => e is ListEdit x && x.Sheet == "Materials" && x.Formula == "=_lists!$C$1:$C$2" && x.Warn);
         }
         finally { File.Delete(path); }
     }
@@ -178,7 +181,7 @@ public class ExcelDrawingLinkTests
             Assert.Equal("FN", p.Groups[0].FinishCP);
             Assert.Contains(changes, c => c.Contains("자재 M002") && c.Contains("로딩 LA,LB") && c.Contains("완료 FN"));
             Assert.Contains(changes, c => c.Contains("완료 CP FN"));
-            Assert.Empty(ExcelTemplate.Update(path, Recorded()));                       // nothing left to add
+            Assert.Equal(new[] { ExcelTemplate.NeedPrefix + " 없음" }, ExcelTemplate.Update(path, Recorded())); // nothing left to add
             using (var wb = ExcelReader.Open(path)) { wb.Worksheet("AGV_Groups").Cell(3, 7).Value = "OWN"; wb.Save(); }
             ExcelTemplate.Update(path, Recorded());
             Assert.Equal("OWN", ExcelReader.Read(path).Groups[0].FinishCP);              // typed value stays
@@ -234,7 +237,7 @@ public class ExcelDrawingLinkTests
         Assert.Equal(new[] { ExcelDrawingDiff.Missing, ExcelDrawingDiff.WrongGroup, ExcelDrawingDiff.WrongType }.OrderBy(x => x), items.Where(d => d.Kind != ExcelDrawingDiff.Unused).Select(d => d.Kind).Distinct().OrderBy(x => x));
         Assert.All(items.Where(d => d.Finding.Message.Contains("쓰지 않음")), d => Assert.Equal(ExcelDrawingDiff.Unused, d.Kind));
         var missing = Assert.Single(f, x => x.Message.Contains("도면에 없는"));
-        Assert.Equal((FindingCode.InputError, "Routes!3"), (missing.Code, missing.EntityId));
+        Assert.Equal((FindingCode.InputError, "Materials!3"), (missing.Code, missing.EntityId)); // the route is on the material's row
         Assert.Contains("BufferCP 'NOPE'", missing.Message);
         var type = Assert.Single(f, x => x.Message.Contains("load CP"));
         Assert.Equal(FindingCode.InputError, type.Code); Assert.Contains("SupplyToCP 'L002'", type.Message); Assert.Contains("unload 필요", type.Message);
@@ -275,7 +278,7 @@ public class ExcelDrawingLinkTests
             ExcelTemplate.Write(path, Drawing());
             var f = new[]
             {
-                Err("Routes!3", "SupplyToCP 'XX'이(가) 레이아웃에 없습니다."),
+                Err("Materials!3", "SupplyToCP 'XX'이(가) 레이아웃에 없습니다."),
                 Warn("Materials!3", "자재 'M001': 호출 임계값이 안전재고 이하 (CallThreshold 1 <= SafetyStock 2)."),
                 Warn("Materials!3", "자재 'M001': Group 'G'..."),   // same cell family, different column
                 Err("Settings", "no row"),                          // no cell reference: left out
@@ -284,23 +287,23 @@ public class ExcelDrawingLinkTests
             Assert.True(ExcelMarks.MarkFile(path, f));
             using (var wb = ExcelReader.Open(path))
             {
-                var c = wb.Worksheet("Routes").Cell(3, 3);                                  // SupplyToCP = column 3
+                var m = wb.Worksheet("Materials");
+                var c = m.Cell(3, Col(m, "SupplyToCP"));
                 Assert.Equal(XLColor.FromArgb(ExcelMarks.ErrorRgb), c.Style.Fill.BackgroundColor);
                 Assert.StartsWith("ASH 검증(오류)", c.GetComment().Text); Assert.Contains("SupplyToCP 'XX'", c.GetComment().Text);
-                var m = wb.Worksheet("Materials");
-                int callCol = Enumerable.Range(1, 30).First(i => m.Cell(1, i).GetString() == "CallThreshold");
-                Assert.Equal(XLColor.FromArgb(ExcelMarks.WarnRgb), m.Cell(3, callCol).Style.Fill.BackgroundColor);
-                Assert.Equal(XLColor.FromArgb(ExcelMarks.WarnRgb), m.Cell(3, 3).Style.Fill.BackgroundColor);   // Group = column 3
+                Assert.Equal(XLColor.FromArgb(ExcelMarks.WarnRgb), m.Cell(3, Col(m, "CallThreshold")).Style.Fill.BackgroundColor);
+                Assert.Equal(XLColor.FromArgb(ExcelMarks.WarnRgb), m.Cell(3, Col(m, "Group")).Style.Fill.BackgroundColor);
                 Assert.Equal(3, wb.Worksheets.Sum(w => w.CellsUsed(XLCellsUsedOptions.All).Count(x => x.HasComment && x.GetComment().Text.StartsWith(ExcelMarks.Prefix))));
             }
             // the next run: only the new finding stays
-            Assert.True(ExcelMarks.MarkFile(path, new[] { Warn("Routes!3", "BufferCP 'B'") }));
+            Assert.True(ExcelMarks.MarkFile(path, new[] { Warn("Materials!3", "BufferCP 'B'") }));
             using (var wb = ExcelReader.Open(path))
             {
-                Assert.False(wb.Worksheet("Routes").Cell(3, 3).HasComment);
-                Assert.Equal(XLFillPatternValues.None, wb.Worksheet("Routes").Cell(3, 3).Style.Fill.PatternType);
-                Assert.Contains("BufferCP 'B'", wb.Worksheet("Routes").Cell(3, 4).GetComment().Text);
-                Assert.Equal(XLColor.FromArgb(ExcelMarks.WarnRgb), wb.Worksheet("Routes").Cell(3, 4).Style.Fill.BackgroundColor);
+                var m = wb.Worksheet("Materials");
+                Assert.False(m.Cell(3, Col(m, "SupplyToCP")).HasComment);
+                Assert.Equal(XLFillPatternValues.None, m.Cell(3, Col(m, "SupplyToCP")).Style.Fill.PatternType);
+                Assert.Contains("BufferCP 'B'", m.Cell(3, Col(m, "BufferCP")).GetComment().Text);
+                Assert.Equal(XLColor.FromArgb(ExcelMarks.WarnRgb), m.Cell(3, Col(m, "BufferCP")).Style.Fill.BackgroundColor);
             }
             Assert.True(ExcelMarks.MarkFile(path, new Finding[0]));       // fixed: all gone
             Assert.False(ExcelMarks.MarkFile(path, new Finding[0]));      // nothing to clear: no save
@@ -318,18 +321,19 @@ public class ExcelDrawingLinkTests
         try
         {
             ExcelTemplate.Write(path, Drawing());
-            using (var wb = ExcelReader.Open(path)) { wb.Worksheet("Routes").Cell(3, 3).CreateComment().AddText("내 메모"); wb.Save(); }
-            ExcelMarks.MarkFile(path, new[] { Err("Routes!3", "SupplyToCP x") });
+            int to;
+            using (var wb = ExcelReader.Open(path)) { var m = wb.Worksheet("Materials"); to = Col(m, "SupplyToCP"); m.Cell(3, to).CreateComment().AddText("내 메모"); wb.Save(); }
+            ExcelMarks.MarkFile(path, new[] { Err("Materials!3", "SupplyToCP x") });
             using (var wb = ExcelReader.Open(path))
             {
-                var c = wb.Worksheet("Routes").Cell(3, 3);
+                var c = wb.Worksheet("Materials").Cell(3, to);
                 Assert.Equal("내 메모", c.GetComment().Text);                      // not replaced
                 Assert.Equal(XLColor.FromArgb(ExcelMarks.ErrorRgb), c.Style.Fill.BackgroundColor);
             }
             ExcelMarks.MarkFile(path, new Finding[0]);
             using (var wb = ExcelReader.Open(path))
             {
-                Assert.Equal("내 메모", wb.Worksheet("Routes").Cell(3, 3).GetComment().Text);          // a comment without the prefix is never cleared
+                Assert.Equal("내 메모", wb.Worksheet("Materials").Cell(3, to).GetComment().Text);        // a comment without the prefix is never cleared
                 var m = wb.Worksheet("Materials");
                 int total = Enumerable.Range(1, 30).First(i => m.Cell(1, i).GetString() == "CallThresholdTotal");
                 Assert.Equal(XLColor.FromArgb(ExcelTemplate.AutoFillRgb), m.Cell(3, total).Style.Fill.BackgroundColor);
@@ -347,11 +351,11 @@ public class ExcelDrawingLinkTests
             ExcelTemplate.Write(path, Drawing());
             var log = new List<ExcelEdit>();
             using var wb = ExcelReader.Open(path);
-            ExcelMarks.Apply(wb, new[] { Warn("Routes!3", "SupplyFromCP 'L'") }, log);
+            ExcelMarks.Apply(wb, new[] { Warn("Materials!3", "SupplyFromCP 'L'") }, log);
             Assert.Equal(ExcelTemplate.Sheets.Length, log.OfType<ClearMarksEdit>().Count());
             Assert.True(log.FindIndex(e => e is ClearMarksEdit) < log.FindIndex(e => e is MarkEdit));
             var mark = log.OfType<MarkEdit>().Single();
-            Assert.Equal(("Routes", 3, 2, ExcelMarks.WarnRgb), (mark.Sheet, mark.Row, mark.Col, mark.Rgb));
+            Assert.Equal(("Materials", 3, Col(wb.Worksheet("Materials"), "SupplyFromCP"), ExcelMarks.WarnRgb), (mark.Sheet, mark.Row, mark.Col, mark.Rgb));
             Assert.StartsWith("ASH 검증(경고)", mark.Text);
         }
         finally { File.Delete(path); }
@@ -364,12 +368,13 @@ public class ExcelDrawingLinkTests
         try
         {
             ExcelTemplate.Write(path, Drawing());
-            using (var wb = ExcelReader.Open(path)) { wb.Worksheet("Routes").Cell(3, 3).Value = "NOWHERE"; wb.Save(); }
+            int to;
+            using (var wb = ExcelReader.Open(path)) { var m = wb.Worksheet("Materials"); to = Col(m, "SupplyToCP"); m.Cell(3, to).Value = "NOWHERE"; wb.Save(); }
             var input = ExcelReader.Read(path);
             var f = InputValidator.Validate(input, Drawing().Cps.Select(c => c.Name).ToList());
             ExcelMarks.MarkFile(path, f);
             using var wb2 = ExcelReader.Open(path);
-            Assert.Contains("NOWHERE", wb2.Worksheet("Routes").Cell(3, 3).GetComment().Text);   // SupplyToCP
+            Assert.Contains("NOWHERE", wb2.Worksheet("Materials").Cell(3, to).GetComment().Text);   // SupplyToCP, on the material's row
         }
         finally { File.Delete(path); }
     }

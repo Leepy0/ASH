@@ -24,7 +24,7 @@ public static class ProductionLimit
     {
         double f = 1 + pct / 100.0;
         // shortcut: the lists are copied one by one; a new list on ProjectInput must be added here
-        var p = new ProjectInput { Settings = input.Settings };
+        var p = new ProjectInput { Settings = input.Settings, RouteSheet = input.RouteSheet };
         p.AgvTypes.AddRange(input.AgvTypes);
         p.Groups.AddRange(input.Groups);
         p.Materials.AddRange(input.Materials.Select(m => m with { TaktTime = m.TaktTime / f }));

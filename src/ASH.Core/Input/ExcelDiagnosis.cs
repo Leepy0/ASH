@@ -15,7 +15,7 @@ namespace ASH.Core.Input;
 /// </summary>
 public static class ExcelDiagnosis
 {
-    static readonly string[] RequiredSheets = { "Settings", "AGV_Types", "AGV_Groups", "Materials", "Routes" };
+    static readonly string[] RequiredSheets = { "Settings", "AGV_Types", "AGV_Groups", "Materials" }; // Routes: only older workbooks have it (now on Materials)
 
     /// <summary>Lines for the command line: the exception chain, then what the file check found.</summary>
     public static IReadOnlyList<string> Explain(string path, Exception ex)

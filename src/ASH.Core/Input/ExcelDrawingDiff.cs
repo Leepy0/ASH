@@ -41,7 +41,7 @@ public static class ExcelDrawingDiff
         for (int i = 0; i < input.Routes.Count; i++)
         {
             var r = input.Routes[i];
-            var id = At("Routes", r.Row, i);
+            var id = At(input.RouteSheet, r.Row, i);
             var group = input.Materials.FirstOrDefault(m => m.Material == r.Material)?.Group;
             string who = $"자재 {r.Material}";
             Ref(id, "SupplyFromCP", r.SupplyFromCP, "load", group, who);
