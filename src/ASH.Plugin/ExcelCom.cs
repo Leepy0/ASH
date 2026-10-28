@@ -18,6 +18,36 @@ internal static class ExcelCom
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
 
+    // Begin..End (one command): a hidden Excel and the files it opened stay up between Read and Apply, so a command that reads, edits, reads again and marks
+    // starts Excel and decrypts the file once instead of every time. Commands run on ZWCAD's main thread only.
+    static int _depth;
+    static dynamic? _app;
+    static int _appPid;
+    static readonly System.Collections.Generic.Dictionary<string, object> _books = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Keeps the hidden Excel of the following Read/Apply calls until the matching <see cref="End"/>. Nested pairs share the outer one.</summary>
+    public static void Begin() => _depth++;
+
+    /// <summary><see cref="Begin"/> now, <see cref="End"/> on Dispose (`using var`).</summary>
+    public static IDisposable Session() { Begin(); return new Ender(); }
+
+    sealed class Ender : IDisposable { bool done; public void Dispose() { if (!done) { done = true; End(); } } }
+
+    /// <summary>Closes what <see cref="Begin"/> kept (unsaved: Apply saves itself) once the outermost pair ends. Must run before anything else opens the file
+    /// (AGVEXCEL hands it to the user's Excel next). Never throws.</summary>
+    public static void End()
+    {
+        if (_depth == 0 || --_depth > 0) return;
+        foreach (var b in _books.Values) try { ((dynamic)b).Close(false); } catch (COMException) { }
+        try { _app?.Quit(); } catch (COMException) { }
+        foreach (var o in new System.Collections.Generic.List<object?>(_books.Values) { _app })
+            try { if (o != null && Marshal.IsComObject(o)) Marshal.FinalReleaseComObject(o); } catch (ArgumentException) { }
+        _books.Clear(); _app = null;
+        GC.Collect(); GC.WaitForPendingFinalizers();
+        if (_appPid != 0) KillIfStillThere(_appPid);
+        _appPid = 0;
+    }
+
     /// <summary>Cell values of every sheet. If Excel already has the file open (the usual case: the user is still editing it) that copy is read, unsaved edits
     /// included, and <paramref name="note"/> says so; otherwise the file is opened read-only in a hidden Excel that is closed afterwards.</summary>
     public static XLWorkbook Read(string path, out string note)
@@ -36,16 +66,41 @@ internal static class ExcelCom
     /// so the document encryption stays on. A copy the user has open in Excel is edited and saved in place (they see the changes); otherwise a hidden Excel does it.</summary>
     public static void Apply(string path, System.Collections.Generic.IReadOnlyList<ExcelEdit> edits) => With(path, readOnly: false, (wb, open) =>
     {
-        foreach (var e in edits)
+        // every call crosses into Excel's process: no repaint, events or recalculation per edit (the user's open window repaints once at the end)
+        dynamic app = wb.Application;
+        bool screen = true, events = true; object? calc = null;
+        try { screen = app.ScreenUpdating; events = app.EnableEvents; calc = app.Calculation; app.ScreenUpdating = false; app.EnableEvents = false; app.Calculation = -4135; } // xlCalculationManual
+        catch (COMException) { }
+        try { Edit(wb, edits); }
+        finally
         {
+            try { if (calc != null) app.Calculation = calc; app.EnableEvents = events; app.ScreenUpdating = screen; } catch (COMException) { }
+        }
+        wb.Save();
+        return 0;
+    });
+
+    static object Cell(string v) => double.TryParse(v, NumberStyles.Float, CultureInfo.InvariantCulture, out var num) ? num : (object)v;
+
+    static void Edit(dynamic wb, System.Collections.Generic.IReadOnlyList<ExcelEdit> edits)
+    {
+        for (int i = 0; i < edits.Count; i++)
+        {
+            var e = edits[i];
             if (e is AddSheetEdit ase) { dynamic last = wb.Worksheets[wb.Worksheets.Count]; dynamic ws = wb.Worksheets.Add(Type.Missing, last); ws.Name = e.Sheet; if (ase.Hidden) ws.Visible = 0; continue; }
             dynamic sheet = wb.Worksheets[e.Sheet];
             switch (e)
             {
                 case DeleteColumnEdit d: sheet.Columns[d.Col].Delete(); break;
                 case CellEdit c:
-                    if (double.TryParse(c.Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var num)) sheet.Cells[c.Row, c.Col].Value2 = num;
-                    else sheet.Cells[c.Row, c.Col].Value2 = c.Value;
+                    // a run of edits on the next cells of the same row (an appended row) goes in one Range.Value2
+                    int n = 1;
+                    while (i + n < edits.Count && edits[i + n] is CellEdit x && x.Sheet == c.Sheet && x.Row == c.Row && x.Col == c.Col + n) n++;
+                    if (n == 1) { sheet.Cells[c.Row, c.Col].Value2 = Cell(c.Value); break; }
+                    var row = new object[1, n];
+                    for (int k = 0; k < n; k++) row[0, k] = Cell(((CellEdit)edits[i + k]).Value);
+                    sheet.Range[sheet.Cells[c.Row, c.Col], sheet.Cells[c.Row, c.Col + n - 1]].Value2 = row;
+                    i += n - 1;
                     break;
                 case FormulaEdit f: sheet.Range[sheet.Cells[f.FirstRow, f.Col], sheet.Cells[f.LastRow, f.Col]].FormulaR1C1 = f.FormulaR1C1; break;
                 case FillEdit fe: // Interior.Color is BGR
@@ -61,9 +116,9 @@ internal static class ExcelCom
                     break;
                 case ClearMarksEdit:
                     // Excel does its own search: a copy read through Excel carries no comments. Newest first, as deleting shifts the index.
-                    for (int i = (int)sheet.Comments.Count; i >= 1; i--)
+                    for (int k = (int)sheet.Comments.Count; k >= 1; k--)
                     {
-                        dynamic cm = sheet.Comments.Item(i);
+                        dynamic cm = sheet.Comments.Item(k);
                         if (((string)cm.Text()).StartsWith(ExcelMarks.Prefix, StringComparison.Ordinal)) { cm.Parent.Interior.ColorIndex = -4142; cm.Delete(); } // xlColorIndexNone
                     }
                     break;
@@ -74,9 +129,7 @@ internal static class ExcelCom
                     break;
             }
         }
-        wb.Save();
-        return 0;
-    });
+    }
 
     /// <summary>Runs <paramref name="work"/> on the workbook: the copy a running Excel has open (open = true), else the file opened in a hidden Excel that is
     /// closed afterwards, unsaved.</summary>
@@ -95,12 +148,21 @@ internal static class ExcelCom
                     string name = b.FullName;
                     if (string.Equals(name, full, StringComparison.OrdinalIgnoreCase)) { wb = b; app = running; break; }
                 }
+            if (wb == null && _depth > 0)
+            {
+                // inside Begin..End: the kept hidden Excel and its copy of the file (opened for writing, so Read and Apply share it); End closes them
+                var sw = Stopwatch.StartNew();
+                if (!_books.TryGetValue(full, out var kept))
+                {
+                    if (_app == null) _app = NewHidden(out _appPid);
+                    _books[full] = kept = _app!.Workbooks.Open(full, 0, false);
+                    PluginLog.Write($"ExcelCom: {Path.GetFileName(full)} opened in {sw.ElapsedMilliseconds} ms (kept for this command)");
+                }
+                return work((dynamic)kept, false);
+            }
             if (wb == null)
             {
-                var type = Type.GetTypeFromProgID("Excel.Application") ?? throw new InvalidOperationException("Excel이 설치되어 있지 않습니다(Excel.Application을 찾을 수 없음).");
-                app = Activator.CreateInstance(type); ownApp = true;
-                app.Visible = false; app.DisplayAlerts = false; app.AskToUpdateLinks = false;
-                try { GetWindowThreadProcessId(new IntPtr((int)app.Hwnd), out var p); pid = (int)p; } catch (Exception e) { pid = 0; PluginLog.Write("ExcelCom: no Excel process id", e); } // to make sure it is gone afterwards
+                app = NewHidden(out pid); ownApp = true;
                 wb = app.Workbooks.Open(full, 0, readOnly); ownBook = true; // UpdateLinks 0
             }
             return work(wb, !ownBook);
@@ -115,6 +177,15 @@ internal static class ExcelCom
             GC.Collect(); GC.WaitForPendingFinalizers(); // the sheet and range wrappers made while working still hold Excel
             if (pid != 0) KillIfStillThere(pid);
         }
+    }
+
+    static dynamic NewHidden(out int pid)
+    {
+        var type = Type.GetTypeFromProgID("Excel.Application") ?? throw new InvalidOperationException("Excel이 설치되어 있지 않습니다(Excel.Application을 찾을 수 없음).");
+        dynamic app = Activator.CreateInstance(type)!;
+        app.Visible = false; app.DisplayAlerts = false; app.AskToUpdateLinks = false;
+        try { GetWindowThreadProcessId(new IntPtr((int)app.Hwnd), out var p); pid = (int)p; } catch (Exception e) { pid = 0; PluginLog.Write("ExcelCom: no Excel process id", e); } // to make sure it is gone afterwards
+        return app;
     }
 
     static XLWorkbook Copy(dynamic wb)
