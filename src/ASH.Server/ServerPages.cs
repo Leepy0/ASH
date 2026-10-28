@@ -98,7 +98,7 @@ public static class ServerPages
         sb.Append("</section>");
 
         sb.Append("<section class=\"box\"><h2>서버 상태</h2><dl class=\"kv\">");
-        sb.Append("<dt>서버 프로그램</dt><dd>").Append(H(u.Current)).Append(" — 자동 업데이트: ").Append(H(u.LastResult)).Append("</dd>");
+        sb.Append("<dt>서버 프로그램</dt><dd>").Append(H(u.Current)).Append(" — 업데이트: ").Append(H(u.LastResult)).Append("</dd>");
         if (u.PreviousRun != null) sb.Append("<dt>지난 업데이트</dt><dd>").Append(H(u.PreviousRun)).Append("</dd>");
         sb.Append("<dt>GitHub 가져오기</dt><dd>").Append(g.BaseUrl == null ? "꺼짐"
             : H(g.BaseUrl) + $" <span class=\"muted\">({g.Interval.TotalMinutes:0}분마다, DNS {(g.DnsServers.Count == 0 ? "PC 기본" : H(string.Join(", ", g.DnsServers)))})</span>").Append("</dd>");
@@ -111,6 +111,23 @@ public static class ServerPages
         sb.Append("<dt>서버 시각(서울)</dt><dd>").Append(H(SeoulTime.NowText)).Append(" <span class=\"muted\">· PC 표준 시간대 ").Append(H(TimeZoneInfo.Local.Id)).Append("</span></dd>");
         sb.Append("</dl></section></div>");
         return sb.ToString();
+    }
+
+    /// <summary>The update banner (GET /admin/update-banner, admins only) every page loads into #upd: a staged version with "지금"/"작업 끝나고",
+    /// or the armed one with 취소. <paramref name="busy"/> = work runs now (지금 cuts it off; it continues after the restart).</summary>
+    public static string UpdateBanner(string version, bool armed, bool busy)
+    {
+        static string Act(string act, string label) =>
+            $"<form method=\"post\" action=\"/admin/update\"><input type=\"hidden\" name=\"act\" value=\"{act}\"><input type=\"hidden\" name=\"back\" value=\"\"><button class=\"btn\">{label}</button></form>";
+        var sb = new StringBuilder("<style>.upd{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--blue-b);color:var(--blue-d);border-radius:10px;padding:8px 14px;margin:0 0 12px;font-size:14px}" +
+            ".upd.armed{background:var(--orange-b);color:var(--orange)}.upd form{margin:0}.upd details{position:relative}.upd summary{list-style:none;cursor:pointer}.upd summary::-webkit-details-marker{display:none}" +
+            ".upd .m{position:absolute;z-index:20;top:calc(100% + 6px);left:0;background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px;display:flex;flex-direction:column;gap:6px;min-width:240px;box-shadow:0 4px 18px rgba(0,0,0,.15)}" +
+            ".upd .m .btn{width:100%}.upd .w{color:var(--red);font-size:13px}</style>");
+        if (armed) return sb.Append($"<div class=\"upd armed\" role=\"status\"><b>작업 끝나면 업데이트 {H(version)}</b>{Act("cancel", "취소")}</div>").ToString();
+        sb.Append($"<div class=\"upd\" role=\"status\"><b>업데이트 {H(version)} 준비됨</b><details><summary class=\"btn pri\">업데이트</summary><div class=\"m\">");
+        sb.Append(Act("now", "지금 업데이트"));
+        if (busy) sb.Append("<span class=\"w\">실행 중 작업 중단 · 재시작 뒤 이어서</span>");
+        return sb.Append(Act("after", "진행 중 작업 끝나고 업데이트")).Append("</div></details></div>").ToString();
     }
 
     public static string Message(string title, string html, string? refreshTo = null) =>

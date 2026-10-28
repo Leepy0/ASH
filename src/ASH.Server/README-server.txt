@@ -20,7 +20,7 @@ ASH.Server - ASH 배포 서버 (최소판)
                     가져온 릴리스도 크기·SHA-256 을 확인한다(GitHub 에서 HTTPS 로 받은 것은 그대로 믿는다). 관리자 암호는 필요 없다.
                     Dns 비우면 PC 의 DNS. 사내 DNS 가 github.com 을 못 찾으면 DNS 서버 IP 를 적는다(예: "8.8.8.8, 1.1.1.1").
                     GitHub 주소를 그 DNS 에서 먼저 찾고, 답이 없으면 PC 의 DNS 로 다시 찾는다(UDP 53).
-                    UpdateServer true(기본) 면 서버 프로그램 자신도 새 버전으로 자동 교체한다(아래 "서버 자동 업데이트").
+                    UpdateServer true(기본) 면 새 서버 버전을 받아 둔다. 적용은 관리자가 화면 위 띠에서(아래 "서버 업데이트").
    - Admin:Password  관리자 암호. 4~20자, 영문·숫자·특수문자 혼합 가능(공백·한글 안 됨). 비우면 기본값 ash!23.
                     다른 사람이 닿는 서버는 반드시 바꾼다. 규칙에 맞지 않으면 관리자 기능이 꺼진다.
                     비워 두면 수동 업로드만 꺼지고 GitHub 가져오기는 동작한다.
@@ -160,8 +160,9 @@ ASH.Server - ASH 배포 서버 (최소판)
 
 운영
 - 백업: Releases:Dir 폴더 전체와 appsettings.json. 복원: 서비스를 멈추고 복사해 넣은 뒤(폴더 권한 확인) sc start ASH.Server.
-- 서버 자동 업데이트(FOTA Gateway 와 같은 방식): ASH.Server.json 과 서버 zip 을 GitHub 에서 받아 크기·SHA-256 을 확인한 뒤
-  update\apply-update.bat 이 서비스를 멈추고 exe 를 바꿔 다시 시작한다. appsettings.json 과 배포 파일은 그대로 둔다.
+- 서버 업데이트(FOTA Gateway 와 같은 방식): ASH.Server.json 과 서버 zip 을 GitHub 에서 받아 크기·SHA-256 을 확인하고 풀어 둔다(스스로 적용 안 함).
+  관리자로 로그인하면 모든 화면 위에 "업데이트 <버전> 준비됨" 띠: "지금 업데이트"(돌던 작업은 재시작 뒤 이어서) 또는
+  "진행 중 작업 끝나고 업데이트"(취소 가능). 고르면 update\apply-update.bat 이 서비스를 멈추고 exe 를 바꿔 다시 시작한다. appsettings.json 과 배포 파일은 그대로 둔다.
   60초 안에 새 버전이 응답하지 않으면 이전 exe 로 자동 되돌리고(실패한 exe 는 ASH.Server.exe.bad) 그 버전은 다시 시도하지 않는다.
   결과: 설정 페이지 "지난 업데이트" 줄, update\apply.log. 이전 exe 는 ASH.Server.exe.old 로 남는다.
   LocalService 계정으로 바꾸면 설치 폴더에 쓸 수 없어 자동 교체가 실패한다(이전 버전 유지).

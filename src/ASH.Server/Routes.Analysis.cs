@@ -12,9 +12,9 @@ internal static partial class Routes
     {
         app.MapGet("/api/home", (HttpContext ctx, int? me, JobStore js, AnalysisStore st, FilmStore fs, FilmWorker fw, IConfiguration cfg) =>
         {
-            var films = fs.All();
-            var v = HomeView.Build(st.All(), js.All(), films, films.FirstOrDefault(f => f.State == JobState.Running), Queue(js, fw), WorkerOn(cfg),
-                JobProgress.Parallel(cfg), ClientIp(ctx), me is { } m ? m == 1 : null, DateTime.UtcNow, FileRoutes.FileQuery.From(ctx.Request.Query));
+            var films = fs.All(); var jobs = js.All();
+            var v = HomeView.Build(st.All(), jobs, films, films.FirstOrDefault(f => f.State == JobState.Running), Queue(js, fw), WorkerOn(cfg),
+                JobProgress.Parallel(cfg), ClientIp(ctx), me is { } m ? m == 1 : null, DateTime.UtcNow, FileRoutes.FileQuery.From(ctx.Request.Query), other: fw.Waiting(jobs));
             var l = LiveFields.OfHome(v);
             return Results.Json(new { v.Running, v.WorkerOn, v.QueuedCount, v.Queued, v.Me, v.InProgress, v.Finished, v.Unclassified, active = l.Active, fields = l.Fields, watch = l.Watch });
         });

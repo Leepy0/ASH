@@ -466,19 +466,21 @@ public class JobTests
     }
 
     [Fact]
-    public async Task A_Running_Job_Is_Marked_Failed_When_The_Server_Restarts()
+    public void A_Running_Job_Is_Queued_Again_To_Resume_When_The_Server_Restarts()
     {
         var dir = Path.Combine(Path.GetTempPath(), "ash-jobs-restart-" + Guid.NewGuid().ToString("N"));
         try
         {
             var log = Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance;
             var s1 = new JobStore(dir, log);
-            s1.Add(new JobInfo { Id = JobStore.NewId(), Model = "m", CreatedUtc = DateTime.UtcNow });
+            s1.Add(new JobInfo { Id = JobStore.NewId(), Model = "m", CreatedUtc = DateTime.UtcNow.AddMinutes(-5) });
             var running = s1.TakeNext()!;
+            s1.Update(running.Id, x => { x.RunsDone = 7; x.Phase = "대수 탐색"; });
+            s1.Add(new JobInfo { Id = JobStore.NewId(), Model = "m", CreatedUtc = DateTime.UtcNow }); // queued behind it
             var s2 = new JobStore(dir, log);
             var j = s2.Get(running.Id)!;
-            Assert.Equal(JobState.Failed, j.State);
-            Assert.Contains("다시 시작", j.Error);
+            Assert.Equal(JobState.Queued, j.State); Assert.True(j.Resume); Assert.Null(j.Error); Assert.Null(j.Phase);
+            Assert.Equal(running.Id, s2.TakeNext()!.Id); // its old place: first
         }
         finally { Directory.Delete(dir, true); }
     }

@@ -49,7 +49,7 @@ app.Services.GetRequiredService<AnalysisStore>(); // a bad analyses.json is set 
 app.Services.GetRequiredService<ReleaseStore>(); // bad key/folder/GitHub URL fails at start, not at the first request
 app.Services.GetRequiredService<GitHubSync>();
 app.Services.GetRequiredService<JobStore>();
-app.Services.GetRequiredService<FilmStore>(); // a film that was running when the server stopped is failed now
+app.Services.GetRequiredService<FilmStore>(); // a film that was running when the server stopped is queued again now
 
 app.MapGet("/healthz", () => Results.Text("ok"));
 // the self-update batch waits for this to answer the new version before it keeps the new exe
@@ -113,11 +113,12 @@ app.MapPost("/api/admin/releases", async (HttpContext ctx, ReleaseStore s, Cance
 app.MapGet("/", (HttpContext ctx, string? me, JobStore js, AnalysisStore st, FilmStore fs, FilmWorker fw, IConfiguration cfg) =>
 {
     var tags = FileRoutes.FileQuery.From(ctx.Request.Query);
-    var films = fs.All();
-    var v = HomeView.Build(st.All(), js.All(), films, films.FirstOrDefault(f => f.State == JobState.Running), Routes.Queue(js, fw), Routes.WorkerOn(cfg),
-        JobProgress.Parallel(cfg), Routes.ClientIp(ctx), me switch { "1" => true, "0" => false, _ => null }, DateTime.UtcNow, tags, js);
+    var films = fs.All(); var jobs = js.All();
+    var v = HomeView.Build(st.All(), jobs, films, films.FirstOrDefault(f => f.State == JobState.Running), Routes.Queue(js, fw), Routes.WorkerOn(cfg),
+        JobProgress.Parallel(cfg), Routes.ClientIp(ctx), me switch { "1" => true, "0" => false, _ => null }, DateTime.UtcNow, tags, js, fw.Waiting(jobs));
     var live = LiveFields.OfHome(v);
-    return Routes.Html(HomePages.Home(v, FileRoutes.TagFilterHtml(tags, st), tags.TagQuery(), live.Active ? JobPages.PollScript("/api/home?me=" + (v.Me ? 1 : 0) + tags.TagQuery(), live.Watch) : null));
+    return Routes.Html(HomePages.Home(v, FileRoutes.TagFilterHtml(tags, st), tags.TagQuery(), live.Active ? JobPages.PollScript("/api/home?me=" + (v.Me ? 1 : 0) + tags.TagQuery(), live.Watch) : null,
+        ctx.Request.Query["tab"].ToString()));
 });
 
 static ServerPages.StatusData StatusOf(HttpContext ctx)
@@ -193,6 +194,36 @@ app.MapPost("/admin/restart", async (HttpContext ctx, ReleaseStore rs, AdminSess
     { return Html(ServerPages.Message("서비스 다시 시작", $"<div class=\"msg bad\">다시 시작하지 못했습니다(서버는 그대로 실행 중): {WebUtility.HtmlEncode(e.Message)}</div>{back}"), 500); }
     app.Logger.LogWarning("서비스 재시작 요청(웹, {Ip})", ClientIp(ctx));
     return Html(ServerPages.Message("서비스 다시 시작", "<div class=\"msg ok\">다시 시작하는 중입니다. 15초 뒤 홈으로 이동합니다. 열리지 않으면 잠시 뒤 새로 고치세요(결과: 서버 폴더 update\\apply.log).</div>", "/"));
+});
+
+// ---- server update: only staged on its own; an admin applies it from the banner every page loads ----
+app.MapGet("/admin/update-banner", (HttpContext ctx, ReleaseStore rs, AdminSessions sessions, ServerUpdater u, JobStore js, FilmWorker fw) =>
+{
+    ctx.Response.Headers.CacheControl = "no-store";
+    if (!rs.UploadsEnabled || !(HeaderAdmin(ctx, rs) || CookieAdmin(ctx, sessions)) || u.Waiting is not { } v) return Results.NoContent();
+    return Html(ServerPages.UpdateBanner(v, u.Armed, js.All().Any(j => j.State == JobState.Running) || fw.Busy != null));
+});
+// act: now = apply at once (running work is cut off and continues after the start), after = at the worker's next gap, cancel = undo "after"
+app.MapPost("/admin/update", async (HttpContext ctx, ReleaseStore rs, AdminSessions sessions, ServerUpdater u, JobStore js) =>
+{
+    if (DenyPost(ctx, rs, sessions) is { } deny) return deny;
+    var form = ctx.Request.HasFormContentType ? await ctx.Request.ReadFormAsync() : null;
+    var act = form?["act"].ToString();
+    var back = Back(form, "/");
+    if (act == "cancel") { u.Armed = false; return Results.Redirect(back); }
+    if (act is not ("now" or "after")) return Msg(404, "없는 명령입니다.");
+    if (u.Waiting is not { } v) return Html(ServerPages.Message("서버 업데이트", "<div class=\"msg warn\">받아 둔 업데이트 없음</div><p><a href=\"/\">홈</a></p>"), 409);
+    if (act == "after" && u.WorkerApplies)
+    {
+        u.Armed = true;
+        js.Wake(); // an idle worker applies it at once
+        app.Logger.LogWarning("서버 업데이트 {Version}: 작업 끝나면 적용(웹, {Ip})", v, ClientIp(ctx));
+        return Results.Redirect(back);
+    }
+    app.Logger.LogWarning("서버 업데이트 {Version}: 지금 적용(웹, {Ip})", v, ClientIp(ctx)); // "after" without a worker: nothing runs, so now
+    if (!await u.ApplyNowAsync())
+        return Html(ServerPages.Message("서버 업데이트", $"<div class=\"msg bad\">적용 실패 · 서버 그대로: {WebUtility.HtmlEncode(u.LastResult)}</div><p><a href=\"/\">홈</a></p>"), 500);
+    return Html(ServerPages.Message("서버 업데이트", $"<div class=\"msg ok\">{WebUtility.HtmlEncode(v)} 적용 중 · 15초 뒤 홈</div>", "/"));
 });
 
 app.MapGet("/admin/jobs", (HttpContext ctx, ReleaseStore rs, AdminSessions sessions, JobStore js, FilmWorker fw, IConfiguration cfg, AnalysisStore st) =>

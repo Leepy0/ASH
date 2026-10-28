@@ -52,7 +52,7 @@ public sealed class FilmInfo
     [JsonIgnore] public bool Join => Request.Output != "each";
 }
 
-/// <summary>Films under &lt;Jobs:Dir&gt;\films\&lt;id&gt;\ (film.json, film.log, the MP4s). Kept in memory like JobStore; a film running when the server stopped is failed at start.
+/// <summary>Films under &lt;Jobs:Dir&gt;\films\&lt;id&gt;\ (film.json, film.log, the MP4s). Kept in memory like JobStore; a film running when the server stopped is queued again at start.
 /// Films are never removed by JobRetention.</summary>
 public sealed class FilmStore
 {
@@ -74,7 +74,8 @@ public sealed class FilmStore
             {
                 var f = JsonSerializer.Deserialize<FilmInfo>(File.ReadAllText(p), Json);
                 if (f?.Request == null || f.Id != Path.GetFileName(d)) continue;
-                if (f.State == JobState.Running) { f.State = JobState.Failed; f.Error = "서버가 다시 시작되어 중단되었습니다. 다시 만들어 주세요."; f.FinishedUtc = DateTime.UtcNow; Write(f); }
+                // cut off by a stop the worker could not record (killed): made again from the start, as the worker does on a clean stop
+                if (f.State == JobState.Running) { ResetToQueue(f); Write(f); }
                 _films[f.Id] = f;
             }
             catch (Exception e) when (e is JsonException or IOException) { log?.LogWarning("영상 정보를 읽지 못했습니다: {Path}: {Error}", p, e.Message); }
@@ -129,6 +130,16 @@ public sealed class FilmStore
             }
             return mine.Count;
         }
+    }
+
+    /// <summary>A film cut off by a server stop (update, restart): queued again at its old place, to be made again from the start.</summary>
+    public void RequeueCut(string id) => Update(id, ResetToQueue);
+
+    static void ResetToQueue(FilmInfo f)
+    {
+        f.State = JobState.Queued; f.StartedUtc = f.FinishedUtc = null; f.Phase = null; f.Error = null; f.CancelRequested = false;
+        f.Warnings = new(); f.Done = f.Failed = 0; f.JoinedOk = false;
+        foreach (var i in f.Items) { i.Ok = false; i.Error = null; }
     }
 
     /// <summary>Oldest queued film, now running; null when none waits.</summary>

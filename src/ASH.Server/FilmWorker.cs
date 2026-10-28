@@ -120,6 +120,20 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
         return true;
     }
 
+    /// <summary>Scene requests, production-limit runs and cut previews waiting for (or holding) the worker, each kind in the order <see cref="RunNext"/> takes it.
+    /// <paramref name="all"/> = <see cref="JobStore.All"/> (newest first).</summary>
+    public IReadOnlyList<OtherWork> Waiting(IReadOnlyList<JobInfo> all)
+    {
+        var busy = _busy;
+        var list = all.Where(j => File.Exists(Path.Combine(jobs.JobDir(j.Id), ScenesRequest)))
+            .Select((j, i) => new OtherWork("장면", j.Id, j.Id, "/jobs/" + j.Id, i == 0 && busy == ScenesBusy)).ToList();
+        list.AddRange(all.Where(j => LimitWorker.Waits(jobs, j.Id)).Reverse() // Next() takes the oldest
+            .Select((j, i) => new OtherWork("한계", j.Id, j.Id, "/jobs/" + j.Id, i == 0 && busy == LimitWorker.Busy, i == 0 && busy == LimitWorker.Busy ? LimitWorker.Progress(jobs, j.Id) : null)));
+        list.AddRange(Previews.Active().Select(p => new OtherWork("미리보기", p.AnalysisId + "/" + p.Cut.Id, p.JobId, $"/analyses/{p.AnalysisId}/cuts?job={p.JobId}",
+            p.State == JobState.Running, p.Phase, "컷 " + (p.Cut.Name is { Length: > 0 } n ? n : p.Cut.Id))));
+        return list;
+    }
+
     /// <summary>Job id -> the scene request text already run (only touched on the worker thread).</summary>
     readonly Dictionary<string, string> _scenesDone = new(StringComparer.Ordinal);
 
@@ -284,6 +298,12 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
         catch (OperationCanceledException) { cancelled = !stop.IsCancellationRequested; error = cancelled ? "취소되었습니다." : "서버가 멈추어 중단되었습니다."; }
         catch (Exception e) { error = e.Message; Say(e.ToString()); logger.LogError(e, "영상 {Id} 실패", f.Id); }
         finally { lock (_gate) { _filmId = null; _filmCts = null; } }
+        if (error != null && stop.IsCancellationRequested && !cancelled)
+        {
+            Say("서버 멈춤 · 다시 시작 뒤 처음부터");
+            films.RequeueCut(f.Id); // an update or restart cut it off
+            return;
+        }
         Say("끝: " + (error ?? "정상"));
         films.Update(f.Id, x =>
         {

@@ -75,12 +75,16 @@ public sealed class JobWorker(JobStore store, IJobRunner runner, FilmWorker film
     {
         if (!Enabled) { logger.LogInformation("작업 실행이 꺼져 있습니다(Jobs:WorkerEnabled=false)."); return; }
         if (updater != null) updater.WorkerApplies = true;
-        // a server update waits for a moment when nothing runs; once its swap has started nothing new is taken (the server stops in a moment)
+        // a staged server update is applied here only when an admin armed it ("after the running work"); once its swap has started nothing new is taken
         async Task<bool> UpdateNow()
         {
-            if (updater?.Waiting is not { } v) return false;
-            logger.LogInformation("작업 사이: 서버 업데이트 {Version} 적용", v);
-            if (!await updater.ApplyPendingAsync()) return false;
+            if (updater is null) return false;
+            if (!updater.Swapping) // "지금 업데이트" from the banner may have started it already
+            {
+                if (updater is not { Armed: true, Waiting: { } v }) return false;
+                logger.LogInformation("작업 사이: 서버 업데이트 {Version} 적용", v);
+                if (!await updater.ApplyPendingAsync()) return false;
+            }
             try { await Task.Delay(Timeout.Infinite, stop); } catch (OperationCanceledException) { }
             return true;
         }
@@ -154,6 +158,12 @@ public sealed class JobWorker(JobStore store, IJobRunner runner, FilmWorker film
             logger.LogError(e, "작업 {Id} 실패", job.Id);
         }
         finally { lock (_gate) { _runningId = null; _runningCts = null; } }
+        if (cancelled && stop.IsCancellationRequested && job.Source == JobSource.Server && store.Get(job.Id)?.CancelRequested != true)
+        {
+            log.WriteLine($"[{ASH.Core.SeoulTime.NowText}] 서버 멈춤 · 다시 시작 뒤 이어서");
+            store.RequeueCut(job.Id); // an update or restart cut it off: it continues first after the start
+            return;
+        }
         log.WriteLine($"[{ASH.Core.SeoulTime.NowText}] 끝: {error ?? "정상"}");
         store.Update(job.Id, j =>
         {
