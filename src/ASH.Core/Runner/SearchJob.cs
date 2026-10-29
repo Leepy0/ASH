@@ -39,9 +39,9 @@ public static class SearchJob
         if (!File.Exists(path)) return 0;
         bool Ok(string id)
         {
-            string tsv = Path.Combine(runsDir, id, "result.tsv"), rep = Path.Combine(runsDir, id, model + ".report");
+            var tsv = Path.Combine(runsDir, id, "result.tsv");
             // a cycle group's run has the report of its count model (ModelVariants: <model>_c<n>)
-            return File.Exists(tsv) && (File.Exists(rep) || Directory.GetFiles(Path.Combine(runsDir, id), model + "_c*.report").Length > 0) && ResultParser.Validate(tsv, out _);
+            return File.Exists(tsv) && ModelVariants.ReportPath(Path.Combine(runsDir, id), model) != null && ResultParser.Validate(tsv, out _);
         }
         IReadOnlyList<SummaryRow> rows;
         try { rows = SummaryTsv.ReadAll(path); }

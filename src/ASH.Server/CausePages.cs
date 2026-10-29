@@ -52,7 +52,7 @@ public static class CausePages
         ResultSet? rs = null; ReportStats? rep = null;
         try { var f = Path.Combine(dir, "result.tsv"); if (File.Exists(f)) rs = ResultParser.Parse(f); }
         catch (Exception e) when (e is IOException or InvalidDataException or FormatException) { }
-        try { var f = Path.Combine(dir, j.Model + ".report"); if (File.Exists(f)) rep = ResultParser.ParseReport(f); }
+        try { if (ModelVariants.ReportPath(dir, j.Model) is { } f) rep = ResultParser.ParseReport(f); } // a cycle group's run: its count model's report
         catch (Exception e) when (e is IOException or InvalidDataException or FormatException) { }
         return (rs, rep);
     }

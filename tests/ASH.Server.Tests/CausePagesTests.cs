@@ -218,4 +218,20 @@ public class CausePagesTests
         Assert.Equal(HttpStatusCode.BadRequest, full.StatusCode); Assert.Contains("컷은 200개까지", await full.Content.ReadAsStringAsync());
         Assert.Equal(CutStore.MaxCuts, cs.Get(a.Id).Count);
     }
+
+    [Fact] public async Task A_Cycle_Run_Is_Read_From_The_Report_Of_Its_Count_Model()
+    {
+        using var env = new JobEnv(); env.Runner.Gate.Reset();
+        var id = await env.SendFiled("라인 증설", "A안");
+        await JobEnv.Until(() => env.Store.Get(id) is { State: JobState.Running, Phase: "탐색 시작" } x ? x : null); // held before the fake writes its runs
+        // the confirm run n2_s1 ran in m_c2 (a cycle group at 2 vehicles): its folder has only that model's report
+        var run = Path.Combine(env.Store.ProjectDir(id), "runs", "n2_s1");
+        Directory.CreateDirectory(run);
+        File.WriteAllText(Path.Combine(run, "m_c2.report"), "Guide Path Statistics\nName   Total   Cur\n=====\np1   9   1\np2   6   0\n\n");
+        env.Runner.Gate.Set();
+        var j = await env.WaitFinished(id);
+        var traffic = JobView.For(env.Store, j).PathTraffic;
+        Assert.Equal((9.0, 6.0), (traffic["p1"], traffic["p2"]));
+        Assert.Equal(9, CausePages.ReadRun(env.Store, j, "n2_s1").Report!.PathTotals!["p1"]);
+    }
 }

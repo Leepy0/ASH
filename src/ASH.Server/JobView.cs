@@ -216,8 +216,7 @@ public sealed class JobView
         var traffic = new Dictionary<string, List<double>>(StringComparer.Ordinal);
         foreach (var id in confirm)
         {
-            var rep = Path.Combine(runs, id, job.Model + ".report");
-            if (!File.Exists(rep)) continue;
+            if (ModelVariants.ReportPath(Path.Combine(runs, id), job.Model) is not { } rep) continue; // a cycle group's run: its count model's report
             try { foreach (var kv in ResultParser.ParseReport(rep).PathTotals ?? new Dictionary<string, int>()) { if (!traffic.TryGetValue(kv.Key, out var tl)) traffic[kv.Key] = tl = new List<double>(); tl.Add(kv.Value); } }
             catch (Exception e) when (e is IOException or InvalidDataException or FormatException) { }
         }

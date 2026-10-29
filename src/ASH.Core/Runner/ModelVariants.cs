@@ -28,6 +28,14 @@ public static class ModelVariants
         return n.Count == 0 ? model : model + "_c" + string.Join("x", n);
     }
 
+    /// <summary>The report in a run folder: &lt;baseModel&gt;.report, else the one of a cycle group's count model (&lt;baseModel&gt;_c*.report); null when neither is there.</summary>
+    public static string? ReportPath(string runDir, string baseModel)
+    {
+        var rep = Path.Combine(runDir, baseModel + ".report");
+        if (File.Exists(rep)) return rep;
+        return Directory.Exists(runDir) ? Directory.GetFiles(runDir, baseModel + "_c*.report").FirstOrDefault() : null;
+    }
+
     /// <summary>Makes and builds &lt;projectDir&gt;\&lt;variant&gt; once; a build newer than the source files is taken as it is. <paramref name="build"/>(dir, model)
     /// replaces AutoMod's build (the server's wrapper); without it <paramref name="amHome"/> is needed. Throws InvalidOperationException (Korean) when the
     /// source files are missing, the input has errors, no AutoMod is given or the build fails: never the base model instead.</summary>

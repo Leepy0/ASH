@@ -37,6 +37,25 @@ public class ModelVariantsTests
         Assert.Equal("Agv_c1x1", ModelVariants.NameFor(Cycle(g1Too: true), "Agv", new RunScenario(1, new Dictionary<string, int>())));
     }
 
+    [Fact]
+    public void Report_Is_The_Base_Models_Else_A_Count_Models_Else_None()
+    {
+        var dir = Tmp(); Directory.CreateDirectory(dir);
+        try
+        {
+            Assert.Null(ModelVariants.ReportPath(Path.Combine(dir, "gone"), "Agv")); // a purged run folder
+            Assert.Null(ModelVariants.ReportPath(dir, "Agv"));
+            File.WriteAllText(Path.Combine(dir, "Other_c2.report"), "x"); // another model's
+            File.WriteAllText(Path.Combine(dir, "Agv.message"), "x");
+            Assert.Null(ModelVariants.ReportPath(dir, "Agv"));
+            File.WriteAllText(Path.Combine(dir, "Agv_c2.report"), "x");
+            Assert.Equal(Path.Combine(dir, "Agv_c2.report"), ModelVariants.ReportPath(dir, "Agv"));
+            File.WriteAllText(Path.Combine(dir, "Agv.report"), "x");
+            Assert.Equal(Path.Combine(dir, "Agv.report"), ModelVariants.ReportPath(dir, "Agv")); // the base model's first
+        }
+        finally { Directory.Delete(dir, true); }
+    }
+
     /// <summary>A project folder with fake model files for each name (never started: the runner is faked).</summary>
     static string Project(params string[] models)
     {
