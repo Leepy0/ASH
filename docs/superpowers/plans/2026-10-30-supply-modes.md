@@ -23,7 +23,7 @@
 - UI 문구는 문장 대신 단어 위주로 쓴다. "결품" 대신 "자재 품절"을 쓴다.
 - Core는 netstandard2.0 / net48에서도 빌드돼야 한다. 새 NuGet 의존성은 넣지 않는다.
 - 한글 파일은 BOM 상태를 보존한다. PowerShell `Set-Content`는 쓰지 않는다.
-- 커밋 메시지는 `git commit -F <파일>`로 넘긴다. 끝에 `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`을 단다.
+- 커밋 메시지는 `git commit -F <파일>`로 넘긴다. 끝에 `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`을 단다.
 - 릴리스 노트(`release-notes/<버전>.md`)는 릴리스할 때 쓴다. 이 계획의 범위가 아니다.
 - 실제 테스트 파일 이름(기존 파일에 추가할 때):
   - 엑셀 읽기: `tests/ASH.Tests/Input/MaterialsRoutesTests.cs`
