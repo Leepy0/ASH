@@ -126,8 +126,8 @@ public static class LayoutExporter
         foreach (var kv in cpType)
             s.CpTypeLines.Add(cpTemplate.Replace("DefaultControlPoint", kv.Value).Replace(" cap 1 ", " cap " + kv.Key + " ").Replace("Feet", o.Units));
 
-        foreach (var g in groups)
-            if (!s.NameLists.ContainsKey("nl_" + g.Group)) throw new ExportException(g.Group);
+        foreach (var g in groups) // a Cycle group never stands by
+            if (g.CycleStartCp == null && !s.NameLists.ContainsKey("nl_" + g.Group)) throw new ExportException(g.Group);
         AddStartLists(s, l, o, Place, cpTemplate, warnings);
 
         if (o.VehicleOverrides != null)
@@ -184,9 +184,13 @@ public static class LayoutExporter
     public static bool IsStartCp(ControlPoint c) => c.Type.EndsWith(StartSuffix, StringComparison.Ordinal);
     const string StartSuffix = "_start";
 
+    /// <summary>The name of a group's k-th start-only CP (a drawing name taken already gets "_" appended).</summary>
+    public static string StartCp(string group, int k) => "SP_" + group + "_" + k;
+
     // AutoMod puts vehicle k on the k-th CP of its type's start list, one vehicle per CP; vehicles beyond the list wait off the path and drop onto a
     // start CP the moment it is free, on top of the vehicle just leaving it (seen in the AutoView .mdf). So each vehicle gets its own CP: the group's
     // standby CPs first, then start-only CPs SP_<group>_<k> back along the standby lane, vehicle length + StopGapM apart.
+    // A Cycle group has no standby CP: all its start CPs go back along the lane into its first load CP (VehicleGroupSpec.CycleStartCp).
     static void AddStartLists(AgvsSystem s, Layout.Layout l, ExportOptions o, Func<string, Point2, string, ControlPoint?> place, string cpTemplate, ICollection<string> warnings)
     {
         var placed = new HashSet<string>(s.ControlPoints.Select(c => c.Name));
@@ -195,7 +199,7 @@ public static class LayoutExporter
         double Spacing(VehicleGroupSpec g) => (g.Length + StopGapM) / o.Scale; // layout units
         var own = new Dictionary<string, List<string>>();
         foreach (var g in o.Groups!)
-            own[g.Group] = new[]
+            own[g.Group] = g.CycleStartCp != null ? new List<string>() : new[]
             {
                 g.StandbyCps ?? new string[0],
                 l.Cps.Where(c => c.Type == "standby" && c.Group == g.Group).Select(c => c.Name),
@@ -211,14 +215,15 @@ public static class LayoutExporter
             double sp = Spacing(g);
             if (list.Count < g.MaxCount)
             {
+                var home = g.CycleStartCp ?? list[0];
                 // spots are measured from the home CP along the lane, so only the other vehicles' CPs need the (shorter, straight-line) distance check
-                var foreign = taken.Where(t => t.Name != list[0]).ToList();
+                var foreign = taken.Where(t => t.Name != home).ToList();
                 int spare = foreign.Sum(t => (int)Math.Ceiling(2 * Math.Max(t.Sp, sp) / sp)); // spots one of them can rule out
-                foreach (var p in StandbyQueueCheck.LaneSpots(l, At(list[0]), sp, g.Length / o.Scale, g.MaxCount - list.Count + spare))
+                foreach (var p in StandbyQueueCheck.LaneSpots(l, At(home), sp, g.Length / o.Scale, g.MaxCount - list.Count + spare))
                 {
                     if (foreign.Any(t => t.P.DistanceTo(p) < Math.Max(t.Sp, sp) * (1 - 1e-9))) continue;
                     if (l.Cps.Any(c => c.Position.DistanceTo(p) < 0.05 / o.Scale)) continue; // never two CPs on one spot
-                    var name = "SP_" + g.Group + "_" + (list.Count + 1);
+                    var name = StartCp(g.Group, list.Count + 1);
                     while (!names.Add(name)) name += "_";
                     if (place(name, p, startType) is not { } cp) continue;
                     s.ControlPoints.Add(cp);
@@ -226,10 +231,12 @@ public static class LayoutExporter
                     taken.Add((name, p, sp));
                     if (list.Count == g.MaxCount) break;
                 }
+                bool cycle = g.CycleStartCp != null;
+                var lane = cycle ? "진입 차선" : "대기 차선";
                 if (list.Count < g.MaxCount)
-                    warnings.Add($"그룹 {g.Group}: 대기 CP {list[0]} 뒤 대기 차선에 차량 {g.MaxCount}대를 띄워 세울 자리가 {list.Count}대분뿐입니다. " +
+                    warnings.Add($"그룹 {g.Group}: {(cycle ? $"상차 CP {home} " : $"대기 CP {home} 뒤 ")}{lane}에 차량 {g.MaxCount}대를 띄워 세울 자리가 {list.Count}대분뿐입니다. " +
                                  $"나머지 {g.MaxCount - list.Count}대는 AutoMod가 시작 CP가 비는 순간 그 위에 겹쳐 넣습니다. " +
-                                 $"분기점·block 없이 {(g.MaxCount * (g.Length + StopGapM)).ToString("0.#", CultureInfo.InvariantCulture)} m(최대 {g.MaxCount}대 × (차량 길이 {g.Length.ToString("0.##", CultureInfo.InvariantCulture)} m + 간격 {StopGapM} m)) 이상인 대기 차선을 만드세요.");
+                                 $"분기점·block 없이 {(g.MaxCount * (g.Length + StopGapM)).ToString("0.#", CultureInfo.InvariantCulture)} m(최대 {g.MaxCount}대 × (차량 길이 {g.Length.ToString("0.##", CultureInfo.InvariantCulture)} m + 간격 {StopGapM} m)) 이상인 {lane}을 만드세요.");
             }
             s.NameLists[StartList(g.Group)] = list;
         }

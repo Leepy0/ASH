@@ -136,6 +136,77 @@ public class LayoutExporterTests
         Assert.Contains("그룹 G1: 대기 CP S1 뒤 대기 차선에 차량 6대를 띄워 세울 자리가 4대분뿐입니다.", msg);
         Assert.Contains("10.2 m", msg);
     }
+
+    // a Cycle group has no standby CP: its vehicles start on the lane into its first load CP, length + 0.5 m apart, and its loads board there
+    static ASH.Core.Input.ProjectInput CycleInput(string group, int max, string load)
+    {
+        var p = new ASH.Core.Input.ProjectInput();
+        p.AgvTypes.Add(new ASH.Core.Input.AgvType("Cart", 1.0, 1.0, 0, 0, 1, 10, 10, 0, 0, 1.2, 0.8, "green"));
+        p.Groups.Add(new ASH.Core.Input.AgvGroup(group, "Cart", max, max, new List<string>(), "Nearest", SupplyMode: "Cycle"));
+        p.Materials.Add(new ASH.Core.Input.MaterialInfo("M001", "ST1", group, 60, 1, 10, 4, 3, 5, null, false));
+        p.Routes.Add(new ASH.Core.Input.Route("M001", load, "U1", null, null, null, 0));
+        return p;
+    }
+
+    static ASH.Core.Model.LayoutInfo Info(AgvsSystem s) => new(s.ControlPoints.Select(c => c.Name).ToList(), new string[0], new Dictionary<string, string>());
+
+    [Fact] public void Cycle_Group_Starts_Behind_Its_First_Load_Cp_And_Boards_There()
+    {
+        var w = new List<string>();
+        var l = L.Of(L.Line("a", 0, 0, 20, 0)); l.Cps.Add(L.Cp("L1", 18, 0, "load")); l.Cps.Add(L.Cp("U1", 2, 0, "unload"));
+        var s = LayoutExporter.ToAgvs(l, new ExportOptions(Groups: new[] { new VehicleGroupSpec("G2", "Cart", 3, 1.0, 1.2, 0.8, CycleStartCp: "L1") }), w);
+        var list = s.NameLists["nls_G2"];
+        Assert.Equal(new[] { "SP_G2_1", "SP_G2_2", "SP_G2_3" }, list);
+        var cps = list.Select(n => s.ControlPoints.Single(c => c.Name == n)).ToList();
+        Assert.Equal(new[] { 16.3, 14.6, 12.9 }, cps.Select(c => Math.Round(c.Dist, 6)));
+        Assert.All(cps, c => { Assert.Equal("a", c.PathName); Assert.True(LayoutExporter.IsStartCp(c)); });
+        Assert.False(s.NameLists.ContainsKey("nl_G2"));
+        Assert.Empty(w);
+
+        // dispatch: the loads board on the start CPs, where the vehicles stand; no group parks, so no park list
+        ASH.Core.Model.LogicGenerator.AddDispatchLists(s, CycleInput("G2", 3, "L1"), Info(s));
+        Assert.Equal(list, s.NameLists["nl_pick_G2"]);
+        Assert.Contains("WORKLST name SP_G2_2 Oldest item nl_pick_G2 ", s.WorkListLines);
+        Assert.Equal(list.Select(n => $"SRCHLST name {n} Closest item All "), s.SearchListLines);
+        Assert.Empty(s.ParkListLines);
+        Assert.False(s.NameLists.ContainsKey("nl_G2"));
+    }
+
+    [Fact] public void Call_Group_Start_And_Dispatch_Lists_Stay_Next_To_A_Cycle_Group()
+    {
+        var l = L.Of(L.Line("a", 0, 0, 20, 0), L.Line("b", 0, 5, 20, 5));
+        l.Cps.Add(L.Cp("S1", 18, 0, "standby", "G1")); l.Cps.Add(L.Cp("L2", 18, 5, "load")); l.Cps.Add(L.Cp("U1", 2, 5, "unload"));
+        var s = LayoutExporter.ToAgvs(l, new ExportOptions(Groups: new[] { new VehicleGroupSpec("G1", "Tug", 2, 1.0, 1.2, 0.8), new VehicleGroupSpec("G2", "Cart", 2, 1.0, 1.2, 0.8, CycleStartCp: "L2") }));
+        Assert.Equal(new[] { "S1", "SP_G1_2" }, s.NameLists["nls_G1"]);
+        Assert.Equal(16.3, s.ControlPoints.Single(c => c.Name == "SP_G1_2").Dist, 6);
+        Assert.Equal(new[] { "SP_G2_1", "SP_G2_2" }, s.NameLists["nls_G2"]);
+        Assert.Equal("b", s.ControlPoints.Single(c => c.Name == "SP_G2_1").PathName);
+
+        var input = CycleInput("G2", 2, "L2");
+        input.AgvTypes.Add(new ASH.Core.Input.AgvType("Tug", 1.0, 1.0, 0, 0, 1, 10, 10, 0, 0, 1.2, 0.8, "red"));
+        input.Groups.Insert(0, new ASH.Core.Input.AgvGroup("G1", "Tug", 1, 2, new List<string> { "S1" }, "Nearest"));
+        input.Materials.Add(new ASH.Core.Input.MaterialInfo("M2", "ST1", "G1", 60, 1, 10, 4, 3, 5, null, false));
+        input.Routes.Add(new ASH.Core.Input.Route("M2", "L2", "U1", null, null, null, 0));
+        ASH.Core.Model.LogicGenerator.AddDispatchLists(s, input, Info(s));
+        Assert.Equal(new[] { "S1" }, s.NameLists["nl_G1"]);
+        Assert.Equal(new[] { "S1" }, s.NameLists["nl_pick_G1"]);
+        Assert.Equal(new[] { "SP_G2_1", "SP_G2_2" }, s.NameLists["nl_pick_G2"]);
+        Assert.Contains("WORKLST name L2 Oldest item nl_pick_G1 item nl_pick_G2 ", s.WorkListLines);
+        Assert.Contains("PARKLST name SP_G2_1 Sequential item S1 ", s.ParkListLines);
+        Assert.DoesNotContain(s.ParkListLines, x => x.StartsWith("PARKLST name S1 "));
+        Assert.Equal(new[] { "SRCHLST name S1 Closest item All ", "SRCHLST name SP_G2_1 Closest item All ", "SRCHLST name SP_G2_2 Closest item All " }, s.SearchListLines);
+    }
+
+    [Fact] public void Too_Short_Lane_Into_The_Load_Cp_Warns_For_A_Cycle_Group()
+    {
+        // block over x 0..3: 7 m of lane behind L1 at 10, room for 3 start CPs of 1.7 m (the last body ends at 3.7)
+        var w = new List<string>();
+        var l = L.Of(L.Line("a", 0, 0, 20, 0)); l.Blocks.Add(L.Block("B1", 0, -1, 3, 1)); l.Cps.Add(L.Cp("L1", 10, 0, "load"));
+        var s = LayoutExporter.ToAgvs(l, new ExportOptions(Groups: new[] { new VehicleGroupSpec("G2", "Cart", 6, 1.0, 1.2, 0.8, CycleStartCp: "L1") }), w);
+        Assert.Equal(new[] { "SP_G2_1", "SP_G2_2", "SP_G2_3" }, s.NameLists["nls_G2"]);
+        var msg = Assert.Single(w);
+        Assert.Contains("그룹 G2: 상차 CP L1 진입 차선에 차량 6대를 띄워 세울 자리가 3대분뿐입니다.", msg);
+    }
     [Fact] public void Group_Without_Standby_Cps_Throws()
     {
         var ex = Assert.Throws<ExportException>(() => LayoutExporter.ToAgvs(L.Of(L.Line("a",0,0,10,0)), new ExportOptions(Groups: new[]{ new VehicleGroupSpec("G1","Tug",5,1.2,2.0,1.0) })));

@@ -66,13 +66,32 @@ public static class LogicGenerator
     static Route RouteOf(ProjectInput input, MaterialInfo m) =>
         input.Routes.FirstOrDefault(x => x.Material == m.Material) ?? throw new ArgumentException($"자재 '{m.Material}'의 Routes 행이 없습니다.");
 
+    /// <summary>The group's standby CPs (first = home); none for a Cycle group, which never stands by.</summary>
     static List<string> StandbyOf(AgvGroup g, LayoutInfo l)
     {
+        if (g.IsCycle) return new List<string>();
         var s = g.StandbyCPs.Where(x => !string.IsNullOrWhiteSpace(x)).Select(x => Cp(l, x)).ToList();
         if (s.Count == 0 && l.StandbyCpByGroup.TryGetValue(g.Group, out var cp)) s.Add(Cp(l, cp));
         if (s.Count == 0) throw new ArgumentException($"그룹 '{g.Group}'에 대기(standby) CP가 없습니다.");
         return s;
     }
+
+    /// <summary>A Cycle group's start CPs (LayoutExporter.StartCp, k = 1..MaxCount) that the export placed; the layout passes them in CpNames.
+    /// Vehicle k starts on the k-th, and load k boards it there.</summary>
+    static List<string> StartCps(AgvGroup g, LayoutInfo l)
+    {
+        var s = Enumerable.Range(1, g.MaxCount).Select(k => ASH.Core.Export.LayoutExporter.StartCp(g.Group, k)).Where(l.CpNames.Contains).ToList();
+        if (s.Count == 0) throw new ArgumentException($"순환 그룹 '{g.Group}'에 시작 CP가 없습니다.");
+        return s;
+    }
+
+    // one tab deeper; blank lines stay blank
+    static string Indent(string s) => string.Join("\n", s.Split('\n').Select(x => x.Length == 0 ? x : "\t" + x));
+
+    /// <summary>The if / else if / else chain over (test, body) branches, each body one tab deeper (the form AutoMod built for the load CP turn);
+    /// a single branch is its body alone.</summary>
+    static string Chain(IReadOnlyList<(string Test, string Body)> bs) => bs.Count == 1 ? bs[0].Body.TrimEnd('\n') : string.Concat(bs.Select((b, j) =>
+        (j == 0 ? $"\tif {b.Test} then begin\n" : j < bs.Count - 1 ? $"\telse if {b.Test} then begin\n" : "\telse begin\n") + Indent(b.Body.TrimEnd('\n')) + "\n\tend\n")).TrimEnd('\n');
 
     /// <summary>The hold for the unload threshold of station <paramref name="idx"/> (a material index, or an attribute such as A_m), counted while
     /// it lasts in V_waitQty (containers) and V_waitVeh (vehicles). A_bw = the whole wait, A_hold = the part left out of busy time;
@@ -109,12 +128,19 @@ public static class LogicGenerator
         int nm = input.Materials.Count;
         var matLogic = new StringBuilder();
         var create = new StringBuilder();
+        // the call supply job; its lead time, delivery and busy time books are the cycle lap's too (code_pick, code_deliver, code_busy)
+        var supplyJob = Res("code_supply.m.txt").Replace("{{PICK_STATS}}\n", Res("code_pick.m.txt"))
+            .Replace("{{DELIVER_STATS}}\n", Res("code_deliver.m.txt")).Replace("{{BUSY}}\n", Res("code_busy.m.txt"));
+        // a Cycle group's stations as (test, body) branches of its lap, gathered until its last station renders the lap: the station turn,
+        // the run to the station, what follows the unload
+        var laps = new Dictionary<string, (List<(string, string)> Turn, List<(string, string)> To, List<(string, string)> After)>();
         for (int i = 0; i < input.Materials.Count; i++)
         {
             var m = input.Materials[i];
             int mi = i + 1;
             var r = RouteOf(input, m);
             var g = input.Groups.First(x => x.Group == m.Group);
+            int gi = GroupIndex(input, m.Group);
             var t = input.AgvTypes.FirstOrDefault(x => x.Type == g.Type) ?? throw new ArgumentException($"그룹 '{g.Group}'의 Type '{g.Type}'이(가) AGV_Types에 없습니다.");
             // breakdowns of this group's vehicles: checked at the end of every leg, and at boarding for the time the vehicle stood idle
             bool fails = t.MTBF > 0 && t.MTTR > 0;
@@ -138,6 +164,13 @@ public static class LogicGenerator
             var hold = r.BufferWaitSec > 0 ? $"\tset A_hold to ac - A_hold - {N(r.BufferWaitSec)}\n\tif A_hold < 0 then set A_hold to 0\n" : "\tset A_hold to ac - A_hold\n";
             // A_bw = the whole wait, A_hold = the part left out of busy time
             var wait = HoldBlock(mi.ToString(), hold);
+            // a cycle lap holds by its station, and its arrival at the wait point first ends the station's open swap: within a pull-up behind
+            // the vehicle ahead (its length + the stop gap at loaded speed, + 5 s) the swap counts as following
+            if (g.IsCycle)
+                wait = $"\tif V_swapOpen(A_m) = 1 then begin\n\t\tset V_x to ac - V_lastLeave(A_m)\n\t\tinc V_swapN(A_m) by 1\n\t\tinc V_swapSum(A_m) by V_x\n" +
+                       $"\t\tif V_x > V_swapMax(A_m) then set V_swapMax(A_m) to V_x\n" +
+                       $"\t\tif V_x <= {N((t.Length + ASH.Core.Export.LayoutExporter.StopGapM) / t.SpeedLoaded + 5)} then inc V_follow(A_m) by 1\n" +
+                       $"\t\tset V_swapOpen(A_m) to 0\n\tend\n" + HoldBlock("A_m", hold);
             bool buffer = !string.IsNullOrEmpty(r.BufferCP);
             if (buffer) legs.Append(Leg(r.BufferCP!, mi, true)).Append(wait);
             legs.Append(Leg(r.SupplyToCP, mi, true));
@@ -155,12 +188,6 @@ public static class LogicGenerator
             if (!returnPick) ret.Insert(0, extra);
             // without a return pickup the empty container rides on from the unload CP to ReturnTo: still loaded until there
             bool carriesOn = m.EmptyReturn && !returnPick && !string.IsNullOrEmpty(r.ReturnToCP);
-            // busy ends at the Finish CP when the group has one (put it at the entry of the standby lane: the queue behind a waiting vehicle is idle
-            // time), else on arrival at the standby CP. A free-run return time was tried and under-counts badly when the way home is congested.
-            var home = StandbyOf(g, layout)[0];
-            string finish, finishAtHome = "";
-            if (!string.IsNullOrEmpty(g.FinishCP)) finish = Leg(g.FinishCP!, mi + nm) + "\tset A_fin to ac";
-            else { finish = ""; finishAtHome = "\tset A_fin to ac"; }
             int vidOffset = input.Groups.TakeWhile(x => x.Group != g.Group).Sum(x => x.MaxCount);
             // the supply load shows as the material's own picture, the container goes back as its empty picture
             var emptyType = m.EmptyReturn && ret.Length > 0 ? $"\tset load type to L_m{mi}e" : "";
@@ -174,30 +201,64 @@ public static class LogicGenerator
             if (froms.Count > 1)
             {
                 int k = input.Materials.FindIndex(x => x.SourceName == m.SourceName) + 1;
-                var turn = new StringBuilder($"\tinc V_fromRot({k}) by 1\n\tif V_fromRot({k}) > {froms.Count} then set V_fromRot({k}) to 1\n\tset A_from to V_fromRot({k})\n");
-                for (int j = 0; j < froms.Count; j++)
-                    turn.Append(j == 0 ? "\tif A_from = 1 then begin\n" : j < froms.Count - 1 ? $"\telse if A_from = {j + 1} then begin\n" : "\telse begin\n")
-                        .Append('\t').Append(Travel(froms[j]).Replace("\n", "\n\t")).Append("\n\tend\n");
-                pick = turn.ToString().TrimEnd('\n');
+                pick = $"\tinc V_fromRot({k}) by 1\n\tif V_fromRot({k}) > {froms.Count} then set V_fromRot({k}) to 1\n\tset A_from to V_fromRot({k})\n" +
+                       Chain(froms.Select((cp, j) => ($"A_from = {j + 1}", Travel(cp))).ToList());
             }
-            matLogic.Append(Fill(Res("code_material.m.txt"), ("M", mi.ToString()), ("NAME", Lit(m.Material)), ("SYS", sys),
-                ("SET_TYPE", $"\tset load type to L_m{mi}"), ("EMPTY_TYPE", emptyType),
-                ("G", GroupIndex(input, m.Group).ToString()), ("NV", nv.ToString()), ("NV2", (2 * nv).ToString()),
-                ("GT_JOBS", GT(0, GroupIndex(input, m.Group)).ToString()), ("GT_JOB", GT(1, GroupIndex(input, m.Group)).ToString()),
-                ("GT_FREE", GT(2, GroupIndex(input, m.Group)).ToString()), ("GT_STOP", GT(3, GroupIndex(input, m.Group)).ToString()),
-                ("GT_HAND", GT(4, GroupIndex(input, m.Group)).ToString()), ("GT_TURN", GT(5, GroupIndex(input, m.Group)).ToString()),
-                ("FROM", Cp(layout, r.SupplyFromCP)), ("TO_CP", Cp(layout, r.SupplyToCP)), ("LOAD_TIME", N(t.LoadTime)), ("UNLOAD_TIME", N(t.UnloadTime)),
-                ("SUPPLY_LEGS", legs.ToString().TrimEnd('\n')), ("RETURN_LEGS", ret.ToString().TrimEnd('\n')),
-                ("FINISH", finish.TrimEnd('\n')), ("FINISH_AT_HOME", finishAtHome), ("HOME", home), ("VID_OFFSET", vidOffset.ToString()),
-                ("CAPACITY", Math.Max(1, t.Capacity).ToString()), ("FAIL_IDLE", Fail("V_vNextFail(A_vid)")), ("FAIL_LEG", Fail("ac")),
-                ("FAIL_HOME", Fail("ac", string.IsNullOrEmpty(g.FinishCP))), ("HANDLE", N(handle)),
-                // the run home is part of the job only without a Finish CP (busy ends there)
-                ("PICK_TRAVEL", pick), ("HOME_TRAVEL", finishAtHome.Length > 0 ? Travel(home) : $"\ttravel to {sys}:{home}"),
-                ("EMPTY_SPEED", emptySpeed), ("LOADED_SPEED", loadedSpeed), ("AFTER_UNLOAD_SPEED", carriesOn ? "" : emptySpeed),
-                ("AFTER_UNLOAD_HIDE", carriesOn ? "" : Hide.TrimEnd('\n')), ("SPEC_SPEED", loadedSpeed),
-                // a conveyor-fed material is consumed by the products passing its use point (code_conv.m), not by this clock
-                ("CONSUME", m.ConveyorFed ? "\t\t\t/* consumed by the conveyor products (code_conv.m) */"
-                    : $"\t\t\tdec V_stock({mi}) by V_need({mi})\n\t\t\tif ac >= V_warmup then inc V_consumed({mi}) by V_need({mi})")));
+            // a conveyor-fed material is consumed by the products passing its use point (code_conv.m), not by this clock
+            var consume = m.ConveyorFed ? "\t\t\t/* consumed by the conveyor products (code_conv.m) */"
+                : $"\t\t\tdec V_stock({mi}) by V_need({mi})\n\t\t\tif ac >= V_warmup then inc V_consumed({mi}) by V_need({mi})";
+            // a cycle station is never called: the lap of its group supplies it
+            var consumer = Res("code_material.m.txt").Replace("{{CALL}}\n", g.IsCycle ? "" : Res("code_call.m.txt"));
+            if (g.IsCycle)
+            {
+                matLogic.Append(Fill(consumer, ("M", mi.ToString()), ("NAME", Lit(m.Material)), ("G", gi.ToString()), ("CONSUME", consume)));
+                if (!laps.TryGetValue(g.Group, out var lap)) laps[g.Group] = lap = (new(), new(), new());
+                // A_m and the tables, event names and leg slots that cannot take it: literal in the station's branch
+                lap.Turn.Add(($"V_toRot({gi}) = {lap.Turn.Count + 1}", $"\tset A_m to {mi}\n\tset load type to L_m{mi}\n" +
+                    Fill(Res("code_pick.m.txt"), ("M", mi.ToString()), ("NAME", Lit(m.Material)), ("FROM", Cp(layout, r.SupplyFromCP)))));
+                lap.To.Add(($"A_m = {mi}", legs.ToString()));
+                lap.After.Add(($"A_m = {mi}", string.Join("\n", new[] { Fill(Res("code_deliver.m.txt"), ("M", mi.ToString()), ("NAME", Lit(m.Material)),
+                    ("TO_CP", Cp(layout, r.SupplyToCP))).TrimEnd('\n'), emptyType, carriesOn ? "" : Hide.TrimEnd('\n'), carriesOn ? "" : emptySpeed,
+                    ret.ToString().TrimEnd('\n') }.Where(x => x.Length > 0))));
+                if (input.Materials.FindLastIndex(x => x.Group == g.Group) == i)
+                {
+                    // the stations of one Materials row share its route and vehicle times, so the last one's fixed waits are every lap's
+                    matLogic.Append(Fill(Res("code_cycle.m.txt").Replace("{{BUSY}}", Indent(Res("code_busy.m.txt").TrimEnd('\n'))),
+                        ("G", gi.ToString()), ("TYPE", Lit(g.Group)), ("CAPACITY", Math.Max(1, t.Capacity).ToString()), ("VID_OFFSET", vidOffset.ToString()),
+                        ("START", Chain(StartCps(g, layout).Select((cp, k) => ($"A_k = {k + 1}", $"\tmove into {sys}:{cp}")).ToList())),
+                        ("NV", nv.ToString()), ("NV2", (2 * nv).ToString()), ("EMPTY_SPEED", Indent(emptySpeed)), ("PICK_TRAVEL", Indent(pick)),
+                        ("FAIL_LEG", Indent(Fail("ac"))), ("LOADED_SPEED", Indent(loadedSpeed)), ("NS", lap.Turn.Count.ToString()), ("TURN", Indent(Chain(lap.Turn))),
+                        ("LOAD_TIME", N(t.LoadTime)), ("SUPPLY_LEGS", Indent(Chain(lap.To))), ("UNLOAD_TIME", N(t.UnloadTime)), ("AFTER_UNLOAD", Indent(Chain(lap.After))),
+                        ("M", "A_m"), ("HANDLE", N(handle)), ("GT_JOBS", GT(0, gi).ToString()), ("GT_JOB", GT(1, gi).ToString()), ("GT_FREE", GT(2, gi).ToString()),
+                        ("GT_STOP", GT(3, gi).ToString()), ("GT_HAND", GT(4, gi).ToString()), ("GT_TURN", GT(5, gi).ToString())));
+                    // one start load per group: it clones a load per active vehicle (code_cycle.m)
+                    create.Append($"\tcreate 1 load of type L_m{input.Materials.FindIndex(x => x.Group == g.Group) + 1} to P_cycle_{gi}\n");
+                }
+            }
+            else
+            {
+                // busy ends at the Finish CP when the group has one (put it at the entry of the standby lane: the queue behind a waiting vehicle is idle
+                // time), else on arrival at the standby CP. A free-run return time was tried and under-counts badly when the way home is congested.
+                var home = StandbyOf(g, layout)[0];
+                string finish, finishAtHome = "";
+                if (!string.IsNullOrEmpty(g.FinishCP)) finish = Leg(g.FinishCP!, mi + nm) + "\tset A_fin to ac";
+                else { finish = ""; finishAtHome = "\tset A_fin to ac"; }
+                matLogic.Append(Fill(consumer + supplyJob, ("M", mi.ToString()), ("NAME", Lit(m.Material)), ("SYS", sys),
+                    ("SET_TYPE", $"\tset load type to L_m{mi}"), ("EMPTY_TYPE", emptyType),
+                    ("G", gi.ToString()), ("NV", nv.ToString()), ("NV2", (2 * nv).ToString()),
+                    ("GT_JOBS", GT(0, gi).ToString()), ("GT_JOB", GT(1, gi).ToString()),
+                    ("GT_FREE", GT(2, gi).ToString()), ("GT_STOP", GT(3, gi).ToString()),
+                    ("GT_HAND", GT(4, gi).ToString()), ("GT_TURN", GT(5, gi).ToString()),
+                    ("FROM", Cp(layout, r.SupplyFromCP)), ("TO_CP", Cp(layout, r.SupplyToCP)), ("LOAD_TIME", N(t.LoadTime)), ("UNLOAD_TIME", N(t.UnloadTime)),
+                    ("SUPPLY_LEGS", legs.ToString().TrimEnd('\n')), ("RETURN_LEGS", ret.ToString().TrimEnd('\n')),
+                    ("FINISH", finish.TrimEnd('\n')), ("FINISH_AT_HOME", finishAtHome), ("HOME", home), ("VID_OFFSET", vidOffset.ToString()),
+                    ("CAPACITY", Math.Max(1, t.Capacity).ToString()), ("FAIL_IDLE", Fail("V_vNextFail(A_vid)")), ("FAIL_LEG", Fail("ac")),
+                    ("FAIL_HOME", Fail("ac", string.IsNullOrEmpty(g.FinishCP))), ("HANDLE", N(handle)),
+                    // the run home is part of the job only without a Finish CP (busy ends there)
+                    ("PICK_TRAVEL", pick), ("HOME_TRAVEL", finishAtHome.Length > 0 ? Travel(home) : $"\ttravel to {sys}:{home}"),
+                    ("EMPTY_SPEED", emptySpeed), ("LOADED_SPEED", loadedSpeed), ("AFTER_UNLOAD_SPEED", carriesOn ? "" : emptySpeed),
+                    ("AFTER_UNLOAD_HIDE", carriesOn ? "" : Hide.TrimEnd('\n')), ("SPEC_SPEED", loadedSpeed), ("CONSUME", consume)));
+            }
             create.Append($"\tcreate 1 load of type L_ctl to P_consume_{mi}\n");
 
             // a stop still running at the end of the run counts up to the snap
@@ -377,7 +438,8 @@ public static class LogicGenerator
     /// <summary>AM dispatch for the load-centric logic. Scheduling lists are per location, not per vehicle type, so the lists hold every
     /// group and the per-type work/load search/park ok functions in code.m filter by group: a call enters at the group's standby CP and waits
     /// there, so nl_pick_&lt;G&gt; = nl_&lt;G&gt; = the group's standby CPs; every CP gets a WORKLST over all nl_pick lists (Oldest: first come
-    /// first served), every non-standby CP a PARKLST to each group's first standby CP, every standby CP a SRCHLST.</summary>
+    /// first served), every non-standby CP a PARKLST to each group's first standby CP, every standby CP a SRCHLST.
+    /// A Cycle group has no standby CP and never parks: its loads board on its start CPs, so nl_pick_&lt;G&gt; = those (with a SRCHLST each).</summary>
     public static void AddDispatchLists(AgvsSystem s, ProjectInput input, LayoutInfo layout)
     {
         Check(input);
@@ -387,12 +449,17 @@ public static class LogicGenerator
         var pickupAll = new List<string>();
         foreach (var g in input.Groups)
         {
-            var standby = StandbyOf(g, layout);
-            s.NameLists["nl_" + g.Group] = standby;
-            standbyAll.UnionWith(standby);
-            parks.Add(standby[0]);
-            // calls wait at the group's standby CPs (the load boards there and rides along), so that is where a free vehicle looks for work
-            var pick = new List<string>(standby);
+            List<string> pick;
+            if (g.IsCycle) pick = StartCps(g, layout);
+            else
+            {
+                var standby = StandbyOf(g, layout);
+                s.NameLists["nl_" + g.Group] = standby;
+                standbyAll.UnionWith(standby);
+                parks.Add(standby[0]);
+                // calls wait at the group's standby CPs (the load boards there and rides along), so that is where a free vehicle looks for work
+                pick = new List<string>(standby);
+            }
             if (!input.Materials.Any(x => x.Group == g.Group)) continue;
             s.NameLists["nl_pick_" + g.Group] = pick;
             picks.Add("nl_pick_" + g.Group);
@@ -402,7 +469,7 @@ public static class LogicGenerator
         foreach (var c in s.ControlPoints)
         {
             if (picks.Count > 0) s.WorkListLines.Add($"WORKLST name {c.Name} Oldest {Items(picks)}");
-            if (!standbyAll.Contains(c.Name)) s.ParkListLines.Add($"PARKLST name {c.Name} Sequential {Items(parks)}");
+            if (parks.Count > 0 && !standbyAll.Contains(c.Name)) s.ParkListLines.Add($"PARKLST name {c.Name} Sequential {Items(parks)}");
         }
         // without a search list a waiting load never wakes an idle (parked) vehicle; it waits until one happens to finish a job
         foreach (var cp in pickupAll) s.SearchListLines.Add($"SRCHLST name {cp} Closest item All ");
@@ -436,16 +503,23 @@ public static class LogicGenerator
                 if (empty != null) m.LoadGraphics[$"L_m{i}e"] = empty;
             }
         }
-        for (int i = 1; i <= nm; i++) { m.Procs.Add(new($"P_consume_{i}")); m.Procs.Add(new($"P_supply_{i}")); }
+        // a cycle station has no supply job: its group's lap P_cycle_<g> supplies it
+        for (int i = 1; i <= nm; i++)
+        {
+            m.Procs.Add(new($"P_consume_{i}"));
+            if (!input.Groups.First(g => g.Group == input.Materials[i - 1].Group).IsCycle) m.Procs.Add(new($"P_supply_{i}"));
+        }
+        for (int g = 1; g <= input.Groups.Count; g++) if (input.Groups[g - 1].IsCycle) m.Procs.Add(new($"P_cycle_{g}"));
         m.Queues.Add(new("Q_park"));
         m.Orders.Add("OL_forever");
         m.Atts.Add(new("A_index", "Integer")); m.Atts.Add(new("A_grp", "Integer")); m.Atts.Add(new("A_from", "Integer")); // A_from: the job's load CP turn
+        m.Atts.Add(new("A_m", "Integer")); m.Atts.Add(new("A_k", "Integer")); // cycle lap: A_m = its station's material, A_k = its vehicle's start CP
         m.Atts.Add(new("A_veh", "VehiclePtr")); m.Atts.Add(new("A_mv0", "Real")); m.Atts.Add(new("A_w", "Real")); m.Atts.Add(new("A_t0", "Real"));
         m.Vars.Add(new("V_fp", "FilePtr")); m.Vars.Add(new("V_out", "FilePtr")); m.Vars.Add(new("V_ev", "FilePtr")); m.Vars.Add(new("V_tok", "String"));
         foreach (var v in new[] { "V_seed", "V_n", "V_i", "V_tmp", "V_deadlock", "V_extMat", "V_debug", "V_events" }) m.Vars.Add(new(v, "Integer"));
         foreach (var v in new[] { "V_simLen", "V_warmup", "V_x", "V_y" }) m.Vars.Add(new(v, "Real"));
         m.Vars.Add(new("V_deadlockSec", "Real", 0, "600"));
-        foreach (var v in new[] { "V_active", "V_vehCount", "V_parked" }) m.Vars.Add(new(v, "Integer", gs));
+        foreach (var v in new[] { "V_active", "V_vehCount", "V_parked", "V_toRot" }) m.Vars.Add(new(v, "Integer", gs)); // V_toRot: a cycle group's station turn
         foreach (var v in new[] { "V_pending", "V_samples", "V_supplies", "V_stopped", "V_mJobs" }) m.Vars.Add(new(v, "Integer", ms));
         foreach (var v in new[] { "V_call", "V_unload", "V_stock", "V_safety", "V_takt", "V_perCycle", "V_perContainer", "V_need",
                      "V_minStock", "V_stockSum", "V_stop", "V_stopSince", "V_consumed", "V_mDist" })

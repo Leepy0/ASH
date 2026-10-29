@@ -13,17 +13,17 @@ namespace ASH.Tests.AutoMod;
 
 public class ModelRunIntegrationTests
 {
-    static string? AmHome => Environment.GetEnvironmentVariable("ASH_AM_HOME");
+    internal static string? AmHome => Environment.GetEnvironmentVariable("ASH_AM_HOME");
     const string Model = "ashrun";
 
-    sealed class Run(string work, RunOutcome result, List<string[]> rows, string tsv)
+    internal sealed class Run(string work, RunOutcome result, List<string[]> rows, string tsv)
     {
         public string Work => work; public RunOutcome Result => result; public string ResultTsvPath => Path.Combine(result.RunDir, "result.tsv"); public string ReportPath => Path.Combine(result.RunDir, Model + ".report"); public List<string[]> Rows => rows; public string Tsv => tsv;
     }
 
     /// <summary>One-way square loop (4 paths, 10 m sides) with S001 standby, L001 load, B001 buffer, U001 unload, one block;
     /// a second group adds S002 standby (G2) and L002 load.</summary>
-    static Run BuildAndRun(ProjectInput input, IReadOnlyDictionary<string, int> active, int seed = 1, IReadOnlyDictionary<string, VehicleTemplateOverride>? vehOverrides = null,
+    internal static Run BuildAndRun(ProjectInput input, IReadOnlyDictionary<string, int> active, int seed = 1, IReadOnlyDictionary<string, VehicleTemplateOverride>? vehOverrides = null,
         string units = "Meters", bool autoView = false, IEnumerable<ASH.Core.Layout.LayoutAsset>? assets = null, Action<ASH.Core.Layout.Layout>? layoutExtra = null)
     {
         var l = L.Of(L.Line("p1", 0, 0, 10, 0), L.Line("p2", 10, 0, 10, 10), L.Line("p3", 10, 10, 0, 10), L.Line("p4", 0, 10, 0, 0));
@@ -52,10 +52,10 @@ public class ModelRunIntegrationTests
 
     static Run BuildAndRun(ProjectInput input, int activeG1) => BuildAndRun(input, new Dictionary<string, int> { ["G1"] = activeG1 });
 
-    static void Cleanup(string dir) { if (Environment.GetEnvironmentVariable("ASH_KEEP_TEMP") != "1") Directory.Delete(dir, true); }
+    internal static void Cleanup(string dir) { if (Environment.GetEnvironmentVariable("ASH_KEEP_TEMP") != "1") Directory.Delete(dir, true); }
 
-    static double V(string[] row, int i) => double.Parse(row[2 + i], CultureInfo.InvariantCulture);
-    static string[] Mat(Run r, string name) => r.Rows.Single(x => x[0] == "material" && x[1] == name);
+    internal static double V(string[] row, int i) => double.Parse(row[2 + i], CultureInfo.InvariantCulture);
+    internal static string[] Mat(Run r, string name) => r.Rows.Single(x => x[0] == "material" && x[1] == name);
 
     // 3D assets (design §8): the ash_3d static system must pass AutoMod's build (cells in the model units) and not disturb the run
     [SkippableTheory]
