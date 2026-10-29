@@ -282,7 +282,8 @@ public class JobTests
             var api = JsonDocument.Parse(await env.Http.GetStringAsync("/api/jobs/" + id)).RootElement;
             Assert.Equal(0.5, api.GetProperty("progress").GetDouble(), 3); Assert.Equal(10.0, api.GetProperty("avgRunSec").GetDouble(), 3);
             var eta = DateTime.Parse(api.GetProperty("eta").GetString()!, null, System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal);
-            Assert.InRange((eta - DateTime.UtcNow).TotalSeconds, 5, 15); // (4-2) x 10 s / 2 (default Jobs:Parallel)
+            var expect = 20.0 / JobProgress.DefaultParallel; // (4-2) x 10 s / default Jobs:Parallel
+            Assert.InRange((eta - DateTime.UtcNow).TotalSeconds, expect - 4, expect + 4);
         }
         finally { hold.Set(); }
         await env.WaitFinished(id);

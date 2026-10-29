@@ -158,7 +158,7 @@ public static class SearchJob
         var mx = new ModelExecutor(new ExecutorOptions(a.ProjectDir, a.Model, a.Parallel, a.RunTimeout ?? TimeSpan.FromMinutes(30), a.DialogButton, a.AmHome,
             a.Debug, runsDir, Progress: progress, Reuse: a.Resume), input);
         var exec = new ParallelExecutor(a.Parallel, mx.Run);
-        var expected = a.FixedCounts != null ? (SearchStrategy.FixedStock(input.Settings) ? 1 : Math.Max(1, input.Settings.Replications)) : SearchEstimate.Expected(input, clusters, a.InitialReps, a.Impact);
+        var expected = a.FixedCounts != null ? (SearchStrategy.FixedStock(input.Settings) ? 1 : Math.Max(1, input.Settings.Replications)) : SearchEstimate.Expected(input, clusters, a.InitialReps, a.Impact, exec.Slots);
         o.WriteLine("expected runs: " + expected);
         onProgress?.Invoke(new SearchProgress("탐색 시작", new Dictionary<string, int>(), new Dictionary<string, int>(), clusters.Clusters.Sum(c => c.Count), expected));
         SearchResult res;
@@ -167,7 +167,8 @@ public static class SearchJob
             try { res = SearchStrategy.Confirm(input, exec, a.FixedCounts, ct); }
             catch (ArgumentException e) { return Fail(e.Message, input, clusters); }
         }
-        else res = SearchStrategy.Search(input, exec, clusters, new SearchOptions(a.InitialReps, a.Impact, ExpectedRuns: expected), ct, onProgress);
+        else res = SearchStrategy.Search(input, exec, clusters, new SearchOptions(a.InitialReps, a.Impact, ExpectedRuns: expected), ct, onProgress,
+            line => { lock (o) o.WriteLine(line); });
         if (a.Impact && a.FixedCounts == null) { Directory.CreateDirectory(runsDir); ImpactTsv.Write(Path.Combine(runsDir, "impact.tsv"), res.Impact); }
 
         // every baseline run failed: the model itself does not run, so no search result means anything

@@ -19,5 +19,8 @@ public static class JobProgress
         return j.RunsDone == 0 && j.StartedUtc is { } s && typical is { } t ? s + t : null;
     }
 
-    public static int Parallel(IConfiguration cfg) => Math.Max(1, cfg.GetValue("Jobs:Parallel", 2));
+    /// <summary>Jobs:Parallel when not set: logical cores − 1 (one left for the server and AutoMod's own work), at most 4.</summary>
+    public static int DefaultParallel => Math.Max(1, Math.Min(4, Environment.ProcessorCount - 1));
+
+    public static int Parallel(IConfiguration cfg) => Math.Max(1, cfg.GetValue("Jobs:Parallel", DefaultParallel));
 }
