@@ -413,6 +413,7 @@ public static class AnalysisPages
 
         // ---- 교착 (only when a confirm run deadlocked)
         DeadlockPanel.Section(sb, cur, v);
+        StockoutPanel.Section(sb, cur, v); // only when a confirm run stood for a material
 
         // ---- 안별 결론
         sb.Append("<section class=\"box\"><h3 style=\"text-align:center\">안별 결론</h3><div class=\"pl\">");

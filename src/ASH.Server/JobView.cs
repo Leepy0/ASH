@@ -19,6 +19,13 @@ public sealed record DeadlockView(IReadOnlyList<DeadlockRun> Runs, IReadOnlyList
     public int Total => Runs.Sum(r => r.Count);
 }
 
+/// <summary>One material that ran out in the confirm runs: StopSum / StopAvg = stop seconds summed / averaged over the confirm runs read, Runs = runs it ran out in,
+/// TopRun / TopNumber = the run with the most stop (its id, its "실행 N"), Top = that run's check (lead times, verdict, fix).</summary>
+public sealed record StockoutRow(string Material, string Group, double StopSum, double StopAvg, int Runs, string TopRun, int TopNumber, StockoutCheck Top);
+
+/// <summary>Why materials ran out in the confirm runs: a row per material (most stop first), RunsRead = confirm runs whose result.tsv was read.</summary>
+public sealed record StockoutView(IReadOnlyList<StockoutRow> Rows, int RunsRead);
+
 /// <summary>Per group at the recommended counts: mean over the confirm runs. AllOk = no real failure (stockout, supply, deadlock, no result);
 /// a run over the utilization limit only is a warning (UtilOver), not a failure. Reason = the first real failure.</summary>
 public sealed record GroupView(string Group, string Type, int Min, int Max, int? Decided, double Util, double MinStockRatio, bool AllOk, string? Reason, bool UtilOver = false);
@@ -89,6 +96,8 @@ public sealed class JobView
     public int Deadlocks { get; private set; }
     /// <summary>Runs and places of the confirm runs' deadlocks; null when none deadlocked.</summary>
     public DeadlockView? Deadlock { get; private set; }
+    /// <summary>Materials that ran out in the confirm runs and why; null when none did (or no result.tsv is left).</summary>
+    public StockoutView? Stockout { get; private set; }
     /// <summary>Confirm runs whose places are read at most (result.tsv of the ones with the most deadlocks).</summary>
     public const int DeadlockRunCap = 50;
 
@@ -247,6 +256,7 @@ public sealed class JobView
 
         try { v.Layout = ArcLayout.Load(Path.Combine(project, job.Model + ".arc")).Layout; } catch (Exception e) when (e is IOException or FormatException or InvalidDataException) { }
         try { v.Deadlock = DeadlockOf(job, v, byRun); } catch (Exception e) when (e is not OutOfMemoryException) { } // odd data must never take a result page down
+        try { v.Stockout = StockoutOf(job, v, byRun); } catch (Exception e) when (e is not OutOfMemoryException) { } // the box is extra: odd data must not take the page down
         // the stored reason stays "교착 N건"; what the pages show carries the biggest place of the run it came from
         if (v.Deadlock != null) v.Groups = v.Groups.Select(g => g with { Reason = g.Reason == null ? null : v.Annotate(g.Reason, badRun.GetValueOrDefault(g.Group)) }).ToList();
 
@@ -286,6 +296,24 @@ public sealed class JobView
         var spots = DeadlockSummary.Build(used.Select(r => new KeyValuePair<string, IReadOnlyList<DeadlockEvent>?>(r.RunId, read[r.RunId].DeadlockEvents)),
             blocks is { Count: > 0 } ? blocks.Contains : null);
         return new DeadlockView(runs, spots, runs.Count > DeadlockRunCap, spots.Count == 0);
+    }
+
+    /// <summary>StockoutCauses per confirm run that was read, grouped per material. Without the layout the free-speed lead is unknown (자료 부족), the rest still works.</summary>
+    static StockoutView? StockoutOf(JobInfo job, JobView v, IReadOnlyDictionary<string, ResultSet> read)
+    {
+        if (v.Input == null) return null;
+        var ids = job.ConfirmRunIds.Distinct(StringComparer.Ordinal).Where(read.ContainsKey).ToList();
+        var number = job.ConfirmRunIds.Distinct(StringComparer.Ordinal).Select((id, i) => (id, i)).ToDictionary(x => x.id, x => x.i + 1, StringComparer.Ordinal);
+        var layout = v.Layout ?? new ASH.Core.Layout.Layout();
+        var checks = ids.SelectMany(id => StockoutCauses.Check(new CauseContext(layout, v.Input, read[id])).Select(c => (Run: id, Check: c))).ToList();
+        if (checks.Count == 0) return null;
+        var rows = checks.GroupBy(x => x.Check.Material, StringComparer.Ordinal).Select(g =>
+        {
+            var top = g.OrderByDescending(x => x.Check.StopSec).First();
+            double sum = g.Sum(x => x.Check.StopSec);
+            return new StockoutRow(g.Key, top.Check.Group, sum, sum / ids.Count, g.Count(), top.Run, number[top.Run], top.Check);
+        }).OrderByDescending(x => x.StopSum).ToList();
+        return new StockoutView(rows, ids.Count);
     }
 
     /// <summary>Part by part: the sum of the splits times <paramref name="scale"/> (1 = sum, 1/n = mean).</summary>

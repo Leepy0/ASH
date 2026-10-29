@@ -16,6 +16,7 @@ public static class JobReport
         Curves(wb.AddWorksheet("대수별 가동률"), job, view);
         Runs(wb.AddWorksheet("실행 목록"), view);
         if (view.Deadlock != null) Deadlocks(wb.AddWorksheet("교착"), job, view);
+        if (view.Stockout != null) Stockouts(wb.AddWorksheet("자재 품절 원인"), view);
         Impact(wb.AddWorksheet("영향표"), view);
         Blocks(wb.AddWorksheet("block"), view);
         Vehicles(wb.AddWorksheet("차량"), view);
@@ -175,6 +176,24 @@ public static class JobReport
         foreach (var x in d.Runs) { Put(ws, r, 1, x.RunId); Put(ws, r, 2, x.Number); Put(ws, r, 3, x.Count); Put(ws, r, 4, x.Scenario); r++; }
         if (d.Capped) ws.Cell(r++, 1).Value = $"교착 실행 {d.Runs.Count}개 중 {JobView.DeadlockRunCap}개까지만 위치를 읽었습니다.";
         Widths(ws);
+    }
+
+    /// <summary>One row per material that ran out: stop over the confirm runs, then the numbers, verdict and fix of the run with the most stop (seconds, empty = unknown).</summary>
+    static void Stockouts(IXLWorksheet ws, JobView v)
+    {
+        Header(ws, 1, "자재", "그룹", "품절 합계(초)", "품절 평균(초)", "품절 실행(개)", "기준 실행", "호출 시 남은 시간(초)", "최소 리드타임(초)", "리드타임 평균(초)", "리드타임 최대(초)",
+            "호출→상차 평균(초)", "배차 대기(초)", "이동 초과(초)", "이동 중 정지(%)", "차량 유휴(%)", "교착(회)", "판정", "처방", "권장 CallThreshold(용기)", "자료 부족");
+        int r = 2;
+        foreach (var x in v.Stockout!.Rows)
+        {
+            var k = x.Top;
+            Put(ws, r, 1, x.Material); Put(ws, r, 2, x.Group); Put(ws, r, 3, x.StopSum, "0.#"); Put(ws, r, 4, x.StopAvg, "0.#"); Put(ws, r, 5, x.Runs); Put(ws, r, 6, $"실행 {x.TopNumber} ({x.TopRun})");
+            Put(ws, r, 7, k.CoverageSec, "0.#"); Put(ws, r, 8, k.MinLeadSec, "0.#"); Put(ws, r, 9, k.DelivAvg, "0.#"); Put(ws, r, 10, k.DelivMax, "0.#");
+            Put(ws, r, 11, k.PickAvg, "0.#"); Put(ws, r, 12, k.DispatchWaitSec, "0.#"); Put(ws, r, 13, k.TrafficSec, "0.#"); Put(ws, r, 14, k.StopShare, Pct); Put(ws, r, 15, k.IdleShare, Pct);
+            Put(ws, r, 16, k.Deadlocks); Put(ws, r, 17, k.Verdict); Put(ws, r, 18, k.Fix); if (k.SuggestCall is { } n) Put(ws, r, 19, n); Put(ws, r, 20, string.Join("·", k.Missing));
+            r++;
+        }
+        ws.SheetView.FreezeRows(1); Widths(ws);
     }
 
     static void Impact(IXLWorksheet ws, JobView v)

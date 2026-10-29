@@ -8,8 +8,8 @@ namespace ASH.Core.Cause;
 public static class CauseKinds
 {
     public const string Deadlock = "deadlock", DeadlockRisk = "deadlock-risk", BlockHold = "block-hold", Detour = "detour",
-        LoadShare = "load-share", TimeLoss = "time-loss", Clearance = "clearance";
-    public static readonly string[] Order = { Deadlock, DeadlockRisk, Clearance, BlockHold, Detour, LoadShare, TimeLoss };
+        LoadShare = "load-share", TimeLoss = "time-loss", Clearance = "clearance", Stockout = "stockout";
+    public static readonly string[] Order = { Deadlock, Stockout, DeadlockRisk, Clearance, BlockHold, Detour, LoadShare, TimeLoss };
 }
 
 /// <summary>One finding of the cause analysis. UI text rules: words and short noun phrases, no sentences; "자재 품절", never "결품".

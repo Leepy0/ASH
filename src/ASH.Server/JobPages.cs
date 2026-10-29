@@ -509,6 +509,7 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
                 "재고는 takt마다 한 번 잰 값 · 주의 = 평균 − 2σ가 안전재고 미만(판정 제외)</div>" + "</div>");
         }
         DeadlockPanel.Section(sb, j, v, true);
+        StockoutPanel.Section(sb, j, v, true);
         sb.Append(SortScript); // once for every sortable table above
         if (j.Warnings.Count > 0)
         {

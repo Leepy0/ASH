@@ -131,6 +131,6 @@ td.best{background:var(--green-b);color:#1c5c2e;font-weight:600}td.worst{backgro
     static string KindName(string k) => k switch
     {
         CauseKinds.DeadlockRisk => "교착 위험", CauseKinds.BlockHold => "block 점유",
-        CauseKinds.Detour => "우회", CauseKinds.LoadShare => "주행 부하", CauseKinds.TimeLoss => "시간 손실", _ => k,
+        CauseKinds.Detour => "우회", CauseKinds.LoadShare => "주행 부하", CauseKinds.TimeLoss => "시간 손실", CauseKinds.Stockout => "자재 품절", CauseKinds.Clearance => "간격 부족", _ => k,
     };
 }
