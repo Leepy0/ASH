@@ -20,9 +20,9 @@ public static class ExcelTemplate
             ("Category", "분류(메모)", ""), ("SpeedLoadedCurve", "적재 곡선 속도(m/s, 빈칸=직선)", ""), ("SpeedEmptyCurve", "공차 곡선 속도(m/s, 빈칸=직선)", ""),
             ("Accel", "가속(m/s²)", "0.3"), ("Decel", "감속(m/s²)", "0.3"), ("MTBF", "MTBF(초, 0=없음)", "0"), ("MTTR", "MTTR(초)", "0"), ("Color", "색상", "Blue"), ("Asset", "차량 그림(에셋 목록, 빈칸=기본)", "")),
         ("AGV_Groups",
-            new[] { "Group", "Type", "MinCount", "MaxCount", "StandbyCPs", "Dispatch", "FinishCP" },
-            new[] { "그룹명", "AGV 타입", "최소 대수", "최대 대수", "대기 CP", "호출 기준", "작업 완료 CP" },
-            new[] { "G_EX", "T_EX", "1", "3", "CP_STBY", "Nearest", "" }),
+            new[] { "Group", "Type", "MinCount", "MaxCount", "StandbyCPs", "Dispatch", "FinishCP", "SupplyMode" },
+            new[] { "그룹명", "AGV 타입", "최소 대수", "최대 대수", "대기 CP", "호출 기준", "작업 완료 CP", "공급 방식" },
+            new[] { "G_EX", "T_EX", "1", "3", "CP_STBY", "Nearest", "", "Call" }),
         // thresholds are containers + units (each may be blank: ExcelReader adds them up in containers); EmptyReturn follows the route's return CPs.
         // The route (an older template's Routes sheet) is on the material's row: one route per material.
         S("Materials",
@@ -70,6 +70,7 @@ public static class ExcelTemplate
         ("AGV_Types", "Kind", string.Join(",", VehicleKinds.All.Select(k => k.Name))),
         ("AGV_Groups", "Type", "AGV_Types"),
         ("AGV_Groups", "Dispatch", "Nearest,FIFO"),
+        ("AGV_Groups", "SupplyMode", "Call,Cycle"),
         ("Materials", "Group", "AGV_Groups"),
         ("Materials", "Form", string.Join(",", MaterialForms.All)),
         ("Materials", "Flow", string.Join(",", MaterialFlows.All)),
@@ -114,6 +115,7 @@ public static class ExcelTemplate
         ("TrafficMode", "Block", "Block / CPOnly"),
         ("WorkDefinition", "LoadToUnload", "LoadToUnload / CallToReturn"),
         ("DeadlockSec", "600", "한 구간 이동이 이 시간(초)을 넘으면 교착"),
+        ("CycleFollowRate", "0.95", "순환 뒤차 대기율"),
     };
 
     static void Put(IXLCell cell, string v)
@@ -743,7 +745,8 @@ public static class ExcelTemplate
     }
 
     /// <summary>Drop-downs of the drawing's CP names on the route and group columns, filled from the hidden helper sheet. A warning, not a stop: a name
-    /// typed ahead of the drawing is allowed after a yes (AGVEXCELDIFF lists it). StandbyCPs takes a comma list, so it drops down only while no row has one.</summary>
+    /// typed ahead of the drawing is allowed after a yes (AGVEXCELDIFF lists it). StandbyCPs takes a comma list, so it drops down only while no row has one.
+    /// SupplyFromCP / SupplyToCP likewise, while no row holds a comma list or a range (<see cref="CpList.IsList"/>).</summary>
     static void ApplyCpLists(XLWorkbook wb, List<ExcelEdit>? log, ASH.Core.Layout.Layout layout)
     {
         var ls = ListsSheetOf(wb, log);
@@ -758,7 +761,7 @@ public static class ExcelTemplate
         {
             if (!wb.TryGetWorksheet(sheet, out var ws) || !Columns(ws).TryGetValue(col, out var c)) continue;
             var range = ws.Range(3, c, LastListRow, c);
-            if (type == "standby" && Values(ws, col).Any(v => v.IndexOf(',') >= 0))
+            if ((type == "standby" && Values(ws, col).Any(v => v.IndexOf(',') >= 0)) || ((type == "load" || type == "unload") && Values(ws, col).Any(CpList.IsList)))
             {
                 range.Clear(XLClearOptions.DataValidation);
                 log?.Add(new ListEdit(sheet, c, 3, LastListRow, "", col, "", true)); // empty formula = no drop-down

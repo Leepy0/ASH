@@ -17,6 +17,8 @@ public sealed record Settings
     public string WorkDefinition { get; init; } = "LoadToUnload";
     /// <summary>A single travel leg longer than this counts as a deadlock.</summary>
     public double DeadlockSec { get; init; } = 600;
+    /// <summary>A Cycle group is recommended when at least this share of its swaps found the next vehicle already waiting.</summary>
+    public double CycleFollowRate { get; init; } = 0.95;
 }
 
 public sealed record AgvType(string Type, double SpeedLoaded, double SpeedEmpty, double Accel, double Decel,
@@ -25,20 +27,35 @@ public sealed record AgvType(string Type, double SpeedLoaded, double SpeedEmpty,
 
 /// <summary>The group is the AutoMod vehicle type (its name is the AGVS vehicle type), so one AgvType can serve several groups.</summary>
 /// <param name="FinishCP">Optional: a vehicle counts as idle from its arrival here on the way home (else from the free-run return time).</param>
-public sealed record AgvGroup(string Group, string Type, int MinCount, int MaxCount, List<string> StandbyCPs, string Dispatch, int Row = 0, string? FinishCP = null);
+/// <param name="SupplyMode">Call (blank, the default) or Cycle; anything else is reported by the validator.</param>
+public sealed record AgvGroup(string Group, string Type, int MinCount, int MaxCount, List<string> StandbyCPs, string Dispatch, int Row = 0, string? FinishCP = null,
+    string SupplyMode = "")
+{
+    /// <summary>The vehicles circle their material's route without being called.</summary>
+    public bool IsCycle => string.Equals(SupplyMode?.Trim(), "Cycle", System.StringComparison.OrdinalIgnoreCase);
+}
 
 public sealed record MaterialInfo(string Material, string Station, string Group, double TaktTime, double UnitsPerCycle,
     double UnitsPerContainer, double CallThreshold, double UnloadThreshold, double? InitStock, double? SafetyStock, bool EmptyReturn, int Row = 0, string Form = "",
-    double? LoadLength = null, double? LoadWidth = null, double? LoadHeight = null, string Flow = "", bool ConveyorFed = false)
+    double? LoadLength = null, double? LoadWidth = null, double? LoadHeight = null, string Flow = "", bool ConveyorFed = false, string Source = "")
 {
     // ConveyorFed: a Conveyors row consumes this material (products passing the use point) instead of the takt clock; TaktTime and
     // TaktTime then holds that row's ProductTakt (UnitsPerProduct = the material's UnitsPerCycle), so every takt-based KPI and check keeps working unchanged.
     /// <summary>Flow is Output (an unknown value is reported by the validator and treated as Supply).</summary>
     public bool IsOutput => MaterialFlows.Normalize(Flow) == MaterialFlows.Output;
+    // Source: the Materials row's name when this is one station of it (Material = {Source}@{UnloadCP}, see StationExpansion); blank otherwise
+    /// <summary>The material as typed on its Materials row: Source for a station material, else Material.</summary>
+    public string SourceName => string.IsNullOrEmpty(Source) ? Material : Source;
 }
 
+/// <param name="SupplyFromCP">The first load CP: the route's representative where one CP is needed.</param>
+/// <param name="SupplyFromCPs">Every load CP, only when the cell lists two or more; null otherwise.</param>
 public sealed record Route(string Material, string SupplyFromCP, string SupplyToCP, string? BufferCP,
-    string? ReturnFromCP, string? ReturnToCP, double ExtraTime, int Row = 0, double BufferWaitSec = 0);
+    string? ReturnFromCP, string? ReturnToCP, double ExtraTime, int Row = 0, double BufferWaitSec = 0, IReadOnlyList<string>? SupplyFromCPs = null)
+{
+    /// <summary>The load CPs in the order typed (at least the one SupplyFromCP).</summary>
+    public IReadOnlyList<string> FromCps => SupplyFromCPs ?? new[] { SupplyFromCP };
+}
 
 public sealed record StationInfo(string Station, string CPName, double BufferCapacity, int Row = 0);
 
@@ -64,4 +81,6 @@ public sealed class ProjectInput
     public List<ConveyorInfo> Conveyors { get; } = new List<ConveyorInfo>();
     /// <summary>Materials whose Use column is N: left out of Materials and Routes by the reader, listed here for messages.</summary>
     public List<string> DisabledMaterials { get; } = new List<string>();
+    /// <summary>CP list tokens the reader could not use (a reversed or too long range), by cell; the validator reports them.</summary>
+    public List<(string Sheet, int Row, string Col, string Token)> CpListErrors { get; } = new List<(string Sheet, int Row, string Col, string Token)>();
 }

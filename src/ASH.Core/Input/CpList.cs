@@ -15,6 +15,15 @@ public static class CpList
     // ECMAScript: \d and \D mean ASCII digits only, so full-width digits never turn a name into a range
     static readonly Regex RangeRx = new Regex(@"^(?<p>.*\D)(?<a>\d+)-(?<q>.*\D)(?<b>\d+)$", RegexOptions.ECMAScript);
 
+    static bool IsRange(Match m) => m.Success && m.Groups["p"].Value == m.Groups["q"].Value;
+
+    /// <summary>The cell holds more than one plain name: a comma, or a range (a reversed or too long one included).</summary>
+    public static bool IsList(string? cell)
+    {
+        var s = (cell ?? "").Trim();
+        return s.IndexOf(',') >= 0 || IsRange(RangeRx.Match(s));
+    }
+
     /// <summary>
     /// Splits the cell on commas, trims each item, drops empty items and expands ranges (the first number's digit count is kept: L008-L010 gives L008, L009, L010).
     /// A name seen before is dropped and added to <paramref name="duplicates"/>; a reversed range or one over 1000 names is added to <paramref name="errors"/> as typed.
@@ -29,7 +38,7 @@ public static class CpList
             if (token.Length == 0) continue;
 
             var m = RangeRx.Match(token);
-            if (!m.Success || m.Groups["p"].Value != m.Groups["q"].Value)
+            if (!IsRange(m))
             {
                 Add(token);
                 continue;

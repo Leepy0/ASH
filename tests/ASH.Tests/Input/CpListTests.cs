@@ -43,4 +43,14 @@ public class CpListTests
 
     [Fact] public void Duplicate_inside_a_range_is_reported()
     { var d = new List<string>(); Assert.Equal(new[] { "L001", "L002", "L003" }, CpList.Parse("L001,L001-L003", new List<string>(), d)); Assert.Equal(new[] { "L001" }, d); }
+
+    [Theory]
+    [InlineData("L001,L002", true)]
+    [InlineData(" L001-L003 ", true)]
+    [InlineData("L010-L001", true)] // reversed: still a range, the reader reports it
+    [InlineData("L001", false)]
+    [InlineData("A1-B2", false)]
+    [InlineData("L001 - L003", false)]
+    [InlineData("", false)]
+    public void IsList_is_true_for_a_comma_or_a_range(string cell, bool expected) => Assert.Equal(expected, CpList.IsList(cell));
 }

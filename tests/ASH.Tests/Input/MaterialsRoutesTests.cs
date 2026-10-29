@@ -336,4 +336,159 @@ public class MaterialsRoutesTests
         }
         finally { File.Delete(path); }
     }
+
+    // ---- supply modes ----
+
+    /// <summary>Call groups only, one load CP a row: every branch of the signature (FinishCP, Output, BufferWaitSec) once.</summary>
+    static ProjectInput CallOnly()
+    {
+        var p = new ProjectInput();
+        p.AgvTypes.Add(new AgvType("T1", 1, 1, 0.3, 0.3, 1, 20, 20, 0, 0, 1.2, 0.8, "Blue"));
+        p.Groups.Add(new AgvGroup("G1", "T1", 1, 3, new List<string> { "S1", "S2" }, "Nearest"));
+        p.Groups.Add(new AgvGroup("G2", "T1", 1, 2, new List<string> { "S3" }, "FIFO", FinishCP: "F1"));
+        p.Materials.Add(new MaterialInfo("M001", "", "G1", 60, 1, 10, 4, 1, null, null, true));
+        p.Materials.Add(new MaterialInfo("M002", "", "G2", 60, 1, 10, 4, 1, null, null, false, Flow: "Output"));
+        p.Routes.Add(new Route("M001", "L1", "U1", null, "RL1", "RU1", 5));
+        p.Routes.Add(new Route("M002", "L2", "U2", "B1", null, null, 0, BufferWaitSec: 30));
+        return p;
+    }
+
+    [Fact]
+    public void InputSignature_Of_A_Call_Only_Input_Is_The_One_Models_Were_Built_With()
+    {
+        // computed before supply modes existed: models built then must not need a rebuild
+        Assert.Equal("e3b9270c274b14a0c7d6b4c32ef8971f418544bbd001238616d131a3f8e4ee70", InputSignature.Compute(CallOnly()));
+        var call = CallOnly(); call.Groups[1] = call.Groups[1] with { SupplyMode = " call " };
+        call.Routes[0] = call.Routes[0] with { SupplyFromCPs = new[] { "L1" } }; // a one-CP list is no list
+        Assert.Equal(InputSignature.Compute(CallOnly()), InputSignature.Compute(call));
+    }
+
+    [Fact]
+    public void InputSignature_Changes_With_A_Cycle_Group_Or_A_Load_Cp_List()
+    {
+        var cycle = CallOnly(); cycle.Groups[1] = cycle.Groups[1] with { SupplyMode = "Cycle" };
+        var list = CallOnly(); list.Routes[0] = list.Routes[0] with { SupplyFromCPs = new[] { "L1", "L3" } };
+        var listWait = CallOnly(); listWait.Routes[1] = listWait.Routes[1] with { SupplyFromCPs = new[] { "L2", "L3" } };
+        var all = new[] { CallOnly(), cycle, list, listWait }.Select(InputSignature.Compute).ToList();
+        Assert.Equal(all.Count, all.Distinct().Count());
+    }
+
+    static void EditCells(string path, string sheet, params (string Col, string Value)[] cells)
+    {
+        using var wb = ExcelReader.Open(path);
+        var ws = wb.Worksheet(sheet);
+        foreach (var (col, value) in cells) ws.Cell(3, Col(ws, col)).Value = value;
+        wb.Save();
+    }
+
+    [Fact]
+    public void ExcelReader_Reads_A_Load_Cp_Range_As_A_List_Led_By_Its_First_Cp()
+    {
+        var path = Tmp();
+        try
+        {
+            ExcelTemplate.Write(path);
+            EditCells(path, "Materials", ("SupplyFromCP", "L001-L002"));
+            var r = Assert.Single(ExcelReader.Read(path).Routes);
+            Assert.Equal(new[] { "L001", "L002" }, r.FromCps);
+            Assert.Equal("L001", r.SupplyFromCP);
+
+            EditCells(path, "Materials", ("SupplyFromCP", "L001"));
+            r = Assert.Single(ExcelReader.Read(path).Routes);
+            Assert.Null(r.SupplyFromCPs); // one CP: no list
+            Assert.Equal(new[] { "L001" }, r.FromCps);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void ExcelReader_Expands_Unload_Cps_After_The_Return_Flag_Is_Set()
+    {
+        var path = Tmp();
+        try
+        {
+            ExcelTemplate.Write(path);
+            EditCells(path, "Materials", ("SupplyToCP", "U001, U002"), ("ReturnFromCP", "RL1"));
+            var p = ExcelReader.Read(path);
+            Assert.Equal(new[] { ("M001@U001", "M001", true, 3), ("M001@U002", "M001", true, 3) }, p.Materials.Select(m => (m.Material, m.SourceName, m.EmptyReturn, m.Row)));
+            Assert.Equal(new[] { ("M001@U001", "U001"), ("M001@U002", "U002") }, p.Routes.Select(x => (x.Material, x.SupplyToCP)));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void ExcelReader_Collects_Bad_Ranges_And_Warns_Once_Per_Cell_About_Repeated_Cps()
+    {
+        var path = Tmp();
+        try
+        {
+            ExcelTemplate.Write(path);
+            EditCells(path, "Materials", ("SupplyFromCP", "L001,L001,L001,L002"), ("SupplyToCP", "U003-U001"));
+            var p = ExcelReader.Read(path, out var warnings);
+            Assert.Equal(new[] { ("Materials", 3, "SupplyToCP", "U003-U001") }, p.CpListErrors);
+            var w = Assert.Single(warnings);
+            Assert.Equal("자재 'M001'의 SupplyFromCP에 같은 CP가 두 번 있습니다: L001", w.Message);
+            Assert.Equal("Materials!3", w.EntityId);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void ExcelReader_Supply_Mode_Is_Call_Without_The_Column_And_Cycle_When_Typed()
+    {
+        var path = Tmp();
+        try
+        {
+            ExcelTemplate.Write(path);
+            Assert.False(Assert.Single(ExcelReader.Read(path).Groups).IsCycle); // the example's Call
+            EditCells(path, "AGV_Groups", ("SupplyMode", " cycle "));
+            Assert.True(Assert.Single(ExcelReader.Read(path).Groups).IsCycle);
+            using (var wb = ExcelReader.Open(path)) { var g = wb.Worksheet("AGV_Groups"); g.Column(Col(g, "SupplyMode")).Delete(); wb.Save(); } // an older workbook
+            var old = Assert.Single(ExcelReader.Read(path).Groups);
+            Assert.False(old.IsCycle);
+            Assert.Equal("", old.SupplyMode);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void ExcelTemplate_Has_The_Supply_Mode_Column_And_The_Cycle_Follow_Rate()
+    {
+        var path = Tmp();
+        try
+        {
+            ExcelTemplate.Write(path);
+            using var wb = ExcelReader.Open(path);
+            var g = wb.Worksheet("AGV_Groups"); int c = Col(g, "SupplyMode");
+            Assert.Equal(c, Col(g, "FinishCP") + 1);
+            Assert.Equal(("공급 방식", "Call"), (g.Cell(2, c).GetString(), g.Cell(3, c).GetString()));
+            Assert.Equal("\"Call,Cycle\"", g.Cell(3, c).GetDataValidation().Value);
+            var s = wb.Worksheet("Settings");
+            int row = Enumerable.Range(3, 40).First(r => s.Cell(r, 1).GetString() == "CycleFollowRate");
+            Assert.Equal(("순환 뒤차 대기율", 0.95), (s.Cell(row, 3).GetString(), s.Cell(row, 2).GetDouble()));
+            Assert.Equal(0.95, new ASH.Core.Input.Settings().CycleFollowRate);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void ExcelTemplate_Load_And_Unload_Drop_Downs_Give_Way_To_A_Cp_List()
+    {
+        var path = Tmp();
+        try
+        {
+            ExcelTemplate.Write(path, Drawing());
+            using var wb = ExcelReader.Open(path);
+            var m = wb.Worksheet("Materials"); int from = Col(m, "SupplyFromCP"), to = Col(m, "SupplyToCP");
+            m.Cell(3, from).Value = "L1-L2"; m.Cell(4, to).Value = "U1,U2";
+            var log = new List<ExcelEdit>();
+            ExcelTemplate.Update(wb, Drawing(), log);
+            Assert.False(m.Cell(3, from).HasDataValidation);
+            Assert.False(m.Cell(4, to).HasDataValidation);
+            Assert.True(m.Cell(3, Col(m, "BufferCP")).HasDataValidation);
+            Assert.Contains(log, e => e is ListEdit x && x.Sheet == "Materials" && x.Col == from && x.Formula == "");
+            Assert.Contains(log, e => e is ListEdit x && x.Sheet == "Materials" && x.Col == to && x.Formula == "");
+        }
+        finally { File.Delete(path); }
+    }
 }
