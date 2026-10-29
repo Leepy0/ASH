@@ -81,7 +81,7 @@ public static class ServerPages
     {
         var (s, g, u, r) = (d.Releases, d.GitHub, d.Updater, d.Runner);
         var cur = s.GetCurrent()?.Manifest;
-        var sb = new StringBuilder("<div class=\"grid st\"><section class=\"box\"><h2>배포</h2><dl class=\"kv\">");
+        var sb = new StringBuilder("<div class=\"grid st\" id=\"stbox\"><section class=\"box\"><h2>배포</h2><dl class=\"kv\">");
         if (cur == null) sb.Append("<dt>ASH</dt><dd>게시된 버전이 없습니다.</dd>");
         else sb.Append($"<dt>현재 버전</dt><dd><b>{H(cur.Version)}</b></dd><dt>최소 지원</dt><dd>{H(cur.MinSupported)}</dd>")
                .Append($"<dt>게시 시각(서울)</dt><dd>{H(SeoulTime.FromIso(cur.Published))}</dd>")
@@ -106,7 +106,8 @@ public static class ServerPages
         // the scheduled check now: plugin (ASH), Runner and the server itself; a new server is only staged (the banner applies it)
         if (g.BaseUrl != null)
             sb.Append("<dt>최신 버전</dt><dd><form method=\"post\" action=\"/admin/check-updates\" style=\"margin:0\" onsubmit=\"this.querySelector('button').disabled=true;this.querySelector('button').textContent='확인 중…'\">" +
-                "<button class=\"btn\" title=\"GitHub에서 플러그인·Runner·서버 최신 버전을 지금 확인합니다. 새 플러그인·Runner는 받아 게시하고, 새 서버는 받아만 둡니다(위 띠에서 적용).\">지금 확인</button></form></dd>");
+                $"<button class=\"btn\"{(g.Progress.Running ? " disabled" : "")} title=\"GitHub에서 플러그인·Runner·서버 최신 버전을 지금 확인합니다. 새 플러그인·Runner는 받아 게시하고, 새 서버는 받아만 둡니다(위 띠에서 적용).\">{(g.Progress.Running ? "확인 중…" : "지금 확인")}</button></form>" +
+                $"<ol class=\"chk\" id=\"chk\"{(g.Progress.Running ? " data-run" : "")}></ol></dd>");
         sb.Append("<dt>무결성 확인</dt><dd>").Append(s.Key == null
             ? (s.AllowUnsigned ? "없음 — PC가 github.com 릴리스와 대조해 확인" : "<b class=\"bad\">서명 키 없음 — 업로드 거절(Update:AllowUnsigned=false)</b>")
             : H(s.Key.KeyId)).Append("</dd>");
@@ -114,8 +115,46 @@ public static class ServerPages
         // the clock behind every time on this page: if it differs from the wall clock the PC's own date and time is wrong
         sb.Append("<dt>서버 시각(서울)</dt><dd>").Append(H(SeoulTime.NowText)).Append(" <span class=\"muted\">· PC 표준 시간대 ").Append(H(TimeZoneInfo.Local.Id)).Append("</span></dd>");
         sb.Append("</dl></section></div>");
+        if (g.BaseUrl != null) sb.Append(CheckScript);
         return sb.ToString();
     }
+
+    // the step list under "최신 버전": polls every second while a check runs, then reloads the status boxes (not the page: a settings form being edited stays)
+    private const string CheckScript = @"<style>.chk{list-style:none;margin:8px 0 0;padding:0;font-size:13px}.chk:empty{display:none}.chk li{display:flex;gap:8px;padding:2px 0}
+.chk .s{min-width:44px;font-weight:600;color:var(--sub2)}.chk .s1{color:var(--blue-d)}.chk .s2{color:var(--green)}.chk .s4{color:var(--red)}</style>
+<script>
+(function(){
+  var last=null, was=!!document.querySelector('#chk[data-run]'), cls={'대기':'','진행':'s1','완료':'s2','건너뜀':'','실패':'s4'};
+  function mb(b){return (b/1048576).toFixed(1)}
+  function render(j){
+    var ol=document.getElementById('chk'); if(!ol||!j||!j.run) return;
+    ol.textContent='';
+    j.steps.forEach(function(s){
+      var li=document.createElement('li'), st=document.createElement('span'), tx=document.createElement('span');
+      st.className='s '+cls[s.state]; st.textContent=s.state;
+      var t=s.state==='진행'?s.doing:s.name;
+      if(s.state==='진행'&&s.total>0) t+=' '+mb(s.bytes)+' / '+mb(s.total)+' MB';
+      if(s.text) t+=' · '+s.text;
+      tx.textContent=t; li.appendChild(st); li.appendChild(tx); ol.appendChild(li);
+    });
+  }
+  function refresh(){
+    fetch('/admin/settings?tab=server',{credentials:'same-origin',cache:'no-store'}).then(function(r){return r.text()}).then(function(h){
+      var n=new DOMParser().parseFromString(h,'text/html').getElementById('stbox'), o=document.getElementById('stbox');
+      if(n&&o){o.innerHTML=n.innerHTML; render(last);}
+    });
+  }
+  function poll(){
+    fetch('/admin/check-updates/status',{credentials:'same-origin',cache:'no-store'}).then(function(r){return r.ok?r.json():null}).then(function(j){
+      if(!j) return;
+      last=j; render(j);
+      if(j.running){was=true; setTimeout(poll,1000);}
+      else if(was){was=false; refresh();}
+    }).catch(function(){ if(was) setTimeout(poll,3000); });
+  }
+  poll();
+})();
+</script>";
 
     /// <summary>The update banner (GET /admin/update-banner, admins only) every page loads into #upd: a staged version with "지금"/"작업 끝나고",
     /// or the armed one with 취소. <paramref name="busy"/> = work runs now (지금 cuts it off; it continues after the restart).</summary>
