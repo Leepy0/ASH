@@ -182,4 +182,169 @@ public class InputValidatorTests
         var f = InputValidator.Validate(p, Cps);
         Assert.DoesNotContain(f, x => x.Code == FindingCode.InputError); // Station is a memo: no Stations row needed
     }
+
+    // ---- supply modes: cycle groups, CP lists, station materials ----
+
+    static readonly string[] CpsUV = { "S", "L", "U", "V", "W" };
+
+    // G2: a Cycle group without standby CPs (AGV_Groups row 4) that holds the named materials, each with a route of its own
+    static ProjectInput WithCycleGroup(params string[] materials)
+    {
+        var p = Good();
+        p.Groups.Add(new AgvGroup("G2", "T1", 1, 3, new List<string>(), "Nearest", SupplyMode: "Cycle"));
+        foreach (var name in materials)
+        {
+            p.Materials.Add(p.Materials[0] with { Material = name, Group = "G2" });
+            p.Routes.Add(p.Routes[0] with { Material = name });
+        }
+        return p;
+    }
+
+    // M1 (Materials row 3) read with several unload CPs: one station material M1@U, M1@V ... per CP, as the reader does it
+    static ProjectInput WithStations(ProjectInput p, string material, params string[] unloads)
+    {
+        for (int i = 0; i < p.Materials.Count; i++) if (p.Materials[i].Material == material) p.Materials[i] = p.Materials[i] with { Row = 3 };
+        for (int i = 0; i < p.Routes.Count; i++) if (p.Routes[i].Material == material) p.Routes[i] = p.Routes[i] with { Row = 3 };
+        StationExpansion.Expand(p, new Dictionary<string, List<string>> { [material] = unloads.ToList() });
+        return p;
+    }
+
+    [Theory]
+    [InlineData(2)] [InlineData(0)]
+    public void Validate_Rejects_A_Cycle_Group_Without_Exactly_One_Material(int count)
+    {
+        var p = WithCycleGroup(Enumerable.Range(1, count).Select(k => "C" + k).ToArray());
+        var e = Assert.Single(InputValidator.Validate(p, Cps), x => x.Code == FindingCode.InputError);
+        Assert.Equal($"그룹 'G2'은(는) 순환(Cycle)인데 자재가 {count}개입니다. 순환 그룹에는 자재 하나만 둡니다.", e.Message);
+        Assert.Equal("AGV_Groups!4", e.EntityId);
+    }
+
+    [Fact]
+    public void Validate_Counts_The_Station_Materials_Of_One_Row_As_One_Cycle_Material()
+    {
+        var p = WithStations(WithCycleGroup("C1"), "C1", "U", "V", "W");
+        p.Groups[1] = p.Groups[1] with { SupplyMode = " cycle " }; // case and spaces do not matter
+        Assert.Equal(3, p.Materials.Count(m => m.Group == "G2"));
+        Assert.Empty(InputValidator.Validate(p, CpsUV));
+    }
+
+    [Fact]
+    public void Validate_Warns_That_A_Cycle_Group_Ignores_Standby_And_Finish_CP()
+    {
+        var p = WithCycleGroup("C1");
+        p.Groups[1] = p.Groups[1] with { StandbyCPs = new List<string> { "S" }, FinishCP = "S" };
+        Assert.DoesNotContain(InputValidator.Validate(p, Cps), x => x.Code == FindingCode.InputError);
+        var w = Warnings(p);
+        Assert.Equal(new[] { "그룹 'G2'은(는) 순환이라 대기 CP를 쓰지 않습니다.", "그룹 'G2'은(는) 순환이라 완료 CP를 쓰지 않습니다." }, w.Select(x => x.Message));
+        Assert.All(w, x => Assert.Equal("AGV_Groups!4", x.EntityId));
+        Assert.Empty(Warnings(Good())); // a Call group keeps its standby CP without a word
+    }
+
+    [Theory]
+    [InlineData("")] [InlineData("  ")] [InlineData("Call")] [InlineData("call ")]
+    public void Validate_Accepts_Call_And_Blank_Supply_Mode(string mode)
+    {
+        var p = Good();
+        p.Groups[0] = p.Groups[0] with { SupplyMode = mode };
+        Assert.Empty(InputValidator.Validate(p, Cps));
+    }
+
+    [Fact]
+    public void Validate_Rejects_An_Unknown_Supply_Mode()
+    {
+        var p = Good();
+        p.Groups[0] = p.Groups[0] with { SupplyMode = "Loop" };
+        var e = Assert.Single(InputValidator.Validate(p, Cps));
+        Assert.Equal((FindingCode.InputError, "AGV_Groups!3", "그룹 'G1'의 공급 방식 'Loop'은(는) Call 또는 Cycle입니다."), (e.Code, e.EntityId, e.Message));
+    }
+
+    [Fact]
+    public void Validate_Reports_Cp_List_Tokens_The_Reader_Rejected_On_Their_Cell()
+    {
+        var p = Good();
+        p.CpListErrors.Add(("Materials", 3, "SupplyToCP", "L010-L001"));
+        p.CpListErrors.Add(("Routes", 7, "SupplyFromCP", "L001-L2000"));
+        var f = InputValidator.Validate(p, Cps);
+        Assert.All(f, x => Assert.Equal(FindingCode.InputError, x.Code));
+        Assert.Equal(new[] { "Materials!3", "Routes!7" }, f.Select(x => x.EntityId));
+        // the column name leads, like the other cell messages: the Excel mark finds the cell by it
+        Assert.Equal("SupplyToCP 'L010-L001': 범위가 잘못됐습니다(시작이 끝보다 크거나 1000개 초과).", f[0].Message);
+        Assert.StartsWith("SupplyFromCP 'L001-L2000': ", f[1].Message);
+    }
+
+    [Fact]
+    public void Validate_Rejects_A_Station_Material_Name_Another_Material_Already_Has()
+    {
+        var p = WithStations(Good(), "M1", "U", "V");
+        p.Materials.Add(p.Materials[0] with { Material = "M1@V", Source = "", Row = 5 }); // typed by hand on another row
+        p.Routes.Add(p.Routes[0] with { Material = "M1@V", Row = 5 });
+        var e = Assert.Single(InputValidator.Validate(p, CpsUV), x => x.Message.StartsWith("공정 자재 이름"));
+        Assert.Equal((FindingCode.InputError, "Materials!3", "공정 자재 이름 'M1@V'이(가) 다른 자재 이름과 같습니다."), (e.Code, e.EntityId, e.Message));
+    }
+
+    [Fact]
+    public void Validate_Accepts_Several_Unload_Cps_On_A_Supply_Material()
+    {
+        Assert.Empty(InputValidator.Validate(WithStations(Good(), "M1", "U", "V", "W"), CpsUV));
+    }
+
+    static ProjectInput FedByConveyor(params string[] unloads)
+    {
+        var p = Good();
+        p.Materials[0] = p.Materials[0] with { ConveyorFed = true };
+        p.Conveyors.Add(new ConveyorInfo("C1", "M1", 60, 1, 0.3, null, null, 2)); // the Conveyors row keeps the Materials row's name
+        return unloads.Length > 1 ? WithStations(p, "M1", unloads) : p;
+    }
+
+    [Fact]
+    public void Validate_Joins_A_Conveyor_To_The_Row_Of_Its_Station_Materials_Without_Throwing()
+    {
+        var p = FedByConveyor("U", "V");
+        var f = InputValidator.Validate(p, CpsUV);
+        var e = Assert.Single(f, x => x.Code == FindingCode.InputError);
+        Assert.Equal((FindingCode.InputError, "Materials!3", "자재 'M1'은(는) 컨베이어/반출 자재라 하차 CP를 하나만 씁니다."), (e.Code, e.EntityId, e.Message)); // once, not per station
+        var w = Assert.Single(f, x => x.Code == FindingCode.InputWarning); // the T/T note, also once, under the Materials row's name
+        Assert.Contains("자재 'M1': 컨베이어 'C1'가 소비하므로", w.Message);
+    }
+
+    [Fact]
+    public void Validate_Keeps_A_Conveyor_Material_With_One_Unload_Cp_As_It_Was()
+    {
+        var f = InputValidator.Validate(FedByConveyor("U"), Cps);
+        Assert.DoesNotContain(f, x => x.Code == FindingCode.InputError);
+        Assert.Contains("자재 'M1': 컨베이어 'C1'가 소비하므로", Assert.Single(f).Message);
+    }
+
+    [Fact]
+    public void Validate_Rejects_Several_Unload_Cps_On_An_Output_Material()
+    {
+        var p = Good();
+        p.Materials[0] = p.Materials[0] with { Flow = "Output" };
+        var e = Assert.Single(InputValidator.Validate(WithStations(p, "M1", "U", "V"), CpsUV));
+        Assert.Equal((FindingCode.InputError, "Materials!3", "자재 'M1'은(는) 컨베이어/반출 자재라 하차 CP를 하나만 씁니다."), (e.Code, e.EntityId, e.Message));
+    }
+
+    [Fact]
+    public void Validate_Checks_Every_Load_Cp_In_A_List()
+    {
+        var p = Good();
+        p.Routes[0] = p.Routes[0] with { SupplyFromCPs = new[] { "L", "L009" } };
+        var e = Assert.Single(InputValidator.Validate(p, Cps));
+        Assert.Equal((FindingCode.InputError, "Materials!3", "SupplyFromCP 'L009'이(가) 레이아웃에 없습니다."), (e.Code, e.EntityId, e.Message));
+        p.Routes[0] = p.Routes[0] with { SupplyFromCPs = new[] { "L", "S" } };
+        Assert.Empty(InputValidator.Validate(p, Cps));
+    }
+
+    [Fact]
+    public void Validate_Reports_A_Range_Written_With_Spaces_As_One_Unknown_Name()
+    {
+        // "L001 - L003" is one name for the parser (no range around spaces), so the drawing check names the whole token instead of reading a range
+        var errors = new List<string>();
+        var from = CpList.Parse("L001 - L003", errors, new List<string>());
+        Assert.Equal(new[] { "L001 - L003" }, from);
+        var p = Good();
+        p.Routes[0] = p.Routes[0] with { SupplyFromCP = from[0] };
+        var e = Assert.Single(InputValidator.Validate(p, Cps));
+        Assert.Equal((FindingCode.InputError, "SupplyFromCP 'L001 - L003'이(가) 레이아웃에 없습니다."), (e.Code, e.Message));
+    }
 }
