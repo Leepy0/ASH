@@ -592,6 +592,33 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
     {
         var guess = 1.19 * scene.Diag;
         var legacy = Legacy;
+        // F0 and the frame step depend on the AutoView build, the movie size and the scene AutoView fits at scale 1, not on the counts or the cuts.
+        // Measured once, they are taken again: the same drawing exactly; another drawing by the F0 / diagonal ratio of that AutoView and size (AutoView fits
+        // the scene at scale 1, so F0 grows with it); and an AutoView whose calibration failed is not tried again until the server is updated.
+        // A later film then starts filming at once: one AutoView run per cut.
+        var keys = CalKeys(scene, width, height);
+        if (keys is { } k)
+        {
+            if (CalCache(k.Exact) is { } hit)
+            {
+                _step = hit.A;
+                say($"보정값 재사용: F0 {hit.B:0.##} m · 프레임 간격 {hit.A:0.###}초 (같은 AutoView·해상도·도면 범위, 보정 생략)");
+                return hit.B;
+            }
+            if (CalCache("R|" + k.Kind) is { } ratio)
+            {
+                _step = ratio.A;
+                var est = ratio.B * scene.Diag;
+                say($"보정값 계산: F0 {est:0.##} m = 비율 {ratio.B:0.###} × 장면 대각선 {scene.Diag:0.##} m · 프레임 간격 {ratio.A:0.###}초 (같은 AutoView·해상도에서 잰 값, 보정 생략)");
+                return est;
+            }
+            if (CalCache("F|" + k.Kind + "|" + ServerVersion) is not null)
+            {
+                say($"보정 생략: 이 AutoView는 지난번 보정에 실패 → 첫 추정 1.19 × 장면 대각선 = {guess:0.##} m (서버 업데이트 후 다시 시도)");
+                warn(CalWarning + " — 지난번 보정 실패로 생략");
+                return guess;
+            }
+        }
         string Script(bool hide, string movie) => string.Join("\n",
             "camera description", "distance feet", "time seconds", "angle degree", "time scale 1", "orthogonal", "solid", "grid off", hide ? CalOff : "") + "\n" +
             CameraScript.MovieSpec(movie, width, height, 100, 15, legacy) + string.Join("\n",
@@ -601,6 +628,7 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
         // the scripts beside the movies: AutoView keeps only the last camera.des, and these two are what a failed calibration is looked into with
         try { foreach (var hide in new[] { false, true }) File.WriteAllText(Path.Combine(work, hide ? "cal_off.des" : "cal_on.des"), Script(hide, Path.Combine(work, hide ? "cal_off" : "cal_on"))); }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        bool stepOk = false;
         var on = Render(work, model, Script(false, Path.Combine(work, "cal_on")), CalTimeout, stop);
         var off = on.Ok ? Render(work, model, Script(true, Path.Combine(work, "cal_off")), CalTimeout, stop) : on;
         stop.ThrowIfCancellationRequested(); // a cancelled render is not a calibration failure
@@ -609,7 +637,7 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
             // guide 5.1: frames = span / (step × time scale), time scale 1 here
             var n = renderer.Frames(on.Mp4!, stop);
             var step = n > 0 && span >= 2 ? span / n : 0;
-            if (step >= 0.1 && step <= 2.5) { _step = step; say($"AutoView 프레임 간격: 시뮬레이션 {step:0.###}초 (보정 {span:0.#}초 → {n}프레임)"); }
+            if (step >= 0.1 && step <= 2.5) { _step = step; stepOk = true; say($"AutoView 프레임 간격: 시뮬레이션 {step:0.###}초 (보정 {span:0.#}초 → {n}프레임)"); }
             else say($"AutoView 프레임 간격을 재지 못해 0.5초로 둡니다(프레임 {n}개).");
         }
         if ((on.TimedOut || off.TimedOut) && _timeouts >= 2) throw new AutoViewHungException();
@@ -622,12 +650,18 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
             // the longer side of the mark in pixels is the more accurate one
             var f0 = p.W >= p.H ? height * scene.Lw / p.W : height * scene.Lh / p.H;
             say($"F0 보정: 표시 {p.W:0}×{p.H:0} px (실제 {scene.Lw:0.##}×{scene.Lh:0.##} m) → F0 {f0:0.##} m (첫 추정 {guess:0.##} m)");
-            if (f0 > guess / 3 && f0 < guess * 3) return f0;
+            if (f0 > guess / 3 && f0 < guess * 3)
+            {
+                // only a measured value (never the guess) is kept for later films: exactly for this drawing, and as a ratio for other drawings
+                if (keys is { } k2 && stepOk) { SaveCal(k2.Exact, _step, f0); SaveCal("R|" + k2.Kind, _step, f0 / scene.Diag); }
+                return f0;
+            }
             say("경고: 보정값이 첫 추정과 너무 달라 첫 추정을 씁니다.");
         }
         else
         {
             say($"경고: F0 보정 실패({why ?? "표시가 보이지 않음"}) → 첫 추정 1.19 × 장면 대각선 = {guess:0.##} m를 씁니다.");
+            if (keys is { } k3 && on.Ok && off.Ok) SaveCal("F|" + k3.Kind + "|" + ServerVersion, 0, 0); // both renders ran yet showed nothing: it would fail again
             // the renders that missed the mark are the evidence (an empty or one-colour picture says camera/units, not the mark): the work copy stays whole
             _keepWork = true;
         }
@@ -636,6 +670,52 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
         return guess;
     }
 
+
+    /// <summary>films\autoview-cal.tsv: key, frame step (s), F0 (m) or the F0 / diagonal ratio ("R|"), or a failed calibration ("F|", zeros).
+    /// Delete the file to measure again (e.g. after changing AutoView's display settings).</summary>
+    string CalFile => Path.Combine(films.Dir, "autoview-cal.tsv");
+
+    static readonly string ServerVersion = (typeof(FilmWorker).Assembly.GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+        .OfType<System.Reflection.AssemblyInformationalVersionAttribute>().FirstOrDefault()?.InformationalVersion ?? "0").Split('+')[0];
+
+    /// <summary>Kind = AutoView program and file version, movie size and script form; Exact = that plus the scene (rounded to a millimetre). Null when AutoView is not found.</summary>
+    (string Kind, string Exact)? CalKeys((double Cx, double Cy, double Lw, double Lh, double Diag) scene, int width, int height)
+    {
+        if (LiveFilmRenderer.ResolveAviewExe(cfg) is not { } exe) return null;
+        string ver;
+        try { ver = System.Diagnostics.FileVersionInfo.GetVersionInfo(exe).FileVersion ?? ""; } catch (Exception e) when (e is IOException or ArgumentException) { ver = ""; }
+        var kind = string.Join("|", exe.ToLowerInvariant(), ver, $"{width}x{height}", Legacy ? "legacy" : "14");
+        return (kind, string.Join("|", kind, scene.Cx.ToString("0.000", C), scene.Cy.ToString("0.000", C), scene.Lw.ToString("0.000", C), scene.Lh.ToString("0.000", C), scene.Diag.ToString("0.000", C)));
+    }
+
+    /// <summary>(A, B) of the line with this key: (step, F0 or ratio); (0, 0) for a failure line; null when there is none.</summary>
+    (double A, double B)? CalCache(string key)
+    {
+        try
+        {
+            if (!File.Exists(CalFile)) return null;
+            foreach (var l in File.ReadAllLines(CalFile))
+            {
+                var c = l.Split('\t');
+                if (c.Length == 3 && c[0] == key && double.TryParse(c[1], NumberStyles.Float, C, out var a) && double.TryParse(c[2], NumberStyles.Float, C, out var b)
+                    && (key.StartsWith("F|", StringComparison.Ordinal) || (a > 0 && b > 0)))
+                    return (a, b);
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
+        return null;
+    }
+
+    void SaveCal(string key, double a, double b)
+    {
+        try
+        {
+            var lines = File.Exists(CalFile) ? File.ReadAllLines(CalFile).Where(l => !l.StartsWith(key + "\t", StringComparison.Ordinal)).ToList() : new List<string>();
+            lines.Add(string.Join("\t", key, a.ToString("R", C), b.ToString("R", C)));
+            File.WriteAllLines(CalFile, lines.TakeLast(200)); // one line per AutoView × size × drawing: a few hundred at most
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { logger.LogWarning("보정값 저장 실패: {Error}", e.Message); }
+    }
 
     static string Hms(double sec) { var t = TimeSpan.FromSeconds(Math.Max(0, sec)); return $"{(int)t.TotalHours:00}:{t.Minutes:00}:{t.Seconds:00}"; }
 
