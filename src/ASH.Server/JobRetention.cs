@@ -5,7 +5,8 @@ namespace ASH.Server;
 
 /// <summary>
 /// Frees disk: Jobs:KeepRunsDays (default 30, 0 = keep as is) after a job finished, its raw run folders (runs\&lt;RunId&gt;\, AutoMod output) are compressed into
-/// &lt;job&gt;\runs.zip (the same layout as the runs.zip download: the whole runs folder) and the originals are removed; the build output (&lt;Model&gt;.dir, &lt;Model&gt;.exe)
+/// &lt;job&gt;\runs.zip (the same layout as the runs.zip download: the whole runs folder) and the originals are removed; the build output (&lt;Model&gt;.dir, &lt;Model&gt;.exe,
+/// and the cycle count models' &lt;Model&gt;_c*.dir, &lt;Model&gt;_c*.exe)
 /// and the work slots are regenerable and deleted. runs\summary.tsv, impact.tsv, search.tsv stay as files. What the result pages need stays too: job.json, job.log,
 /// upload.zip, the model folder and the block numbers and vehicle/material statistics, which are saved to blocks.tsv and stats.tsv first. Checked hourly.
 /// Films (&lt;Jobs:Dir&gt;\films, FilmStore) and the scene files (scenes*.json) are never touched. RunsPurgedUtc = when the folders were archived.
@@ -88,6 +89,9 @@ public sealed class JobRetention(JobStore store, IConfiguration cfg, ILogger<Job
         Del(Path.Combine(project, "work"));
         Del(Path.Combine(project, j.Model + ".dir"));
         Del(Path.Combine(project, j.Model + ".exe"));
+        // a cycle group's count models (ModelVariants), built again from their .arc when needed
+        foreach (var d in Directory.GetDirectories(project, j.Model + "_c*.dir")) Del(d);
+        foreach (var f in Directory.GetFiles(project, j.Model + "_c*.exe")) Del(f);
         log.LogInformation("작업 {Id}: 실행 원본 압축 보관, 원본 {MB:0.#} MB 정리", j.Id, freed / 1048576.0);
     }
 }

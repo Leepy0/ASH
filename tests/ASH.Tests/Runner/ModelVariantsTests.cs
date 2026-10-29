@@ -195,7 +195,7 @@ public class ModelVariantsTests
     };
 
     [Fact]
-    public void Ensure_Makes_The_Count_Into_The_Model_With_The_Base_Pictures_And_Builds_It_Once()
+    public async Task Ensure_Makes_The_Count_Into_The_Model_With_The_Base_Pictures_And_Builds_It_Once()
     {
         var dir = CycleSource(Loop(), asset: "agv_a");
         try
@@ -220,10 +220,23 @@ public class ModelVariantsTests
             // built and newer than the source: taken as it is, also by another thread waiting for it
             Parallel.For(0, 4, _ => ModelVariants.Ensure(dir, "Agv", "Agv_c2", input, Sc("G_EX", 2), null, TimeSpan.Zero, FakeBuild(built)));
             Assert.Single(built);
+            // ... and without waiting while another count is being built in the folder
+            using (var started = new ManualResetEventSlim(false))
+            using (var gate = new ManualResetEventSlim(false))
+            {
+                var c3 = Task.Run(() => ModelVariants.Ensure(dir, "Agv", "Agv_c3", input, Sc("G_EX", 3), null, TimeSpan.Zero,
+                    (d, m) => { started.Set(); gate.Wait(TimeSpan.FromSeconds(30)); return FakeBuild(built)(d, m); }));
+                Assert.True(started.Wait(TimeSpan.FromSeconds(30)));
+                var c2 = Task.Run(() => ModelVariants.Ensure(dir, "Agv", "Agv_c2", input, Sc("G_EX", 2), null, TimeSpan.Zero, FakeBuild(built)));
+                Assert.Same(c2, await Task.WhenAny(c2, Task.Delay(TimeSpan.FromSeconds(10))));
+                gate.Set();
+                await c3;
+            }
+            Assert.Equal(new[] { "Agv_c2", "Agv_c3" }, built);
             // a source written again (AGVMODEL after a drawing change): made again
             File.SetLastWriteTimeUtc(Path.Combine(dir, LayoutSnapshot.FileName), DateTime.UtcNow.AddMinutes(1));
             ModelVariants.Ensure(dir, "Agv", "Agv_c2", input, Sc("G_EX", 2), null, TimeSpan.Zero, FakeBuild(built));
-            Assert.Equal(2, built.Count);
+            Assert.Equal(2, built.Count(m => m == "Agv_c2"));
         }
         finally { Directory.Delete(dir, true); }
     }

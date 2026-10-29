@@ -16,6 +16,10 @@ public static class RunModelZip
 
     public static async Task WriteAsync(Stream output, string projectDir, string model, ProjectInput input, RunScenario s, string jobId, string runId, string amHome)
     {
+        // a cycle group's run ran in its count model (ModelVariants), made in the job's folder when the server ran it; a result from a PC has only the base model
+        var variant = ASH.Core.Runner.ModelVariants.NameFor(input, model, s);
+        var stand = variant != model && !Directory.Exists(Path.Combine(projectDir, variant + ".arc")) ? variant : null;
+        if (stand == null) model = variant;
         await using var zip = await ZipArchive.CreateAsync(output, ZipArchiveMode.Create, leaveOpen: true, entryNameEncoding: null);
         var exe = Path.Combine(projectDir, model + ".exe");
         bool built = File.Exists(exe) && Directory.Exists(Path.Combine(projectDir, model + ".dir"));
@@ -33,7 +37,7 @@ public static class RunModelZip
         }
         await Text(zip, model + ".arc/params.txt", ParamsFile.Render(input, s), bom: false); // the model reads it as ModelRunner writes it
         await Text(zip, "run.bat", RunBat(model, amHome), bom: false);
-        await Text(zip, "README.txt", Readme(model, input, s, jobId, runId, built, amHome), bom: true);
+        await Text(zip, "README.txt", Readme(model, input, s, jobId, runId, built, amHome, stand), bom: true);
     }
 
     static async Task Text(ZipArchive zip, string name, string text, bool bom)
@@ -63,7 +67,8 @@ public static class RunModelZip
         $"start \"\" \"{model}.exe\"",
         "");
 
-    static string Readme(string model, ProjectInput input, RunScenario s, string jobId, string runId, bool built, string amHome) => string.Join("\r\n", new[]
+    /// <summary><paramref name="stand"/>: the cycle count model the run ran in, when it is not here and the base model stands in for it.</summary>
+    static string Readme(string model, ProjectInput input, RunScenario s, string jobId, string runId, bool built, string amHome, string? stand) => string.Join("\r\n", new[]
     {
         $"ASH 작업 {jobId} · 실행 {runId}",
         "",
@@ -79,5 +84,7 @@ public static class RunModelZip
         "이 실행의 조건 (" + model + ".arc\\params.txt에 들어 있습니다):",
         $"  시드 {s.Seed}" + (s.Debug ? " (디버그 실행)" : ""),
     }.Concat(input.Groups.Select(g => $"  {g.Group}: {(s.ActiveByGroup.TryGetValue(g.Group, out var n) ? n : g.MinCount)}대"))
-     .Concat(new[] { "", "같은 시드와 대수로 돌므로 서버의 그 실행과 같은 흐름을 봅니다. 결과(result.tsv, " + model + ".report)는 이 폴더에 생깁니다.", "" }));
+     .Concat(new[] { "", stand == null
+         ? "같은 시드와 대수로 돌므로 서버의 그 실행과 같은 흐름을 봅니다. 결과(result.tsv, " + model + ".report)는 이 폴더에 생깁니다."
+         : $"주의: 이 실행은 순환 그룹 대수별 모델 {stand}로 돌았지만 서버에 그 모델이 없어 기본 모델 {model}을 넣었습니다. 쓰지 않는 순환 차량이 진입 차선에 서 있어 서버의 실행과 흐름이 다를 수 있습니다. 결과(result.tsv, {model}.report)는 이 폴더에 생깁니다.", "" }));
 }

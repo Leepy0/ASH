@@ -453,6 +453,35 @@ public class JobTests
         }
     }
 
+    [Fact]
+    public async Task A_Cycle_Run_Downloads_Its_Count_Model_Else_The_Base_Model_With_A_Warning()
+    {
+        using var env = new JobEnv();
+        var id = await env.SendFiled("분석", "A안", addFiles: JobEnv.CycleG1);
+        await env.WaitFinished(id);
+        var project = env.Store.ProjectDir(id);
+        await JobEnv.Until(() => File.Exists(Path.Combine(project, "m_c2.arc", "agv.asy")) ? "" : null); // made by the scene run at the decided 2 vehicles
+        async Task<(List<string> Names, string Bat, string Readme)> Get()
+        {
+            using var zip = new ZipArchive(await env.Http.GetStreamAsync($"/jobs/{id}/runs/n2_s1/model.zip"));
+            string Read(string n) { using var rd = new StreamReader(zip.GetEntry(n)!.Open()); return rd.ReadToEnd(); }
+            return (zip.Entries.Select(e => e.FullName).ToList(), Read("run.bat"), Read("README.txt"));
+        }
+
+        var (names, bat, readme) = await Get();
+        Assert.Contains("m_c2.arc/agv.asy", names); Assert.Contains("m_c2.arc/params.txt", names);
+        Assert.DoesNotContain(names, n => n.StartsWith("m.arc/"));
+        Assert.Contains("-bq m_c2", bat); Assert.Contains("start \"\" \"m_c2.exe\"", bat);
+        Assert.DoesNotContain("주의", readme);
+
+        // a result run on a PC (or a folder without it): the base model, and the README says the run differs
+        Directory.Delete(Path.Combine(project, "m_c2.arc"), true);
+        (names, bat, readme) = await Get();
+        Assert.Contains("m.arc/params.txt", names); Assert.DoesNotContain(names, n => n.StartsWith("m_c2"));
+        Assert.Contains("start \"\" \"m.exe\"", bat);
+        Assert.Contains("주의: 이 실행은 순환 그룹 대수별 모델 m_c2로 돌았지만", readme);
+    }
+
     // the plugin's client against the real endpoints: same JSON and multipart contract on both sides
     [Fact]
     public async Task The_Plugin_Client_Talks_To_The_Server()

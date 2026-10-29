@@ -42,6 +42,7 @@ public static class ModelVariants
     public static void Ensure(string projectDir, string baseModel, string variant, ProjectInput input, RunScenario s, string? amHome, TimeSpan timeout,
         Func<string, string, AmBuildResult>? build = null)
     {
+        if (Built(projectDir, baseModel, variant)) return; // built already: no waiting behind another count's build
         // shortcut: an in-process lock; two processes (two ash-run on one folder) could still build the same variant at once
         lock (Locks.GetOrAdd(Path.GetFullPath(projectDir), _ => new object()))
         {
