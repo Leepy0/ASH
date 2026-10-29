@@ -20,7 +20,7 @@ public static class CauseAnalysis
     public static IReadOnlyList<CauseItem> All(CauseContext c) =>
         Sort(Safe("교착", () => DeadlockCauses.Find(c)).Concat(Safe("교착 위험", () => DeadlockRisk.Find(c))).Concat(Safe("간격", () => ClearanceCauses.Find(c)))
             .Concat(Safe("block 점유", () => BlockHoldCauses.Find(c))).Concat(Safe("우회", () => DetourCauses.Find(c)))
-            .Concat(Safe("작업 편중", () => LoadShareCauses.Find(c))).Concat(Safe("시간 손실", () => TimeLossCauses.Find(c))));
+            .Concat(Safe("작업 편중", () => LoadShareCauses.Find(c))).Concat(Safe("시간 손실", () => TimeLossCauses.Find(c))).Concat(Safe("자재 품절", () => StockoutCauses.Find(c))));
 
     // materialized here: the analysers are lazy, so an exception would otherwise surface later, while the page is being written
     static List<CauseItem> Safe(string name, Func<IEnumerable<CauseItem>> find)

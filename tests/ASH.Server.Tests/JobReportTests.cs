@@ -23,7 +23,7 @@ public class JobReportTests
             JobReport.Write(job, view, path);
             Assert.False(File.Exists(path + ".tmp"));
             using var wb = new XLWorkbook(path);
-            Assert.Equal(new[] { "요약", "대수별 가동률", "실행 목록", "영향표", "block", "차량", "자재 통계", "입력" }, wb.Worksheets.Select(w => w.Name).ToArray());
+            Assert.Equal(new[] { "요약", "대수별 가동률", "실행 목록", "자재 품절 원인", "영향표", "block", "차량", "자재 통계", "입력" }, wb.Worksheets.Select(w => w.Name).ToArray());
 
             var veh = wb.Worksheet("차량");
             var gr = veh.Search("그룹별 요약").First().Address.RowNumber + 2;

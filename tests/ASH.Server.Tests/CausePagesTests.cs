@@ -117,7 +117,7 @@ public class CausePagesTests
         var v = JobView.For(env.Store, env.Store.Get(id)!);
         Set(v, "Layout", Lay());
         var html = await env.Http.GetStringAsync($"/analyses/{aid}?tab=cause&job={id}&run=nope");
-        Assert.Contains("원인 없음", html); // the analysers are empty here: the state, not an error
+        Assert.Contains("<h3>자재 품절<span>", html); // the fake runs stand 45 s for every material: only those findings, not an error
         Assert.DoesNotContain("분석 오류", html);
         Set(v, "Layout", null);
         Assert.Contains("자료 없음", await env.Http.GetStringAsync($"/analyses/{aid}?tab=cause"));
@@ -165,7 +165,7 @@ public class CausePagesTests
         var ok = await env.Http.GetAsync($"/api/jobs/{id}/causes?run=nope");
         Assert.Equal(HttpStatusCode.OK, ok.StatusCode);
         var body = ASH.Core.Runner.JobServerClient.ParseCauses(await ok.Content.ReadAsStringAsync());
-        Assert.Equal(id, body.Job); Assert.Empty(body.Items); // the analysers find nothing in this fake job: an empty list, not an error
+        Assert.Equal(id, body.Job); Assert.All(body.Items, i => Assert.Equal("stockout", i.Kind)); // the fake job's only findings: its 45 s stops, not an error
         Assert.DoesNotContain("분석 오류", body.Note);
         Set(v, "Layout", null);
     }
