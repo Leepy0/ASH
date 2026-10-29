@@ -17,11 +17,21 @@
 - 공정 자재 이름: `{Material}@{UnloadCP}`. 하차 CP가 하나면 펼치지 않는다.
 - 범위: `-` 양쪽이 같은 비어 있지 않은 접두어(숫자가 아닌 글자로 끝남) + 숫자일 때만 범위이고, 자릿수는 시작 쪽을 따른다. 그 밖에는 이름 하나다.
 - 순환 권장 기준: 뒤차 대기율 ≥ `Settings.CycleFollowRate`(기본 0.95).
-- 뒤차 대기 판정 간격: `(차량 Length + LayoutExporter.StopGapM) / SpeedLoaded + 5` 초 이하.
+- 교체 시간 = 앞 차량이 하차를 마치고 떠난 시각부터, 뒤 차량이 그 공정의 대기 지점(버퍼가 있으면 버퍼, 없으면 하차 CP)에 도착한 시각까지의 시간이다. 앞 차량이 떠날 때 이미 그 공정에서 기다리는 차량이 있으면(`V_waitVeh(m) > 0`) 교체 시간은 0이고 바로 닫는다.
+- 뒤차 대기 = 교체 시간이 `(차량 Length + LayoutExporter.StopGapM) / SpeedLoaded + 5` 초 이하인 교체.
+- "한 대 더해도 교체 시간이 거의 안 줄면 멈춤"(설계)은 위 정의로 대신한다(우리 결정). 교체 시간이 당겨 서는 시간 안에 들면 차량을 더해도 줄일 수 없으므로 뒤차 대기로 세어진다. 설계 문서에도 이 결정을 적는다(Task 10).
 - UI 문구는 문장 대신 단어 위주로 쓴다. "결품" 대신 "자재 품절"을 쓴다.
 - Core는 netstandard2.0 / net48에서도 빌드돼야 한다. 새 NuGet 의존성은 넣지 않는다.
 - 한글 파일은 BOM 상태를 보존한다. PowerShell `Set-Content`는 쓰지 않는다.
 - 커밋 메시지는 `git commit -F <파일>`로 넘긴다. 끝에 `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`을 단다.
+- 릴리스 노트(`release-notes/<버전>.md`)는 릴리스할 때 쓴다. 이 계획의 범위가 아니다.
+- 실제 테스트 파일 이름(기존 파일에 추가할 때):
+  - 엑셀 읽기: `tests/ASH.Tests/Input/MaterialsRoutesTests.cs`
+  - 결과 파서·KPI·판정: `tests/ASH.Tests/Runner/ResultJudgeTests.cs`
+  - 실행기: `tests/ASH.Tests/Runner/ResumeTests.cs`
+  - 작업 화면: `tests/ASH.Server.Tests/ResultColumnsTests.cs`
+  - 결론: `tests/ASH.Server.Tests/ConclusionTests.cs`
+  - 이름이 다르면 같은 대상을 다루는 기존 파일을 grep으로 찾는다.
 
 ## Review Focus
 
@@ -83,7 +93,7 @@ public void Parse_expands_ranges_and_keeps_other_names(string cell, string expec
 - Modify: `src/ASH.Core/Input/ExcelTemplate.cs` (AGV_Groups 열 23행, 목록 72행, `ApplyCpLists` 747행)
 - Modify: `src/ASH.Core/Model/InputSignature.cs`
 - Create: `src/ASH.Core/Input/StationExpansion.cs`
-- Test: `tests/ASH.Tests/Input/StationExpansionTests.cs`, `tests/ASH.Tests/Input/ExcelReaderTests.cs`(기존 파일에 추가)
+- Test: `tests/ASH.Tests/Input/StationExpansionTests.cs`, `tests/ASH.Tests/Input/MaterialsRoutesTests.cs`(기존 파일에 추가)
 
 **Interfaces:**
 - Consumes: `CpList.Parse` (Task 1)
@@ -148,8 +158,8 @@ public void Parse_expands_ranges_and_keeps_other_names(string cell, string expec
 **Files:**
 - Modify: `src/ASH.Core/Model/LogicGenerator.cs` (재료 루프 104-180행, 결과 출력 185-188행, 변수 목록 426행)
 - Modify: `src/ASH.Core/Model/Templates/code_material.m.txt`
-- Modify: `src/ASH.Core/Runner/ResultSet.cs`, `src/ASH.Core/Runner/ResultParser.cs` (47행)
-- Test: `tests/ASH.Tests/Model/LogicGeneratorTests.cs`, `tests/ASH.Tests/Runner/ResultParserTests.cs`
+- Modify: `src/ASH.Core/Runner/ResultSet.cs`, `src/ASH.Core/Runner/ResultParser.cs` (44행 `V(k)`, 47행), `src/ASH.Core/Model/Templates/code.m.txt` (48행 결과 헤더에 새 값 이름 추가)
+- Test: `tests/ASH.Tests/Model/LogicGeneratorTests.cs`, `tests/ASH.Tests/Runner/ResultJudgeTests.cs`
 
 **Interfaces:**
 - Consumes: `Route.FromCps` (Task 2)
@@ -157,6 +167,8 @@ public void Parse_expands_ranges_and_keeps_other_names(string cell, string expec
   - 로직 변수(자재 배열): `V_waitQty, V_waitVeh, V_waitSum, V_waitVehSum, V_waitMax, V_fromRot, V_swapN, V_swapSum, V_swapMax, V_follow, V_lastLeave, V_swapOpen`
   - 결과 자재 행 값: V(8) 공급 대기 평균(용기), V(9) 최대, V(10) 대기 차량 평균, V(11) 교체 횟수, V(12) 교체 시간 합(초), V(13) 교체 최대(초), V(14) 뒤차 대기 횟수. 호출 자재는 11-14가 0이다.
   - `MaterialResult(..., double WaitAvg = double.NaN, double WaitMax = double.NaN, double WaitVehAvg = double.NaN, double SwapN = double.NaN, double SwapSum = double.NaN, double SwapMax = double.NaN, double FollowN = double.NaN)`. 값이 없는 옛 행은 NaN이다.
+  - 파서: 없는 값은 NaN으로 읽는 접근자 `VN(k)`를 둔다. 기존 `V(k)`는 없는 값을 0으로 주므로 새 필드에 쓰면 안 된다.
+  - 새 속성 `A_from`(Integer)은 `BuildProcessModel`의 Atts(418행 근처)에 선언한다.
   - 생성 헬퍼: `static string LogicGenerator.HoldBlock(string idx, string holdTail)`: 0.36.0의 `wait` 문자열을 배열 인덱스 `idx`(호출 자재는 `"1"` 같은 숫자, 순환은 `"A_m"`)로 만들고, 앞뒤에 `inc/dec V_waitQty(idx) by A_qty`, `inc/dec V_waitVeh(idx) by 1`을 두른다. Task 5도 쓴다.
 
 - [ ] **Step 1: 실패하는 테스트 작성**
@@ -164,7 +176,8 @@ public void Parse_expands_ranges_and_keeps_other_names(string cell, string expec
     - supply 구간에 `inc V_fromRot(1) by 1`이 있다.
     - `if A_from = 1 then begin`… `travel to agv:L001`, `else` … `travel to agv:L002`가 있다.
     - 상차 CP가 하나인 Sample에는 `V_fromRot`가 없다.
-  - 대기 카운터: hold 블록이 `inc V_waitQty(1) by A_qty\n\tinc V_waitVeh(1) by 1`로 시작하고, `while` 뒤에 `dec V_waitQty(1) by A_qty\n\tdec V_waitVeh(1) by 1`이 있다. 버퍼가 있을 때와 없을 때 둘 다 확인한다.
+  - 대기 카운터: hold 블록이 `inc V_waitQty(1) by A_qty\n\tinc V_waitVeh(1) by 1`로 시작한다. `set A_bw to ac - A_bw` 바로 뒤에 `dec V_waitQty(1) by A_qty\n\tdec V_waitVeh(1) by 1`이 온다. 버퍼가 있을 때와 없을 때 둘 다 확인한다.
+    - 이 위치에 두는 이유: 기존 `LogicGeneratorTests` 99·108행이 `end\n\tset A_hold to ac - A_hold\n` 연속을 단정하므로, 그 사이에 넣으면 안 된다.
   - 소비 루프의 표본 줄: `inc V_waitSum(1) by V_waitQty(1)`, `inc V_waitVehSum(1) by V_waitVeh(1)`, `if V_waitQty(1) > V_waitMax(1) then set V_waitMax(1) to V_waitQty(1)`
   - 단일 CP 호출 자재: 호출 `while` 줄과 `inc V_stock` 줄이 0.36.0과 글자까지 같다.
   - 파서:
@@ -183,7 +196,13 @@ public void Parse_expands_ranges_and_keeps_other_names(string cell, string expec
 **Files:**
 - Create: `src/ASH.Core/Model/Templates/code_cycle.m.txt` (리소스 등록은 기존 템플릿 방식대로)
 - Modify: `src/ASH.Core/Model/LogicGenerator.cs`, `src/ASH.Core/Model/Templates/code_material.m.txt` (호출 블록을 `{{CALL}}` 자리로 옮김)
-- Modify: `src/ASH.Core/Model/ModelBuilder.cs` (129행 `VehicleGroupSpec` 생성), `src/ASH.Core/Export/LayoutExporter.cs` (`AddStartLists` 190행)
+- Modify: `src/ASH.Core/Model/ModelBuilder.cs` (69행 `LayoutInfo.CpNames`, 129행 `VehicleGroupSpec` 생성), `src/ASH.Core/Export/LayoutExporter.cs` (130행 `nl_<G>` 필수 검사, `AddStartLists` 190행, `AddDispatchLists` 357-385행)
+- Modify: `src/ASH.Core/Model/LogicGenerator.cs` 안에서 순환 그룹이 대기 CP를 가정하는 곳
+  - `StandbyOf` 69-75행
+  - Render 88행 PARK_OK
+  - 152행 `home` / HOME_TRAVEL
+  - 366행 `AddDispatchLists`
+  - `BuildProcessModel` 415행 Procs, 418행 Atts, 426행 변수 목록
 - Test: `tests/ASH.Tests/Model/CycleLogicTests.cs`, `tests/ASH.Tests/Export/LayoutExporterTests.cs`
 
 **Interfaces:**
@@ -193,6 +212,19 @@ public void Parse_expands_ranges_and_keeps_other_names(string cell, string expec
   - 그룹 배열 변수 `V_toRot`
   - `VehicleGroupSpec(..., string? CycleStartCp = null)`: Cycle 그룹이면 첫 상차 CP 이름
   - 시작 CP 이름 `SP_{group}_{k}` (k = 1..MaxCount). 첫 상차 CP에서 들어오는 차선을 따라 뒤로 `차량 길이 + StopGapM` 간격으로 둔다. 기존 `StandbyQueueCheck.LaneSpots`를 쓴다.
+    - 자리가 모자라면 기존 경고 경로를 쓰되 문구는 "상차 CP {L} 진입 차선"으로 바꾼다.
+  - 순환 그룹의 대기 CP 가정 제거:
+    - 130행 `nl_<G>` 필수 검사에서 Cycle 그룹은 뺀다.
+    - `StandbyOf`는 Cycle 그룹이면 빈 목록을 돌려준다. PARK_OK는 `return false`만 둔다. `home` / HOME_TRAVEL / Finish는 생성하지 않는다.
+  - 배차 목록:
+    - Cycle 그룹의 `nl_pick_<G>`(WORKLST)는 `SP_<G>_k` 전부다. SRCHLST도 그 CP들에 단다. 그래야 `move into agv:SP_G2_k`로 들어간 로드를 그 자리 차량이 집는다.
+    - `SP_*` 이름을 `LayoutInfo.CpNames`에 넣어 `Cp()` 검사를 통과시킨다. ModelBuilder가 내보내기 결과의 시작 CP 이름을 넘긴다.
+  - 선언:
+    - Cycle 공정 자재는 `P_supply_{i}`를 Procs에 선언하지 않고 생성하지도 않는다.
+    - Cycle 그룹마다 `P_cycle_{g}`를 Procs에 넣는다.
+    - 속성 `A_m`(Integer), `A_k`(Integer)를 Atts에 넣는다. 그룹 배열 `V_toRot`를 넣는다.
+  - `A_m` 인덱스로 쓸 수 없는 것: 테이블(`T_pick_{mi}`, `T_deliv_{mi}`, `T_stock_{mi}`), 이벤트 print의 이름 리터럴, `Leg`의 SLOT / NAME. 이것들은 공정별 if 사슬 가지 안에 리터럴로 둔다. 하차 구간 travel도 어차피 가지마다 리터럴이다.
+  - 로드 생성은 `while V_i <= V_active(g) do begin create 1 load … inc V_i by 1 end` 루프로 한다. 변수 개수로 `create` 하는 문법에 기대지 않는다.
 
 - [ ] **Step 1: 실패하는 테스트 작성** (G2 = Cycle, 자재 M001, 하차 U001 / U002로 펼침)
   - 공정 자재 `P_consume_*`에 `clone 1 load to P_supply_`이 없다. 호출 블록이 없다.
@@ -201,17 +233,29 @@ public void Parse_expands_ranges_and_keeps_other_names(string cell, string expec
     - `inc V_toRot(2) by 1`
     - `set A_m to` 사슬
     - `travel to agv:U001` / `travel to agv:U002` 분기
-  - 하차 도착 직후 교체 기록:
+  - 교체 닫기는 대기 지점 도착 직후, 즉 HoldBlock 바로 앞이다. 버퍼가 있으면 버퍼 도착, 없으면 하차 CP 도착이다.
     - `if V_swapOpen(A_m) = 1 then begin`
     - `set V_x to ac - V_lastLeave(A_m)`
-    - `inc V_swapN(A_m) by 1`
+    - `inc V_swapN(A_m) by 1`, `inc V_swapSum(A_m) by V_x`, 최대 갱신
     - `if V_x <= {FOLLOW} then inc V_follow(A_m) by 1`
+    - `set V_swapOpen(A_m) to 0`
     - FOLLOW는 Global Constraints 식. 테스트값: Length 1.2, StopGapM, SpeedLoaded 1.0
-  - 하차 뒤: `set V_lastLeave(A_m) to ac`, `set V_swapOpen(A_m) to 1`
+  - 하차 뒤(앞 차량 출발):
+    - `V_waitVeh(A_m) > 0`이면 교체 0초로 바로 닫는다: `inc V_swapN`, `inc V_follow`, 최대 갱신 없음, `V_swapOpen` = 0.
+    - 아니면 `set V_lastLeave(A_m) to ac`, `set V_swapOpen(A_m) to 1`.
+  - 버퍼 루트 테스트: 버퍼 B001 → 교체 닫기 블록이 `travel to agv:B001` 뒤, `while V_stock(A_m) > V_unload(A_m)` 앞에 있다. 하차 CP 도착 뒤에는 없다.
   - hold는 `HoldBlock`을 `A_m` 인덱스로 쓴다. `while V_stock(A_m) > V_unload(A_m) do begin`
   - 시작 부분: 활성 대수만큼 로드를 만들고(`V_active(2)`), 로드 k는 `SP_G2_k`로 들어간다(`move into agv:SP_G2_1` 등의 if 사슬).
   - 워밍업 이전에는 교체·가동 통계를 쌓지 않는다(`if ac >= V_warmup` 안에 있음).
-  - LayoutExporter: Cycle 그룹(MaxCount 3, StandbyCPs 비어 있음) → 시작 목록이 `SP_G2_1..3`이고 첫 상차 CP 뒤 차선 위에 있다. Call 그룹 시작 목록은 그대로다.
+  - LayoutExporter: Cycle 그룹(MaxCount 3, StandbyCPs 비어 있음)
+    - 예외 없이 내보낸다.
+    - 시작 목록이 `SP_G2_1..3`이고 첫 상차 CP 뒤 차선 위에 있다.
+    - `nl_pick_G2` WORKLST와 SRCHLST가 그 SP CP들을 가리킨다.
+  - Call 그룹 시작·배차 목록은 그대로다.
+  - `BuildProcessModel`:
+    - Procs에 `P_cycle_2`가 있고 Cycle 공정 자재의 `P_supply_*`는 없다.
+    - Atts에 `A_m`, `A_k`가 있다.
+    - 생성 로직에 PARK_OK `return false`만 있고, G2용 HOME travel이 없다.
 - [ ] **Step 2: 실패 확인.** `--filter "FullyQualifiedName~CycleLogic|FullyQualifiedName~LayoutExporter"`
 - [ ] **Step 3: 구현.**
   - 한 바퀴의 순서:
@@ -233,8 +277,14 @@ public void Parse_expands_ranges_and_keeps_other_names(string cell, string expec
 
 **Files:**
 - Create: `src/ASH.Core/Runner/ModelVariants.cs`
-- Modify: `src/ASH.Core/Model/SourceBuild.cs` (`Run`에 입력 조정 인자), `src/ASH.Core/Runner/ModelExecutor.cs`, `src/ASH.Server/FilmWorker.cs`
-- Test: `tests/ASH.Tests/Runner/ModelVariantsTests.cs`, `tests/ASH.Tests/Runner/ModelExecutorTests.cs`
+- Modify:
+  - `src/ASH.Core/Model/SourceBuild.cs` (`Run`에 입력 조정 인자)
+  - `src/ASH.Core/Runner/ModelExecutor.cs` (62행 `Earlier()` 보고서 경로 포함)
+  - `src/ASH.Core/Runner/JobPackage.cs` (`Create` 59-88행에 layout.tsv 포함)
+  - `src/ASH.Plugin/Commands/ModelCommands.cs` (AGVMODEL도 `LayoutSnapshot.Write`)
+  - `src/ASH.Server/FilmWorker.cs` (181행 FindScenes, 461-497행 컷 렌더의 `Copy(proj, work, j.Model)`)
+  - `src/ASH.Server/LimitWorker.cs` (150행 `am.Build(proj, j.Model)` + ModelExecutor)
+- Test: `tests/ASH.Tests/Runner/ModelVariantsTests.cs`, `tests/ASH.Tests/Runner/ResumeTests.cs`
 
 **Interfaces:**
 - Consumes: `AgvGroup.IsCycle` (Task 2)
@@ -261,8 +311,11 @@ public void Parse_expands_ranges_and_keeps_other_names(string cell, string expec
   - ModelExecutor (가짜 runner와 modelFor):
     - 시나리오 G2=3, G2=4 두 번 실행 → RunRequest.Model이 `"Agv_c3"`, `"Agv_c4"`
     - 같은 대수 두 번이면 modelFor 슬롯 준비가 한 번이다.
-  - Reuse: summary.tsv에 G2=3 행이 있으면 다시 돌리지 않는다. 시나리오 텍스트가 대수를 담고 있으므로 기존 동작 그대로다(회귀 테스트).
-  - FilmWorker: 순환 그룹이 있는 영상 컷이 `NameFor` 모델로 돈다. 기존 FilmTests 방식으로 runner를 가로채 확인한다.
+  - Reuse: summary.tsv에 G2=3 행이 있고 그 run 폴더에 `Agv_c3.report`가 있으면 다시 돌리지 않는다.
+    - 지금 `Earlier()`는 `a.Model + ".report"`를 찾으므로 실패한다. modelFor(s) 이름으로 보고서 경로를 만든다.
+  - FilmWorker: 순환 그룹이 있는 장면 찾기와 컷 렌더가 `NameFor` 모델로 빌드·복사·실행한다. 기존 FilmTests 방식으로 runner를 가로채 확인한다.
+  - LimitWorker: 순환 그룹이 있는 생산 한계 작업이 변형 모델로 실행한다.
+  - JobPackage: 모델 패키지에 layout.tsv가 들어 있다(원격 실행기가 변형을 만들 수 있게).
 - [ ] **Step 2: 실패 확인.** `--filter "FullyQualifiedName~ModelVariants|FullyQualifiedName~ModelExecutor"` 와 `tests\ASH.Server.Tests --filter FullyQualifiedName~FilmTests`
 - [ ] **Step 3: 구현.** 원격 실행기(JobPackage)가 원본 세 파일을 받는지 확인한다. 받지 않으면 패키지에 넣는다(`JobPackage` 파일 목록).
 - [ ] **Step 4: 통과 확인**
@@ -271,8 +324,8 @@ public void Parse_expands_ranges_and_keeps_other_names(string cell, string expec
 ### Task 7: KPI·판정
 
 **Files:**
-- Modify: `src/ASH.Core/Runner/Kpi.cs`, `src/ASH.Core/Runner/Judge.cs`, `src/ASH.Core/Input/ExcelReader.cs` (Settings `CycleFollowRate` 읽기)
-- Test: `tests/ASH.Tests/Runner/KpiTests.cs`, `tests/ASH.Tests/Runner/JudgeTests.cs`
+- Modify: `src/ASH.Core/Runner/Kpi.cs`, `src/ASH.Core/Runner/Judge.cs`, `src/ASH.Core/Runner/SummaryTsv.cs`, `src/ASH.Core/Runner/ModelExecutor.cs` (SummaryRow 쓰기), `src/ASH.Core/Input/ExcelReader.cs` (Settings `CycleFollowRate` 읽기)
+- Test: `tests/ASH.Tests/Runner/ResultJudgeTests.cs`
 
 **Interfaces:**
 - Consumes: `MaterialResult.SwapN / SwapSum / SwapMax / FollowN` (Task 4), `AgvGroup.IsCycle`
@@ -280,6 +333,7 @@ public void Parse_expands_ranges_and_keeps_other_names(string cell, string expec
   - `RunKpi(..., string? Note = null, bool Cycle = false, double FollowRate = double.NaN, double SwapAvgSec = double.NaN, double SwapMaxSec = double.NaN)`
     - FollowRate = ΣFollowN / ΣSwapN (그룹 공정 자재 합). ΣSwapN = 0이면 NaN.
   - `RuleCode.Follow` (열거형 끝에 추가)
+  - `SummaryRow`에 선택 끝 열 `FollowRate`, `SwapAvgSec`, `SwapMaxSec`을 추가한다(Call 그룹은 빈칸). 읽기는 열이 없는 옛 summary.tsv도 받는다. Task 8의 대수별 표가 이것을 쓴다.
 
 - [ ] **Step 1: 실패하는 테스트 작성**
   - Kpi: 공정 2개(SwapN 10/10, FollowN 9/10) → FollowRate 0.95, SwapAvgSec = ΣSwapSum / ΣSwapN
@@ -289,9 +343,10 @@ public void Parse_expands_ranges_and_keeps_other_names(string cell, string expec
     - NaN → `Verdict(false, "교체 없음", RuleCode.Follow)`
     - 0.96에 StopTimeSec 30 → Ok, Reason에 `주의: 공정 정지 30초`
     - Deadlocks 1 → Deadlock 실패. 순서: NoResult → Deadlock → Follow
-  - Call kpi는 지금 규칙 그대로다(기존 JudgeTests 통과).
-- [ ] **Step 2: 실패 확인.** `--filter "FullyQualifiedName~KpiTests|FullyQualifiedName~JudgeTests"`
-- [ ] **Step 3: 구현.** `RuleCode` 값으로 분기하는 곳(서버 페이지 포함)을 grep해서 Follow를 "뒤차 대기"로 표시하게 한다.
+  - Call kpi는 지금 규칙 그대로다(기존 판정 테스트 통과).
+  - SummaryTsv: 새 열이 있는 행을 쓰고 다시 읽으면 값이 같다. 옛 형식 행은 NaN으로 읽힌다.
+- [ ] **Step 2: 실패 확인.** `--filter FullyQualifiedName~ResultJudgeTests`
+- [ ] **Step 3: 구현.** `RuleCode`로 분기하는 곳(`LimitWorker` 193-198행 Order/RuleName, `SearchStrategy` 84·362행, 서버 페이지)을 grep해서 Follow를 "뒤차 대기"로 표시하게 한다.
 - [ ] **Step 4: 통과 확인.** ASH.Tests 전체와 ASH.Server.Tests 전체.
 - [ ] **Step 5: 커밋.** "순환 그룹 판정: 뒤차 대기율"
 
@@ -299,7 +354,7 @@ public void Parse_expands_ranges_and_keeps_other_names(string cell, string expec
 
 **Files:**
 - Modify: `src/ASH.Server/JobView.cs` (59행 자재 레코드, 372-385행), `src/ASH.Server/JobPages.cs` (자재 표 506행 근처, 결론 858행), `src/ASH.Server/ReportPages.cs` (91행), `src/ASH.Server/JobReport.cs` (자재 시트 259-263행)
-- Test: `tests/ASH.Server.Tests/JobPagesTests.cs`, `tests/ASH.Server.Tests/JobReportTests.cs`(있는 파일에 추가)
+- Test: `tests/ASH.Server.Tests/ResultColumnsTests.cs`, `tests/ASH.Server.Tests/ConclusionTests.cs`, 보고서는 JobReport를 다루는 기존 테스트 파일(grep `JobReport`)
 
 **Interfaces:**
 - Consumes: `MaterialResult` 새 필드(Task 4), `RunKpi.Cycle / FollowRate / SwapAvgSec / SwapMaxSec`(Task 7)
@@ -309,8 +364,12 @@ public void Parse_expands_ranges_and_keeps_other_names(string cell, string expec
   - 작업 화면 자재 표: 머리글 `공급 대기 평균`, `공급 대기 최대`, `대기 차량`. 값 `1.5` / `3` / `0.8`. 옛 결과(NaN)는 `-`.
   - 순환 그룹이 있는 작업: 그룹 칸에 `뒤차 대기 96%`, `교체 평균 12초`, `교체 최대 40초`. 리드타임 머리글 옆에 `순환: 운행 시작 기준`.
   - 보고서 자재 시트: 열 머리글 `공급 대기 평균`, `공급 대기 최대`, `대기 차량`. 순환 그룹 시트(또는 그룹 시트 열): `뒤차 대기율`, `교체 평균(초)`, `교체 최대(초)`.
-  - 결론 탭: 순환 그룹 권장 사유 문구 `뒤차 대기 ≥ 95%`.
-- [ ] **Step 2: 실패 확인.** `dotnet test tests\ASH.Server.Tests --filter "FullyQualifiedName~JobPages|FullyQualifiedName~JobReport"`
+  - 재고와 공급 대기의 합: 자재 표에 `재고+대기 평균` 열이 있다(값 = StockAvg + WaitAvg). 둘 중 하나라도 NaN이면 `-`.
+  - 결론 탭:
+    - 순환 그룹 권장 사유 문구 `뒤차 대기 ≥ 95%`
+    - 자재 재고 줄(858행 `Three`)에 `공급 대기 평균 x.x`가 붙는다.
+  - 순환 그룹의 대수별 표(summary.tsv의 새 열에서 모음): 대수 / 뒤차 대기율 / 교체 평균(초) / 교체 최대(초) / 공급 대기 평균. 시험한 대수마다 한 줄.
+- [ ] **Step 2: 실패 확인.** `dotnet test tests\ASH.Server.Tests --filter "FullyQualifiedName~ResultColumns|FullyQualifiedName~Conclusion"`
 - [ ] **Step 3: 구현**
 - [ ] **Step 4: 통과 확인.** ASH.Server.Tests 전체.
 - [ ] **Step 5: 커밋.** "결과 화면·보고서: 공급 대기, 순환 교체 시간"
@@ -345,7 +404,7 @@ public void Parse_expands_ranges_and_keeps_other_names(string cell, string expec
   - 분석: `src/ASH.Core/Cause/RouteView.cs`, `DetourCauses.cs`, `src/ASH.Core/Layout/RouteGroupCheck.cs`, `src/ASH.Core/Runner/GroupClusters.cs`
   - 엑셀: `src/ASH.Core/Input/ExcelDrawingDiff.cs`, `ExcelMarks.cs`
   - 플러그인: `src/ASH.Plugin/Commands/RouteCommands.cs`(루트 보기), `src/ASH.Plugin/Ui/InputTable.cs`(AGVSUPPLY)
-- Modify (문서): `docs/input-template.md`, `docs/manual/04-input-model.md`, `docs/manual/05-results.md`
+- Modify (문서): `docs/input-template.md`, `docs/manual/04-input-model.md`, `docs/manual/05-results.md`, 설계 문서 `docs/superpowers/specs/2026-10-29-supply-modes-design.md`(교체 시간 정의와 "멈춤 규칙 대체" 결정 반영)
 - Create: `tests/ASH.Tests/AutoMod/SupplyModesIntegrationTests.cs`
 
 **Interfaces:**
