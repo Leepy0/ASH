@@ -32,9 +32,27 @@ public class CycleLogicTests
 
     static string Cycle(string t) => Proc(t, "begin P_cycle_2 arriving procedure");
 
-    // closing the station's open swap on arrival at its wait point, right before the hold: FOLLOW = (1.2 m + StopGapM 0.5 m) / 1 m/s + 5 s
+    // closing the station's open swap on arrival at its wait point, right before the hold. FOLLOW = the pull-up of 1.2 m + StopGapM 0.5 m from a
+    // stop to a stop (Cart: 1 m/s empty, Accel/Decel blank = 0.3 m/s2, a triangle: 2 x sqrt(1.7 / 0.3) = 4.76 s) + 5 s
     const string Close = "\t\t\tif V_swapOpen(A_m) = 1 then begin\n\t\t\t\tset V_x to ac - V_lastLeave(A_m)\n\t\t\t\tinc V_swapN(A_m) by 1\n\t\t\t\tinc V_swapSum(A_m) by V_x\n" +
-                         "\t\t\t\tif V_x > V_swapMax(A_m) then set V_swapMax(A_m) to V_x\n\t\t\t\tif V_x <= 6.7 then inc V_follow(A_m) by 1\n\t\t\t\tset V_swapOpen(A_m) to 0\n\t\t\tend\n";
+                         "\t\t\t\tif V_x > V_swapMax(A_m) then set V_swapMax(A_m) to V_x\n\t\t\t\tif V_x <= 9.76095228569523 then inc V_follow(A_m) by 1\n\t\t\t\tset V_swapOpen(A_m) to 0\n\t\t\tend\n";
+
+    [Fact]
+    public void Follow_Threshold_Is_The_Pull_Up_From_A_Stop_With_Accel_And_Decel()
+    {
+        // too short to reach the speed: a triangle, 2 x sqrt(d / a) for a = b
+        Assert.Equal(2 * Math.Sqrt(1.7 / 0.3), LogicGenerator.PullUpSec(1.7, 1, 0.3, 0.3), 2);
+        Assert.Equal(4.76, LogicGenerator.PullUpSec(1.7, 1, 0.3, 0.3), 2);
+        // long enough: a trapezoid, 1 s up + 1 s down over 1 m, then 19 m at 1 m/s
+        Assert.Equal(21, LogicGenerator.PullUpSec(20, 1, 1, 1), 9);
+        // uneven accel / decel: the peak speed sqrt(2 d a b / (a + b)) = 1 m/s at d = 1.5, a = 1, b = 0.5: 1 s up + 2 s down
+        Assert.Equal(3, LogicGenerator.PullUpSec(1.5, 2, 1, 0.5), 9);
+        // the threshold takes the type's empty speed (the vehicle pulls up empty) and its accel / decel (blank = ExcelReader.AccelBlank):
+        // 0.5 m/s at 1 m/s2 is a trapezoid, 0.5 s up + 0.5 s down over 0.25 m, then 1.45 m at 0.5 m/s = 3.9 s, + 5 s
+        var p = Input();
+        p.AgvTypes[1] = p.AgvTypes[1] with { SpeedEmpty = 0.5, Accel = 1, Decel = 1 };
+        Assert.Contains("if V_x <= 8.9 then inc V_follow(A_m) by 1", Cycle(LogicGenerator.Render(p, Layout)));
+    }
     // from its arrival at the wait point until its unload is done, the vehicle is ready at the station
     const string Ready = "\t\t\tinc V_ready(A_m) by 1\n";
     const string Hold = "\t\t\tinc V_waitQty(A_m) by A_qty\n\t\t\tinc V_waitVeh(A_m) by 1\n\t\t\tset A_bw to ac\n\t\t\tset A_hold to ac\n\t\t\twhile V_stock(A_m) > V_unload(A_m) do begin\n";

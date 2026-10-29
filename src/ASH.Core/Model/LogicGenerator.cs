@@ -101,6 +101,15 @@ public static class LogicGenerator
         $"\tset A_bw to ac\n\tset A_hold to ac\n\twhile V_stock({idx}) > V_unload({idx}) do begin\n\t\twait for 5 sec\n\tend\n{holdTail}\tset A_bw to ac - A_bw\n" +
         $"\tdec V_waitQty({idx}) by A_qty\n\tdec V_waitVeh({idx}) by 1\n";
 
+    /// <summary>Seconds to move <paramref name="d"/> m from a stop to a stop at top speed <paramref name="v"/> (m/s) with accel <paramref name="a"/>
+    /// and decel <paramref name="b"/> (m/s2): a triangle profile when the run is too short to reach v, else a trapezoid.</summary>
+    internal static double PullUpSec(double d, double v, double a, double b)
+    {
+        double da = v * v / (2 * a), db = v * v / (2 * b);
+        if (da + db >= d) { double vp = Math.Sqrt(2 * d * a * b / (a + b)); return vp / a + vp / b; }
+        return v / a + v / b + (d - da - db) / v;
+    }
+
     /// <summary>unitsPerMeter: model units in one meter (the speeds in the input are m/s).</summary>
     public static string Render(ProjectInput input, LayoutInfo layout, double unitsPerMeter = 1)
     {
@@ -165,12 +174,14 @@ public static class LogicGenerator
             // A_bw = the whole wait, A_hold = the part left out of busy time
             var wait = HoldBlock(mi.ToString(), hold);
             // a cycle lap holds by its station, and its arrival at the wait point first ends the station's open swap: within a pull-up behind
-            // the vehicle ahead (its length + the stop gap at loaded speed, + 5 s) the swap counts as following. From there until its unload is
-            // done the vehicle is ready at the station (V_ready): one ready when the vehicle ahead leaves takes over at once (code_cycle.m)
+            // the vehicle ahead (its length + the stop gap from a stop to a stop, with the type's accel/decel (blank = ExcelReader.AccelBlank) up to
+            // its empty speed, + 5 s) the swap counts as following. From there until its unload is done the vehicle is ready at the station
+            // (V_ready): one ready when the vehicle ahead leaves takes over at once (code_cycle.m)
             if (g.IsCycle)
                 wait = $"\tif V_swapOpen(A_m) = 1 then begin\n\t\tset V_x to ac - V_lastLeave(A_m)\n\t\tinc V_swapN(A_m) by 1\n\t\tinc V_swapSum(A_m) by V_x\n" +
                        $"\t\tif V_x > V_swapMax(A_m) then set V_swapMax(A_m) to V_x\n" +
-                       $"\t\tif V_x <= {N((t.Length + ASH.Core.Export.LayoutExporter.StopGapM) / t.SpeedLoaded + 5)} then inc V_follow(A_m) by 1\n" +
+                       $"\t\tif V_x <= {N(PullUpSec(t.Length + ASH.Core.Export.LayoutExporter.StopGapM, t.SpeedEmpty > 0 ? t.SpeedEmpty : t.SpeedLoaded,
+                           t.Accel > 0 ? t.Accel : ExcelReader.AccelBlank, t.Decel > 0 ? t.Decel : ExcelReader.AccelBlank) + 5)} then inc V_follow(A_m) by 1\n" +
                        $"\t\tset V_swapOpen(A_m) to 0\n\tend\n\tinc V_ready(A_m) by 1\n" + HoldBlock("A_m", hold);
             bool buffer = !string.IsNullOrEmpty(r.BufferCP);
             if (buffer) legs.Append(Leg(r.BufferCP!, mi, true)).Append(wait);

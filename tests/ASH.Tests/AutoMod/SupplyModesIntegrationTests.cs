@@ -9,13 +9,13 @@ namespace ASH.Tests.AutoMod;
 /// Set ASH_AM_HOME (e.g. C:\AutoMod\12_6); ASH_KEEP_TEMP=1 keeps the model folder.</summary>
 public class SupplyModesIntegrationTests
 {
-    /// <summary>G1 = Cycle with <paramref name="vehicles"/> vehicles 1.2 m long (1 m/s, 1 m/s2), M001 from L001 (moved up to (10, 8), so the start
+    /// <summary>G1 = Cycle with <paramref name="vehicles"/> vehicles 1.2 m long (1 m/s, blank accel/decel: the template default), M001 from L001 (moved up to (10, 8), so the start
     /// CPs fit on the lane into it) to <paramref name="stations"/>, optionally via the buffer B001. The unload threshold is never reached, so no
     /// vehicle is held: on the one-way loop a held vehicle would stop the ones behind it.</summary>
     static Run CycleRun(int vehicles, string[] stations, bool buffer, double unloadTime = 10)
     {
         var p = LogicGeneratorTests.Sample(takt: 20);
-        p.AgvTypes[0] = p.AgvTypes[0] with { Length = 1.2, Width = 0.8, Accel = 1, Decel = 1, UnloadTime = unloadTime };
+        p.AgvTypes[0] = p.AgvTypes[0] with { Length = 1.2, Width = 0.8, UnloadTime = unloadTime };
         p.Groups[0] = p.Groups[0] with { MinCount = vehicles, MaxCount = vehicles, StandbyCPs = new List<string>(), SupplyMode = "Cycle" };
         p.Materials.RemoveAt(1); p.Routes.RemoveAt(1);
         p.Materials[0] = p.Materials[0] with { Material = "M001", UnloadThreshold = 1000 };
