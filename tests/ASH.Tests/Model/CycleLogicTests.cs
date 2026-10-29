@@ -35,6 +35,8 @@ public class CycleLogicTests
     // closing the station's open swap on arrival at its wait point, right before the hold: FOLLOW = (1.2 m + StopGapM 0.5 m) / 1 m/s + 5 s
     const string Close = "\t\t\tif V_swapOpen(A_m) = 1 then begin\n\t\t\t\tset V_x to ac - V_lastLeave(A_m)\n\t\t\t\tinc V_swapN(A_m) by 1\n\t\t\t\tinc V_swapSum(A_m) by V_x\n" +
                          "\t\t\t\tif V_x > V_swapMax(A_m) then set V_swapMax(A_m) to V_x\n\t\t\t\tif V_x <= 6.7 then inc V_follow(A_m) by 1\n\t\t\t\tset V_swapOpen(A_m) to 0\n\t\t\tend\n";
+    // from its arrival at the wait point until its unload is done, the vehicle is ready at the station
+    const string Ready = "\t\t\tinc V_ready(A_m) by 1\n";
     const string Hold = "\t\t\tinc V_waitQty(A_m) by A_qty\n\t\t\tinc V_waitVeh(A_m) by 1\n\t\t\tset A_bw to ac\n\t\t\tset A_hold to ac\n\t\t\twhile V_stock(A_m) > V_unload(A_m) do begin\n";
     // a line of the station branch (three tabs in) or a blank one
     const string Branch = @"(?:\t\t\t.*\n|\n)*?";
@@ -89,13 +91,16 @@ public class CycleLogicTests
     {
         var c = Cycle(LogicGenerator.Render(Input(), Layout));
         foreach (var u in new[] { "U001", "U002" })
-            Assert.Matches(@"\t\t\ttravel to agv:" + u + @"\n" + Branch + Regex.Escape(Close + Hold), c);
+            Assert.Matches(@"\t\t\ttravel to agv:" + u + @"\n" + Branch + Regex.Escape(Close + Ready + Hold), c);
         Assert.Equal(2, Regex.Matches(c, Regex.Escape(Close)).Count);
-        // leaving after the unload: a next vehicle held there already swaps in at once (0 s, no maximum), else the swap opens
-        Assert.Contains("\t\tinc V_stock(A_m) by A_qty\n", c);
-        const string Leave = "\t\tif ac >= V_warmup then begin\n\t\t\tif V_waitVeh(A_m) > 0 then begin\n\t\t\t\tinc V_swapN(A_m) by 1\n\t\t\t\tinc V_follow(A_m) by 1\n\t\t\t\tset V_swapOpen(A_m) to 0\n" +
+        // done unloading, the vehicle is no longer ready there (outside the warmup guard: the count stays balanced)
+        // leaving: a next vehicle ready there already (at its wait point) swaps in at once (0 s, no maximum), else the swap opens
+        const string Leave = "\t\tif ac >= V_warmup then begin\n\t\t\tif V_ready(A_m) > 0 then begin\n\t\t\t\tinc V_swapN(A_m) by 1\n\t\t\t\tinc V_follow(A_m) by 1\n\t\t\t\tset V_swapOpen(A_m) to 0\n" +
                              "\t\t\tend\n\t\t\telse begin\n\t\t\t\tset V_lastLeave(A_m) to ac\n\t\t\t\tset V_swapOpen(A_m) to 1\n\t\t\tend\n\t\tend\n";
-        Assert.Matches(@"\t\tinc V_stock\(A_m\) by A_qty\n(?:\t\t/\*.*\n)?" + Regex.Escape(Leave), c);
+        Assert.Matches(@"\t\tinc V_stock\(A_m\) by A_qty\n\t\tdec V_ready\(A_m\) by 1\n(?:\t\t/\*.*\n)?" + Regex.Escape(Leave), c);
+        Assert.Equal(2, Regex.Matches(c, Regex.Escape("inc V_ready(A_m) by 1")).Count);  // one per station branch
+        Assert.Single(Regex.Matches(c, Regex.Escape("dec V_ready(A_m) by 1")));
+        Assert.DoesNotContain("if V_waitVeh", c);
         Assert.Single(Regex.Matches(c, "set V_lastLeave"));
     }
 
@@ -103,10 +108,11 @@ public class CycleLogicTests
     public void With_A_Buffer_The_Swap_Closes_At_The_Buffer()
     {
         var c = Cycle(LogicGenerator.Render(Input("B001"), Layout));
-        Assert.Equal(2, Regex.Matches(c, Regex.Escape(Close + Hold)).Count);
-        Assert.Matches(@"\t\t\ttravel to agv:B001\n" + Branch + Regex.Escape(Close + Hold) + Branch + @"\t\t\ttravel to agv:U001\n", c);
-        // not again at the unload CP
+        Assert.Equal(2, Regex.Matches(c, Regex.Escape(Close + Ready + Hold)).Count);
+        Assert.Matches(@"\t\t\ttravel to agv:B001\n" + Branch + Regex.Escape(Close + Ready + Hold) + Branch + @"\t\t\ttravel to agv:U001\n", c);
+        // not again at the unload CP: a vehicle there is ready since the buffer
         Assert.DoesNotMatch(@"travel to agv:U00\d\n" + Branch + @"\t\t\tif V_swapOpen", c);
+        Assert.DoesNotMatch(@"travel to agv:U00\d\n" + Branch + @"\t\t\tinc V_ready", c);
     }
 
     [Fact]
@@ -170,7 +176,7 @@ public class CycleLogicTests
         Assert.Contains("\tmove into agv:SP_G2_1\n\tset A_veh to this load vehicle\n", c);
         Assert.Contains("\t\tif V_toRot(2) > 1 then set V_toRot(2) to 1\n\t\tset A_m to 3\n", c);
         Assert.DoesNotContain("if A_m =", c);
-        Assert.Contains(Close.Replace("\t\t\t", "\t\t") + Hold.Replace("\t\t\t", "\t\t"), c);
+        Assert.Contains((Close + Ready + Hold).Replace("\t\t\t", "\t\t"), c);
     }
 
     [Fact]
@@ -183,6 +189,7 @@ public class CycleLogicTests
         Assert.Contains(m.Atts, a => a.Name == "A_m" && a.Type == "Integer");
         Assert.Contains(m.Atts, a => a.Name == "A_k" && a.Type == "Integer");
         Assert.Contains(m.Vars, v => v.Name == "V_toRot" && v.Type == "Integer" && v.ArraySize == 2);
+        Assert.Contains(m.Vars, v => v.Name == "V_ready" && v.Type == "Integer" && v.ArraySize == 4);   // per material
         // every name the logic uses is declared (as for the call supply)
         var names = new HashSet<string>(m.Vars.Select(v => v.Name).Concat(procs).Concat(m.Orders).Concat(m.Queues.Select(q => q.Name))
             .Concat(m.Atts.Select(a => a.Name)).Concat(m.Funcs).Concat(m.LoadTypes).Concat(m.Tables));

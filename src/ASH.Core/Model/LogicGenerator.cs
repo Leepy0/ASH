@@ -165,12 +165,13 @@ public static class LogicGenerator
             // A_bw = the whole wait, A_hold = the part left out of busy time
             var wait = HoldBlock(mi.ToString(), hold);
             // a cycle lap holds by its station, and its arrival at the wait point first ends the station's open swap: within a pull-up behind
-            // the vehicle ahead (its length + the stop gap at loaded speed, + 5 s) the swap counts as following
+            // the vehicle ahead (its length + the stop gap at loaded speed, + 5 s) the swap counts as following. From there until its unload is
+            // done the vehicle is ready at the station (V_ready): one ready when the vehicle ahead leaves takes over at once (code_cycle.m)
             if (g.IsCycle)
                 wait = $"\tif V_swapOpen(A_m) = 1 then begin\n\t\tset V_x to ac - V_lastLeave(A_m)\n\t\tinc V_swapN(A_m) by 1\n\t\tinc V_swapSum(A_m) by V_x\n" +
                        $"\t\tif V_x > V_swapMax(A_m) then set V_swapMax(A_m) to V_x\n" +
                        $"\t\tif V_x <= {N((t.Length + ASH.Core.Export.LayoutExporter.StopGapM) / t.SpeedLoaded + 5)} then inc V_follow(A_m) by 1\n" +
-                       $"\t\tset V_swapOpen(A_m) to 0\n\tend\n" + HoldBlock("A_m", hold);
+                       $"\t\tset V_swapOpen(A_m) to 0\n\tend\n\tinc V_ready(A_m) by 1\n" + HoldBlock("A_m", hold);
             bool buffer = !string.IsNullOrEmpty(r.BufferCP);
             if (buffer) legs.Append(Leg(r.BufferCP!, mi, true)).Append(wait);
             legs.Append(Leg(r.SupplyToCP, mi, true));
@@ -524,8 +525,8 @@ public static class LogicGenerator
         foreach (var v in new[] { "V_call", "V_unload", "V_stock", "V_safety", "V_takt", "V_perCycle", "V_perContainer", "V_need",
                      "V_minStock", "V_stockSum", "V_stop", "V_stopSince", "V_consumed", "V_mDist" })
             m.Vars.Add(new(v, "Real", ms));
-        // supply wait (held for the unload threshold, sampled per takt), load CP turn (by the row's first material), cycle-supply swaps at the station
-        foreach (var v in new[] { "V_waitQty", "V_waitVeh", "V_waitMax", "V_fromRot", "V_swapN", "V_follow", "V_swapOpen" }) m.Vars.Add(new(v, "Integer", ms));
+        // supply wait (held for the unload threshold, sampled per takt), load CP turn (by the row's first material), cycle-supply swaps at the station and the vehicles ready there
+        foreach (var v in new[] { "V_waitQty", "V_waitVeh", "V_waitMax", "V_fromRot", "V_swapN", "V_follow", "V_swapOpen", "V_ready" }) m.Vars.Add(new(v, "Integer", ms));
         foreach (var v in new[] { "V_waitSum", "V_waitVehSum", "V_swapSum", "V_swapMax", "V_lastLeave" }) m.Vars.Add(new(v, "Real", ms));
         // leg slots: 1..nm supply legs, nm+1..2nm return legs
         m.Vars.Add(new("V_inLeg", "Integer", 2 * nm)); m.Vars.Add(new("V_legStart", "Real", 2 * nm));

@@ -1,7 +1,7 @@
 /* cycle group {{G}} = {{TYPE}}: no calls and no standby CP. One load per active vehicle boards it on its start CP and stays on board for the run.
    Each lap loads at the next load CP, unloads at the next station (the stations take turns, one per lap; A_m = the station's material) and runs
    the return legs. A lap is one job: busy time, time split and lead times count from its start. Swap at a station: from one vehicle leaving it
-   to the next one's arrival at its wait point (the buffer, else the unload CP); 0 s when the next one is held there already */
+   to the next one's arrival at its wait point (the buffer, else the unload CP); 0 s when the next one has arrived there already (V_ready) */
 begin P_cycle_{{G}} arriving procedure
 	set A_grp to {{G}}
 	if A_k = 0 then begin
@@ -47,9 +47,10 @@ begin P_cycle_{{G}} arriving procedure
 		set V_tmp to F_ext_before_unload()
 		wait for {{UNLOAD_TIME}} sec
 		inc V_stock(A_m) by A_qty
-		/* leaving the station: a next vehicle held there already takes over at once (0 s), else the swap runs until one arrives */
+		dec V_ready(A_m) by 1
+		/* leaving the station: a next vehicle ready there already (arrived at its wait point) takes over at once (0 s), else the swap runs until one arrives */
 		if ac >= V_warmup then begin
-			if V_waitVeh(A_m) > 0 then begin
+			if V_ready(A_m) > 0 then begin
 				inc V_swapN(A_m) by 1
 				inc V_follow(A_m) by 1
 				set V_swapOpen(A_m) to 0
