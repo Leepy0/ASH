@@ -126,18 +126,21 @@ public sealed class ServerUpdater
     }
 
     /// <summary>One check against the GitHub release; never throws except on cancellation. A newer signed server zip is downloaded and staged (<see cref="Waiting"/>), never applied here.</summary>
-    public async Task CheckAsync(HttpClient http, string baseUrl, CancellationToken ct)
+    public async Task CheckAsync(HttpClient http, string baseUrl, CancellationToken ct, CheckProgress? progress = null)
     {
-        if (DisabledReason != null) return;
-        try { LastResult = await Check(http, baseUrl, ct); }
+        if (DisabledReason != null) { progress?.Skip(CheckProgress.ServerCheck, DisabledReason); return; }
+        progress ??= new CheckProgress(); // nobody watches: the steps go nowhere
+        try { LastResult = await Check(http, baseUrl, progress, ct); }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception e) { LastResult = "실패: " + (e is OperationCanceledException ? "응답 시간 초과" : e.Message); }
+        progress.Settle(CheckProgress.ServerCheck, CheckProgress.ServerPrepare, LastResult);
         if (LastResult.StartsWith("실패") || LastResult.StartsWith("거절")) _log.LogWarning("서버 업데이트 확인 {Result}", LastResult);
         else _log.LogInformation("서버 업데이트 확인 {Result}", LastResult);
     }
 
-    private async Task<string> Check(HttpClient http, string baseUrl, CancellationToken ct)
+    private async Task<string> Check(HttpClient http, string baseUrl, CheckProgress p, CancellationToken ct)
     {
+        p.Start(CheckProgress.ServerCheck);
         var json = await GitHubSync.GetSmall(http, $"{baseUrl}/releases/latest/download/{PackageManifest.ServerManifestName}", 1 << 16, ct);
         if (json == null) return $"GitHub 최신 릴리스에 {PackageManifest.ServerManifestName}이(가) 없음";
         var m = PackageManifest.ParseServer(json);
@@ -156,16 +159,20 @@ public sealed class ServerUpdater
             if (!_store.Key.Verify(json, sig)) return "거절: 서버 배포 서명이 맞지 않습니다.";
         }
 
+        p.Finish(CheckProgress.ServerCheck, $"새 버전 {m.Version}");
         Directory.CreateDirectory(_dir);
         foreach (var f in Directory.GetFiles(_dir, "*.partial")) TryDeleteFile(f);
         var part = Path.Combine(_dir, m.File + ".partial");
+        p.Start(CheckProgress.ServerGet, m.Size);
         using (var resp = await http.GetAsync($"{tag}/{Uri.EscapeDataString(m.File)}", HttpCompletionOption.ResponseHeadersRead, ct))
         {
             if (!resp.IsSuccessStatusCode) throw new HttpRequestException($"서버 zip을 받을 수 없습니다({(int)resp.StatusCode}).");
-            await using var src = await resp.Content.ReadAsStreamAsync(ct);
+            await using var src = new CountingStream(await resp.Content.ReadAsStreamAsync(ct), n => p.Bytes(CheckProgress.ServerGet, n));
             var (size, hash) = await CopyAndHash(src, part, m.Size, ct);
             if (size != m.Size || hash != m.Sha256) { TryDeleteFile(part); return "거절: 받은 서버 zip의 크기 또는 SHA-256이 배포 정보와 다릅니다."; }
         }
+        p.Finish(CheckProgress.ServerGet, "받음");
+        p.Start(CheckProgress.ServerPrepare);
         var stage = Path.Combine(_dir, "v" + m.Version);
         if (Directory.Exists(stage)) Directory.Delete(stage, true);
         ZipFile.ExtractToDirectory(part, stage); // rejects entries outside the folder (zip slip)

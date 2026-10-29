@@ -25,7 +25,7 @@ public sealed class SettingsEnv : IDisposable
     public readonly WebApplicationFactory<Program> Factory;
     public readonly HttpClient Http;
 
-    public SettingsEnv(string token = Token)
+    public SettingsEnv(string token = Token, string? gitHubUrl = null)
     {
         Directory.CreateDirectory(Dir);
         System.IO.File.WriteAllText(File, Original);
@@ -36,7 +36,8 @@ public sealed class SettingsEnv : IDisposable
             b.UseSetting("Jobs:WorkerEnabled", "false");
             b.UseSetting("Admin:Password", token);
             b.UseSetting("Update:PublicKeyPem", "");
-            b.UseSetting("GitHub:Enabled", "false");
+            b.UseSetting("GitHub:Enabled", gitHubUrl == null ? "false" : "true");
+            if (gitHubUrl != null) b.UseSetting("GitHub:BaseUrl", gitHubUrl);
             b.ConfigureTestServices(s => s.AddSingleton(new AppSettingsFile(File)));
         });
         Http = Factory.CreateClient();
