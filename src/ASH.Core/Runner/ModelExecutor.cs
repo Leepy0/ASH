@@ -129,7 +129,8 @@ public sealed class ModelExecutor
             // shortcut: this row judges one replication of one group; the search verdict averages replications and so can differ
             var v = !failed ? Judge.Evaluate(new[] { k }, input.Settings) : new Verdict(false, error ?? "run failed");
             SummaryTsv.Append(a.SummaryPathOrDefault, new SummaryRow(o.RunId, k.Group, k.Active, s.Seed, v.Ok, v.Reason,
-                k.Utilization, k.MinStockRatio, k.Supplies, k.Expected, k.StopTimeSec, k.Deadlocks, o.Duration.TotalSeconds, scen));
+                k.Utilization, k.MinStockRatio, k.Supplies, k.Expected, k.StopTimeSec, k.Deadlocks, o.Duration.TotalSeconds, scen,
+                k.FollowRate, k.SwapAvgSec, k.SwapMaxSec));
         }
         a.Progress?.Report(failed && o.Success ? o with { Success = false, Error = error } : o);
         return kpis;

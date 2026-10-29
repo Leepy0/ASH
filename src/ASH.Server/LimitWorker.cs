@@ -195,17 +195,20 @@ public sealed class LimitWorker(JobStore jobs, IFilmAutoMod am, IConfiguration c
     }
 
     /// <summary>Judge's order of the rules, so the step names what the search would have stopped at first.</summary>
-    static int Order(RuleCode r) => r switch { RuleCode.NoResult => 0, RuleCode.StopTime => 1, RuleCode.Supply => 2, RuleCode.Deadlock => 3, RuleCode.Utilization => 4, _ => 5 };
+    internal static int Order(RuleCode r) => r switch
+    {
+        RuleCode.NoResult => 0, RuleCode.StopTime => 1, RuleCode.Supply => 2, RuleCode.Deadlock => 3, RuleCode.Follow => 4, RuleCode.Utilization => 5, _ => 6,
+    };
 
     public static string RuleName(RuleCode r) => r switch
     {
         RuleCode.StopTime => "자재 품절", RuleCode.Supply => "생산 미달", RuleCode.Deadlock => "교착", RuleCode.Utilization => "가동률 초과",
-        RuleCode.Stock => "재고 부족", _ => "실행 실패",
+        RuleCode.Stock => "재고 부족", RuleCode.Follow => "뒤차 대기", _ => "실행 실패",
     };
 
     /// <summary>What failed worst under the rule, over the step's seeds: the material stopped longest or furthest under its production,
-    /// the block waited at longest in a deadlock, or the failing group.</summary>
-    static string Worst(RuleCode rule, List<string> groups, List<ResultSet> sets)
+    /// the block waited at longest in a deadlock, the station whose swaps a waiting vehicle took least often, or the failing group.</summary>
+    internal static string Worst(RuleCode rule, List<string> groups, List<ResultSet> sets)
     {
         static string F(double d, string f) => d.ToString(f, CultureInfo.InvariantCulture);
         var mats = sets.SelectMany(s => s.Materials).Where(m => groups.Contains(m.Group)).GroupBy(m => m.Name).ToList();
@@ -219,6 +222,9 @@ public sealed class LimitWorker(JobStore jobs, IFilmAutoMod am, IConfiguration c
                 return p.Key == null ? "" : $"{p.Key} {F(p.V * 100, "0")}%";
             case RuleCode.Deadlock:
                 return sets.SelectMany(x => x.Blocks).GroupBy(b => b.Name).OrderByDescending(g => g.Average(b => b.MaxWaitSec)).FirstOrDefault()?.Key ?? "";
+            case RuleCode.Follow: // stations without swaps (or from a model before them: NaN) left out
+                var w = mats.Where(g => g.Sum(m => m.SwapN) > 0).Select(g => (g.Key, V: g.Sum(m => m.FollowN) / g.Sum(m => m.SwapN))).OrderBy(x => x.V).FirstOrDefault();
+                return w.Key == null ? "" : $"{w.Key} {F(w.V * 100, "0")}%";
             case RuleCode.Utilization:
                 return groups[0];
             default: return "";

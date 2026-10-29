@@ -6,9 +6,12 @@ using ASH.Core.Input;
 namespace ASH.Core.Runner;
 
 /// <summary>Note = data problems the numbers hide (missing report/result row); null when clean. Supplies (deliveries) is reported only;
-/// Consumed (containers consumed after warmup) against Expected is what Judge checks.</summary>
+/// Consumed (containers consumed after warmup) against Expected is what Judge checks.
+/// Cycle = a cycle-supply group, judged on FollowRate = swaps by a vehicle already waiting behind / swaps over the group's stations;
+/// SwapAvgSec / SwapMaxSec = swap seconds. The three are NaN without swaps (a call group, a model before the swap values, no swap in the run).</summary>
 public sealed record RunKpi(string Group, int Active, double Utilization, double MinStockRatio, int Supplies, double Consumed, double Expected,
-    double StopTimeSec, int Deadlocks, string? Note = null);
+    double StopTimeSec, int Deadlocks, string? Note = null, bool Cycle = false, double FollowRate = double.NaN, double SwapAvgSec = double.NaN,
+    double SwapMaxSec = double.NaN);
 
 public static class Kpi
 {
@@ -37,7 +40,7 @@ public static class Kpi
             else if (!report.Types.TryGetValue(g.Group, out var ts) && !report.Types.TryGetValue(g.Type, out ts)) notes.Add($"보고서에 {g.Group} 통계 없음: 가동률 미산출");
             else util = Math.Min(1.0, ts.Vehicles.Sum(v => v.DeliveringPct + v.RetrievingPct) / active);
 
-            double ratio = Pass, supplies = 0, consumed = 0, expected = 0, stop = 0;
+            double ratio = Pass, supplies = 0, consumed = 0, expected = 0, stop = 0, swapN = 0, swapSum = 0, swapMax = 0, follow = 0;
             foreach (var mi in input.Materials.Where(x => x.Group == g.Group))
             {
                 var m = rs.Materials.FirstOrDefault(x => x.Name == mi.Material && x.Group == g.Group);
@@ -46,13 +49,15 @@ public static class Kpi
                 var rr = safety > 0 ? m.MinStock / safety : (m.MinStock >= 0 && m.StopTimeSec == 0 ? Pass : 0);
                 ratio = Math.Min(ratio, rr);
                 supplies += m.Supplies; consumed += m.Consumed; expected += m.Expected; stop += m.StopTimeSec;
+                if (!double.IsNaN(m.SwapN)) { swapN += m.SwapN; swapSum += m.SwapSum; follow += m.FollowN; swapMax = Math.Max(swapMax, m.SwapMax); }
                 // a stock that only just stays above the safety level on average is a warning, not a failure
                 var st = rs.MaterialStats?.FirstOrDefault(x => x.Name == mi.Material && x.Group == g.Group);
                 if (st != null && st.StockStd > 0 && st.StockAvg - 2 * st.StockStd < safety)
                     notes.Add($"자재 {mi.Material} 재고 변동 큼(평균 {st.StockAvg:0.##} - 2σ {2 * st.StockStd:0.##} < 안전재고 {safety:0.##})");
             }
             list.Add(new RunKpi(g.Group, active, util, ratio, (int)supplies, consumed, expected, stop, rs.Deadlocks,
-                notes.Count == 0 ? null : string.Join("; ", notes)));
+                notes.Count == 0 ? null : string.Join("; ", notes), g.IsCycle,
+                swapN > 0 ? follow / swapN : double.NaN, swapN > 0 ? swapSum / swapN : double.NaN, swapN > 0 ? swapMax : double.NaN));
         }
         return list;
     }
