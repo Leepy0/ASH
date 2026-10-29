@@ -42,7 +42,7 @@ public static class ReportPages
 
         // ---- the numbers (as the 결론 tab shows them)
         var kpis = new List<ReportKpi> { new("권장 대수", (m.Total ?? 0).ToString(CultureInfo.InvariantCulture), "대", "blue", $"시험 {input.Groups.Sum(g => g.MinCount)}~{input.Groups.Sum(g => g.MaxCount)}대") };
-        var top = v.Groups.Where(g => !double.IsNaN(g.Util)).OrderByDescending(g => g.Util).FirstOrDefault();
+        var top = v.Groups.Where(g => g.HasUtil).OrderByDescending(g => g.Util).FirstOrDefault();
         var over = top != null && Over(top, v.UtilMax);
         kpis.Add(top == null ? new("최대 가동률", "-", "", "ink", "")
             : new("최대 가동률", F(top.Util * 100, "0"), "%", over ? "orange" : "ink", ""));
@@ -79,19 +79,19 @@ public static class ReportPages
             var c = AnalysisPages.GroupClass(g, v.UtilMax);
             var vg = byGroup.GetValueOrDefault(g.Group);
             groups.Rows.Add((new[] { g.Group, g.Type, g.Decided?.ToString(CultureInfo.InvariantCulture) ?? "-", $"{g.Min}~{g.Max}",
-                (c == "over" ? "▲ " : c == "under" ? "▼ " : "") + P(g.Util), vg == null ? "-" : F(vg.Jobs * vg.Count, "0"), vg == null ? "-" : F(vg.Distance * vg.Count / 1000, "0.0"),
+                g.Cycle ? CycleText(g) : (c == "over" ? "▲ " : c == "under" ? "▼ " : "") + P(g.Util), vg == null ? "-" : F(vg.Jobs * vg.Count, "0"), vg == null ? "-" : F(vg.Distance * vg.Count / 1000, "0.0"),
                 vg == null ? "-" : F(vg.DistPerJob, "0.#"), c == "fail" ? "⚠ 실패: " + g.Reason : c == "over" ? "⚠ 경고: 가동률 초과" : "✓ 통과" }, c == "ok" ? "" : c));
         }
 
         // ---- 자재별: supplies, frequency, lead time, quantities (as the 상세 tab)
-        var mats = new ReportTable(new[] { "자재", "그룹", "공급 횟수(회)", "공급 빈도(초)", "리드 타임 평균/최대(초)", "자재 품절(초)", "용기 평균/최소/최대", "자재 평균/최소/최대(개)" }, new());
+        var mats = new ReportTable(new[] { "자재", "그룹", "공급 횟수(회)", "공급 빈도(초)", "리드 타임 평균/최대(초)" + (AnyCycle(v) ? " (" + LeadNote(v) + ")" : ""), "자재 품절(초)", "용기 평균/최소/최대", "자재 평균/최소/최대(개)" }, new());
         foreach (var x in v.Materials)
         {
             var per = PerContainer(v, x);
             string Three(double k, string f) => $"{F(x.StockAvg * k, f)} / {F(x.StockMin * k, f)} / {F(x.StockMax * k, f)}";
             var stop = x.StopSec > 0;
             mats.Rows.Add((new[] { MatLabel(v, x), x.Group, F(x.Trips, "0.#"), F(SupplyInterval(v, x), "0"), $"{F(x.DelivAvg, "0.0")} / {F(x.DelivMax, "0.0")}",
-                (stop ? "⚠ " : "") + F(x.StopSec, "0"), Three(1, "0.#"), Three(per, "0") }, stop ? "fail" : ""));
+                (stop ? "⚠ " : "") + F(x.StopSec, "0"), Three(1, "0.#") + WaitNote(x), Three(per, "0") }, stop ? "fail" : ""));
         }
 
         var films = new List<ReportFilm>();

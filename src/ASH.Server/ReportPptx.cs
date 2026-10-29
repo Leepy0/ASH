@@ -216,7 +216,7 @@ internal static class ReportPptx
         var total = r.Job.Decided?.Values.Sum() ?? 0;
         var stop = v.Materials.Select(m => m.StopSec).Where(s => !double.IsNaN(s)).DefaultIfEmpty(double.NaN).Sum();
         var byGroup = v.VehicleGroups.ToDictionary(x => x.Group, StringComparer.Ordinal);
-        var loaded = v.Groups.Where(g => !double.IsNaN(g.Util)).OrderByDescending(g => g.Util).ToList();
+        var loaded = v.Groups.Where(g => g.HasUtil).OrderByDescending(g => g.Util).ToList();
         var top = loaded.FirstOrDefault();
         var fails = v.Groups.Where(g => AnalysisPages.GroupClass(g, lim) == "fail").ToList();
         string Supply(GroupView g) => byGroup.TryGetValue(g.Group, out var vg) ? $"공급 {F(vg.Jobs * vg.Count, "#,0")}회 · {F(vg.Distance * vg.Count / 1000, "0.0")} km" : "";
