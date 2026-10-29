@@ -11,8 +11,13 @@ namespace ASH.Core.Runner;
 
 public interface IRunExecutor { IReadOnlyList<RunKpi> Execute(RunScenario s); }
 
-/// <summary>Optional: an executor that can run a batch concurrently; results are in input order. Cancellation stops starting new runs.</summary>
-public interface IBatchRunExecutor : IRunExecutor { IReadOnlyList<IReadOnlyList<RunKpi>> ExecuteMany(IReadOnlyList<RunScenario> scenarios, CancellationToken ct = default); }
+/// <summary>Optional: an executor that can run a batch concurrently; results are in input order. Cancellation stops starting new runs.
+/// Slots = runs it keeps in flight at once (the search sizes its rounds to it).</summary>
+public interface IBatchRunExecutor : IRunExecutor
+{
+    int Slots { get; }
+    IReadOnlyList<IReadOnlyList<RunKpi>> ExecuteMany(IReadOnlyList<RunScenario> scenarios, CancellationToken ct = default);
+}
 
 public static class RunExecutorExtensions
 {
@@ -29,6 +34,8 @@ public sealed record SearchStep(RunScenario Scenario, IReadOnlyDictionary<string
 /// <summary>PlusOne = the group's new count; deltas are the other group's mean KPI in the +1 run minus the confirmed baseline.</summary>
 public sealed record ImpactRow(string Group, int PlusOne, string OtherGroup, double UtilDelta, double MinStockDelta);
 public sealed record SearchResult(IReadOnlyDictionary<string, int> Decided, List<SearchStep> Trace, List<ImpactRow> Impact, List<string> Warnings);
+/// <summary>What one cluster needs run before its next step: (counts, replications) requests and a log label.</summary>
+sealed record SearchAsk(IReadOnlyList<(Dictionary<string, int> Counts, int N)> Runs, string Label);
 
 public static class ImpactTsv
 {
@@ -76,15 +83,37 @@ public static class SearchStrategy
         return new SearchResult(cur, trace, new List<ImpactRow>(), warnings);
     }
 
-    /// <summary>Per cluster: baseline at Max (initial reps) → pass 1 binary search per group → later passes try only cur−1 per group until a
+    /// <summary>Evenly spread probe counts for the open interval [lo, hi) (hi is the count already taken): every count when at most k are left,
+    /// else k counts lo + ⌊i·(hi−lo)/(k+1)⌋. k = 1 gives the binary-search midpoint (lo+hi)/2.</summary>
+    internal static List<int> Points(int lo, int hi, int k)
+    {
+        int n = hi - lo;
+        return n <= k ? Enumerable.Range(lo, n).ToList() : Enumerable.Range(1, k).Select(i => lo + (int)((long)i * n / (k + 1))).ToList();
+    }
+
+    /// <summary>New (lo, hi) after probing ascending <paramref name="pts"/>: hi goes to the lowest probe from which every higher probe passed,
+    /// lo to just above the highest failing probe under it. Monotone verdicts: exactly the binary-search step. A pass below a fail is noise and ignored.</summary>
+    internal static (int Lo, int Hi) Narrow(IReadOnlyList<int> pts, IReadOnlyList<bool> ok, int lo, int hi)
+    {
+        for (int j = pts.Count - 1; j >= 0; j--)
+            if (ok[j]) hi = pts[j]; else return (pts[j] + 1, hi);
+        return (lo, hi);
+    }
+
+    /// <summary>Per cluster: baseline at Max (initial reps) → pass 1 k-ary search per group → later passes try only cur−1 per group until a
     /// pass changes nothing → "decided" at Settings.Replications → "minus1" tries cur−1 per group at full reps. Groups failing at baseline
     /// are skipped after pass 1. Then "confirm" over all groups (bumps failing groups, up to MaxConfirmRounds), then optional impact runs.
-    /// Run budget per cluster with k groups and range R = Max−Min+1 (initial reps 1, nothing cached): 1 + k·⌈log2 R⌉ + k per later pass
-    /// + reps (decided) + k·reps (minus1, cached when reps = 1), plus confirm and impact (k·reps). With a batch executor, initial reps 1 and
-    /// k ≥ 2, the first binary-search midpoints of all groups run as one batch; a group whose speculative scenario is stale (an earlier
-    /// group changed) re-runs sequentially, so results equal the sequential search. With InitStockMode Fixed reps is 1 (see FixedStock).</summary>
+    /// Pass 1 per group: each round probes <see cref="Points"/>(lo, hi, share / initial reps) as one batch and narrows with <see cref="Narrow"/>;
+    /// share = the cluster's part of the executor's slots, so with one slot (or no batch executor) it is the binary search, and for monotone verdicts
+    /// every slot count decides the same. Groups inside a cluster still go one after another (each sees the others' new counts).
+    /// Batch executor with Slots ≥ 2: every cluster searches at once, each round's asks of all clusters run as one batch, the slots split evenly
+    /// (at least 1 each); a cluster holds the other clusters' groups at their counts when it started (clusters do not interact), so the confirm
+    /// round is the first run of all decided counts together. Otherwise clusters go one after another, each starting from the decided counts before it.
+    /// Run budget per cluster with k groups and range R = Max−Min+1 (initial reps 1, one slot, nothing cached): 1 + k·⌈log2 R⌉ + k per later pass
+    /// + reps (decided) + k·reps (minus1, cached when reps = 1), plus confirm and impact (k·reps). With InitStockMode Fixed reps is 1 (see FixedStock).
+    /// <paramref name="onLog"/> gets one line per round that starts runs.</summary>
     public static SearchResult Search(ProjectInput input, IRunExecutor exec, GroupClusters clusters, SearchOptions opts, CancellationToken ct = default,
-        Action<SearchProgress>? onProgress = null)
+        Action<SearchProgress>? onProgress = null, Action<string>? onLog = null)
     {
         var cache = new Dictionary<string, IReadOnlyList<RunKpi>>();
         var trace = new List<SearchStep>();
@@ -116,35 +145,37 @@ public static class SearchStrategy
             int i = 0;
             foreach (var key in todo.Keys) cache[key] = res[i++];
         }
+        bool Cached((Dictionary<string, int> Counts, int N) r) => Seeds(r.N).All(seed => cache.ContainsKey(Key(seed, r.Counts)));
         List<RunKpi> Runs(Dictionary<string, int> counts, int n)
         {
             Fill(new[] { (counts, n) });
             return Seeds(n).SelectMany(seed => cache[Key(seed, counts)]).ToList();
         }
-        Dictionary<string, Verdict> Eval(IEnumerable<string> judged, int n, string phase)
+        Dictionary<string, Verdict> Eval(Dictionary<string, int> counts, IEnumerable<string> judged, int n, string phase)
         {
-            var kpis = Runs(cur, n);
+            var kpis = Runs(counts, n);
             var v = judged.ToDictionary(g => g, g => Judge.Evaluate(kpis.Where(k => k.Group == g), input.Settings));
-            trace.Add(new SearchStep(new RunScenario(input.Settings.SeedBase, new Dictionary<string, int>(cur)), v, v.Values.All(x => x.Ok), phase, n, Seeds(n)));
+            trace.Add(new SearchStep(new RunScenario(input.Settings.SeedBase, new Dictionary<string, int>(counts)), v, v.Values.All(x => x.Ok), phase, n, Seeds(n)));
             return v;
         }
         // g itself must pass and every other group that passed at the cluster baseline must still pass
-        bool Accept(IReadOnlyList<string> cluster, string g, HashSet<string> baselineOk, int n, string phase)
+        bool Accept(IReadOnlyList<string> cluster, string g, HashSet<string> baselineOk, Dictionary<string, int> counts, int n, string phase)
         {
-            var v = Eval(cluster, n, phase);
+            var v = Eval(counts, cluster, n, phase);
             return v[g].Ok && cluster.All(o => o == g || !baselineOk.Contains(o) || v[o].Ok);
         }
-        // one cur−1 try per group; false when nothing changed
-        bool MinusOnePass(IReadOnlyList<string> cluster, HashSet<string> baselineOk, int n, string phase)
+        SearchAsk Ask(Dictionary<string, int> counts, int n, string label) => new(new[] { (counts, n) }, label);
+        // one at−1 try per group; changed[0] = something moved
+        IEnumerable<SearchAsk> MinusOnePass(IReadOnlyList<string> cluster, Dictionary<string, int> at, HashSet<string> baselineOk, int n, string phase, bool[] changed)
         {
-            bool changed = false;
+            changed[0] = false;
             foreach (var g in cluster)
             {
-                if (!baselineOk.Contains(g) || cur[g] <= byName[g].MinCount) continue;
-                cur[g]--;
-                if (Accept(cluster, g, baselineOk, n, phase)) changed = true; else cur[g]++;
+                if (!baselineOk.Contains(g) || at[g] <= byName[g].MinCount) continue;
+                var t = new Dictionary<string, int>(at) { [g] = at[g] - 1 };
+                yield return Ask(t, n, $"그룹 {g} {at[g]}→{at[g] - 1}");
+                if (Accept(cluster, g, baselineOk, t, n, phase)) { at[g]--; changed[0] = true; }
             }
-            return changed;
         }
 
         var confirmed = new Dictionary<string, int>();
@@ -153,47 +184,75 @@ public static class SearchStrategy
             onProgress?.Invoke(new SearchProgress(phase, new Dictionary<string, int>(confirmed),
                 (current ?? new string[0]).ToDictionary(g => g, g => cur[g]), groupsLeft, opts.ExpectedRuns));
 
-        foreach (var cluster in clusters.Clusters)
+        int share = 1; // the slots the cluster being stepped may fill with its next ask (set by the driver below)
+        // one cluster's search as a coroutine: it yields what it needs run, the driver runs the asks of all clusters together, then resumes it
+        IEnumerable<SearchAsk> Cluster(IReadOnlyList<string> cluster)
         {
+            var at = new Dictionary<string, int>(cur); // only this cluster's groups move; cur gets them when it is done
             var baselineOk = new HashSet<string>();
             string cname = string.Join(",", cluster);
             Report("탐색 " + cname, cluster);
-            foreach (var kv in Eval(cluster, initReps, "baseline"))
+            yield return Ask(at, initReps, cname + " 기준");
+            foreach (var kv in Eval(at, cluster, initReps, "baseline"))
             {
                 if (kv.Value.Ok) baselineOk.Add(kv.Key);
                 else warnings.Add($"묶음 {cname}: 그룹 {kv.Key}는 최대 대수에서도 판정 실패 — 다른 그룹 탐색은 {kv.Key} 제외 기준으로 진행");
             }
-            // pass 1: binary search per group; the first midpoints of all groups are speculated in one batch
-            if (exec is IBatchRunExecutor && initReps == 1 && cluster.Count >= 2)
-                Fill(cluster.Where(g => cur[g] > byName[g].MinCount)
-                    .Select(g => (new Dictionary<string, int>(cur) { [g] = (byName[g].MinCount + cur[g]) / 2 }, 1)).ToList());
-            bool changed = false;
+            // pass 1: k-ary search per group (binary with one slot)
+            var changed = new bool[1];
             foreach (var g in cluster)
             {
-                int hi = cur[g], lo = byName[g].MinCount, orig = hi;
+                int hi = at[g], lo = byName[g].MinCount, orig = hi;
                 while (lo < hi)
                 {
-                    int mid = (lo + hi) / 2;
-                    cur[g] = mid;
-                    if (Accept(cluster, g, baselineOk, initReps, "search")) hi = mid; else lo = mid + 1;
+                    var pts = Points(lo, hi, Math.Max(1, share / initReps));
+                    var tries = pts.Select(p => new Dictionary<string, int>(at) { [g] = p }).ToList();
+                    yield return new SearchAsk(tries.Select(t => (t, initReps)).ToList(), $"그룹 {g} [{lo}..{hi}] → {string.Join(",", pts)}");
+                    (lo, hi) = Narrow(pts, tries.Select(t => Accept(cluster, g, baselineOk, t, initReps, "search")).ToList(), lo, hi);
                 }
-                cur[g] = hi;
-                if (hi < orig) changed = true;
+                at[g] = hi;
+                if (hi < orig) changed[0] = true;
             }
             // later passes: only cur−1 per group (another group's reduction can only have made room for a small step)
-            while (changed) changed = MinusOnePass(cluster, baselineOk, initReps, "search");
-            Eval(cluster, reps, "decided");
-            while (MinusOnePass(cluster, baselineOk, reps, "minus1")) { }
-            foreach (var g in cluster) confirmed[g] = cur[g];
+            while (changed[0]) foreach (var a in MinusOnePass(cluster, at, baselineOk, initReps, "search", changed)) yield return a;
+            yield return Ask(at, reps, $"{cname} 반복 {reps}회");
+            Eval(at, cluster, reps, "decided");
+            do foreach (var a in MinusOnePass(cluster, at, baselineOk, reps, "minus1", changed)) yield return a;
+            while (changed[0]);
+            foreach (var g in cluster) confirmed[g] = cur[g] = at[g];
             groupsLeft -= cluster.Count;
             Report("확정 " + cname);
+        }
+
+        // driver: one slot (or no batch executor) = clusters one after another, as before; more slots = every cluster at once
+        int slots = exec is IBatchRunExecutor bx ? Math.Max(1, bx.Slots) : 1;
+        var waiting = new Queue<IReadOnlyList<string>>(clusters.Clusters);
+        var live = new List<IEnumerator<SearchAsk>>();
+        while (true)
+        {
+            while (waiting.Count > 0 && (slots > 1 || live.Count == 0)) live.Add(Cluster(waiting.Dequeue()).GetEnumerator());
+            if (live.Count == 0) break;
+            var asks = new List<SearchAsk>();
+            int k = live.Count, i = 0;
+            foreach (var it in live.ToList())
+            {
+                share = Math.Max(1, slots / k + (i++ < slots % k ? 1 : 0));
+                bool more;
+                while ((more = it.MoveNext()) && it.Current.Runs.All(Cached)) { } // an ask already in the cache needs no round
+                if (more) asks.Add(it.Current); else live.Remove(it);
+            }
+            if (asks.Count == 0) continue;
+            var reqs = asks.SelectMany(a => a.Runs).ToList();
+            int fresh = reqs.SelectMany(r => Seeds(r.N).Select(seed => Key(seed, r.Counts))).Distinct().Count(key => !cache.ContainsKey(key));
+            onLog?.Invoke($"탐색 라운드: {string.Join(" · ", asks.Select(a => a.Label))} ({fresh}회)");
+            Fill(reqs);
         }
 
         var all = input.Groups.Select(g => g.Group).ToList();
         Report("확인");
         for (int round = 0; ; round++)
         {
-            var v = Eval(all, reps, "confirm");
+            var v = Eval(cur, all, reps, "confirm");
             if (v.Values.All(x => x.Ok)) break;
             var bump = v.Where(x => !x.Value.Ok && cur[x.Key] < byName[x.Key].MaxCount).Select(x => x.Key).ToList();
             if (round >= opts.MaxConfirmRounds || bump.Count == 0)

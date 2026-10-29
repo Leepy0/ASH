@@ -141,9 +141,11 @@ public class SearchStrategyTests
     {
         public readonly Fake Inner = new();
         public readonly List<int> BatchSizes = new();
+        public readonly List<IReadOnlyList<RunScenario>> Batches = new();
+        public int Slots { get; init; } = 1;
         public IReadOnlyList<RunKpi> Execute(RunScenario s) => Inner.Execute(s);
         public IReadOnlyList<IReadOnlyList<RunKpi>> ExecuteMany(IReadOnlyList<RunScenario> ss, System.Threading.CancellationToken ct = default)
-        { ct.ThrowIfCancellationRequested(); BatchSizes.Add(ss.Count); return ss.Select(Inner.Execute).ToList(); }
+        { ct.ThrowIfCancellationRequested(); BatchSizes.Add(ss.Count); Batches.Add(ss.ToList()); return ss.Select(Inner.Execute).ToList(); }
     }
     [Fact] public void Search_Fans_Impact_Runs_Out_As_One_Batch()
     {
@@ -155,21 +157,6 @@ public class SearchStrategyTests
         Assert.Equal(seq.Calls, b.BatchSizes.Sum());   // same runs as the sequential path (singleton clusters: no speculation)
         Assert.True(b.BatchSizes.Max() >= 2, string.Join(",", b.BatchSizes));
         Assert.Equal(2, r.Impact.Count);
-    }
-    [Fact] public void Search_Batches_First_Midpoints_Of_A_Cluster_And_Matches_Sequential()
-    {
-        var p = Input(("G1", 1, 4), ("G2", 1, 4));
-        p.Settings = p.Settings with { Replications = 1 };
-        var c = new GroupClusters { Clusters = new IReadOnlyList<string>[] { new[] { "G1", "G2" } } };
-        var b = new Batching(); b.Inner.Fail = ClusterRule;
-        var seq = new Fake { Fail = ClusterRule };
-        var rb = SearchStrategy.Search(p, b, c, new SearchOptions());
-        var rs = SearchStrategy.Search(p, seq, c, new SearchOptions());
-        Assert.Equal(rs.Decided, rb.Decided);
-        Assert.Equal(new[] { 1, 2 }, b.BatchSizes.Take(2));   // baseline, then both groups' first midpoints together
-        // G1 dropped to 1, so G2's speculative (4, 2) was stale and G2's first probe (1, 2) ran on its own: one wasted run
-        Assert.Equal(seq.Calls + 1, b.BatchSizes.Sum());
-        System.Console.WriteLine($"RUNS batched = {b.BatchSizes.Sum()} in {b.BatchSizes.Count} batches, sequential = {seq.Calls}");
     }
     [Fact] public void Search_Stops_When_Cancelled()
     {

@@ -12,10 +12,13 @@ public class SearchEstimateTests
         var p = SearchStrategyTests.Input(("G1", 1, 4), ("G2", 1, 4), ("G3", 1, 3)); // Replications 2
         var c = new GroupClusters { Clusters = new IReadOnlyList<string>[] { new[] { "G1", "G2" }, new[] { "G3" } } };
         // baseline 1 (first cluster only)
-        // G1,G2: search 1·(2+2) + later pass 1·(2−1) + speculation (2−1) + decided (2−1) + minus1 2·(2−1) = 9
-        // G3:    search 1·2 + later 0 + speculation 0 + decided 1 + minus1 1 = 4;   confirm 0 (cached);   impact 3·2 = 6
-        Assert.Equal(20, SearchEstimate.Expected(p, c, 1, true));
-        Assert.Equal(14, SearchEstimate.Expected(p, c, 1, false));  // 영향표 없음: 1 + 9 + 4
+        // G1,G2: search 1·(2+2) + later pass 1·(2−1) + decided (2−1) + minus1 2·(2−1) = 8
+        // G3:    search 1·2 + later 0 + decided 1 + minus1 1 = 4;   confirm 0 (cached);   impact 3·2 = 6
+        Assert.Equal(19, SearchEstimate.Expected(p, c, 1, true));
+        Assert.Equal(13, SearchEstimate.Expected(p, c, 1, false));  // 영향표 없음: 1 + 8 + 4
+        // 4 slots, both clusters at once (2 each: 2 probes per round): G1,G2 range 4 takes 2 probes then 1 (3 instead of 2) each: + 2;
+        // G3 range 3 takes its 2 probes in one round (same); confirm round 0 is new: + 2
+        Assert.Equal(13 + 2 + 2, SearchEstimate.Expected(p, c, 1, false, 4));
     }
     [Fact] public void Expected_Tracks_The_Actual_Runs_On_Both_Executors()
     {
@@ -25,8 +28,8 @@ public class SearchEstimateTests
             SearchStrategy.Search(p, f, c, new SearchOptions(ImpactTable: impact));
             var b = new SearchStrategyTests.Batching(); b.Inner.Fail = SearchStrategyTests.ClusterRule;
             SearchStrategy.Search(p, b, c, new SearchOptions(ImpactTable: impact));
-            // impact adds 2 new runs (G2 is at Max; G3+1 = (1,4,3) is cluster 1's decided config): 11→13 sequential, 12→14 batch (one stale speculation)
-            Assert.Equal(impact ? (13, 14) : (11, 12), (f.Calls, b.BatchSizes.Sum()));
+            // impact adds 2 new runs (G2 is at Max; G3+1 = (1,4,3) is cluster 1's decided config): 11→13; one slot batches the same runs
+            Assert.Equal(impact ? (13, 13) : (11, 11), (f.Calls, b.BatchSizes.Sum()));
             int n = SearchEstimate.Expected(p, c, 1, impact);
             // impact is budgeted at k·reps = 6 (at most) against 2 actual, so only the search part is held to +3
             int slack = impact ? 3 + 6 - 2 : 3;

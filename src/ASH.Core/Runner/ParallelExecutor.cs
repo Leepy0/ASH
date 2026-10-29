@@ -22,8 +22,12 @@ public sealed class ParallelExecutor : IBatchRunExecutor
         this.slots = Math.Max(1, slots); this.run = run;
         gate = new SemaphoreSlim(this.slots);
         for (int i = 1; i <= this.slots; i++) free.Enqueue(i);
+        // ExecuteMany's workers block on model processes; below slots ready pool threads the pool adds one about every 0.5 s, so runs start late
+        ThreadPool.GetMinThreads(out var worker, out var io);
+        if (worker < this.slots + 4) ThreadPool.SetMinThreads(this.slots + 4, io);
     }
 
+    public int Slots => slots;
     public int Runs => Volatile.Read(ref count);
 
     public IReadOnlyList<RunKpi> Execute(RunScenario s) => Execute(s, default);
