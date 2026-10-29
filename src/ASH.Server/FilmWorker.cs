@@ -174,14 +174,17 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
             var proj = jobs.ProjectDir(j.Id);
             var input = SearchJob.ReadInput(proj, TextWriter.Null, new List<string>(), out var err) ?? throw new InvalidOperationException(err);
             var counts = input.Groups.ToDictionary(g => g.Group, g => Math.Clamp((decided.TryGetValue(g.Group, out var n) ? n : g.MinCount) + delta, g.MinCount, g.MaxCount));
-            if (!File.Exists(Path.Combine(proj, j.Model + ".exe")))
+            var scenario = new RunScenario(input.Settings.SeedBase, counts, Events: true);
+            var model = ModelVariants.NameFor(input, j.Model, scenario); // a cycle group's count runs in its own model
+            if (model != j.Model) ModelVariants.Ensure(proj, j.Model, model, input, scenario, Jr.AmHome, Jr.BuildTimeout, am.Build);
+            else if (!File.Exists(Path.Combine(proj, j.Model + ".exe")))
             {
                 // a result uploaded from a PC, or run folders already purged: build once in the job's folder
                 ModelBuilder.PrepareBuildDir(proj, j.Model);
                 var b = am.Build(proj, j.Model);
                 if (!b.Success) throw new InvalidOperationException("빌드 실패: " + FirstLine(b.MakeErrText + "\n" + b.Am2ErrText, b.Facts));
             }
-            var o = am.Run(new RunRequest(proj, j.Model, input, new RunScenario(input.Settings.SeedBase, counts, Events: true), Jr.RunTimeout, Jr.DialogButton, AmHome: Jr.AmHome));
+            var o = am.Run(new RunRequest(proj, model, input, scenario, Jr.RunTimeout, Jr.DialogButton, AmHome: Jr.AmHome));
             log.WriteLine($"scenes: run {o.RunId} {(o.Success ? "ok" : "FAILED " + o.Error)}");
             if (!o.Success) throw new InvalidOperationException("모델 실행 실패: " + o.Error);
             var events = EventLog.Read(Path.Combine(o.RunDir, "events.tsv"));
@@ -375,14 +378,15 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
     {
         var clean = false;
         _keepWork = false;
-        try { clean = MakeVersion(f, j, input, counts, seed, cuts, work, say, stop); }
+        var model = ModelVariants.NameFor(input, j.Model, new RunScenario(seed, counts)); // a cycle group's count is filmed in its own model
+        try { clean = MakeVersion(f, j, model, input, counts, seed, cuts, work, say, stop); }
         finally
         {
             try
             {
-                if (_keepWork) say($"작업 폴더 남김(F0 보정 실패 조사용: {j.Model}.avw\\camera.des, cal_on/cal_off 동영상): {work}");
+                if (_keepWork) say($"작업 폴더 남김(F0 보정 실패 조사용: {model}.avw\\camera.des, cal_on/cal_off 동영상): {work}");
                 else if (clean) { if (Directory.Exists(work)) Directory.Delete(work, true); }
-                else Prune(work, j.Model);
+                else Prune(work, model);
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException) { say($"작업 폴더를 정리하지 못함: {e.Message}"); }
         }
@@ -400,7 +404,7 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
         foreach (var mp4 in Directory.GetFiles(work, "*.mp4").Concat(Directory.GetFiles(work, "*.avi"))) File.Delete(mp4);
     }
 
-    bool MakeVersion(FilmInfo f, JobInfo j, ProjectInput input, Dictionary<string, int> counts, int seed, List<CutSpec> cuts, string work, Action<string> say, CancellationToken stop)
+    bool MakeVersion(FilmInfo f, JobInfo j, string model, ProjectInput input, Dictionary<string, int> counts, int seed, List<CutSpec> cuts, string work, Action<string> say, CancellationToken stop)
     {
         var r = f.Request;
         var a = analyses.Get(r.AnalysisId);
@@ -414,7 +418,7 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
         if (ok.Count == 0) return true;
 
         double from = Math.Max(0, Math.Floor(ok.Min(c => c.StartSec)) - 2), to = Math.Min(simLen, Math.Ceiling(ok.Max(c => c.StartSec + c.SimSeconds)) + 2);
-        var (f0, o) = PrepareModel(j, input, counts, seed, from, to, work, r.Width, r.Height, Phase, s => say($"{label}: {s}"), w => films.Update(f.Id, x => x.Warnings.Add($"{label}: {w}")), stop);
+        var (f0, o) = PrepareModel(j, model, input, counts, seed, from, to, work, r.Width, r.Height, Phase, s => say($"{label}: {s}"), w => films.Update(f.Id, x => x.Warnings.Add($"{label}: {w}")), stop);
         var kpi = Kpi(j, input, counts, o);
         say($"{label}: 자막 수치 {kpi}");
         var failed = false;
@@ -427,7 +431,7 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
             string script;
             try { script = CameraScript.Build(c, f0, r.Width, r.Height, r.Fps, Quality, Path.Combine(work, $"cut{k + 1:00}"), new[] { CalOff }, Legacy, _step); }
             catch (ArgumentException e) { failed = true; SetItem(f, j.Id, c.Id, false, "카메라 스크립트를 만들 수 없는 컷입니다: " + e.Message); continue; } // a cut saved before validation tightened
-            var res = Render(work, j.Model, script, CutTimeout, stop);
+            var res = Render(work, model, script, CutTimeout, stop);
             if (res.Dialogs.Count > 0) say($"{label}: 대화상자 {string.Join(", ", res.Dialogs)}");
             if (!res.Ok)
             {
@@ -450,8 +454,9 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
     }
 
     /// <summary>A film model in <paramref name="work"/> (a copy of the job's project): the drawing, the ash_cal calibration mark, the recording window
-    /// <paramref name="from"/>..<paramref name="to"/>, build, one run at <paramref name="counts"/>, then F0. Throws when the build or the run fails.</summary>
-    (double F0, RunOutcome Run) PrepareModel(JobInfo j, ProjectInput input, Dictionary<string, int> counts, int seed, double from, double to, string work, int width, int height,
+    /// <paramref name="from"/>..<paramref name="to"/>, build, one run at <paramref name="counts"/>, then F0. Throws when the build or the run fails.
+    /// <paramref name="model"/> is the job's model, or a cycle group's count model (ModelVariants.NameFor), made in the copy from its source files.</summary>
+    (double F0, RunOutcome Run) PrepareModel(JobInfo j, string model, ProjectInput input, Dictionary<string, int> counts, int seed, double from, double to, string work, int width, int height,
         Action<string> Phase, Action<string> say, Action<string> warn, CancellationToken stop)
     {
         double simLen = input.Settings.SimLengthSec;
@@ -459,7 +464,8 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
         var proj = jobs.ProjectDir(j.Id);
         if (Directory.Exists(work)) Directory.Delete(work, true);
         Copy(proj, work, j.Model);
-        var arc = Path.Combine(work, j.Model + ".arc");
+        if (model != j.Model) ModelVariants.Generate(work, j.Model, model, input, new RunScenario(seed, counts)); // the film's own build follows
+        var arc = Path.Combine(work, model + ".arc");
         var amoPath = Path.Combine(arc, "model.amo");
         var units = Regex.Match(File.ReadAllText(amoPath), @"^UNITS (\S+)", RegexOptions.Multiline) is { Success: true } um ? um.Groups[1].Value : "Meters";
         var layout = ArcLayout.Load(arc).Layout;
@@ -489,18 +495,18 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
         File.WriteAllText(amoPath, ModelAmoWriter.WithRecording(File.ReadAllText(amoPath), simLen, from, to), new UTF8Encoding(false));
 
         Phase("빌드");
-        ModelBuilder.PrepareBuildDir(work, j.Model);
-        var b = am.Build(work, j.Model);
+        ModelBuilder.PrepareBuildDir(work, model);
+        var b = am.Build(work, model);
         if (!b.Success) throw new InvalidOperationException("빌드 실패: " + FirstLine(b.MakeErrText + "\n" + b.Am2ErrText, b.Facts));
         stop.ThrowIfCancellationRequested();
         Phase("모델 실행(기록)");
-        var o = am.Run(new RunRequest(work, j.Model, input, new RunScenario(seed, counts), Jr.RunTimeout, Jr.DialogButton, RunsDir: Path.Combine(work, "runs"), AmHome: Jr.AmHome));
+        var o = am.Run(new RunRequest(work, model, input, new RunScenario(seed, counts), Jr.RunTimeout, Jr.DialogButton, RunsDir: Path.Combine(work, "runs"), AmHome: Jr.AmHome));
         if (!o.Success) throw new InvalidOperationException("모델 실행 실패: " + o.Error);
         stop.ThrowIfCancellationRequested();
 
         Phase("화면 배율 보정");
         _step = 0.5;
-        var f0 = Calibrate(work, j.Model, (cx, cy, lw, lh, Math.Sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0) + 2.5 * 2.5)), from + 1, Math.Min(CalSpan, to - from - 1), width, height, say, warn, stop);
+        var f0 = Calibrate(work, model, (cx, cy, lw, lh, Math.Sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0) + 2.5 * 2.5)), from + 1, Math.Min(CalSpan, to - from - 1), width, height, say, warn, stop);
         return (f0, o);
     }
 
@@ -530,6 +536,7 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
         if (t + 1 > simLen) throw new InvalidOperationException($"시뮬레이션 길이({simLen:0}초)를 넘는 시각입니다.");
         var counts = Counts(input, j.Decided, new FilmRequest("", p.AnalysisId, Array.Empty<string>(), Array.Empty<string>(), PreviewWidth, PreviewHeight, 15, "each", false, null, 0, null), p.Cut);
         var seed = input.Settings.SeedBase;
+        var model = ModelVariants.NameFor(input, j.Model, new RunScenario(seed, counts));
         double from = Math.Max(0, Math.Floor(t) - 2), to = Math.Min(simLen, Math.Ceiling(t) + 3);
         var work = Path.Combine(Previews.Dir(p.AnalysisId), "work");
         var keyFile = Path.Combine(work, "preview.key");
@@ -540,13 +547,13 @@ public sealed class FilmWorker(JobStore jobs, AnalysisStore analyses, FilmStore 
         else
         {
             if (File.Exists(keyFile)) File.Delete(keyFile);
-            f0 = PrepareModel(j, input, counts, seed, from, to, work, PreviewWidth, PreviewHeight, Phase, s => logger.LogInformation("미리보기 {Cut}: {Text}", p.Cut.Id, s), _ => { }, stop).F0;
+            f0 = PrepareModel(j, model, input, counts, seed, from, to, work, PreviewWidth, PreviewHeight, Phase, s => logger.LogInformation("미리보기 {Cut}: {Text}", p.Cut.Id, s), _ => { }, stop).F0;
             File.WriteAllLines(keyFile, new[] { key, f0.ToString("R", C) });
         }
         Phase("AutoView 그리기");
         var c = p.Cut;
         var shot = c with { Kind = c.Kind == CutKind.Move ? CutKind.Hold : c.Kind, B = null, StartSec = t, HoldSec = 1, HoldASec = 0, MoveSec = 0, HoldBSec = 0, Speed = 1 };
-        var res = Render(work, j.Model, CameraScript.Build(shot, f0, PreviewWidth, PreviewHeight, 15, Quality, Path.Combine(work, "preview"), new[] { CalOff }, Legacy), CutTimeout, stop);
+        var res = Render(work, model, CameraScript.Build(shot, f0, PreviewWidth, PreviewHeight, 15, Quality, Path.Combine(work, "preview"), new[] { CalOff }, Legacy), CutTimeout, stop);
         if (!res.Ok) { File.Delete(keyFile); throw new InvalidOperationException(res.Error); } // the next try builds the model again
         var jpg = Previews.ImagePath(p.AnalysisId, c.Id);
         renderer.Thumbnail(res.Mp4!, jpg + ".tmp.jpg", 0, stop, PreviewWidth);

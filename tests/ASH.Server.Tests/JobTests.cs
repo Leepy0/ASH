@@ -129,10 +129,24 @@ public sealed class JobEnv : IDisposable
         var r = ModelBuilder.Build(new ModelBuildRequest(proj, model, input, l, new ExportOptions(Groups: groups)), null, TimeSpan.Zero);
         Assert.DoesNotContain(r.Findings, f => f.Code == FindingCode.InputError);
         File.Delete(xlsx); // the plugin does not send the workbook
+        LayoutSnapshot.Write(l, Path.Combine(proj, LayoutSnapshot.FileName)); // AGVMODEL writes it too: a cycle group's per-count models are made from it
         addFiles?.Invoke(proj);
         var zip = Path.Combine(root, "pkg-" + Guid.NewGuid().ToString("N") + ".zip");
         JobPackage.Create(proj, model, zip);
         return zip;
+    }
+
+    /// <summary>addFiles for a Cycle G1 (1..3 vehicles circling its one material): the cell snapshot says so, and ash.settings.tsv is there as AGVMODEL leaves it.</summary>
+    public static void CycleG1(string proj)
+    {
+        var cells = Path.Combine(proj, CellDump.FileName);
+        using (var wb = CellDump.Load(cells))
+        {
+            var ws = wb.Worksheet("AGV_Groups");
+            ws.Cell(3, ws.Row(1).CellsUsed().First(c => c.GetString() == "SupplyMode").Address.ColumnNumber).Value = "Cycle";
+            CellDump.Write(wb, cells);
+        }
+        ASH.Core.Settings.SettingsFile.Save(new ASH.Core.Settings.ProjectSettings(Scale: 1), Path.Combine(proj, JobPackage.SettingsInPackage));
     }
 
     public async Task<HttpResponseMessage> Send(string zip, string model = "m")

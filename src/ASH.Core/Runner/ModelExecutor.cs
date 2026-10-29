@@ -8,7 +8,7 @@ using ASH.Core.Model;
 
 namespace ASH.Core.Runner;
 
-/// <param name="Slots">Work slots &lt;ProjectDir&gt;\work\w1..wN (one run in flight per slot).</param>
+/// <param name="Slots">Work slots &lt;ProjectDir&gt;\work\w1..wN (one run in flight per slot); a cycle group's count model gets w&lt;k&gt;-&lt;model&gt; beside them.</param>
 /// <param name="Timeout">Per run; default 30 min.</param>
 /// <param name="RunsDir">Where runs\&lt;RunId&gt; land; default &lt;ProjectDir&gt;\runs.</param>
 /// <param name="SummaryPath">Default &lt;RunsDir&gt;\summary.tsv.</param>
@@ -25,8 +25,11 @@ public sealed record ExecutorOptions(string ProjectDir, string Model, int Slots 
 /// <summary>One model run in a work slot: run, parse, KPI, append summary rows. The only summary.tsv writer.</summary>
 public sealed class ModelExecutor
 {
-    readonly ExecutorOptions a; readonly ProjectInput input; readonly string?[] workDirs;
+    readonly ExecutorOptions a; readonly ProjectInput input;
     readonly Func<RunRequest, RunOutcome> runner;
+    readonly Func<RunScenario, string> modelFor;
+    /// <summary>(slot, model) -> its work folder, prepared when first used.</summary>
+    readonly Dictionary<(int Slot, string Model), string> slots = new();
     readonly HashSet<string> failedIds = new();
     /// <summary>(seed, scenario) -> earlier runs to take again, in the order they were made (Reuse only).</summary>
     readonly Dictionary<(int Seed, string Scenario), Queue<(string RunId, double Sec)>> earlier = new();
@@ -35,12 +38,16 @@ public sealed class ModelExecutor
     public int Reused;
     public List<string> FailureMessages { get; } = new();
 
-    public ModelExecutor(ExecutorOptions a, ProjectInput input, Func<RunRequest, RunOutcome>? runner = null)
+    public ModelExecutor(ExecutorOptions a, ProjectInput input, Func<RunRequest, RunOutcome>? runner = null, Func<RunScenario, string>? modelFor = null)
     {
         this.a = a; this.input = input; this.runner = runner ?? ModelRunner.Run;
-        int slots = Math.Max(1, a.Slots);
-        workDirs = new string?[slots + 1];
-        for (int k = 1; k <= slots; k++) workDirs[k] = ModelRunner.PrepareWorkSlot(a.ProjectDir, a.Model, k); // once per slot, before any run
+        // the default: a cycle group's count runs in its own model (ModelVariants), made and built when first needed; the run's time limit bounds the build
+        this.modelFor = modelFor ?? (s =>
+        {
+            var m = ModelVariants.NameFor(input, a.Model, s);
+            if (m != a.Model) ModelVariants.Ensure(a.ProjectDir, a.Model, m, input, s, a.AmHome, a.Timeout ?? TimeSpan.FromMinutes(30));
+            return m;
+        });
         if (a.Reuse && File.Exists(a.SummaryPathOrDefault))
             foreach (var g in SummaryTsv.ReadAll(a.SummaryPathOrDefault).GroupBy(r => r.RunId))
             {
@@ -51,18 +58,31 @@ public sealed class ModelExecutor
             }
     }
 
-    /// <summary>An earlier run of this scenario with a valid result.tsv, as the outcome the model run would have given; null = run the model.</summary>
-    RunOutcome? Earlier(int seed, string scenario)
+    /// <summary>An earlier run of this scenario with a valid result.tsv (and the report of <paramref name="model"/>, the one that ran it), as the outcome the
+    /// model run would have given; null = run the model.</summary>
+    RunOutcome? Earlier(int seed, string scenario, string model)
     {
         lock (earlier)
             while (earlier.TryGetValue((seed, scenario), out var q) && q.Count > 0)
             {
                 var (id, sec) = q.Dequeue();
                 var dir = Path.Combine(a.RunsDirOrDefault, id);
-                string tsv = Path.Combine(dir, "result.tsv"), rep = Path.Combine(dir, a.Model + ".report");
+                string tsv = Path.Combine(dir, "result.tsv"), rep = Path.Combine(dir, model + ".report");
                 if (File.Exists(tsv) && File.Exists(rep) && ResultParser.Validate(tsv, out _)) return new RunOutcome(id, true, dir, TimeSpan.FromSeconds(sec), null, 0, null, tsv, rep);
             }
         return null;
+    }
+
+    /// <summary>The slot's folder for this model, prepared when first used: work\w&lt;slot&gt; for the base model as before, work\w&lt;slot&gt;-&lt;model&gt; for a count model.
+    /// A slot has one run at a time, so none is in flight there while it is prepared.</summary>
+    string WorkDir(int slot, string model)
+    {
+        lock (slots)
+        {
+            if (!slots.TryGetValue((slot, model), out var dir))
+                slots[(slot, model)] = dir = ModelRunner.PrepareWorkSlot(a.ProjectDir, model, slot, model == a.Model ? null : "w" + slot + "-" + model);
+            return dir;
+        }
     }
 
     /// <summary>True when the run with this RunId failed (run error or unparsable result).</summary>
@@ -72,12 +92,17 @@ public sealed class ModelExecutor
     {
         if (a.Debug) s = s with { Debug = true };
         var scen = ModelRunner.ScenarioText(input, s);
-        var reused = a.Reuse ? Earlier(s.Seed, scen) : null;
+        string? model = null, work = null, why = null;
+        try { model = modelFor(s); work = WorkDir(slot, model); }
+        catch (Exception e) { why = e.Message; } // the count's model could not be made: this run fails and the search goes on (a run must not throw)
+        var reused = why == null && a.Reuse ? Earlier(s.Seed, scen, model!) : null;
         if (reused != null)
             try { ResultParser.Parse(reused.ResultTsvPath!); }
             catch (Exception) { reused = null; } // unreadable after all: run it again
-        var o = reused ?? runner(new RunRequest(a.ProjectDir, a.Model, input, s, a.Timeout ?? TimeSpan.FromMinutes(30), a.DialogButton,
-            WorkDir: workDirs[slot], RunsDir: a.RunsDirOrDefault, AmHome: a.AmHome));
+        var id = ModelRunner.RunId(input, s);
+        var o = why != null ? new RunOutcome(id, false, Path.Combine(a.RunsDirOrDefault, id), TimeSpan.Zero, why)
+            : reused ?? runner(new RunRequest(a.ProjectDir, model!, input, s, a.Timeout ?? TimeSpan.FromMinutes(30), a.DialogButton,
+            WorkDir: work, RunsDir: a.RunsDirOrDefault, AmHome: a.AmHome));
         if (reused != null) Interlocked.Increment(ref Reused);
         IReadOnlyList<RunKpi> kpis;
         string? error = o.Error;

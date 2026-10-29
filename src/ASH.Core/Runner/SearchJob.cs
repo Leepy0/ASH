@@ -40,7 +40,8 @@ public static class SearchJob
         bool Ok(string id)
         {
             string tsv = Path.Combine(runsDir, id, "result.tsv"), rep = Path.Combine(runsDir, id, model + ".report");
-            return File.Exists(tsv) && File.Exists(rep) && ResultParser.Validate(tsv, out _);
+            // a cycle group's run has the report of its count model (ModelVariants: <model>_c<n>)
+            return File.Exists(tsv) && (File.Exists(rep) || Directory.GetFiles(Path.Combine(runsDir, id), model + "_c*.report").Length > 0) && ResultParser.Validate(tsv, out _);
         }
         IReadOnlyList<SummaryRow> rows;
         try { rows = SummaryTsv.ReadAll(path); }
@@ -178,7 +179,7 @@ public static class SearchJob
         {
             foreach (var m in mx.FailureMessages.Take(5)) o.WriteLine("failed run: " + m);
             var msg = Directory.Exists(runsDir)
-                ? new DirectoryInfo(runsDir).GetFiles(a.Model + ".message", SearchOption.AllDirectories).OrderByDescending(f => f.LastWriteTimeUtc).FirstOrDefault() : null;
+                ? new DirectoryInfo(runsDir).GetFiles(a.Model + "*.message", SearchOption.AllDirectories).OrderByDescending(f => f.LastWriteTimeUtc).FirstOrDefault() : null;
             var r = Fail("every baseline run failed — the model does not run.", input, clusters, res, exec.Runs, mx.Failures, mx.FailureMessages);
             if (msg != null) { o.WriteLine($"{msg.FullName}:"); foreach (var l in File.ReadLines(msg.FullName).Take(5)) o.WriteLine("  " + l); }
             return r;

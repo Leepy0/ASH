@@ -166,7 +166,12 @@ public sealed class LimitWorker(JobStore jobs, IFilmAutoMod am, IConfiguration c
             }
         });
         SetProgress(jobs, j.Id, $"+{pct}% · 0/{reps}");
-        var mx = new ModelExecutor(new ExecutorOptions(proj, j.Model, par, jr.RunTimeout, jr.DialogButton, jr.AmHome, RunsDir: runsDir, Progress: progress), input, am.Run);
+        var mx = new ModelExecutor(new ExecutorOptions(proj, j.Model, par, jr.RunTimeout, jr.DialogButton, jr.AmHome, RunsDir: runsDir, Progress: progress), input, am.Run, s =>
+        {
+            var m = ModelVariants.NameFor(input, j.Model, s); // a cycle group's count runs in its own model, built here once (the steps share it)
+            if (m != j.Model) ModelVariants.Ensure(proj, j.Model, m, input, s, jr.AmHome, jr.BuildTimeout, am.Build);
+            return m;
+        });
         var res = SearchStrategy.Confirm(input, new ParallelExecutor(par, mx.Run), counts, ct);
         ct.ThrowIfCancellationRequested(); // a step cut short is no result
         try { return Judged(pct, res.Trace[0], input, counts, runsDir, log); }

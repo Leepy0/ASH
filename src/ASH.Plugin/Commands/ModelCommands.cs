@@ -231,6 +231,7 @@ public sealed class ModelCommands
                     : new Dictionary<string, VehicleTemplateOverride>();
                 foreach (var w in assetWarnings) ed.WriteMessage("\n경고: " + w);
                 r = ModelBuilder.Build(new ModelBuildRequest(dir, s.ModelName, input, layout, options, VehicleOverrides: ov.Count > 0 ? ov : null), null, TimeSpan.FromMinutes(10));
+                LayoutSnapshot.Write(layout, Path.Combine(dir, LayoutSnapshot.FileName)); // a cycle group's per-count models are made from it (ModelVariants), here or on the server
             }
             catch (ExportException ex)
             {

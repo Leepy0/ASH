@@ -104,4 +104,20 @@ public class LimitTests
         Assert.Contains(">중단</span>", page);
         Assert.Contains("<b>+0%까지 통과</b>", page);
     }
+
+    [Fact]
+    public async Task A_Cycle_Group_Runs_The_Model_Of_Its_Decided_Count()
+    {
+        using var env = new JobEnv();
+        var j = await env.WaitFinished(await env.SendFiled("생산 증설", "A안", addFiles: JobEnv.CycleG1));
+        env.Film.Result = r => Result(r, false); // +0 % and +10 % fail: two steps
+        await Post(env, $"/jobs/{j.Id}/limit", $"/analyses/{j.AnalysisId}?tab=conclusion&job={j.Id}");
+        var info = await JobEnv.Until(() => LimitWorker.Read(env.Store, j.Id) is { Done: true } x ? x : null);
+        Assert.Null(info.Error);
+        Assert.Equal(new[] { 0, 10 }, info.Steps.Select(s => s.Pct));
+        var runs = LimitRuns(env);
+        Assert.NotEmpty(runs);
+        Assert.All(runs, r => Assert.Equal("m_c2", r.ModelName)); // G1 decided at 2: never the base model with an idle third vehicle
+        Assert.Contains("numveh 2", File.ReadAllText(Path.Combine(env.Store.ProjectDir(j.Id), "m_c2.arc", "agv.asy")));
+    }
 }

@@ -1,6 +1,11 @@
+using ASH.Core.AutoMod;
 using ASH.Core.Input;
+using ASH.Core.Layout;
+using ASH.Core.Model;
+using ASH.Core.Runner;
 using ASH.Tests.Layout;
 using ASH.Tests.Model;
+using ASH.Tests.Runner;
 using static ASH.Tests.AutoMod.ModelRunIntegrationTests;
 
 namespace ASH.Tests.AutoMod;
@@ -83,5 +88,40 @@ public class SupplyModesIntegrationTests
         Console.WriteLine($"buffer {buffer}: swaps {s.N} avg {s.Avg:0.0} s max {s.Max:0.0} s follow {s.Follow}");
         Assert.True(s.Follow > 0, $"buffer {buffer}: no follower in {s.N} swaps");
         Cleanup(run.Work);
+    }
+
+    sealed class Collect(List<RunOutcome> into) : IProgress<RunOutcome> { public void Report(RunOutcome v) { lock (into) into.Add(v); } }
+
+    [SkippableFact]
+    public void Cycle_group_runs_a_variant_model_per_count()
+    {
+        Skip.If(AmHome is null, "ASH_AM_HOME not set");
+        // the source files as AGVMODEL leaves them, G_EX a Cycle group of 1..3 vehicles, and its base model built
+        var dir = ModelVariantsTests.CycleSource(ModelVariantsTests.Loop());
+        var made = SourceBuild.Run(dir, "Agv", null, new List<string>());
+        Assert.DoesNotContain(made.Findings, f => f.Code == FindingCode.InputError);
+        ModelBuilder.PrepareBuildDir(dir, "Agv");
+        var b = AmBuilder.Build(AmHome!, dir, "Agv", TimeSpan.FromMinutes(10));
+        Assert.True(b.Success, b.Facts + "\n" + b.MakeErrText + b.Am2ErrText);
+        ProjectInput input;
+        using (var wb = CellDump.Load(Path.Combine(dir, CellDump.FileName))) input = ExcelReader.Read(wb, out _);
+
+        // 2 and 3 vehicles at once in two slots, as the search runs them: each count gets its own model, built on first use
+        var seen = new List<RunOutcome>();
+        var mx = new ModelExecutor(new ExecutorOptions(dir, "Agv", 2, TimeSpan.FromMinutes(5), "Student Version", AmHome, Progress: new Collect(seen)), input);
+        new ParallelExecutor(2, mx.Run).ExecuteMany(new[] { 2, 3 }.Select(n => new RunScenario(1, new Dictionary<string, int> { ["G_EX"] = n })).ToList());
+        Assert.True(mx.Failures == 0, dir + "\n" + string.Join("\n", mx.FailureMessages));
+        foreach (var n in new[] { 2, 3 })
+        {
+            Assert.True(File.Exists(Path.Combine(dir, $"Agv_c{n}.exe")), $"Agv_c{n}.exe");
+            var o = seen.Single(x => x.RunId == $"n{n}_s1");
+            Assert.True(o.Success, o.Error);
+            Assert.True(File.Exists(Path.Combine(o.RunDir, $"Agv_c{n}.report")));
+            var veh = File.ReadAllLines(o.ResultTsvPath!).Count(l => l.StartsWith("vehicle\t"));
+            Console.WriteLine($"{n} vehicles: {veh} vehicle rows, run {o.Duration.TotalSeconds:0.0} s");
+            Assert.Equal(n, veh); // only this count's vehicles: none left idle on the lane
+        }
+        Assert.False(File.Exists(Path.Combine(dir, "Agv_c1.exe")));
+        Cleanup(dir);
     }
 }

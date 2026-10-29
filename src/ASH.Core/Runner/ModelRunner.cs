@@ -38,13 +38,13 @@ public static class ModelRunner
     public static string ScenarioText(ProjectInput input, RunScenario s) =>
         string.Join(";", input.Groups.Select(g => g.Group + "=" + Count(g, s)));
 
-    static int Count(AgvGroup g, RunScenario s) => s.ActiveByGroup.TryGetValue(g.Group, out var n) ? n : g.MinCount;
+    internal static int Count(AgvGroup g, RunScenario s) => s.ActiveByGroup.TryGetValue(g.Group, out var n) ? n : g.MinCount;
 
     /// <summary>Creates &lt;projectDir&gt;\work\w&lt;slot&gt; and copies &lt;Model&gt;.exe, &lt;Model&gt;.arc\* and &lt;Model&gt;.dir\* when missing or older than the source.
-    /// Call before the slot's runs, never while one is running there.</summary>
-    public static string PrepareWorkSlot(string projectDir, string modelName, int slot)
+    /// Call before the slot's runs, never while one is running there. <paramref name="folder"/> names the folder under work\ instead of w&lt;slot&gt;.</summary>
+    public static string PrepareWorkSlot(string projectDir, string modelName, int slot, string? folder = null)
     {
-        var dir = Path.Combine(projectDir, "work", "w" + slot);
+        var dir = Path.Combine(projectDir, "work", folder ?? "w" + slot);
         Directory.CreateDirectory(dir);
         Sync(Path.Combine(projectDir, modelName + ".exe"), Path.Combine(dir, modelName + ".exe"));
         foreach (var sub in new[] { modelName + ".arc", modelName + ".dir" })

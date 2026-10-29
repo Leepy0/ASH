@@ -16,9 +16,11 @@ namespace ASH.Server.Tests;
 /// A cut starting at 4321 s hangs until the cut time limit. Everything asked is recorded for the asserts.</summary>
 public sealed class FakeFilm : IFilmAutoMod, IFilmRenderer
 {
-    public readonly List<(string Dir, string Amo)> Builds = new();
+    public readonly List<(string Dir, string Amo, string Model)> Builds = new();
     public readonly List<RunRequest> Runs = new();
     public readonly List<string> Scripts = new();
+    /// <summary>The model each render was given, in the order of <see cref="Scripts"/>.</summary>
+    public readonly List<string> RenderModels = new();
     /// <summary>The time limit each render got, in the order of <see cref="Scripts"/>.</summary>
     public readonly List<TimeSpan> Timeouts = new();
     public readonly List<(IReadOnlyList<string> Mp4s, IReadOnlyList<string> Captions, string Out, bool Join)> Finishes = new();
@@ -37,7 +39,7 @@ public sealed class FakeFilm : IFilmAutoMod, IFilmRenderer
     public AmBuildResult Build(string projectDir, string model)
     {
         var amo = Path.Combine(projectDir, model + ".arc", "model.amo");
-        lock (Builds) Builds.Add((projectDir, File.Exists(amo) ? File.ReadAllText(amo) : ""));
+        lock (Builds) Builds.Add((projectDir, File.Exists(amo) ? File.ReadAllText(amo) : "", model));
         return new AmBuildResult(true, "", "", Array.Empty<string>());
     }
 
@@ -56,7 +58,7 @@ public sealed class FakeFilm : IFilmAutoMod, IFilmRenderer
 
     public RenderResult Render(string workDir, string modelName, string cameraScript, TimeSpan timeout, CancellationToken ct)
     {
-        lock (Scripts) { Scripts.Add(cameraScript); Timeouts.Add(timeout); }
+        lock (Scripts) { Scripts.Add(cameraScript); Timeouts.Add(timeout); RenderModels.Add(modelName); }
         if (AlwaysTimeout) return new RenderResult(false, null, "시간 제한을 넘어 AutoView를 끊었습니다.", Array.Empty<string>(), true);
         if (CalibrationTimesOut && cameraScript.Contains("quality 100"))
             return new RenderResult(false, null, "시간 제한(3분)을 넘어 AutoView를 끊었습니다. 진단: AutoView aview.exe (버전 12.4) · 창 \"비디오 압축\" [#32770]", Array.Empty<string>(), true);
@@ -710,6 +712,35 @@ public class FilmTests
         await Done(env, "분석", "A안"); // the worker has gone round at least once since
         Assert.False(File.Exists(Path.Combine(env.Store.JobDir(local), "scenes.json")));
         Assert.DoesNotContain(env.Film.Runs, r => r.ProjectDir == env.Store.ProjectDir(local));
+    }
+
+    [Fact]
+    public async Task Cycle_Group_Scenes_And_Cuts_Run_The_Model_Of_The_Decided_Count()
+    {
+        using var env = new JobEnv();
+        var j = await Send(env, "분석", "A안", JobEnv.CycleG1);
+        await Until(() => env.Store.Get(j) is { Finished: true } x ? x : null);
+        var proj = env.Store.ProjectDir(j);
+        // scenes at the decided 2 vehicles: m_c2, made from the source files and built in the job's folder, the base model m left as it is
+        var ev = env.Film.Runs.Single(r => r.Scenario.Events);
+        Assert.Equal((proj, "m_c2"), (ev.ProjectDir, ev.ModelName));
+        Assert.Contains(env.Film.Builds, b => b.Dir == proj && b.Model == "m_c2");
+        Assert.Contains("numveh 2", File.ReadAllText(Path.Combine(proj, "m_c2.arc", "agv.asy")));
+        Assert.Contains("numveh 3", File.ReadAllText(Path.Combine(proj, "m.arc", "agv.asy")));
+        Assert.Contains("Stockout", File.ReadAllText(Path.Combine(env.Store.JobDir(j), "scenes.json")));
+
+        // a cut: the film model is m_c2 too (the drawing mark and recording window go into it), run and rendered under that name
+        var (_, aid) = Analysis(env);
+        env.Factory.Services.GetRequiredService<CutStore>().Save(aid, new[] { Hold("c1") });
+        var f = await Film(env, aid, Body(new[] { "c1" }, new[] { j }));
+        Assert.Equal((1, 0), (f.Done, f.Failed));
+        var dir = env.Factory.Services.GetRequiredService<FilmStore>().FilmDir(f.Id);
+        var b = Assert.Single(env.Film.Builds, x => x.Dir.StartsWith(dir));
+        Assert.Equal("m_c2", b.Model);
+        Assert.Contains("STATIC name ash_cal", b.Amo);
+        Assert.Equal(new[] { "m_c2" }, env.Film.Runs.Where(r => r.ProjectDir.StartsWith(dir)).Select(r => r.ModelName).Distinct());
+        Assert.NotEmpty(env.Film.RenderModels);
+        Assert.All(env.Film.RenderModels, m => Assert.Equal("m_c2", m));
     }
 }
 

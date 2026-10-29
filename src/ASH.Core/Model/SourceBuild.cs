@@ -20,8 +20,9 @@ public static class SourceBuild
 {
     /// <summary>Builds &lt;model&gt;.arc in <paramref name="projectDir"/> (no AutoMod build). <paramref name="cel"/>(typeName, assetName) gives a vehicle asset's .cel text,
     /// null = no such asset; a null callback = no asset store. Excel reader and asset warnings go to <paramref name="warnings"/>, the rest is in the result
-    /// (InputError findings = no files). A file that cannot be read throws (FormatException, IOException, InvalidOperationException, ArgumentException, ExportException).</summary>
-    public static ModelBuildResult Run(string projectDir, string model, Func<string, string, string?>? cel, List<string> warnings)
+    /// (InputError findings = no files). A file that cannot be read throws (FormatException, IOException, InvalidOperationException, ArgumentException, ExportException).
+    /// <paramref name="adjust"/> changes the input read before the model is made (ModelVariants: a cycle group's count).</summary>
+    public static ModelBuildResult Run(string projectDir, string model, Func<string, string, string?>? cel, List<string> warnings, Func<ProjectInput, ProjectInput>? adjust = null)
     {
         if (!ModelBuilder.IsValidModelName(model)) throw new ArgumentException("invalid model name: " + model); // before the assets go into its .arc
         ProjectInput input;
@@ -30,6 +31,7 @@ public static class SourceBuild
             input = ExcelReader.Read(wb, out var xw);
             warnings.AddRange(xw.Select(f => f.Message));
         }
+        if (adjust != null) input = adjust(input);
         var s = SettingsFile.Load(Path.Combine(projectDir, JobPackage.SettingsInPackage));
         var layout = LayoutSnapshot.Read(Path.Combine(projectDir, LayoutSnapshot.FileName));
         var ov = Overrides(input, Path.Combine(projectDir, model + ".arc"), cel, warnings);
@@ -55,9 +57,11 @@ public static class SourceBuild
             catch (FormatException) { throw new IOException("에셋 파일을 읽을 수 없습니다"); } // never ship a bad file in the package
             var dir = Path.Combine(arcDir, "assets");
             Directory.CreateDirectory(dir);
-            var safe = string.Concat(n.Select(c => Array.IndexOf(Path.GetInvalidFileNameChars(), c) >= 0 ? '_' : c));
-            File.WriteAllText(Path.Combine(dir, safe + ".cel"), text, new UTF8Encoding(false));
+            File.WriteAllText(Path.Combine(dir, CelFile(n)), text, new UTF8Encoding(false));
             return text;
         }, warnings), input.Groups);
     }
+
+    /// <summary>The file name an asset's picture is kept under in &lt;arcDir&gt;\assets.</summary>
+    internal static string CelFile(string name) => string.Concat(name.Select(c => Array.IndexOf(Path.GetInvalidFileNameChars(), c) >= 0 ? '_' : c)) + ".cel";
 }

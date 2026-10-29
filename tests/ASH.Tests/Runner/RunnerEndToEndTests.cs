@@ -49,7 +49,7 @@ public class RunnerEndToEndTests
         Assert.False(row.Ok); Assert.Equal("boom", row.Reason); Assert.Equal("G1=2", row.Scenario);
         Assert.Equal(1, mx.Failures); Assert.True(mx.Failed("n2_s1"));
         Assert.Equal("n2_s1", Assert.Single(seen).RunId);
-        Assert.True(Directory.Exists(Path.Combine(dir, "work", "w1")) && Directory.Exists(Path.Combine(dir, "work", "w2")));
+        Assert.True(Directory.Exists(Path.Combine(dir, "work", "w1")) && !Directory.Exists(Path.Combine(dir, "work", "w2"))); // a slot is prepared when first used
         Directory.Delete(dir, true);
     }
 
