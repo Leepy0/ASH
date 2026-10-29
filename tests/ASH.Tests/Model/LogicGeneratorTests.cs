@@ -100,11 +100,14 @@ public class LogicGeneratorTests
         Assert.Contains("inc V_vBusy(A_vid) by A_ret + A_fin - A_tPick - A_hold", supply);
         // the load and unload times set in the input stay busy: they are plain waits inside the busy span
         Assert.Matches(@"set A_tPick to ac[\s\S]*?wait for 10 sec[\s\S]*?wait for 10 sec[\s\S]*?inc V_vBusy", supply);
-        // without a buffer there is no hold, the busy time is unchanged
+        // without a buffer the vehicle holds at the unload CP itself: after the unload leg, before the unload time and the stock going up
         var p = Sample(); for (int i = 0; i < p.Routes.Count; i++) p.Routes[i] = p.Routes[i] with { BufferCP = null };
         var plain = LogicGenerator.Render(p, Layout);
-        Assert.DoesNotContain("set A_hold to ac", plain);
-        Assert.Contains("set A_hold to 0", plain);
+        var ps = plain.Substring(plain.IndexOf("begin P_supply_1"), plain.IndexOf("begin P_consume_2") - plain.IndexOf("begin P_supply_1"));
+        Assert.DoesNotContain("B001", ps);
+        Assert.Matches(@"travel to agv:U001[\s\S]*?\tset A_hold to ac\n\twhile V_stock\(1\) > V_unload\(1\) do begin\n\t\twait for 5 sec\n\tend\n\tset A_hold to ac - A_hold\n" +
+            @"(?:(?!travel to)[\s\S])*?wait for 10 sec\n\tinc V_stock\(1\) by A_qty", ps);
+        Assert.Single(Regex.Matches(ps, @"while V_stock\(1\) > V_unload\(1\)"));
         // the material's supply jobs count and distance go with the vehicle's
         Assert.Contains("inc V_mDist(1) by V_x - A_veh A_dLast\n\t\tinc V_mJobs(1) by 1", supply);
     }

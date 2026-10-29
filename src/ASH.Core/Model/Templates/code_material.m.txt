@@ -100,7 +100,7 @@ begin P_supply_{{M}} arriving procedure
 {{FAIL_HOME}}
 {{FINISH_AT_HOME}}
 {{SPEC_SPEED}}
-	/* A_hold = time held at the buffer for the unload threshold: not busy (the load, unload and extra times set in the input stay busy) */
+	/* A_hold = time held for the unload threshold (at the buffer, or at the unload CP without one): not busy (the load, unload and extra times set in the input stay busy) */
 	if A_tPick >= V_warmup then begin
 		inc V_vBusy(A_vid) by A_ret + A_fin - A_tPick - A_hold
 		inc V_vJobs(A_vid) by 1

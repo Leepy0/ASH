@@ -125,15 +125,15 @@ public static class LogicGenerator
             string Leg(string to, int slot, bool loaded = false) => Fill(Res("code_leg.m.txt"), ("M", mi.ToString()), ("SLOT", slot.ToString()), ("SYS", sys),
                 ("TO", Cp(layout, to)), ("NAME", Lit(m.Material)), ("FAIL", Fail("ac")), ("LOADED", loaded ? "\tinc A_ld by ac - A_t0\n" : ""), ("VEL", Vel(loaded)));
             var legs = new StringBuilder();
-            if (!string.IsNullOrEmpty(r.BufferCP))
-            {
-                legs.Append(Leg(r.BufferCP!, mi, true));
-                // waiting at the buffer for the stock to drop to the unload threshold: up to Route.BufferWaitSec of it is busy, only the excess is left out
-                var hold = r.BufferWaitSec > 0 ? $"\tset A_hold to ac - A_hold - {N(r.BufferWaitSec)}\n\tif A_hold < 0 then set A_hold to 0\n" : "\tset A_hold to ac - A_hold\n";
-                // A_bw = the whole wait, A_hold = the part left out of busy time
-                legs.Append($"\tset A_bw to ac\n\tset A_hold to ac\n\twhile V_stock({mi}) > V_unload({mi}) do begin\n\t\twait for 5 sec\n\tend\n{hold}\tset A_bw to ac - A_bw\n");
-            }
+            // waiting for the stock to drop to the unload threshold, at the buffer (then on to the unload CP) or, without one, at the unload CP itself:
+            // up to Route.BufferWaitSec of it is busy, only the excess is left out
+            var hold = r.BufferWaitSec > 0 ? $"\tset A_hold to ac - A_hold - {N(r.BufferWaitSec)}\n\tif A_hold < 0 then set A_hold to 0\n" : "\tset A_hold to ac - A_hold\n";
+            // A_bw = the whole wait, A_hold = the part left out of busy time
+            var wait = $"\tset A_bw to ac\n\tset A_hold to ac\n\twhile V_stock({mi}) > V_unload({mi}) do begin\n\t\twait for 5 sec\n\tend\n{hold}\tset A_bw to ac - A_bw\n";
+            bool buffer = !string.IsNullOrEmpty(r.BufferCP);
+            if (buffer) legs.Append(Leg(r.BufferCP!, mi, true)).Append(wait);
             legs.Append(Leg(r.SupplyToCP, mi, true));
+            if (!buffer) legs.Append(wait);
             var ret = new StringBuilder();
             // Route.ExtraTime: once per supply cycle with the vehicle held; at the return pickup when there is one (before its load time), else after the unload
             var extra = r.ExtraTime > 0 ? $"\twait for {N(r.ExtraTime)} sec\n" : "";
