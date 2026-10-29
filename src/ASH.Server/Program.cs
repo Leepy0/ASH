@@ -46,6 +46,21 @@ builder.Services.AddSingleton(sp => new AppSettingsFile(Path.Combine(sp.GetRequi
 builder.Services.AddSingleton<AdminSessions>();
 
 var app = builder.Build();
+// an unhandled error shows what went wrong instead of an empty 500, so a user can pass the line on; the whole exception goes to the log
+app.UseExceptionHandler(err => err.Run(async ctx =>
+{
+    var ex = ctx.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerPathFeature>();
+    var e = ex?.Error;
+    app.Logger.LogError(e, "요청 처리 실패 {Path}", ex?.Path);
+    var what = e == null ? "알 수 없는 오류" : $"{e.GetType().Name}: {e.Message}";
+    var at = e?.StackTrace?.Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.Contains("ASH.")) ?? "";
+    ctx.Response.StatusCode = 500;
+    if (ex?.Path.StartsWith("/api/", StringComparison.Ordinal) == true) { await ctx.Response.WriteAsJsonAsync(new { error = what }); return; }
+    ctx.Response.ContentType = "text/html; charset=utf-8";
+    await ctx.Response.WriteAsync(ServerPages.Message("서버 오류", $"<div class=\"msg bad\">{WebUtility.HtmlEncode(what)}</div>" +
+        $"<p class=\"muted\">{WebUtility.HtmlEncode(ex?.Path ?? "")} · {WebUtility.HtmlEncode(at)} · {WebUtility.HtmlEncode(SeoulTime.NowText)}</p><p>이 내용을 관리자에게 알려 주세요.</p>"));
+}));
+ASH.Core.Cause.CauseAnalysis.Failed += (name, e) => app.Logger.LogWarning(e, "원인 분석 {Name} 건너뜀", name);
 app.Services.GetRequiredService<AnalysisStore>(); // a bad analyses.json is set aside and logged at boot
 app.Services.GetRequiredService<ReleaseStore>(); // bad key/folder/GitHub URL fails at start, not at the first request
 app.Services.GetRequiredService<GitHubSync>();

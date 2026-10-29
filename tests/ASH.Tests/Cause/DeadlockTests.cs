@@ -111,6 +111,23 @@ public class DeadlockTests
     }
 
     [Fact]
+    public void An_Analyser_That_Throws_Is_Left_Out_Not_The_Whole_List()
+    {
+        // a link with no holds list (data the analyser does not expect) makes DeadlockCauses throw; the other analysers still answer
+        var bad = new DeadlockEvent(10, new[] { new DeadlockLink("V1", "G1", "B005", null!, 1, 0) });
+        var failed = new List<string>();
+        void Note(string n, Exception e) { lock (failed) failed.Add(n); }
+        CauseAnalysis.Failed += Note;
+        try
+        {
+            var all = CauseAnalysis.All(Ctx(Two(0.2), bad));
+            Assert.DoesNotContain(all, i => i.Kind == CauseKinds.Deadlock);
+            Assert.Contains("교착", failed);
+        }
+        finally { CauseAnalysis.Failed -= Note; }
+    }
+
+    [Fact]
     public void No_Result_Or_A_Cp_Only_Lock()
     {
         Assert.Empty(DeadlockCauses.Find(new CauseContext(Two(3), new ProjectInput())));
