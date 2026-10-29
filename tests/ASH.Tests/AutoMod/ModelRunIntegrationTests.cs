@@ -115,11 +115,14 @@ public class ModelRunIntegrationTests
     {
         Skip.If(AmHome is null, "ASH_AM_HOME not set");
         var run = BuildAndRun(LogicGeneratorTests.Sample(), 1);
-        Assert.Equal("kind\tname\tgroup\tvalue1\tvalue2\tvalue3\tvalue4\tvalue5\tvalue6\tvalue7\tvalue8\tvalue9\tvalue10\tvalue11", run.Tsv.Split('\n')[0].TrimEnd('\r'));
+        Assert.Equal("kind\tname\tgroup\tvalue1\tvalue2\tvalue3\tvalue4\tvalue5\tvalue6\tvalue7\tvalue8\tvalue9\tvalue10\tvalue11\tvalue12\tvalue13\tvalue14\tvalue15", run.Tsv.Split('\n')[0].TrimEnd('\r'));
         var mats = run.Rows.Where(x => x[0] == "material").ToList();
         Assert.Equal(new[] { "M1", "M2" }, mats.Select(x => x[1]));
-        Assert.All(mats, x => { Assert.Equal(11, x.Length); Assert.True(V(x, 3) > 0, "supplies"); Assert.True(V(x, 4) > 0, "expected");
-            Assert.True(V(x, 7) > 0, "supply jobs' distance"); Assert.True(V(x, 8) > 0, "supply jobs"); });
+        Assert.All(mats, x => { Assert.Equal(18, x.Length); Assert.True(V(x, 3) > 0, "supplies"); Assert.True(V(x, 4) > 0, "expected");
+            Assert.True(V(x, 7) > 0, "supply jobs' distance"); Assert.True(V(x, 8) > 0, "supply jobs");
+            // supply wait (value9..11): an average of whole containers within 0..max; call supply has no swaps (value12..15)
+            Assert.InRange(V(x, 9), 0, V(x, 10)); Assert.InRange(V(x, 11), 0, V(x, 10));
+            Assert.Equal(new[] { 0.0, 0, 0, 0 }, new[] { V(x, 12), V(x, 13), V(x, 14), V(x, 15) }); });
         var blk = run.Rows.Single(x => x[0] == "block" && x[1] == "B_x1");
         Assert.True(V(blk, 1) > 0, "block passes"); // first real check of the 1x1 block template geometry
         Assert.Equal(3600, V(run.Rows.Single(x => x[0] == "clock"), 2), 3);

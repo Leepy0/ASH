@@ -90,6 +90,18 @@ public class ResultJudgeTests
     }
 
     [Fact]
+    public void ResultParser_Reads_The_Supply_Wait_Values_NaN_When_The_Row_Has_None()
+    {
+        const string H = "kind\tname\tgroup\tvalue1\nclock\tclock\t\t0\t5\n";
+        // a row from a model built before value9..15: the new fields are unknown, not 0
+        var old = Assert.Single(ResultParser.Parse(W(H + "material\tM001\tG1\t1\t2\t3\t4\t5\t6\t7\t8\n")).Materials);
+        Assert.Equal(6, old.Consumed);
+        Assert.All(new[] { old.WaitAvg, old.WaitMax, old.WaitVehAvg, old.SwapN, old.SwapSum, old.SwapMax, old.FollowN }, x => Assert.True(double.IsNaN(x)));
+        var m = Assert.Single(ResultParser.Parse(W(H + "material\tM001\tG1\t1\t2\t3\t4\t5\t6\t7\t8\t9\t10\t11\t12\t13\t14\t15\n")).Materials);
+        Assert.Equal((9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0), (m.WaitAvg, m.WaitMax, m.WaitVehAvg, m.SwapN, m.SwapSum, m.SwapMax, m.FollowN));
+    }
+
+    [Fact]
     public void Judge_Fails_On_Stop_Time_Even_If_Ratio_Ok()
     {
         var v = Judge.Evaluate(new[] { K(stock: 5, stop: 120) }, S);

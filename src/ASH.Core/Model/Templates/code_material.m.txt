@@ -36,6 +36,10 @@ begin P_consume_{{M}} arriving procedure
 			tabulate V_stock({{M}}) in T_stock_{{M}}
 			inc V_stockSum({{M}}) by V_stock({{M}})
 			if V_stock({{M}}) < V_minStock({{M}}) then set V_minStock({{M}}) to V_stock({{M}})
+			/* supply wait (value9..11): containers on vehicles held for the unload threshold, and those vehicles */
+			inc V_waitSum({{M}}) by V_waitQty({{M}})
+			inc V_waitVehSum({{M}}) by V_waitVeh({{M}})
+			if V_waitQty({{M}}) > V_waitMax({{M}}) then set V_waitMax({{M}}) to V_waitQty({{M}})
 		end
 		wait for V_takt({{M}}) sec
 	end

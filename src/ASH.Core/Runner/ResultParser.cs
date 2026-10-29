@@ -42,9 +42,11 @@ public static class ResultParser
             }
             rows.Add(new ResultRow(c[0], c[1], c[2], vals));
             double V(int k) => k < vals.Length ? vals[k] : 0; // k = value index - 1
+            double VN(int k) => k < vals.Length ? vals[k] : double.NaN; // for values newer models add: missing = unknown, not 0
             switch (c[0])
             {
-                case "material": mats.Add(new MaterialResult(c[1], c[2], V(0), V(1), (int)V(2), V(3), V(4), V(5))); break;
+                case "material": mats.Add(new MaterialResult(c[1], c[2], V(0), V(1), (int)V(2), V(3), V(4), V(5),
+                    VN(8), VN(9), VN(10), VN(11), VN(12), VN(13), VN(14))); break;
                 case "group": groups.Add(new GroupResult(c[1], (int)V(0))); break;
                 case "block": blocks.Add(new BlockResult(c[1], V(0), V(1), V(2), V(3))); break;
                 case "vehicle": vehicles.Add(new VehicleResult(c[1], c[2], V(0), V(1), (int)V(2), V(3), (int)V(4), V(5),

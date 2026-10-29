@@ -74,6 +74,14 @@ public static class LogicGenerator
         return s;
     }
 
+    /// <summary>The hold for the unload threshold of station <paramref name="idx"/> (a material index, or an attribute such as A_m), counted while
+    /// it lasts in V_waitQty (containers) and V_waitVeh (vehicles). A_bw = the whole wait, A_hold = the part left out of busy time;
+    /// <paramref name="holdTail"/> sets A_hold from the wait (Route.BufferWaitSec).</summary>
+    internal static string HoldBlock(string idx, string holdTail) =>
+        $"\tinc V_waitQty({idx}) by A_qty\n\tinc V_waitVeh({idx}) by 1\n" +
+        $"\tset A_bw to ac\n\tset A_hold to ac\n\twhile V_stock({idx}) > V_unload({idx}) do begin\n\t\twait for 5 sec\n\tend\n{holdTail}\tset A_bw to ac - A_bw\n" +
+        $"\tdec V_waitQty({idx}) by A_qty\n\tdec V_waitVeh({idx}) by 1\n";
+
     /// <summary>unitsPerMeter: model units in one meter (the speeds in the input are m/s).</summary>
     public static string Render(ProjectInput input, LayoutInfo layout, double unitsPerMeter = 1)
     {
@@ -129,7 +137,7 @@ public static class LogicGenerator
             // up to Route.BufferWaitSec of it is busy, only the excess is left out
             var hold = r.BufferWaitSec > 0 ? $"\tset A_hold to ac - A_hold - {N(r.BufferWaitSec)}\n\tif A_hold < 0 then set A_hold to 0\n" : "\tset A_hold to ac - A_hold\n";
             // A_bw = the whole wait, A_hold = the part left out of busy time
-            var wait = $"\tset A_bw to ac\n\tset A_hold to ac\n\twhile V_stock({mi}) > V_unload({mi}) do begin\n\t\twait for 5 sec\n\tend\n{hold}\tset A_bw to ac - A_bw\n";
+            var wait = HoldBlock(mi.ToString(), hold);
             bool buffer = !string.IsNullOrEmpty(r.BufferCP);
             if (buffer) legs.Append(Leg(r.BufferCP!, mi, true)).Append(wait);
             legs.Append(Leg(r.SupplyToCP, mi, true));
@@ -159,6 +167,19 @@ public static class LogicGenerator
             // the fixed waits of one job: supply load + unload, the extra time, the empty container's load + unload
             double handle = t.LoadTime + t.UnloadTime + Math.Max(0, r.ExtraTime) + (returnPick ? t.LoadTime : 0)
                 + (m.EmptyReturn && !string.IsNullOrEmpty(r.ReturnToCP) ? t.UnloadTime : 0);
+            // several load CPs take turns, one turn per Materials row (its station materials share the first one's counter); AM has no mod: wrap by hand
+            // shortcut: the pick event still names the first load CP whichever one the turn took; print it per branch once an events reader needs it
+            var pick = Travel(r.SupplyFromCP);
+            var froms = r.FromCps;
+            if (froms.Count > 1)
+            {
+                int k = input.Materials.FindIndex(x => x.SourceName == m.SourceName) + 1;
+                var turn = new StringBuilder($"\tinc V_fromRot({k}) by 1\n\tif V_fromRot({k}) > {froms.Count} then set V_fromRot({k}) to 1\n\tset A_from to V_fromRot({k})\n");
+                for (int j = 0; j < froms.Count; j++)
+                    turn.Append(j == 0 ? "\tif A_from = 1 then begin\n" : j < froms.Count - 1 ? $"\telse if A_from = {j + 1} then begin\n" : "\telse begin\n")
+                        .Append('\t').Append(Travel(froms[j]).Replace("\n", "\n\t")).Append("\n\tend\n");
+                pick = turn.ToString().TrimEnd('\n');
+            }
             matLogic.Append(Fill(Res("code_material.m.txt"), ("M", mi.ToString()), ("NAME", Lit(m.Material)), ("SYS", sys),
                 ("SET_TYPE", $"\tset load type to L_m{mi}"), ("EMPTY_TYPE", emptyType),
                 ("G", GroupIndex(input, m.Group).ToString()), ("NV", nv.ToString()), ("NV2", (2 * nv).ToString()),
@@ -171,7 +192,7 @@ public static class LogicGenerator
                 ("CAPACITY", Math.Max(1, t.Capacity).ToString()), ("FAIL_IDLE", Fail("V_vNextFail(A_vid)")), ("FAIL_LEG", Fail("ac")),
                 ("FAIL_HOME", Fail("ac", string.IsNullOrEmpty(g.FinishCP))), ("HANDLE", N(handle)),
                 // the run home is part of the job only without a Finish CP (busy ends there)
-                ("PICK_TRAVEL", Travel(r.SupplyFromCP)), ("HOME_TRAVEL", finishAtHome.Length > 0 ? Travel(home) : $"\ttravel to {sys}:{home}"),
+                ("PICK_TRAVEL", pick), ("HOME_TRAVEL", finishAtHome.Length > 0 ? Travel(home) : $"\ttravel to {sys}:{home}"),
                 ("EMPTY_SPEED", emptySpeed), ("LOADED_SPEED", loadedSpeed), ("AFTER_UNLOAD_SPEED", carriesOn ? "" : emptySpeed),
                 ("AFTER_UNLOAD_HIDE", carriesOn ? "" : Hide.TrimEnd('\n')), ("SPEC_SPEED", loadedSpeed),
                 // a conveyor-fed material is consumed by the products passing its use point (code_conv.m), not by this clock
@@ -185,7 +206,10 @@ public static class LogicGenerator
             snap.Append($"\tif V_samples({mi}) > 0 then set V_x to V_stockSum({mi}) / V_samples({mi})\n\telse set V_x to V_stock({mi})\n");
             snap.Append($"\tif V_samples({mi}) = 0 then set V_minStock({mi}) to V_stock({mi})\n");
             snap.Append($"\tset V_y to (V_simLen - V_warmup) / V_takt({mi}) * V_need({mi})\n");
-            snap.Append($"\tprint \"material\\t{m.Material}\\t{Lit(m.Group)}\\t\" V_minStock({mi}) \"\\t\" V_x \"\\t\" V_supplies({mi}) \"\\t\" V_y \"\\t\" V_stop({mi}) \"\\t\" V_consumed({mi}) \"\\t\" V_mDist({mi}) \"\\t\" V_mJobs({mi}) to V_out\n");
+            // value9..11 = supply wait averages over the samples (the sums are 0 without samples: divide by 1), value12..15 = cycle swaps (0 for call supply)
+            snap.Append($"\tset V_n to V_samples({mi})\n\tif V_n = 0 then set V_n to 1\n");
+            snap.Append($"\tprint \"material\\t{m.Material}\\t{Lit(m.Group)}\\t\" V_minStock({mi}) \"\\t\" V_x \"\\t\" V_supplies({mi}) \"\\t\" V_y \"\\t\" V_stop({mi}) \"\\t\" V_consumed({mi}) \"\\t\" V_mDist({mi}) \"\\t\" V_mJobs({mi}) " +
+                        $"\"\\t\" V_waitSum({mi}) / V_n \"\\t\" V_waitMax({mi}) \"\\t\" V_waitVehSum({mi}) / V_n \"\\t\" V_swapN({mi}) \"\\t\" V_swapSum({mi}) \"\\t\" V_swapMax({mi}) \"\\t\" V_follow({mi}) to V_out\n");
             // a leg still running at the end counts as stuck once it is over the limit
             foreach (var slot in new[] { mi, mi + nm })
                 snap.Append($"\tif V_inLeg({slot}) = 1 and ac - V_legStart({slot}) > V_deadlockSec then inc V_deadlock by 1\n");
@@ -242,7 +266,7 @@ public static class LogicGenerator
         for (int k = 1; k <= input.Conveyors.Count; k++)
         {
             var c = input.Conveyors[k - 1];
-            int mi = input.Materials.FindIndex(x => x.Material == c.Material) + 1;
+            int mi = input.Materials.FindIndex(x => x.SourceName == c.Material) + 1; // the Materials row's name; the validator allows it one station only
             if (mi == 0) throw new ArgumentException($"컨베이어 '{c.Conveyor}'의 자재 '{c.Material}'이(가) Materials에 없습니다.");
             matLogic.Append(Fill(Res("code_conv.m.txt"), ("K", k.ToString()), ("CV", Lit(c.Conveyor)), ("M", mi.ToString()), ("NAME", Lit(c.Material)),
                 ("SYS", ConveyorAsyWriter.SystemName)));
@@ -415,7 +439,7 @@ public static class LogicGenerator
         for (int i = 1; i <= nm; i++) { m.Procs.Add(new($"P_consume_{i}")); m.Procs.Add(new($"P_supply_{i}")); }
         m.Queues.Add(new("Q_park"));
         m.Orders.Add("OL_forever");
-        m.Atts.Add(new("A_index", "Integer")); m.Atts.Add(new("A_grp", "Integer"));
+        m.Atts.Add(new("A_index", "Integer")); m.Atts.Add(new("A_grp", "Integer")); m.Atts.Add(new("A_from", "Integer")); // A_from: the job's load CP turn
         m.Atts.Add(new("A_veh", "VehiclePtr")); m.Atts.Add(new("A_mv0", "Real")); m.Atts.Add(new("A_w", "Real")); m.Atts.Add(new("A_t0", "Real"));
         m.Vars.Add(new("V_fp", "FilePtr")); m.Vars.Add(new("V_out", "FilePtr")); m.Vars.Add(new("V_ev", "FilePtr")); m.Vars.Add(new("V_tok", "String"));
         foreach (var v in new[] { "V_seed", "V_n", "V_i", "V_tmp", "V_deadlock", "V_extMat", "V_debug", "V_events" }) m.Vars.Add(new(v, "Integer"));
@@ -426,6 +450,9 @@ public static class LogicGenerator
         foreach (var v in new[] { "V_call", "V_unload", "V_stock", "V_safety", "V_takt", "V_perCycle", "V_perContainer", "V_need",
                      "V_minStock", "V_stockSum", "V_stop", "V_stopSince", "V_consumed", "V_mDist" })
             m.Vars.Add(new(v, "Real", ms));
+        // supply wait (held for the unload threshold, sampled per takt), load CP turn (by the row's first material), cycle-supply swaps at the station
+        foreach (var v in new[] { "V_waitQty", "V_waitVeh", "V_waitMax", "V_fromRot", "V_swapN", "V_follow", "V_swapOpen" }) m.Vars.Add(new(v, "Integer", ms));
+        foreach (var v in new[] { "V_waitSum", "V_waitVehSum", "V_swapSum", "V_swapMax", "V_lastLeave" }) m.Vars.Add(new(v, "Real", ms));
         // leg slots: 1..nm supply legs, nm+1..2nm return legs
         m.Vars.Add(new("V_inLeg", "Integer", 2 * nm)); m.Vars.Add(new("V_legStart", "Real", 2 * nm));
         foreach (var a in new[] { "A_tCall", "A_tPick", "A_ret", "A_fin", "A_rLast", "A_dLast", "A_rep", "A_hold", "A_bw", "A_ld", "A_dn" }) m.Atts.Add(new(a, "Real"));
