@@ -26,16 +26,19 @@ public static class RunExecutorExtensions
         exec is IBatchRunExecutor b ? b.ExecuteMany(scenarios, ct) : scenarios.Select(s => { ct.ThrowIfCancellationRequested(); return exec.Execute(s); }).ToList();
 }
 
-/// <summary>ExpectedRuns is only passed through to SearchProgress (SearchEstimate.Expected).</summary>
-public sealed record SearchOptions(int InitialReplications = 1, bool ImpactTable = false, int MaxConfirmRounds = 3, int ExpectedRuns = 0);
+/// <summary>ExpectedRuns is only passed through to SearchProgress (SearchEstimate.Expected). RunAhead false = no spare-slot runs (the search without them, to compare).</summary>
+public sealed record SearchOptions(int InitialReplications = 1, bool ImpactTable = false, int MaxConfirmRounds = 3, int ExpectedRuns = 0, bool RunAhead = true);
 /// <summary>Scenario carries the first seed; Seeds lists all seeds run (SeedBase + i). ClusterOk is null for impact runs (not judged).</summary>
 public sealed record SearchStep(RunScenario Scenario, IReadOnlyDictionary<string, Verdict> VerdictsByGroup, bool? ClusterOk, string Phase,
     int Replications, IReadOnlyList<int> Seeds);
 /// <summary>PlusOne = the group's new count; deltas are the other group's mean KPI in the +1 run minus the confirmed baseline.</summary>
 public sealed record ImpactRow(string Group, int PlusOne, string OtherGroup, double UtilDelta, double MinStockDelta);
 public sealed record SearchResult(IReadOnlyDictionary<string, int> Decided, List<SearchStep> Trace, List<ImpactRow> Impact, List<string> Warnings);
-/// <summary>What one cluster needs run before its next step: (counts, replications) requests and a log label.</summary>
-sealed record SearchAsk(IReadOnlyList<(Dictionary<string, int> Counts, int N)> Runs, string Label);
+/// <summary>What one cluster needs run before its next step: (counts, replications) requests and a log label. Spec (optional) gives, for a number of
+/// spare slots, what the cluster asks next under each outcome of this ask (most likely first), so the driver can run it ahead in otherwise idle slots.</summary>
+sealed record SearchAsk(IReadOnlyList<(Dictionary<string, int> Counts, int N)> Runs, string Label, Func<int, IReadOnlyList<SpecBranch>>? Spec = null);
+/// <summary>One outcome's next requests; the log shows Prefix + the labels of the requests taken, joined by Sep.</summary>
+sealed record SpecBranch(string Prefix, IReadOnlyList<(Dictionary<string, int> Counts, int N, string Label)> Runs, string Sep);
 
 public static class ImpactTsv
 {
@@ -109,6 +112,13 @@ public static class SearchStrategy
     /// Batch executor with Slots ≥ 2: every cluster searches at once, each round's asks of all clusters run as one batch, the slots split evenly
     /// (at least 1 each); a cluster holds the other clusters' groups at their counts when it started (clusters do not interact), so the confirm
     /// round is the first run of all decided counts together. Otherwise clusters go one after another, each starting from the decided counts before it.
+    /// Runs ahead (batch executor, Slots ≥ 2, RunAhead): slots a cluster's ask leaves idle in its share run what it would ask next under each outcome,
+    /// in the same batch: after a pass-1 round that can settle the group, the next group's first probes (Points with the spare slots split over the
+    /// settling outcomes) or, for the last group, the first later-pass try; after a cur−1 try, the next try if it fails, then if it passes; with decided,
+    /// the first minus1 try. Pass 1 narrows first with probes already in the cache (none exist without runs ahead), so the right branch saves a round
+    /// and the others only used idle slots; they are listed in the trace as phase "speculative" (no verdicts) and judged only when the search gets there.
+    /// Later-pass and minus1 tries run ahead are exactly the ones the search asks next; pass-1 probes run ahead change where the next group probes, so like
+    /// another slot count the decision is the same for monotone verdicts (non-monotone noise may land differently).
     /// Run budget per cluster with k groups and range R = Max−Min+1 (initial reps 1, one slot, nothing cached): 1 + k·⌈log2 R⌉ + k per later pass
     /// + reps (decided) + k·reps (minus1, cached when reps = 1), plus confirm and impact (k·reps). With InitStockMode Fixed reps is 1 (see FixedStock).
     /// <paramref name="onLog"/> gets one line per round that starts runs.</summary>
@@ -165,15 +175,38 @@ public static class SearchStrategy
             return v[g].Ok && cluster.All(o => o == g || !baselineOk.Contains(o) || v[o].Ok);
         }
         SearchAsk Ask(Dictionary<string, int> counts, int n, string label) => new(new[] { (counts, n) }, label);
+        Dictionary<string, int> With(Dictionary<string, int> counts, string g, int n) => new(counts) { [g] = n };
+        // what the later passes ask next, from group index `from` of a cur−1 pass at `at` (mirrors MinusOnePass and the loops in Cluster):
+        // phase "search" ends in decided, whose verdict steers nothing, so the first minus1 try comes with it; "minus1" ends the cluster
+        List<(Dictionary<string, int> Counts, int N, string Label)> LaterNext(IReadOnlyList<string> cluster, Dictionary<string, int> at, HashSet<string> baselineOk,
+            int from, bool changedInPass, string phase)
+        {
+            int n = phase == "search" ? initReps : reps;
+            for (int j = from; j < cluster.Count; j++)
+            {
+                var g = cluster[j];
+                if (baselineOk.Contains(g) && at[g] > byName[g].MinCount) return new() { (With(at, g, at[g] - 1), n, $"{g} {at[g]}→{at[g] - 1}") };
+            }
+            if (changedInPass) return LaterNext(cluster, at, baselineOk, 0, false, phase);
+            if (phase != "search") return new();
+            var next = LaterNext(cluster, at, baselineOk, 0, false, "minus1");
+            next.Insert(0, (new Dictionary<string, int>(at), reps, $"반복 {reps}회"));
+            return next;
+        }
         // one at−1 try per group; changed[0] = something moved
         IEnumerable<SearchAsk> MinusOnePass(IReadOnlyList<string> cluster, Dictionary<string, int> at, HashSet<string> baselineOk, int n, string phase, bool[] changed)
         {
             changed[0] = false;
-            foreach (var g in cluster)
+            for (int i = 0; i < cluster.Count; i++)
             {
+                var g = cluster[i];
                 if (!baselineOk.Contains(g) || at[g] <= byName[g].MinCount) continue;
-                var t = new Dictionary<string, int>(at) { [g] = at[g] - 1 };
-                yield return Ask(t, n, $"그룹 {g} {at[g]}→{at[g] - 1}");
+                var t = With(at, g, at[g] - 1);
+                int next = i + 1, now = at[g]; bool moved = changed[0];
+                // ahead: the next try if this one fails (the usual case after pass 1), then if it passes
+                yield return new SearchAsk(new[] { (t, n) }, $"그룹 {g} {now}→{now - 1}", _ => new[] {
+                    new SpecBranch($"{g}={now} → ", LaterNext(cluster, at, baselineOk, next, moved, phase), " + "),
+                    new SpecBranch($"{g}={now - 1} → ", LaterNext(cluster, t, baselineOk, next, true, phase), " + ") });
                 if (Accept(cluster, g, baselineOk, t, n, phase)) { at[g]--; changed[0] = true; }
             }
         }
@@ -200,14 +233,43 @@ public static class SearchStrategy
             }
             // pass 1: k-ary search per group (binary with one slot)
             var changed = new bool[1];
-            foreach (var g in cluster)
+            for (int gi = 0; gi < cluster.Count; gi++)
             {
+                var g = cluster[gi];
                 int hi = at[g], lo = byName[g].MinCount, orig = hi;
                 while (lo < hi)
                 {
+                    // probes already run ahead (an earlier round's spare slots) narrow first, without a round; never any without spare-slot runs
+                    var known = Enumerable.Range(lo, hi - lo).Where(p => Cached((With(at, g, p), initReps))).ToList();
+                    if (known.Count > 0)
+                    {
+                        (lo, hi) = Narrow(known, known.Select(p => Accept(cluster, g, baselineOk, With(at, g, p), initReps, "search")).ToList(), lo, hi);
+                        continue;
+                    }
                     var pts = Points(lo, hi, Math.Max(1, share / initReps));
-                    var tries = pts.Select(p => new Dictionary<string, int>(at) { [g] = p }).ToList();
-                    yield return new SearchAsk(tries.Select(t => (t, initReps)).ToList(), $"그룹 {g} [{lo}..{hi}] → {string.Join(",", pts)}");
+                    var tries = pts.Select(p => With(at, g, p)).ToList();
+                    int l = lo, h = hi, after = gi + 1; bool moved = changed[0];
+                    yield return new SearchAsk(tries.Select(t => (t, initReps)).ToList(), $"그룹 {g} [{lo}..{hi}] → {string.Join(",", pts)}", spare =>
+                    {
+                        // outcomes that settle g this round (new lo = new hi): each such count; for each, the next group's first probes, or what follows pass 1
+                        var outs = new List<int>();
+                        if (pts[0] == l) outs.Add(l);
+                        for (int j = 0; j + 1 < pts.Count; j++) if (pts[j] + 1 == pts[j + 1]) outs.Add(pts[j + 1]);
+                        if (pts[pts.Count - 1] + 1 == h) outs.Add(h);
+                        var res = new List<SpecBranch>();
+                        for (int i = 0; i < outs.Count; i++)
+                        {
+                            int o = outs[i], k = (spare / outs.Count + (i < spare % outs.Count ? 1 : 0)) / initReps;
+                            var at2 = With(at, g, o);
+                            var ng = cluster.Skip(after).FirstOrDefault(x => byName[x].MinCount < at2[x]);
+                            if (ng == null)
+                                res.Add(new SpecBranch($"{g}={o} → ", LaterNext(cluster, at2, baselineOk, moved || o < orig ? 0 : cluster.Count, false, "search"), " + "));
+                            else if (k > 0)
+                                res.Add(new SpecBranch($"{ng}|{g}={o} → ",
+                                    Points(byName[ng].MinCount, at2[ng], k).Select(p => (With(at2, ng, p), initReps, p.ToString(CultureInfo.InvariantCulture))).ToList(), ","));
+                        }
+                        return res;
+                    });
                     (lo, hi) = Narrow(pts, tries.Select(t => Accept(cluster, g, baselineOk, t, initReps, "search")).ToList(), lo, hi);
                 }
                 at[g] = hi;
@@ -215,7 +277,8 @@ public static class SearchStrategy
             }
             // later passes: only cur−1 per group (another group's reduction can only have made room for a small step)
             while (changed[0]) foreach (var a in MinusOnePass(cluster, at, baselineOk, initReps, "search", changed)) yield return a;
-            yield return Ask(at, reps, $"{cname} 반복 {reps}회");
+            yield return new SearchAsk(new[] { (at, reps) }, $"{cname} 반복 {reps}회",
+                _ => new[] { new SpecBranch("", LaterNext(cluster, at, baselineOk, 0, false, "minus1"), " + ") });
             Eval(at, cluster, reps, "decided");
             do foreach (var a in MinusOnePass(cluster, at, baselineOk, reps, "minus1", changed)) yield return a;
             while (changed[0]);
@@ -232,20 +295,59 @@ public static class SearchStrategy
         {
             while (waiting.Count > 0 && (slots > 1 || live.Count == 0)) live.Add(Cluster(waiting.Dequeue()).GetEnumerator());
             if (live.Count == 0) break;
-            var asks = new List<SearchAsk>();
+            var asks = new List<(SearchAsk Ask, int Share)>();
             int k = live.Count, i = 0;
             foreach (var it in live.ToList())
             {
                 share = Math.Max(1, slots / k + (i++ < slots % k ? 1 : 0));
                 bool more;
                 while ((more = it.MoveNext()) && it.Current.Runs.All(Cached)) { } // an ask already in the cache needs no round
-                if (more) asks.Add(it.Current); else live.Remove(it);
+                if (more) asks.Add((it.Current, share)); else live.Remove(it);
             }
             if (asks.Count == 0) continue;
-            var reqs = asks.SelectMany(a => a.Runs).ToList();
-            int fresh = reqs.SelectMany(r => Seeds(r.N).Select(seed => Key(seed, r.Counts))).Distinct().Count(key => !cache.ContainsKey(key));
-            onLog?.Invoke($"탐색 라운드: {string.Join(" · ", asks.Select(a => a.Label))} ({fresh}회)");
+            var batch = new HashSet<string>();
+            var reqs = new List<(Dictionary<string, int> Counts, int N)>();
+            var ahead = new List<(Dictionary<string, int> Counts, int N)>();
+            int New((Dictionary<string, int> Counts, int N) r) => Seeds(r.N).Select(seed => Key(seed, r.Counts)).Count(key => !cache.ContainsKey(key) && !batch.Contains(key));
+            int Take((Dictionary<string, int> Counts, int N) r)
+            {
+                int n = 0;
+                foreach (var key in Seeds(r.N).Select(seed => Key(seed, r.Counts))) if (!cache.ContainsKey(key) && batch.Add(key)) n++;
+                reqs.Add(r);
+                return n;
+            }
+            var labels = new List<string>();
+            foreach (var (a, sh) in asks)
+            {
+                int spare = sh - a.Runs.Sum(Take);
+                var label = a.Label;
+                // slots this cluster's ask leaves idle run what it asks next under each outcome: unused branches cost only idle slots, the right one is a cache hit
+                if (opts.RunAhead && slots > 1 && spare > 0 && a.Spec != null)
+                {
+                    var taken = new List<string>();
+                    foreach (var br in a.Spec(spare))
+                    {
+                        var parts = new List<string>();
+                        foreach (var r in br.Runs)
+                        {
+                            int n = New((r.Counts, r.N));
+                            if (n > spare) break;
+                            if (n == 0) continue;
+                            spare -= Take((r.Counts, r.N));
+                            ahead.Add((r.Counts, r.N));
+                            parts.Add(r.Label);
+                        }
+                        if (parts.Count > 0) taken.Add(br.Prefix + string.Join(br.Sep, parts));
+                    }
+                    if (taken.Count > 0) label += " · 미리: " + string.Join(" · ", taken);
+                }
+                labels.Add(label);
+            }
+            onLog?.Invoke($"탐색 라운드: {string.Join(" · ", labels)} ({batch.Count}회)");
             Fill(reqs);
+            // runs ahead are listed (judged later only if the search gets there, as its own step)
+            foreach (var (counts, n) in ahead)
+                trace.Add(new SearchStep(new RunScenario(input.Settings.SeedBase, new Dictionary<string, int>(counts)), new Dictionary<string, Verdict>(), null, "speculative", n, Seeds(n)));
         }
 
         var all = input.Groups.Select(g => g.Group).ToList();

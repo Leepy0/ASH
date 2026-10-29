@@ -125,6 +125,103 @@ public class ParallelSearchTests
         }
     }
 
+    /// <summary>A random monotone case with 2–4 groups in one cluster (each group's own need plus the cluster's sum need).</summary>
+    static (ProjectInput, GroupClusters, Func<RunScenario, string, bool>) OneCluster(Random rnd)
+    {
+        var names = new[] { "A", "B", "C", "D" }.Take(rnd.Next(2, 5)).ToList();
+        var p = SearchStrategyTests.Input(names.Select(n => { int mn = rnd.Next(1, 4); return (n, mn, mn + rnd.Next(0, 25)); }).ToArray());
+        p.Settings = p.Settings with { Replications = rnd.Next(1, 4) };
+        var c = new GroupClusters { Clusters = new IReadOnlyList<string>[] { names } };
+        var need = names.ToDictionary(n => n, n => rnd.Next(0, 28));
+        int sumNeed = rnd.Next(0, 60);
+        return (p, c, (s, g) => s.ActiveByGroup[g] < need[g] || names.Sum(n => s.ActiveByGroup[n]) < sumNeed);
+    }
+
+    [Fact] public void Runs_Ahead_Keep_Every_Decision_Use_Spare_Slots_And_Save_Rounds()
+    {
+        var rnd = new Random(23);
+        int roundsAhead = 0, roundsPlain = 0, runsAhead = 0, runsPlain = 0, cases = 0, actualSum = 0, expectedSum = 0;
+        for (int n = 0; n < 150; n++)
+        {
+            var (p, c, fail) = OneCluster(rnd);
+            var seq = new Fake { Fail = fail };   // Fake (and Batching's inner Fake) assert no scenario runs twice
+            var expected = SearchStrategy.Search(p, seq, c, new SearchOptions());
+            for (int slots = 1; slots <= 10; slots++)
+            {
+                var plain = new Batching { Slots = slots }; plain.Inner.Fail = fail;
+                var b = new Batching { Slots = slots }; b.Inner.Fail = fail;
+                var rp = SearchStrategy.Search(p, plain, c, new SearchOptions(RunAhead: false));
+                var r = SearchStrategy.Search(p, b, c, new SearchOptions());
+                Assert.Equal(expected.Decided, r.Decided);
+                Assert.Equal(expected.Warnings, r.Warnings);
+                Assert.All(b.BatchSizes, s => Assert.InRange(s, 1, Math.Max(slots, p.Settings.Replications)));
+                // the last confirm round is the same run set; spare-slot runs are listed, never judged
+                Assert.Equal(rp.Trace.Last(t => t.Phase == "confirm").Scenario.ActiveByGroup, r.Trace.Last(t => t.Phase == "confirm").Scenario.ActiveByGroup);
+                Assert.All(r.Trace.Where(t => t.Phase == "speculative"), t => { Assert.Empty(t.VerdictsByGroup); Assert.Null(t.ClusterOk); });
+                if (slots == 1) Assert.Equal(plain.BatchSizes, b.BatchSizes);   // one slot: nothing runs ahead
+                Assert.True(b.BatchSizes.Count <= plain.BatchSizes.Count, $"{b.BatchSizes.Count} rounds with runs ahead vs {plain.BatchSizes.Count}");
+                int e = SearchEstimate.Expected(p, c, 1, false, slots);   // counts the runs ahead too
+                Assert.InRange(b.BatchSizes.Sum(), e / 3, e + 6 + 2 * p.Settings.Replications);
+                expectedSum += e;
+                if (slots == 10) { roundsAhead += b.BatchSizes.Count; roundsPlain += plain.BatchSizes.Count; runsAhead += b.BatchSizes.Sum(); runsPlain += plain.BatchSizes.Sum(); cases++; }
+                actualSum += b.BatchSizes.Sum();
+            }
+        }
+        Assert.True(roundsAhead * 10 < roundsPlain * 9, $"{roundsAhead} vs {roundsPlain} rounds");
+        Console.WriteLine($"AHEAD P=10, {cases} one-cluster cases: rounds {roundsPlain} → {roundsAhead}, runs {runsPlain} → {runsAhead}; all P: runs {actualSum}, expected {expectedSum}");
+    }
+
+    [Fact] public void Last_Round_Of_A_Group_Runs_The_Next_Groups_Probes_In_Its_Spare_Slots()
+    {
+        var p = SearchStrategyTests.Input(("G1", 1, 20), ("G2", 1, 20), ("G3", 1, 20));
+        p.Settings = p.Settings with { Replications = 1 };
+        var c = new GroupClusters { Clusters = new IReadOnlyList<string>[] { new[] { "G1", "G2", "G3" } } };
+        Func<RunScenario, string, bool> fail = (s, g) => s.ActiveByGroup[g] < (g == "G1" ? 19 : g == "G2" ? 7 : 12);
+        var b = new Batching { Slots = 10 }; b.Inner.Fail = fail;
+        var log = new List<string>();
+        var r = SearchStrategy.Search(p, b, c, new SearchOptions(), default, null, log.Add);
+        Assert.Equal((19, 7, 12), (r.Decided["G1"], r.Decided["G2"], r.Decided["G3"]));
+        Assert.Equal(log.Count, b.Batches.Count);   // one log line per batch
+        int at = log.IndexOf("탐색 라운드: 그룹 G1 [19..20] → 19 · 미리: G2|G1=19 → 4,7,10,13,16 · G2|G1=20 → 4,8,12,16 (10회)");
+        Assert.True(at >= 0, string.Join("\n", log));
+        var batch = b.Batches[at];
+        Assert.Equal(5, batch.Count(s => s.ActiveByGroup["G1"] == 19 && s.ActiveByGroup["G2"] < 20));   // G2's probes as if G1 stays at 19 ...
+        Assert.Equal(4, batch.Count(s => s.ActiveByGroup["G1"] == 20 && s.ActiveByGroup["G2"] < 20));   // ... or at 20
+        Assert.Equal(9, r.Trace.Count(t => t.Phase == "speculative" && t.Scenario.ActiveByGroup["G3"] == 20 && t.Scenario.ActiveByGroup["G2"] < 20));
+        // G2's search starts from the 5 probes run ahead (4 fails, 7 passes): one round of 2 probes instead of [1..20] → … then another
+        Assert.Contains(log, l => l.StartsWith("탐색 라운드: 그룹 G2 [5..7] → 5,6 · 미리: G3|G2=5 → "));
+        Assert.DoesNotContain(log, l => l.Contains("그룹 G2 [1..20]"));
+        var plain = new Batching { Slots = 10 }; plain.Inner.Fail = fail;
+        SearchStrategy.Search(p, plain, c, new SearchOptions(RunAhead: false));
+        Assert.True(b.BatchSizes.Count < plain.BatchSizes.Count);
+        Console.WriteLine($"AHEAD 3 groups P=10: {plain.BatchSizes.Count} rounds / {plain.BatchSizes.Sum()} runs → {b.BatchSizes.Count} rounds / {b.BatchSizes.Sum()} runs");
+        foreach (var l in log) Console.WriteLine("  " + l);
+    }
+
+    [Fact] public void Runs_Ahead_Cut_Wall_Time_For_One_Cluster_Of_Three()
+    {
+        var p = SearchStrategyTests.Input(("G1", 1, 20), ("G2", 1, 20), ("G3", 1, 20));   // Replications 2
+        var c = new GroupClusters { Clusters = new IReadOnlyList<string>[] { new[] { "G1", "G2", "G3" } } };
+        IReadOnlyList<RunKpi> Run(int slot, RunScenario s)
+        {
+            Thread.Sleep(60);
+            bool Fail(string g) => s.ActiveByGroup[g] < (g == "G1" ? 13 : g == "G2" ? 6 : 9) || s.ActiveByGroup.Values.Sum() < 30;
+            return s.ActiveByGroup.Select(kv => new RunKpi(kv.Key, kv.Value, 0.5, 2, 10, 10, 10, Fail(kv.Key) ? 10 : 0, 0)).ToList();
+        }
+        (TimeSpan, IReadOnlyDictionary<string, int>, int) Time(bool ahead)
+        {
+            var exec = new ParallelExecutor(10, Run);
+            var sw = Stopwatch.StartNew();
+            var r = SearchStrategy.Search(p, exec, c, new SearchOptions(RunAhead: ahead));
+            return (sw.Elapsed, r.Decided, exec.Runs);
+        }
+        var (t0, d0, n0) = Time(false);
+        var (t1, d1, n1) = Time(true);
+        Assert.Equal(d0, d1);
+        Assert.True(t1.TotalMilliseconds < t0.TotalMilliseconds * 0.85, $"plain {t0.TotalMilliseconds:0} ms ({n0} runs), ahead {t1.TotalMilliseconds:0} ms ({n1} runs)");
+        Console.WriteLine($"WALL AHEAD 3 groups P=10: plain {t0.TotalMilliseconds:0} ms ({n0} runs), ahead {t1.TotalMilliseconds:0} ms ({n1} runs)");
+    }
+
     [Fact] public void Wall_Time_Drops_With_Slots()
     {
         var p = SearchStrategyTests.Input(("G1", 1, 16), ("G2", 1, 16), ("G3", 1, 16));

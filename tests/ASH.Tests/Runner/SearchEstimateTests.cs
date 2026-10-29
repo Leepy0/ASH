@@ -17,8 +17,9 @@ public class SearchEstimateTests
         Assert.Equal(19, SearchEstimate.Expected(p, c, 1, true));
         Assert.Equal(13, SearchEstimate.Expected(p, c, 1, false));  // 영향표 없음: 1 + 8 + 4
         // 4 slots, both clusters at once (2 each: 2 probes per round): G1,G2 range 4 takes 2 probes then 1 (3 instead of 2) each: + 2;
-        // G3 range 3 takes its 2 probes in one round (same); confirm round 0 is new: + 2
-        Assert.Equal(13 + 2 + 2, SearchEstimate.Expected(p, c, 1, false, 4));
+        // G3 range 3 takes its 2 probes in one round (same); confirm round 0 is new: + 2;
+        // runs ahead: G1,G2 last rounds leave 1 spare slot each (2/4 = 0) + half a try per group (2/2 = 1), G3 none (0 + 1/2 = 0): + 1
+        Assert.Equal(13 + 2 + 2 + 1, SearchEstimate.Expected(p, c, 1, false, 4));
     }
     [Fact] public void Expected_Tracks_The_Actual_Runs_On_Both_Executors()
     {

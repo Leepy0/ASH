@@ -20,6 +20,9 @@ public static class SearchEstimate
     /// + m_b × (reps − initReps) (minus1, at most: its configs ran at initReps seeds in the last pass);
     /// confirm round 0 is the last decided state (cached; with slots ≥ 2 and several clusters searched at once it is new: + reps);
     /// impact k × reps (at most: groups at Max are skipped, a +1 config may be cached).
+    /// With slots ≥ 2, plus the runs ahead (SearchStrategy fills a round's spare slots with what each outcome asks next; they take no extra wall time):
+    /// about a quarter of the spare slots of each group's last pass-1 round (share − initReps × its probes) + half a cur−1 try per group (the unused branch);
+    /// fitted to the tests: probes run ahead also shorten the next group's own search, and a branch that does not fit or is cached costs nothing.
     /// An estimate, not a bound: extra later passes, minus1 successes, confirm bumps and shares growing as clusters finish add runs; Raise lifts it once reached.</summary>
     public static int Expected(ProjectInput input, GroupClusters clusters, int initialReps, bool impact, int slots = 1)
     {
@@ -36,25 +39,30 @@ public static class SearchEstimate
             var ranges = cluster.Select(g => byName[g].MaxCount - byName[g].MinCount + 1).ToList();
             int m = ranges.Count(r => r > 1), later = Math.Max(0, m - 1);
             total += initReps * (ranges.Sum(r => KaryRuns(r, p)) + later) + extra + m * extra;
+            int spare = ranges.Where(r => r > 1).Sum(r => Math.Max(0, share - initReps * Kary(r, p).Last));
+            if (slots > 1) total += spare / 4 + m * initReps / 2;
         }
         return total + (together ? reps : 0) + (impact ? input.Groups.Count * reps : 0);
     }
 
     /// <summary>Probes the k-ary search of one group over range <paramref name="r"/> makes at most with <paramref name="p"/> probes per round
     /// (follows the widest sub-interval each round; p = 1 gives ⌈log2 r⌉).</summary>
-    internal static int KaryRuns(int r, int p)
+    internal static int KaryRuns(int r, int p) => Kary(r, p).Runs;
+
+    /// <summary><see cref="KaryRuns"/> and the probes of the last round on that path.</summary>
+    static (int Runs, int Last) Kary(int r, int p)
     {
-        int runs = 0;
+        int runs = 0, last = 0;
         for (int n = r - 1; n > 0;)
         {
             var pts = SearchStrategy.Points(0, n, p);
-            runs += pts.Count;
+            runs += last = pts.Count;
             if (n <= p) break;
             int widest = Math.Max(pts[0], n - pts[pts.Count - 1] - 1);
             for (int j = 0; j + 1 < pts.Count; j++) widest = Math.Max(widest, pts[j + 1] - pts[j] - 1);
             n = widest;
         }
-        return runs;
+        return (runs, last);
     }
 
     /// <summary>Keeps the shown total ahead of the runs done once the estimate is reached.</summary>
