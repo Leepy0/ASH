@@ -386,6 +386,40 @@ public class FilmTests
     }
 
     [Fact]
+    public async Task A_Measured_Calibration_Is_Taken_Again_And_A_Failed_One_Is_Not_Retried()
+    {
+        var am = Path.Combine(Path.GetTempPath(), "ash-am-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(am, "bin"));
+        File.WriteAllText(Path.Combine(am, "bin", "aview64.exe"), ""); // only found, never run: the renderer is the fake
+        try
+        {
+            using var env = new JobEnv(aviewExe: Path.Combine(am, "bin", "aview64.exe"));
+            var j1 = await Done(env, "분석", "A안");
+            var (_, aid) = Analysis(env);
+            env.Factory.Services.GetRequiredService<CutStore>().Save(aid, new[] { Hold("c1") });
+            int Cal() { lock (env.Film.Scripts) return env.Film.Scripts.Count(s => s.Contains("quality 100")); } // calibration renders only
+            env.Film.FrameCount = 20;
+            env.Film.Mark = (212, 212); // a 5 m mark 212 px wide at 720 px: F0 17 m, close to the first guess, so it is kept
+            var f1 = await Film(env, aid, Body(new[] { "c1" }, new[] { j1 }));
+            var log1 = await env.Http.GetStringAsync("/films/" + f1.Id);
+            Assert.Equal(2, Cal()); Assert.DoesNotContain("너무 달라", log1);
+            var f2 = await Film(env, aid, Body(new[] { "c1" }, new[] { j1 }));
+            Assert.Equal(2, Cal()); // the same AutoView, size and drawing: no calibration renders the second time
+            Assert.Contains("보정값 재사용", await env.Http.GetStringAsync("/films/" + f2.Id));
+
+            // a calibration that ran but showed nothing is not tried again by the same server version
+            var films = env.Factory.Services.GetRequiredService<FilmStore>();
+            File.Delete(Path.Combine(films.Dir, "autoview-cal.tsv"));
+            env.Film.Mark = null;
+            await Film(env, aid, Body(new[] { "c1" }, new[] { j1 }));
+            var afterFail = Cal();
+            await Film(env, aid, Body(new[] { "c1" }, new[] { j1 }));
+            Assert.Equal(afterFail, Cal());
+        }
+        finally { try { Directory.Delete(am, true); } catch (IOException) { } }
+    }
+
+    [Fact]
     public void AutoView_Run_Past_Its_Limit_Is_Killed()
     {
         var dir = Path.Combine(Path.GetTempPath(), "ash-hang-" + Guid.NewGuid().ToString("N"));

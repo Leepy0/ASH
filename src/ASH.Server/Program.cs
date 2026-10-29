@@ -46,6 +46,21 @@ builder.Services.AddSingleton(sp => new AppSettingsFile(Path.Combine(sp.GetRequi
 builder.Services.AddSingleton<AdminSessions>();
 
 var app = builder.Build();
+// an unhandled error shows what went wrong instead of an empty 500, so a user can pass the line on; the whole exception goes to the log
+app.UseExceptionHandler(err => err.Run(async ctx =>
+{
+    var ex = ctx.Features.Get<Microsoft.AspNetCore.Diagnostics.IExceptionHandlerPathFeature>();
+    var e = ex?.Error;
+    app.Logger.LogError(e, "요청 처리 실패 {Path}", ex?.Path);
+    var what = e == null ? "알 수 없는 오류" : $"{e.GetType().Name}: {e.Message}";
+    var at = e?.StackTrace?.Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.Contains("ASH.")) ?? "";
+    ctx.Response.StatusCode = 500;
+    if (ex?.Path.StartsWith("/api/", StringComparison.Ordinal) == true) { await ctx.Response.WriteAsJsonAsync(new { error = what }); return; }
+    ctx.Response.ContentType = "text/html; charset=utf-8";
+    await ctx.Response.WriteAsync(ServerPages.Message("서버 오류", $"<div class=\"msg bad\">{WebUtility.HtmlEncode(what)}</div>" +
+        $"<p class=\"muted\">{WebUtility.HtmlEncode(ex?.Path ?? "")} · {WebUtility.HtmlEncode(at)} · {WebUtility.HtmlEncode(SeoulTime.NowText)}</p><p>이 내용을 관리자에게 알려 주세요.</p>"));
+}));
+ASH.Core.Cause.CauseAnalysis.Failed += (name, e) => app.Logger.LogWarning(e, "원인 분석 {Name} 건너뜀", name);
 app.Services.GetRequiredService<AnalysisStore>(); // a bad analyses.json is set aside and logged at boot
 app.Services.GetRequiredService<ReleaseStore>(); // bad key/folder/GitHub URL fails at start, not at the first request
 app.Services.GetRequiredService<GitHubSync>();
@@ -227,17 +242,20 @@ app.MapPost("/admin/update", async (HttpContext ctx, ReleaseStore rs, AdminSessi
     return Html(ServerPages.Message("서버 업데이트", $"<div class=\"msg ok\">{WebUtility.HtmlEncode(v)} 적용 중 · 15초 뒤 홈</div>", "/"));
 });
 
-// 최신 버전 확인: the scheduled GitHub check (ASH = plugin, Runner, then the server, which only stages) at once; the 서버 설정 tab shows the results
-app.MapPost("/admin/check-updates", async (HttpContext ctx, ReleaseStore rs, AdminSessions sessions, GitHubSync g) =>
+// 최신 버전 확인: the scheduled GitHub check (ASH = plugin, Runner, then the server, which only stages) starts in the background and the page
+// returns at once; the 서버 설정 tab polls the steps from /admin/check-updates/status. One check at a time (a second press starts nothing).
+app.MapPost("/admin/check-updates", (HttpContext ctx, ReleaseStore rs, AdminSessions sessions, GitHubSync g) =>
 {
     if (DenyPost(ctx, rs, sessions) is { } deny) return deny;
     if (g.BaseUrl == null) return Html(ServerPages.Message("최신 버전 확인", "<div class=\"msg warn\">GitHub 가져오기 꺼짐(GitHub:Enabled=false)</div><p><a href=\"/admin/settings?tab=server\">돌아가기</a></p>"), 409);
-    using var cts = CancellationTokenSource.CreateLinkedTokenSource(ctx.RequestAborted);
-    cts.CancelAfter(TimeSpan.FromMinutes(5)); // a new setup is downloaded here
-    try { await g.CheckOnceAsync(cts.Token); }
-    catch (OperationCanceledException) { return Html(ServerPages.Message("최신 버전 확인", "<div class=\"msg bad\">시간 초과(5분)</div><p><a href=\"/admin/settings?tab=server\">돌아가기</a></p>"), 504); }
-    app.Logger.LogInformation("최신 버전 확인(웹, {Ip})", ClientIp(ctx));
+    app.Logger.LogInformation(g.StartCheck(app.Lifetime.ApplicationStopping) ? "최신 버전 확인 시작(웹, {Ip})" : "최신 버전 확인: 이미 진행 중(웹, {Ip})", ClientIp(ctx));
     return Results.Redirect("/admin/settings?tab=server");
+});
+app.MapGet("/admin/check-updates/status", (HttpContext ctx, ReleaseStore rs, AdminSessions sessions, GitHubSync g) =>
+{
+    ctx.Response.Headers.CacheControl = "no-store";
+    if (!rs.UploadsEnabled || !(HeaderAdmin(ctx, rs) || CookieAdmin(ctx, sessions))) return Msg(rs.UploadsEnabled ? 401 : 403, "관리자 로그인이 필요합니다(/admin/settings).");
+    return Results.Json(g.Progress.Snapshot());
 });
 
 app.MapGet("/admin/jobs", (HttpContext ctx, ReleaseStore rs, AdminSessions sessions, JobStore js, FilmWorker fw, IConfiguration cfg, AnalysisStore st) =>

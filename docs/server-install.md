@@ -98,7 +98,7 @@ gh release create v<버전> dist\ASH-Setup-<버전>.exe dist\ASH.json dist\ASH.S
 ```
 
 - 정식 릴리스(초안·시험판 아님)에 `ASH.json`, `ASH-Setup-<버전>.exe`가 반드시 있어야 서버가 가져간다. 서버 업데이트에는 `ASH.Server.json`, `ASH-Server-<버전>-win-x64.zip`, ash-run 배포에는 `ASH.Runner.json`, `ASH-Runner-<버전>-win-x64.zip`도 필요하다(`build-release.ps1`이 함께 만든다). 태그는 `v<버전>`(매니페스트의 version과 같게). 위 7개 자산이 전부 올라가야 한다.
-- 서버는 `CheckIntervalMin`(기본 60분) 안에 가져간다. 바로 반영하려면 관리 → 서버 설정의 **최신 버전 "지금 확인"** 버튼(플러그인·Runner는 받아 게시, 새 서버는 받아만 두고 띠에서 적용).
+- 서버는 `CheckIntervalMin`(기본 60분) 안에 가져간다. 바로 반영하려면 관리 → 서버 설정의 **최신 버전 "지금 확인"** 버튼(플러그인·Runner는 받아 게시, 새 서버는 받아만 두고 띠에서 적용). 누르면 바로 돌아오고 확인은 서버가 뒤에서 하며, 버튼 아래에 단계(플러그인 확인·받기, Runner 확인·받기, 공지 받기, 서버 확인·받기·준비)가 대기/진행/완료/건너뜀/실패로 1초마다 갱신되고 받는 중에는 받은 MB / 전체 MB가 보인다(`GET /admin/check-updates/status`, 관리자만). 확인이 이미 돌고 있으면 새로 시작하지 않는다.
 - 서버가 GitHub에 닿지 않는 곳이면 수동 업로드를 쓴다(서버 `Admin:Password` 필요):
   ```powershell
   $env:ASH_ADMIN_TOKEN = '<서버 appsettings.json 의 Admin:Password>'      # 명령줄·기록에 남기지 않으려고 환경 변수로

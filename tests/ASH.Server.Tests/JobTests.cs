@@ -79,12 +79,13 @@ public sealed class JobEnv : IDisposable
     public JobStore Store => Factory.Services.GetRequiredService<JobStore>();
     public CatalogStore Types => Factory.Services.GetRequiredService<CatalogStore>();
 
-    public JobEnv(bool worker = true, string? amHome = null, string? adminToken = null, string? assetMaxMb = null)
+    public JobEnv(bool worker = true, string? amHome = null, string? adminToken = null, string? assetMaxMb = null, string? aviewExe = null)
     {
         Factory = new WebApplicationFactory<Program>().WithWebHostBuilder(b =>
         {
             if (adminToken != null) b.UseSetting("Admin:Password", adminToken);
             if (assetMaxMb != null) b.UseSetting("Catalog:AssetMaxMb", assetMaxMb);
+            if (aviewExe != null) b.UseSetting("Film:AviewExe", aviewExe); // only named (the calibration cache keys on it); the fake still renders
             b.UseSetting("Releases:Dir", Path.Combine(Dir, "releases"));
             b.UseSetting("Jobs:Dir", Path.Combine(Dir, "jobs"));
             b.UseSetting("Jobs:WorkerEnabled", worker ? "true" : "false");

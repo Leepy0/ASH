@@ -1,10 +1,30 @@
 using System.Collections.Concurrent;
 using System.Globalization;
+using System.Text.RegularExpressions;
+using ASH.Core.Cause;
 using ASH.Core.Input;
 using ASH.Core.Model;
 using ASH.Core.Runner;
 
 namespace ASH.Server;
+
+/// <summary>A confirm run with deadlocks: Number = its place in the job's confirm runs (1-based, the cause tab's "실행 N"), Count = deadlocks of the run (summary.tsv),
+/// Scenario = "group=count" per group, HasResult = its result.tsv was read for the places.</summary>
+public sealed record DeadlockRun(string RunId, int Number, int Count, string Scenario, bool HasResult);
+
+/// <summary>Where the confirm runs deadlocked: Runs = the runs with deadlocks (most first), Spots = places by episodes from the runs read (at most <see cref="JobView.DeadlockRunCap"/>),
+/// Capped = more runs than that, MissingPlaces = deadlocks counted in summary.tsv but no place recorded (run folder purged, or a model from before the dlock rows).</summary>
+public sealed record DeadlockView(IReadOnlyList<DeadlockRun> Runs, IReadOnlyList<DeadlockSpot> Spots, bool Capped, bool MissingPlaces)
+{
+    public int Total => Runs.Sum(r => r.Count);
+}
+
+/// <summary>One material that ran out in the confirm runs: StopSum / StopAvg = stop seconds summed / averaged over the confirm runs read, Runs = runs it ran out in,
+/// TopRun / TopNumber = the run with the most stop (its id, its "실행 N"), Top = that run's check (lead times, verdict, fix).</summary>
+public sealed record StockoutRow(string Material, string Group, double StopSum, double StopAvg, int Runs, string TopRun, int TopNumber, StockoutCheck Top);
+
+/// <summary>Why materials ran out in the confirm runs: a row per material (most stop first), RunsRead = confirm runs whose result.tsv was read.</summary>
+public sealed record StockoutView(IReadOnlyList<StockoutRow> Rows, int RunsRead);
 
 /// <summary>Per group at the recommended counts: mean over the confirm runs. AllOk = no real failure (stockout, supply, deadlock, no result);
 /// a run over the utilization limit only is a warning (UtilOver), not a failure. Reason = the first real failure.</summary>
@@ -74,6 +94,31 @@ public sealed class JobView
     public double UtilMax => Input?.Settings.UtilMax ?? 0.75;
     /// <summary>Deadlocks summed over the confirm runs (each run's count is model-wide, repeated per group row).</summary>
     public int Deadlocks { get; private set; }
+    /// <summary>Runs and places of the confirm runs' deadlocks; null when none deadlocked.</summary>
+    public DeadlockView? Deadlock { get; private set; }
+    /// <summary>Materials that ran out in the confirm runs and why; null when none did (or no result.tsv is left).</summary>
+    public StockoutView? Stockout { get; private set; }
+    /// <summary>Confirm runs whose places are read at most (result.tsv of the ones with the most deadlocks).</summary>
+    public const int DeadlockRunCap = 50;
+
+    static readonly Regex DeadlockCount = new(@"교착 \d+건", RegexOptions.Compiled);
+
+    /// <summary>The text of a verdict or warning with the biggest place after each "교착 N건": "교착 12건 · B007·B005 8건(3개 실행) 외". With <paramref name="runId"/> the place is
+    /// the biggest of that run alone (no run count). Text without "교착 N건", or a job without places, comes back unchanged. The stored reason is not touched.</summary>
+    public string Annotate(string? text, string? runId = null)
+    {
+        if (string.IsNullOrEmpty(text) || Deadlock is not { Spots.Count: > 0 } d) return text ?? "";
+        var spots = runId == null ? d.Spots : d.Spots.Where(s => s.ByRun.ContainsKey(runId)).OrderByDescending(s => s.ByRun[runId]).ToList();
+        if (spots.Count == 0) return text;
+        var top = spots[0];
+        var tail = runId == null ? $"{top.Name} {top.Episodes}건({top.Runs}개 실행)" : $"{top.Name} {top.ByRun[runId]}건";
+        if (spots.Count > 1) tail += " 외";
+        return DeadlockCount.Replace(text, m => m.Value + " · " + tail);
+    }
+
+    /// <summary>Link to the cause tab of the analysis with this run chosen; null for a job outside an analysis.</summary>
+    internal static string? CauseUrl(JobInfo j, string runId) =>
+        string.IsNullOrEmpty(j.AnalysisId) ? null : $"/analyses/{Uri.EscapeDataString(j.AnalysisId)}?tab=cause&job={Uri.EscapeDataString(j.Id)}&run={Uri.EscapeDataString(runId)}";
 
     /// <summary>A run that failed only on the utilization limit: shown as a warning. Judge checks utilization last, so its reason means every other rule
     /// passed; summary rows from before that order could hide a supply shortfall, a deadlock is still caught by the column.</summary>
@@ -130,6 +175,7 @@ public sealed class JobView
 
         var confirm = new HashSet<string>(job.ConfirmRunIds, StringComparer.Ordinal);
         v.Deadlocks = v.Rows.Where(r => confirm.Contains(r.RunId)).GroupBy(r => r.RunId).Sum(g => g.First().Deadlocks);
+        var badRun = new Dictionary<string, string>(StringComparer.Ordinal); // group -> the run its Reason comes from
         if (v.Input != null)
         {
             v.Groups = v.Input.Groups.Select(g =>
@@ -137,6 +183,7 @@ public sealed class JobView
                 var at = v.Rows.Where(r => r.Group == g.Group && confirm.Contains(r.RunId)).ToList();
                 int? decided = job.Decided != null && job.Decided.TryGetValue(g.Group, out var d) ? d : null;
                 var bad = at.FirstOrDefault(Failed);
+                if (bad != null) badRun[g.Group] = bad.RunId;
                 return new GroupView(g.Group, g.Type, g.MinCount, g.MaxCount, decided, Mean(at.Select(r => r.Utilization)),
                     at.Count == 0 ? double.NaN : at.Min(r => r.MinStockRatio), at.Count > 0 && !at.Any(Failed), bad?.Reason, at.Any(UtilOnly));
             }).ToList();
@@ -149,12 +196,12 @@ public sealed class JobView
         }
 
         // result.tsv of the confirm runs: block, vehicle and material numbers
-        var sets = new List<ResultSet>();
+        var sets = new List<ResultSet>(); var byRun = new Dictionary<string, ResultSet>(StringComparer.Ordinal);
         foreach (var id in confirm)
         {
             var tsv = Path.Combine(runs, id, "result.tsv");
             if (!File.Exists(tsv)) continue;
-            try { sets.Add(ResultParser.Parse(tsv)); }
+            try { var rs = ResultParser.Parse(tsv); sets.Add(rs); byRun[id] = rs; }
             catch (Exception e) when (e is IOException or InvalidDataException) { }
         }
         var conv = sets.Where(rs => rs.Conveyors is { Count: > 0 }).ToList();
@@ -208,6 +255,10 @@ public sealed class JobView
         }).ToList();
 
         try { v.Layout = ArcLayout.Load(Path.Combine(project, job.Model + ".arc")).Layout; } catch (Exception e) when (e is IOException or FormatException or InvalidDataException) { }
+        try { v.Deadlock = DeadlockOf(job, v, byRun); } catch (Exception e) when (e is not OutOfMemoryException) { } // odd data must never take a result page down
+        try { v.Stockout = StockoutOf(job, v, byRun); } catch (Exception e) when (e is not OutOfMemoryException) { } // the box is extra: odd data must not take the page down
+        // the stored reason stays "교착 N건"; what the pages show carries the biggest place of the run it came from
+        if (v.Deadlock != null) v.Groups = v.Groups.Select(g => g with { Reason = g.Reason == null ? null : v.Annotate(g.Reason, badRun.GetValueOrDefault(g.Group)) }).ToList();
 
         var impact = Path.Combine(runs, "impact.tsv");
         if (File.Exists(impact))
@@ -225,6 +276,44 @@ public sealed class JobView
             v.Impact = list;
         }
         return v;
+    }
+
+    /// <summary>The confirm runs that deadlocked (summary.tsv count above 0, most first) and, from the first <see cref="DeadlockRunCap"/> of them whose result.tsv was read, the places.</summary>
+    static DeadlockView? DeadlockOf(JobInfo job, JobView v, IReadOnlyDictionary<string, ResultSet> read)
+    {
+        var runs = new List<DeadlockRun>();
+        var ids = job.ConfirmRunIds.Distinct(StringComparer.Ordinal).ToList();
+        for (int i = 0; i < ids.Count; i++)
+        {
+            var rows = v.Rows.Where(r => r.RunId == ids[i]).ToList();
+            int n = rows.Count == 0 ? 0 : rows.Max(r => r.Deadlocks);
+            if (n > 0) runs.Add(new DeadlockRun(ids[i], i + 1, n, string.Join(" · ", rows.Select(r => $"{r.Group}={r.Active}")), read.ContainsKey(ids[i])));
+        }
+        if (runs.Count == 0) return null;
+        runs = runs.OrderByDescending(r => r.Count).ThenBy(r => r.Number).ToList();
+        var used = runs.Take(DeadlockRunCap).Where(r => read.ContainsKey(r.RunId)).ToList();
+        var blocks = v.Layout?.Blocks.Select(b => b.Name).ToHashSet(StringComparer.Ordinal);
+        var spots = DeadlockSummary.Build(used.Select(r => new KeyValuePair<string, IReadOnlyList<DeadlockEvent>?>(r.RunId, read[r.RunId].DeadlockEvents)),
+            blocks is { Count: > 0 } ? blocks.Contains : null);
+        return new DeadlockView(runs, spots, runs.Count > DeadlockRunCap, spots.Count == 0);
+    }
+
+    /// <summary>StockoutCauses per confirm run that was read, grouped per material. Without the layout the free-speed lead is unknown (자료 부족), the rest still works.</summary>
+    static StockoutView? StockoutOf(JobInfo job, JobView v, IReadOnlyDictionary<string, ResultSet> read)
+    {
+        if (v.Input == null) return null;
+        var ids = job.ConfirmRunIds.Distinct(StringComparer.Ordinal).Where(read.ContainsKey).ToList();
+        var number = job.ConfirmRunIds.Distinct(StringComparer.Ordinal).Select((id, i) => (id, i)).ToDictionary(x => x.id, x => x.i + 1, StringComparer.Ordinal);
+        var layout = v.Layout ?? new ASH.Core.Layout.Layout();
+        var checks = ids.SelectMany(id => StockoutCauses.Check(new CauseContext(layout, v.Input, read[id])).Select(c => (Run: id, Check: c))).ToList();
+        if (checks.Count == 0) return null;
+        var rows = checks.GroupBy(x => x.Check.Material, StringComparer.Ordinal).Select(g =>
+        {
+            var top = g.OrderByDescending(x => x.Check.StopSec).First();
+            double sum = g.Sum(x => x.Check.StopSec);
+            return new StockoutRow(g.Key, top.Check.Group, sum, sum / ids.Count, g.Count(), top.Run, number[top.Run], top.Check);
+        }).OrderByDescending(x => x.StopSum).ToList();
+        return new StockoutView(rows, ids.Count);
     }
 
     /// <summary>Part by part: the sum of the splits times <paramref name="scale"/> (1 = sum, 1/n = mean).</summary>

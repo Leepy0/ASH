@@ -107,11 +107,49 @@ public sealed class GitHubSync : BackgroundService
         catch (OperationCanceledException) when (stop.IsCancellationRequested) { }
     }
 
+    /// <summary>Step by step state of the running (or last) check, for the settings page.</summary>
+    public CheckProgress Progress { get; } = new();
+
+    /// <summary>The "지금 확인" button: runs one check in the background. False when the pull is off or a check is already running (none is started).</summary>
+    public bool StartCheck(CancellationToken stop)
+    {
+        if (BaseUrl == null || !Progress.TryBegin()) return false;
+        _ = Task.Run(async () =>
+        {
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(stop);
+            cts.CancelAfter(TimeSpan.FromMinutes(15)); // a new setup is downloaded here
+            try { await RunAsync(cts.Token, begun: true); }
+            catch (OperationCanceledException) { _log.LogWarning("최신 버전 확인 중단(종료 또는 15분 초과)"); }
+            catch (Exception e) { _log.LogError(e, "최신 버전 확인 오류"); }
+        }, CancellationToken.None);
+        return true;
+    }
+
     /// <summary>One check; never throws except on cancellation. The outcome is in <see cref="LastResult"/>.</summary>
-    public async Task CheckOnceAsync(CancellationToken ct)
+    public Task CheckOnceAsync(CancellationToken ct) => RunAsync(ct, begun: false);
+
+    // one check at a time (the schedule and the button share the gate); begun = the caller already claimed Progress
+    private async Task RunAsync(CancellationToken ct, bool begun)
     {
         if (BaseUrl == null) return;
-        await _gate.WaitAsync(ct);
+        var gated = false;
+        var owns = begun;
+        try
+        {
+            await _gate.WaitAsync(ct);
+            gated = true;
+            if (!begun && !(owns = Progress.TryBegin())) return; // a button check was claimed meanwhile
+            await RunChecks(ct);
+        }
+        finally
+        {
+            if (owns) Progress.End();
+            if (gated) _gate.Release();
+        }
+    }
+
+    private async Task RunChecks(CancellationToken ct)
+    {
         try { LastResult = await Check(ct); }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (UploadException e) { LastResult = "거절: " + e.Message; }
@@ -119,23 +157,21 @@ public sealed class GitHubSync : BackgroundService
         {
             LastResult = "실패: " + (e is OperationCanceledException ? "응답 시간 초과" : e.Message);
         }
-        finally
-        {
-            LastCheckUtc = DateTime.UtcNow;
-            _gate.Release();
-        }
+        LastCheckUtc = DateTime.UtcNow;
+        Progress.Settle(CheckProgress.PluginCheck, CheckProgress.PluginGet, LastResult);
         if (LastResult.StartsWith("거절") || LastResult.StartsWith("실패")) _log.LogWarning("GitHub 릴리스 확인 {Result}", LastResult);
         else _log.LogInformation("GitHub 릴리스 확인 {Result}", LastResult);
         await CheckRunnerAsync(ct);
         await CheckNotesAsync(ct);
         // the server's own update last: it may stop this process
-        if (_updater != null) await _updater.CheckAsync(_http, BaseUrl, ct);
+        if (_updater != null) await _updater.CheckAsync(_http, BaseUrl!, ct, Progress);
     }
 
     // ASH.Notes.json of the latest release (every version's notes): into the store as drafts, an admin approves them. 404 = an older release without notes.
     private async Task CheckNotesAsync(CancellationToken ct)
     {
         if (_notices == null || BaseUrl == null) return;
+        Progress.Start(CheckProgress.Notes);
         try
         {
             var json = await GetSmall(_http, $"{BaseUrl}/releases/latest/download/{NotesFile.FileName}", MaxManifestBytes, ct);
@@ -143,6 +179,7 @@ public sealed class GitHubSync : BackgroundService
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception e) { NotesResult = "실패: " + (e is OperationCanceledException ? "응답 시간 초과" : e.Message); }
+        Progress.Settle(CheckProgress.Notes, CheckProgress.Notes, NotesResult);
         if (NotesResult.StartsWith("실패")) _log.LogWarning("공지 가져오기 {Result}", NotesResult);
         else _log.LogInformation("공지 가져오기 {Result}", NotesResult);
     }
@@ -154,6 +191,7 @@ public sealed class GitHubSync : BackgroundService
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (UploadException e) { RunnerResult = "거절: " + e.Message; }
         catch (Exception e) { RunnerResult = "실패: " + (e is OperationCanceledException ? "응답 시간 초과" : e.Message); }
+        Progress.Settle(CheckProgress.RunnerCheck, CheckProgress.RunnerGet, RunnerResult);
         if (RunnerResult.StartsWith("거절") || RunnerResult.StartsWith("실패")) _log.LogWarning("Runner 가져오기 {Result}", RunnerResult);
         else _log.LogInformation("Runner 가져오기 {Result}", RunnerResult);
     }
@@ -161,22 +199,26 @@ public sealed class GitHubSync : BackgroundService
     // same rule as the setup: the manifest from "latest", the signature and zip from its tag; the store verifies everything before it keeps a byte
     private async Task<string> PullRunner(RunnerStore store, CancellationToken ct)
     {
+        Progress.Start(CheckProgress.RunnerCheck);
         var json = await GetSmall(_http, $"{BaseUrl}/releases/latest/download/{PackageManifest.RunnerManifestName}", MaxManifestBytes, ct);
         if (json == null) return $"최신 릴리스에 {PackageManifest.RunnerManifestName} 없음";
         var m = PackageManifest.ParseRunner(json);
         var cur = store.Current;
         if (cur != null && !m.IsNewerThan(cur.Version)) return $"최신({cur.Version})";
+        Progress.Finish(CheckProgress.RunnerCheck, $"새 버전 {m.Version}");
         var tag = $"{BaseUrl}/releases/download/v{Uri.EscapeDataString(m.Version)}";
         var sig = await GetSmall(_http, $"{tag}/{PackageManifest.RunnerSignatureName}", MaxSignatureBytes, ct);
+        Progress.Start(CheckProgress.RunnerGet, m.Size);
         using var resp = await _http.GetAsync($"{tag}/{Uri.EscapeDataString(m.File)}", HttpCompletionOption.ResponseHeadersRead, ct);
         if (!resp.IsSuccessStatusCode) throw new HttpRequestException($"Runner zip을 받을 수 없습니다({(int)resp.StatusCode}).");
-        await using var zip = await resp.Content.ReadAsStreamAsync(ct);
+        await using var zip = new CountingStream(await resp.Content.ReadAsStreamAsync(ct), n => Progress.Bytes(CheckProgress.RunnerGet, n));
         var pub = await store.PublishAsync(json, sig, m.File, zip, ct);
         return $"가져옴: {pub.Version}";
     }
 
     private async Task<string> Check(CancellationToken ct)
     {
+        Progress.Start(CheckProgress.PluginCheck);
         var json = await GetSmall(_http, $"{BaseUrl}/releases/latest/download/{ReleaseManifest.FileName}", MaxManifestBytes, ct);
         if (json == null) return $"GitHub에 {ReleaseManifest.FileName}이(가) 있는 릴리스가 없습니다.";
         var m = ReleaseManifest.Parse(json);
@@ -185,13 +227,15 @@ public sealed class GitHubSync : BackgroundService
         if (cur != null && SemVersion.TryParse(cur.Version, out var have) && latest!.CompareTo(have) <= 0)
             return latest.CompareTo(have) == 0 ? $"최신({cur.Version})" : $"서버 버전({cur.Version})이 GitHub({m.Version})보다 높음, 그대로 둠";
 
+        Progress.Finish(CheckProgress.PluginCheck, $"새 버전 {m.Version}");
         // signature and setup from the tag, not "latest": a release published between two requests cannot mix files
         var tag = $"{BaseUrl}/releases/download/v{Uri.EscapeDataString(m.Version)}";
         var sig = await GetSmall(_http, $"{tag}/{ReleaseManifest.SignatureFileName}", MaxSignatureBytes, ct);
         var url = $"{tag}/{Uri.EscapeDataString(m.File)}";
+        Progress.Start(CheckProgress.PluginGet, m.Size);
         using var resp = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct);
         if (!resp.IsSuccessStatusCode) throw new HttpRequestException($"설치 파일을 받을 수 없습니다({(int)resp.StatusCode}): {url}");
-        await using var setup = await resp.Content.ReadAsStreamAsync(ct);
+        await using var setup = new CountingStream(await resp.Content.ReadAsStreamAsync(ct), n => Progress.Bytes(CheckProgress.PluginGet, n));
         var pub = await _store.PublishAsync(json, sig, m.File, setup, force: false, ct);
         return $"가져옴: {pub.Version} ({pub.File})";
     }

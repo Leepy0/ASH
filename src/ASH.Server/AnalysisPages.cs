@@ -411,6 +411,10 @@ public static class AnalysisPages
         sb.Append($"</div><div class=\"lg\">{(nFail > 0 ? $"<span class=\"c-red\"><i></i>실패 {nFail}</span>" : "")}<span class=\"c-orange\"><i></i>경고: 상한 {F(v.UtilMax * 100, "0")}% 초과 {nOver}</span><span class=\"c-blue\"><i></i>적정 {groups.Count - nFail - nOver - nUnder}</span>" +
             $"<span class=\"c-gray\"><i></i>10% 미만 {nUnder}</span></div></section>");
 
+        // ---- 교착 (only when a confirm run deadlocked)
+        DeadlockPanel.Section(sb, cur, v);
+        StockoutPanel.Section(sb, cur, v); // only when a confirm run stood for a material
+
         // ---- 안별 결론
         sb.Append("<section class=\"box\"><h3 style=\"text-align:center\">안별 결론</h3><div class=\"pl\">");
         var priced = d.Prices is { Count: > 0 };
