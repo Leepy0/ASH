@@ -717,6 +717,7 @@ public sealed class PathCommands
                 QueueNextSteps(changed);
                 if (!changed) { Ui.PaletteStatus.Set(FinalStatus ?? $"{cmd}: 변경 없음"); FinalStatus = null; return; }
                 if (refreshArrows) DrawingWriter.RefreshDirectionArrows(doc.Database, tr);
+                DrawingWriter.SyncTrafficCpLayers(doc.Database, tr); // a CAP typed in the properties panel, or a drawing older than the CAP 1 layer
                 string? gaps = null;
                 // markers only: a locked AGV_PATH_GAP layer or the like must not undo the edit
                 try { if (PathEditCommands.Contains(cmd)) gaps = RefreshGapMarkers(doc.Database, tr); }

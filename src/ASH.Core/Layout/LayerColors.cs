@@ -41,6 +41,7 @@ public static class LayerColors
             new LayerColor("AGV_PATH_GAP", "끊긴 경로 끝 표시", 1),
         };
         foreach (var type in CpTypes.All) t.Add(new LayerColor("AGV_CP_" + type.ToUpperInvariant(), type + " CP (" + CpTypes.Korean(type) + ")", CpDefault(type)));
+        t.Add(new LayerColor(CpTypes.SingleTrafficLayer, "traffic CP CAP 1 (교통 1대)", 200));
         return t;
     }
 

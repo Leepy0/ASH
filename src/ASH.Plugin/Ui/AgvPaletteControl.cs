@@ -49,7 +49,7 @@ public sealed class AgvPaletteControl : UserControl
         var cap = Field(CpTypes.FormatCap(s.Cap), v => { if (CpTypes.TryParseCap(v, out var c)) s.Cap = c; });
         void ShowType()
         {
-            hint.Text = $"{s.Type} · 이름 {AutoNamer.PatternFor(s.Type)} · CAP {CpTypes.FormatCap(s.Cap)} · 레이어 {Conventions.LayerCpFor(s.Type)}";
+            hint.Text = $"{s.Type} · 이름 {AutoNamer.PatternFor(s.Type)} · CAP {CpTypes.FormatCap(s.Cap)} · 레이어 {Conventions.LayerCpFor(s.Type, s.Cap)}";
             hint.ForeColor = Theme.CpColor(s.Type);
         }
         prefix.TextChanged += (o, e) => { s.Prefix = prefix.Text.Trim(); ShowType(); };

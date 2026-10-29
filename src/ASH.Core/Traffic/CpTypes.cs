@@ -31,8 +31,13 @@ public static class CpTypes
     /// <summary>AutoMod's "infinite" capacity (2147483647 in .asy files).</summary>
     public const int Infinity = int.MaxValue;
 
-    /// <summary>A traffic CP claims one vehicle at a time; every other CP is a place vehicles queue or stop at, so it is unlimited unless told otherwise.</summary>
-    public static int DefaultCap(string? type) => string.Equals(type, "traffic", StringComparison.OrdinalIgnoreCase) ? 1 : Infinity;
+    /// <summary>Every CP, traffic included, is unlimited unless told otherwise: blocks do the one-at-a-time control.</summary>
+    public static int DefaultCap(string? type) => Infinity;
+
+    /// <summary>A traffic CP set to CAP 1 (one vehicle at a time): it goes on its own layer, <see cref="SingleTrafficLayer"/>, so it stands out.</summary>
+    public static bool IsSingleTraffic(string? type, int cap) => cap == 1 && string.Equals((type ?? "").Trim(), "traffic", StringComparison.OrdinalIgnoreCase);
+
+    public const string SingleTrafficLayer = "AGV_CP_TRAFFIC_CAP1";
 
     /// <summary>Default AutoCAD colour index of the CP's layer (the table is <see cref="ASH.Core.Layout.LayerColors"/>): red traffic, green load, blue unload, orange rtnload, magenta rtnunload, yellow standby, cyan buffer, grey finish.</summary>
     public static short ColorIndex(string? type) => ASH.Core.Layout.LayerColors.DefaultOf("AGV_CP_" + (type ?? "").Trim().ToUpperInvariant());

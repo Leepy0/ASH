@@ -58,8 +58,9 @@ public sealed class CpEditCommands
                 if (type != null)
                 {
                     missing += DrawingWriter.SetAttribute(tr, id, "TYPE", type) ? 0 : 1;
-                    SetLayer(tr, id, Conventions.LayerCpFor(type)); // the type's own layer: colour and on/off follow the type
+                    DrawingWriter.SetLayer(tr, id, Conventions.LayerCpFor(type, cap ?? cp.Cap)); // the type's own layer: colour and on/off follow the type
                 }
+                else if (cap != null) DrawingWriter.SetLayer(tr, id, Conventions.LayerCpFor(cp.Type, cap.Value)); // traffic CAP 1 ↔ other CAP changes layer
             }
             ed.WriteMessage($"\nCP {cps.Count}개 수정.");
             if (missing > 0) ed.WriteMessage($"\n어트리뷰트가 없는 항목 {missing}개는 건너뜀 (AGV_CP 블록 정의 확인).");
@@ -217,16 +218,6 @@ public sealed class CpEditCommands
             if (IsCp(tr, id)) return id;
             ed.WriteMessage("\nCP가 아닙니다.");
         }
-    }
-
-    // The block and its attribute texts move to the type's layer together.
-    private static void SetLayer(Transaction tr, ObjectId id, string layer)
-    {
-        var br = (BlockReference)tr.GetObject(id, OpenMode.ForWrite);
-        if (DrawingReader.Eq(br.Layer, layer)) return;
-        br.Layer = layer;
-        foreach (ObjectId aid in br.AttributeCollection)
-            if (tr.GetObject(aid, OpenMode.ForWrite) is AttributeReference ar && !ar.IsErased) ar.Layer = layer;
     }
 
     /// <summary>Old → new table on the command line (first 60) and, whole, on the clipboard as TSV. The Excel rows still hold the old names, so say so.</summary>
