@@ -15,6 +15,7 @@ public static class JobReport
         Summary(wb.AddWorksheet("요약"), job, view);
         Curves(wb.AddWorksheet("대수별 가동률"), job, view);
         Runs(wb.AddWorksheet("실행 목록"), view);
+        if (view.Deadlock != null) Deadlocks(wb.AddWorksheet("교착"), job, view);
         Impact(wb.AddWorksheet("영향표"), view);
         Blocks(wb.AddWorksheet("block"), view);
         Vehicles(wb.AddWorksheet("차량"), view);
@@ -116,7 +117,7 @@ public static class JobReport
         if (j.Warnings.Count > 0)
         {
             r++; Title(ws, r++, "경고");
-            foreach (var w in j.Warnings) ws.Cell(r++, 1).Value = w;
+            foreach (var w in j.Warnings) ws.Cell(r++, 1).Value = v.Annotate(w);
         }
         Widths(ws);
     }
@@ -143,12 +144,37 @@ public static class JobReport
         int r = 2;
         foreach (var x in v.Rows)
         {
-            Put(ws, r, 1, x.RunId); Put(ws, r, 2, x.Group); Put(ws, r, 3, x.Active); Put(ws, r, 4, x.Seed); Put(ws, r, 5, x.Ok ? "통과" : JobView.UtilOnly(x) ? "경고" : "실패"); Put(ws, r, 6, x.Reason);
+            Put(ws, r, 1, x.RunId); Put(ws, r, 2, x.Group); Put(ws, r, 3, x.Active); Put(ws, r, 4, x.Seed); Put(ws, r, 5, x.Ok ? "통과" : JobView.UtilOnly(x) ? "경고" : "실패"); Put(ws, r, 6, v.Annotate(x.Reason, x.RunId));
             Put(ws, r, 7, x.Utilization, Pct); Put(ws, r, 8, x.MinStockRatio, "0.00"); Put(ws, r, 9, x.Supplies); Put(ws, r, 10, x.Expected, "0.##");
             Put(ws, r, 11, x.StopTimeSec, "0.#"); Put(ws, r, 12, x.Deadlocks); Put(ws, r, 13, x.DurationSec, "0.#"); Put(ws, r, 14, x.Scenario);
             r++;
         }
         ws.SheetView.FreezeRows(1); Widths(ws);
+    }
+
+    /// <summary>Places first (one row each: episodes, runs, first time, groups, vehicles, the run to open), then the runs with deadlocks.</summary>
+    static void Deadlocks(IXLWorksheet ws, JobInfo j, JobView v)
+    {
+        var d = v.Deadlock!;
+        int r = 1;
+        Title(ws, r++, "위치별");
+        if (d.Spots.Count == 0) ws.Cell(r++, 1).Value = "위치 기록 없음(실행 결과가 지워졌거나 이전 모델)";
+        else
+        {
+            Header(ws, r++, "위치", "교착(건)", "실행(개)", "첫 발생(초)", "첫 발생(h:mm)", "그룹", "차량", "지도로 볼 실행");
+            var number = d.Runs.ToDictionary(x => x.RunId, x => x.Number, StringComparer.Ordinal);
+            foreach (var s in d.Spots)
+            {
+                Put(ws, r, 1, s.Name); Put(ws, r, 2, s.Episodes); Put(ws, r, 3, s.Runs); Put(ws, r, 4, s.FirstSec, "0"); Put(ws, r, 5, DeadlockPanel.Hm(s.FirstSec));
+                Put(ws, r, 6, string.Join("·", s.Groups)); Put(ws, r, 7, string.Join("·", s.Vehicles)); Put(ws, r, 8, number.TryGetValue(s.TopRun, out var n) ? $"실행 {n} ({s.TopRun})" : s.TopRun);
+                r++;
+            }
+        }
+        r++; Title(ws, r++, "실행별");
+        Header(ws, r++, "실행", "번호", "교착(회)", "시나리오(그룹=대수)");
+        foreach (var x in d.Runs) { Put(ws, r, 1, x.RunId); Put(ws, r, 2, x.Number); Put(ws, r, 3, x.Count); Put(ws, r, 4, x.Scenario); r++; }
+        if (d.Capped) ws.Cell(r++, 1).Value = $"교착 실행 {d.Runs.Count}개 중 {JobView.DeadlockRunCap}개까지만 위치를 읽었습니다.";
+        Widths(ws);
     }
 
     static void Impact(IXLWorksheet ws, JobView v)

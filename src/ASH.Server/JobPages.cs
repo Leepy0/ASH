@@ -508,11 +508,12 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
             sb.Append("</tbody></table></div><div class=\"t4\" title=\"호출→상차: 호출부터 상차 CP 도착까지. 호출→하차: 호출부터 하차 완료까지. 재고는 takt마다 한 번 잰 값, 최대·최소는 확인 실행 전체의 극값. 주의: 재고 평균 − 2σ가 안전재고보다 낮은 자재(경고일 뿐 판정에는 쓰이지 않음).\">" +
                 "재고는 takt마다 한 번 잰 값 · 주의 = 평균 − 2σ가 안전재고 미만(판정 제외)</div>" + "</div>");
         }
+        DeadlockPanel.Section(sb, j, v, true);
         sb.Append(SortScript); // once for every sortable table above
         if (j.Warnings.Count > 0)
         {
             sb.Append($"<div class=\"box\"><h2>경고 <span class=\"muted\">{j.Warnings.Count}건</span></h2><ul>");
-            foreach (var w in j.Warnings.Take(30)) sb.Append($"<li>{H(w)}</li>");
+            foreach (var w in j.Warnings.Take(30)) sb.Append($"<li>{H(v.Annotate(w))}</li>");
             sb.Append("</ul></div>");
         }
         sb.Append("<div class=\"box\"><h2>병목 지도 <span class=\"t4\">권장 대수 기준</span></h2>");
@@ -821,7 +822,7 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
             sb.Append($"<tr{(r.Ok ? "" : warnOnly ? " class=\"ow\"" : " class=\"over\"")}><td title=\"{H(r.RunId)}\">{(us > 0 ? "…" + H(r.RunId[us..]) : H(r.RunId))}{(isFit ? " <span class=\"tag green\" title=\"권장 대수 그대로이고 판정을 통과한 실행\">적정</span>" : "")}</td>");
             var c = counts[r.RunId];
             foreach (var g in gs) sb.Append($"<td class=\"num\">{(c.TryGetValue(g.Group, out var n) ? n : g.MinCount)}</td>");
-            sb.Append($"<td class=\"num\">{r.Seed}</td><td class=\"num\">{r.Seed - v.Input.Settings.SeedBase + 1}</td><td>{H(r.Group)}</td><td class=\"{(r.Ok ? "ok" : warnOnly ? "wn" : "bad")}\">{(r.Ok ? "통과" : warnOnly ? "⚠ 경고: " + H(r.Reason) : H(r.Reason))}</td>" +
+            sb.Append($"<td class=\"num\">{r.Seed}</td><td class=\"num\">{r.Seed - v.Input.Settings.SeedBase + 1}</td><td>{H(r.Group)}</td><td class=\"{(r.Ok ? "ok" : warnOnly ? "wn" : "bad")}\">{(r.Ok ? "통과" : warnOnly ? "⚠ 경고: " + H(r.Reason) : H(v.Annotate(r.Reason, r.RunId)))}</td>" +
                 $"<td class=\"num\">{P(r.Utilization)}</td><td class=\"num\">{F(r.MinStockRatio)}</td><td class=\"num\">{r.Supplies}</td><td class=\"num\">{F(r.Expected, "0.#")}</td><td class=\"num\">{F(r.StopTimeSec, "0")}</td><td class=\"num\">{r.Deadlocks}</td><td class=\"num\">{F(r.DurationSec, "0")}</td>" +
                 $"<td><a href=\"{Zip(r.RunId)}\" download>받기</a></td></tr>");
         }
