@@ -25,14 +25,15 @@
 | InitStockSpread | 10 | Uniform: ±%, Staggered: 오프셋(용기) |
 | TrafficMode | Block | Block / CPOnly |
 | WorkDefinition | LoadToUnload | LoadToUnload / CallToReturn |
+| CycleFollowRate | 0.95 | 순환 그룹 권장 기준: 뒤차 대기율(0~1). 아래 "공급 방식과 CP 목록" |
 
 ## 데이터 시트
 
 | 시트 | 열 (단위) |
 |---|---|
 | AGV_Types | Type, SpeedLoaded(m/s), SpeedEmpty(m/s), Capacity(용기 수), LoadTime(초), UnloadTime(초), Length(m), Width(m), Kind(목록: Standard / Conveyor / Ant / Magnet), *Category(분류 메모), SpeedLoadedCurve(m/s, 빈칸=직선), SpeedEmptyCurve(m/s, 빈칸=직선), Accel(m/s²), Decel(m/s²), MTBF(초, 0=없음), MTTR(초), Color, Asset(에셋 이름, 비워 둔다)* |
-| AGV_Groups | Group, Type(AGV_Types 목록에서 선택, 여러 그룹이 같은 타입을 써도 된다), MinCount(≥1), MaxCount(≥MinCount), StandbyCPs(쉼표 구분), Dispatch(Nearest / FIFO), FinishCP(선택) |
-| Materials | Material, Group(운반 그룹, AGV_Groups 목록), TaktTime(초, >0), UnitsPerCycle(소요 원수), UnitsPerContainer(용기당 자재 수량, ≥1), CallThreshold(호출 임계, 용기), Form(목록: Box / Pallet / Trolley), SupplyFromCP(load CP), SupplyToCP(unload CP), ReturnFromCP(rtnload CP, 선택), ReturnToCP(rtnunload CP, 선택), *Station(공정명, 메모), CallThresholdQty(호출 임계, 자재) → CallThresholdTotal(합계, 자동), UnloadThreshold(언로딩 임계, 용기) + UnloadThresholdQty(언로딩 임계, 자재) → UnloadThresholdTotal(합계, 자동), InitStock / SafetyStock(용기, `-` 또는 빈칸 = Settings 기본값), LoadLength / LoadWidth / LoadHeight(m, `-` 또는 빈칸 = 형태별 기본값), Flow(목록: Supply / Output, 빈칸 = Supply), Use(목록: Y / N, 빈칸 = Y. 아래 "자재 사용 여부"), BufferCP(buffer CP, 선택), ExtraTime(초), BufferWaitSec(버퍼 대기 허용, 초, 빈칸 = 0, ≥0)* |
+| AGV_Groups | Group, Type(AGV_Types 목록에서 선택, 여러 그룹이 같은 타입을 써도 된다), MinCount(≥1), MaxCount(≥MinCount), StandbyCPs(쉼표 구분), Dispatch(Nearest / FIFO), FinishCP(선택), SupplyMode(공급 방식, 목록: Call / Cycle, 빈칸 = Call) |
+| Materials | Material, Group(운반 그룹, AGV_Groups 목록), TaktTime(초, >0), UnitsPerCycle(소요 원수), UnitsPerContainer(용기당 자재 수량, ≥1), CallThreshold(호출 임계, 용기), Form(목록: Box / Pallet / Trolley), SupplyFromCP(load CP, 여러 개 가능), SupplyToCP(unload CP, 여러 개 가능), ReturnFromCP(rtnload CP, 선택), ReturnToCP(rtnunload CP, 선택), *Station(공정명, 메모), CallThresholdQty(호출 임계, 자재) → CallThresholdTotal(합계, 자동), UnloadThreshold(언로딩 임계, 용기) + UnloadThresholdQty(언로딩 임계, 자재) → UnloadThresholdTotal(합계, 자동), InitStock / SafetyStock(용기, `-` 또는 빈칸 = Settings 기본값), LoadLength / LoadWidth / LoadHeight(m, `-` 또는 빈칸 = 형태별 기본값), Flow(목록: Supply / Output, 빈칸 = Supply), Use(목록: Y / N, 빈칸 = Y. 아래 "자재 사용 여부"), BufferCP(buffer CP, 선택), ExtraTime(초), BufferWaitSec(버퍼 대기 허용, 초, 빈칸 = 0, ≥0)* |
 | *(예전 양식) Routes* | Material, SupplyFromCP, SupplyToCP, BufferCP, ReturnFromCP, ReturnToCP, ExtraTime, BufferWaitSec. 지금 양식은 이 열들이 Materials의 자재 행에 있다(자재당 경로 1개). 아래 "예전 양식의 Routes 시트" |
 | Conveyors (선택) | Conveyor(CAD 컨베이어 이름), Material(소비 자재), ProductTakt(제품 투입 간격, 초, 빈칸 = 60), Speed(m/s, 빈칸 = 0.3), Capacity(동시에 올라갈 제품 수, 빈칸 = 길이로 자동), ConsumeAt(소비 지점, 폴리선 시작에서 m, 빈칸 = 끝). 아래 "컨베이어" |
 
@@ -242,6 +243,71 @@ Stations·Ext 시트는 양식에서 뺐다(모델에 아무 영향이 없었다
 - 기록(result.tsv): 차량별 가동 시간·주행 거리(AutoMod total distance traveled)·작업 수, 자재별 리드타임(호출→상차 도착, 호출→하차 완료)·재고 평균·표준편차·최소·최대(AutoMod TABLE), 자재별 공급 작업 수·그 작업의 주행 거리(material 행 value8·value7, 예전 모델은 0 → 화면에 "-"). 평균 재고 − 2σ가 안전재고보다 작으면 경고.
 - 대기 CP 앞 레인이 "최대 대수 × (차량 길이 + 0.5 m)"보다 짧으면(분기점이나 block까지) 모델 생성 때 경고한다.
 - 시작 위치: 시뮬레이션 시작 때 그룹의 차량은 겹치지 않게 한 대씩 따로 선다. 1번 차량은 StandbyCPs의 첫 CP, 다음 차량은 나머지 StandbyCPs, 그래도 남는 차량은 첫 대기 CP 뒤 대기 레인을 따라 "차량 길이 + 0.5 m" 간격으로 자동으로 만든 시작 전용 CP(`SP_<그룹>_<번호>`)에 선다. 시작 전용 CP는 agv.asy에만 있고(작업·대기·검색 목록의 대상이 아니며 결과 화면 도면에도 나오지 않는다), 그 차량은 곧 대기 CP 뒤로 줄을 선다. 그러려면 대기 레인이 분기점·block 없이 최대 대수 × (차량 길이 + 0.5 m) 이상이어야 하고, 모자라면 "띄워 세울 자리가 N대분뿐" 경고가 나온다(남는 차량은 AutoMod가 시작 CP가 비는 순간 그 위에 겹쳐 넣는다).
+
+## 공급 방식과 CP 목록
+
+### CP 목록·범위
+
+- 칸: Materials의 SupplyFromCP, SupplyToCP. 다른 CP 칸(BufferCP, ReturnFromCP, ReturnToCP)은 CP 하나.
+- 표기:
+
+| 표기 | 뜻 |
+|---|---|
+| `L001` | CP 하나 |
+| `L001,L003` | 쉼표 목록 |
+| `L001-L010` | 범위. L001, L002 … L010 |
+| `L001-L003,L007` | 섞기 |
+
+- 범위 조건: `-` 양쪽이 같은 접두어 + 숫자. 자릿수는 시작 쪽(`L008-L010` → L008, L009, L010).
+- 범위 아님(이름 하나): `A1-B2`, `L001-1` 같은 이름.
+- 오류: 거꾸로 된 범위(`L010-L001`), 1000개 넘는 범위, 도면에 없는 CP(그 CP만), TYPE 불일치.
+- 경고: 같은 CP 두 번(한 번만 씀).
+- CP 드롭다운: 목록 값은 막지 않고 경고만. 경고에서 "예".
+- `AGVEXCEL` 갱신(U): 목록 행의 (상차, 하차) 짝을 모두 있는 행으로 본다. 같은 짝의 자재 행을 또 붙이지 않는다.
+- `AGVEXCELDIFF`·검증 표시: 목록 칸의 문제는 그 칸 하나에 모아 표시.
+
+### 상차 CP 여러 개
+
+- 운행마다 다음 상차 CP. 입력 순서대로 돌고 끝나면 처음으로.
+- 차례: 자재 행 하나에 하나. 여러 차량이 이어 씀.
+- 호출·순환 공급 모두 같음.
+
+### 하차 CP 여러 개 = 공정 여러 개
+
+- 하차 CP마다 따로 소비하는 공정. 재고·소비·호출·자재 품절·통계도 공정마다.
+- 공정 자재 이름: `자재@하차CP`(예: `M001@U002`). 하차 CP가 하나면 이름 그대로(`M001`).
+- 값: 원래 행 그대로 복사(택트, 원수, 용기당 수량, 임계, 재고, 형태, 버퍼, 회수).
+- 초기 재고 방식(Uniform / Staggered): 펼친 뒤 순서로 적용.
+- 엑셀 표시: 원래 행.
+- 결과 표·보고서·원인 분석: 공정 자재 한 줄씩.
+- 호출 공급: 공정마다 따로 호출, 차량은 호출한 공정의 하차 CP로.
+
+### 공급 방식(AGV_Groups.SupplyMode)
+
+| 값 | 동작 |
+|---|---|
+| Call(빈칸) | 지금 방식. 재고가 호출 임계 이하면 호출, 대기 CP의 차량이 운반 |
+| Cycle | 호출 없이 차량이 계속 순환. 대기 CP 없음 |
+
+- Cycle 그룹 입력 조건:
+  - 이 그룹의 자재 행: 정확히 하나(아니면 오류).
+  - StandbyCPs, FinishCP: 쓰지 않음(값이 있으면 경고).
+  - CallThreshold: 쓰지 않음(경고 없음).
+- Cycle 순서: 다음 상차 CP → LoadTime 동안 Capacity만큼 적재 → (버퍼 대기) → 다음 공정의 하차 CP → 재고가 언로딩 임계 이하가 될 때까지 대기 → UnloadTime 뒤 재고 증가 → (회수 구간) → 처음으로.
+- 공정 차례: 운행마다 다음 공정. 앞 공정 재고가 안 내려가면 그 공정에서 계속 대기(공급 대기 통계로 보임).
+- 시작 위치: 상차→하차 경로 위에 간격을 둔 자동 시작 CP. 도면에 그릴 것 없음.
+- 대수별 모델: 시험하는 대수만큼만 차량을 넣어 따로 빌드. 이름 `<모델>_c<대수>`(그룹이 여럿이면 `_c3x2`). 처음 쓸 때 한 번 빌드, 이후 다시 씀.
+- 가동 시간: 운행 시작부터 다음 운행 시작까지. 언로딩 임계 대기 중 BufferWaitSec 넘는 부분은 비가동(호출 공급과 같음).
+
+### 공급 대기·교체 통계
+
+- 공급 대기: 언로딩 임계 때문에 차량에 실린 채 기다리는 용기 수. 버퍼 대기, 하차 CP 대기 모두. 주행 중인 짐은 제외. 공급 방식 상관없이 공정 자재마다.
+- 표본: 재고와 같은 시점(택트마다, 워밍업 뒤). 평균·최대, 대기 차량 수.
+- 교체 시간(Cycle 공정마다): 앞 차량이 떠난 때부터 뒤 차량이 대기 위치(버퍼, 없으면 하차 CP)에 도착할 때까지. 떠날 때 뒤 차량이 이미 거기 있으면 0초.
+- 뒤차 대기: 교체 시간이 당겨 서는 시간 + 5초 이하인 교체. 당겨 서는 시간 = 차량 길이 + 정지 간격 0.5 m를 공차 속도·가감속으로 가는 시간.
+- 뒤차 대기율: 뒤차 대기 교체 ÷ 전체 교체.
+- 권장 대수(Cycle 그룹): 가동률 대신 뒤차 대기율이 CycleFollowRate(기본 0.95) 이상인 가장 적은 대수. 범위는 MinCount~MaxCount.
+- 모델 로직이 기록하는 값이라 `AGVMODEL`로 다시 만든 모델에서만 나온다.
 
 ## 고장·공차 속도·용량·감지 거리 (0.14.0)
 
