@@ -100,7 +100,9 @@ public sealed class RouteCommands
         ed.WriteMessage($"\n루트 {r.Material} (그룹 {r.Group}): " + string.Join(" → ", r.Stops.Where(s => s.Label.Length > 0).GroupBy(s => s.Label).Select(g => string.Join(",", g.Select(s => s.Name))))); // load CPs that take turns share label 1
         foreach (var l in r.Legs)
             ed.WriteMessage(l.Problem != null ? $"\n  {l.Problem}" : $"\n  {l.From}→{l.To}  {l.Distance!.Value / perM:0.#} m");
-        double sum = r.Legs.Where(l => l.Kind != RouteLegKind.Standby && l.Distance != null).Sum(l => l.Distance!.Value) / perM;
+        // one trip: load CPs that take turns count as their mean; a trip with a leg that cannot be driven is left out
+        var trips = r.Trips(true).Where(t => t.Distance != null).ToList();
+        double sum = trips.Count > 0 ? trips.Average(t => t.Distance!.Value) / perM : 0;
         ed.WriteMessage($"\n  공급·회송 합계 {sum:0.#} m  (공급 레이어색 · 회송 주황 · 대기 회색 · 문제 빨강)");
     }
 

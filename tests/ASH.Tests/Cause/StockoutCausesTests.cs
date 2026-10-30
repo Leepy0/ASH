@@ -226,4 +226,25 @@ public class StockoutCausesTests
         Assert.Equal(1, Array.IndexOf(CauseKinds.Order, CauseKinds.Stockout));
         Assert.Equal(("0:05", "1:05", "1:00:00", "-"), (StockoutCauses.Ms(5), StockoutCauses.Ms(65), StockoutCauses.Ms(3600), StockoutCauses.Ms(double.NaN)));
     }
+
+    [Fact]
+    public void Two_Load_Cps_Average_The_Free_Lead_Of_Each()
+    {
+        // A2 at 30: A→B 40 m and A2→B 20 m average 30 s loaded; standby S→A 10 m and S→A2 30 m at 2 m/s average 10 s
+        var l = Corridor(); l.Cps.Add(L.Cp("A2", 30, 0));
+        var p = Input(1); p.Routes[0] = p.Routes[0] with { SupplyFromCPs = new[] { "A", "A2" } };
+        var k = Assert.Single(StockoutCauses.Check(new CauseContext(l, p, Run(700, Stat(5, 66, 90)))));
+        Assert.Equal((10.0, 50.0, 60.0), (k.EmptyRunSec, k.FreeLegSec, k.MinLeadSec));
+    }
+
+    [Fact]
+    public void Cycle_Two_Load_Cps_Average_The_Free_Lap_Of_Each()
+    {
+        // M1@B from A: 20 + 40 + 40 / 2 = 80 s; from A2 (30): 20 + 20 + 20 / 2 = 50 s; average 65 s
+        var l = CycleCorridor(); l.Cps.Add(L.Cp("A2", 30, 0));
+        var p = CycleInput(40, 3);
+        for (int i = 0; i < p.Routes.Count; i++) p.Routes[i] = p.Routes[i] with { SupplyFromCPs = new[] { "A", "A2" } };
+        var k = Assert.Single(StockoutCauses.Check(new CauseContext(l, p, CycleRun(300, 2, 10))));
+        Assert.Equal(65.0, k.FreeLapSec, 6);
+    }
 }

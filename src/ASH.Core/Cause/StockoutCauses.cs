@@ -112,13 +112,19 @@ public static class StockoutCauses
         double empty = double.NaN, free = double.NaN;
         if (mv != null && type != null && route != null)
         {
-            var supply = mv.Legs.Where(l => l.Kind == RouteLegKind.Supply).ToList();
+            // several load CPs take turns: each one's trip (and empty run) counts once, the mean is the typical one
+            var trips = mv.Trips(false);
             double vl = type.SpeedLoaded, ve = type.SpeedEmpty > 0 ? type.SpeedEmpty : type.SpeedLoaded;
-            if (vl > 0 && supply.Count > 0 && supply.All(l => l.Distance != null))
-                free = type.LoadTime + supply.Sum(l => l.Distance!.Value) / vl + Math.Max(0, route.ExtraTime) + type.UnloadTime;
-            var out_ = mv.Legs.Where(l => l.Kind == RouteLegKind.Standby && l.To == route.SupplyFromCP).ToList();
-            if (group!.StandbyCPs.Count == 0 || group.StandbyCPs.Contains(route.SupplyFromCP)) empty = 0; // shortcut: no standby CP = the vehicle may be anywhere, the floor takes 0
-            else if (ve > 0 && out_.Any(l => l.Distance != null)) empty = out_.Where(l => l.Distance != null).Min(l => l.Distance!.Value) / ve;
+            if (vl > 0 && mv.Legs.Any(l => l.Kind == RouteLegKind.Supply) && trips.Count > 0 && trips.All(t => t.Distance != null))
+                free = type.LoadTime + trips.Average(t => t.Distance!.Value) / vl + Math.Max(0, route.ExtraTime) + type.UnloadTime;
+            // per load CP the nearest standby CP; no standby CP = the vehicle may be anywhere, the floor takes 0 (shortcut)
+            var runs = route.FromCps.Select(f =>
+            {
+                if (group!.StandbyCPs.Count == 0 || group.StandbyCPs.Contains(f)) return 0;
+                var out_ = mv.Legs.Where(l => l.Kind == RouteLegKind.Standby && l.To == f && l.Distance != null).ToList();
+                return ve > 0 && out_.Count > 0 ? out_.Min(l => l.Distance!.Value) / ve : double.NaN;
+            }).ToList();
+            if (runs.All(x => !double.IsNaN(x))) empty = runs.Average();
         }
         if (double.IsNaN(free) || double.IsNaN(empty)) missing.Add("경로 길이");
         double minLead = empty + free;
@@ -232,9 +238,10 @@ public static class StockoutCauses
             double vl = type.SpeedLoaded, ve = type.SpeedEmpty > 0 ? type.SpeedEmpty : vl;
             var chain = mv.Legs.Where(l => l.Kind != RouteLegKind.Standby).ToList();
             string last = chain.Count > 0 ? chain[chain.Count - 1].To : to;
-            double? back = last == from ? 0 : Distance(c.Layout, last, from);
-            if (chain.Any(l => l.Kind == RouteLegKind.Supply) && chain.All(l => l.Distance != null) && back != null)
-                free = type.LoadTime + type.UnloadTime + Math.Max(0, route.ExtraTime) + chain.Sum(l => l.Distance!.Value) / vl + back.Value / ve;
+            // several load CPs take turns: each one's lap (its first leg, the shared chain, back to it) counts once, the mean is the typical lap
+            var rounds = mv.Trips(true).Select(t => (t.Distance, Back: t.From == last ? 0 : Distance(c.Layout, last, t.From))).ToList();
+            if (chain.Any(l => l.Kind == RouteLegKind.Supply) && rounds.Count > 0 && rounds.All(x => x.Distance != null && x.Back != null))
+                free = type.LoadTime + type.UnloadTime + Math.Max(0, route.ExtraTime) + rounds.Average(x => x.Distance!.Value / vl + x.Back!.Value / ve);
         }
         if (double.IsNaN(free)) missing.Add("경로 길이");
 

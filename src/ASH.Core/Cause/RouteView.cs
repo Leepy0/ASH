@@ -15,12 +15,25 @@ public sealed record RouteStop(string Name, string Role, string Label, Point2? P
 /// <summary>One leg of the route with the directed shortest way over the paths. Distance and Points are set when it can be driven; otherwise Problem says why ("L003→U001 도달 불가").</summary>
 public sealed record RouteLeg(string From, string To, RouteLegKind Kind, double? Distance, IReadOnlyList<Point2> Points, string? Problem);
 
-public sealed record MaterialRoute(string Material, string Group, IReadOnlyList<RouteStop> Stops, IReadOnlyList<RouteLeg> Legs);
+public sealed record MaterialRoute(string Material, string Group, IReadOnlyList<RouteStop> Stops, IReadOnlyList<RouteLeg> Legs)
+{
+    /// <summary>One trip's distance from each load CP (the load CPs take turns, so their mean is the typical trip): that CP's own first leg + the shared supply
+    /// legs [+ the return legs]. Distance null when one of its legs cannot be driven.</summary>
+    public IReadOnlyList<(string From, double? Distance)> Trips(bool withReturn)
+    {
+        var loads = Stops.Where(s => s.Role == RouteView.LoadRole).Select(s => s.Name).ToList();
+        var legs = Legs.Where(l => l.Kind == RouteLegKind.Supply || (withReturn && l.Kind == RouteLegKind.Return)).ToList();
+        double? Sum(IEnumerable<RouteLeg> ls) => ls.Aggregate((double?)0, (a, l) => a + l.Distance);
+        var shared = Sum(legs.Where(l => !loads.Contains(l.From)));
+        return loads.Select(f => (f, shared + Sum(legs.Where(l => l.From == f)))).ToList();
+    }
+}
 
 /// <summary>Route view: what one material drives (same legs as the detour check): supply from → [buffer] → supply to → [return from → return to], and standby → first stop / last stop → standby.</summary>
 public static class RouteView
 {
     const double ArcStepDeg = 10;
+    public const string LoadRole = "공급 출발";
 
     /// <summary>Null when the material or its route row is missing.</summary>
     public static MaterialRoute? Build(Layout.Layout layout, ProjectInput input, string material)
@@ -29,7 +42,7 @@ public static class RouteView
         var r = input.Routes.FirstOrDefault(x => x.Material == material);
         if (m == null || r == null) return null;
 
-        var chain = new List<(string Name, string Role)> { (r.SupplyFromCP, "공급 출발") };
+        var chain = new List<(string Name, string Role)> { (r.SupplyFromCP, LoadRole) };
         if (!string.IsNullOrEmpty(r.BufferCP)) chain.Add((r.BufferCP!, "버퍼"));
         chain.Add((r.SupplyToCP, "공급 도착"));
         int supplyStops = chain.Count;
