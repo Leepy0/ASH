@@ -49,10 +49,14 @@ public static class Judge
         var dead = r.Sum(x => x.Deadlocks);
         if (dead > 0) return new Verdict(false, $"교착 {dead}건", RuleCode.Deadlock);
         var rates = r.Select(x => x.FollowRate).Where(x => !double.IsNaN(x)).ToList();
-        if (rates.Count == 0) return new Verdict(false, "교체 없음", RuleCode.Follow);
+        if (rates.Count == 0) return new Verdict(false, r.All(x => x.NoSwapValues) ? "교체 없음 · AGVMODEL로 모델 다시 만들기" : "교체 없음", RuleCode.Follow);
         var rate = rates.Average();
-        // "90%" without the space invariant P0 puts in
-        if (rate < s.CycleFollowRate) return new Verdict(false, $"뒤차 대기 {F(rate * 100, "0")}% < {F(s.CycleFollowRate * 100, "0")}%", RuleCode.Follow);
+        // "90%" without the space invariant P0 puts in; one decimal when the rounded rate would read equal to the rounded threshold
+        if (rate < s.CycleFollowRate)
+        {
+            var f = F(rate * 100, "0") == F(s.CycleFollowRate * 100, "0") ? "0.0" : "0";
+            return new Verdict(false, $"뒤차 대기 {F(rate * 100, f)}% < {F(s.CycleFollowRate * 100, f)}%", RuleCode.Follow);
+        }
         var stop = r.Average(x => x.StopTimeSec);
         string? stopNote = stop > 0 ? $"주의: 공정 정지 {F(stop, "0.#")}초" : null;
         return new Verdict(true, string.Join("; ", new[] { stopNote }.Concat(r.Select(x => x.Note)).Where(n => !string.IsNullOrEmpty(n)).Distinct()), RuleCode.None);

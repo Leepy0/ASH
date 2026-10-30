@@ -214,6 +214,11 @@ public class ResultJudgeTests
         Assert.Equal(new Verdict(true, "", RuleCode.None), Judge.Evaluate(new[] { C(0.96) }, S));
         Assert.Equal(new Verdict(false, "뒤차 대기 90% < 95%", RuleCode.Follow), Judge.Evaluate(new[] { C(0.90) }, S));
         Assert.Equal(new Verdict(false, "교체 없음", RuleCode.Follow), Judge.Evaluate(new[] { C(double.NaN), C(double.NaN) }, S));
+        // the rounded rate would equal the rounded threshold: one decimal tells them apart
+        Assert.Equal(new Verdict(false, "뒤차 대기 94.9% < 95.0%", RuleCode.Follow), Judge.Evaluate(new[] { C(0.949) }, S));
+        // a model from before the swap values: say how to get them
+        Assert.Equal(new Verdict(false, "교체 없음 · AGVMODEL로 모델 다시 만들기", RuleCode.Follow),
+            Judge.Evaluate(new[] { C(double.NaN) with { NoSwapValues = true } }, S));
         // a process stop is a note for a cycle group, not a failure
         Assert.Equal(new Verdict(true, "주의: 공정 정지 30초", RuleCode.None), Judge.Evaluate(new[] { C(0.96, stop: 30) }, S));
         // replications averaged, a replication without swaps left out: (0.9 + 1.0) / 2 = 0.95 passes
@@ -253,6 +258,7 @@ public class ResultJudgeTests
         // a model from before the swap values, and a call group (SwapN 0): blank, not a rate
         var old = Kpi.FromRun(Swaps("material\tM1\tG1\t1\t2\t3\t4\t0\t4", "material\tM2\tG1\t1\t2\t3\t4\t0\t4"), null, input).Single();
         Assert.True(double.IsNaN(old.FollowRate) && double.IsNaN(old.SwapMaxSec));
+        Assert.True(old.NoSwapValues); Assert.False(none.NoSwapValues);
         var call = Kpi.FromRun(Swaps("material\tM1\tG1\t1\t2\t3\t4\t0\t4\t0\t0\t0\t0\t0\t0\t0\t0\t0", "material\tM2\tG1\t1\t2\t3\t4\t0\t4"), null,
             LogicGeneratorTests.Sample()).Single();
         Assert.False(call.Cycle);

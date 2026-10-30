@@ -501,7 +501,7 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
                 $"<td>{(g.Cycle ? "-" : SplitBar(vg?.Split, v.UtilMax))}</td><td>{F(g.MinStockRatio)}</td><td>{(vg == null ? "-" : F(vg.Jobs * vg.Count, "0"))}</td><td>{(vg == null ? "-" : F(vg.Distance * vg.Count / 1000, "0.0"))}</td><td>{(vg == null ? "-" : F(vg.DistPerJob, "0.#"))}</td>{verdict}</tr>");
         }
         sb.Append($"</tbody></table></div><div class=\"t4\">▲ 상한 초과(경고) · ▼ 10% 미만 · 세로선 = 가동률 상한 {Pct(v.UtilMax)} · 공급·거리·시간 내역 = 권장 대수 차량의 합" +
-            (AnyCycle(v) ? $" · 순환 그룹 = 가동률 대신 뒤차 대기율 {RatePct(v.FollowMin)} 이상이 기준" : "") + "</div>");
+            (AnyCycle(v) ? $" · 순환 그룹 기준 = 뒤차 대기율 {RatePct(v.FollowMin)} 이상" : "") + "</div>");
         if (byGroup.Values.Any(x => x.Split != null)) sb.Append(SplitLegend(v.UtilMax));
         sb.Append("</div>");
         RerunPage.Box(sb, j, v, canRerun);
