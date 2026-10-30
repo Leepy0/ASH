@@ -250,4 +250,30 @@ public class ExcelTemplateSeedTests
         }
         finally { File.Delete(path); }
     }
+
+    [Fact]
+    public void Update_Recognises_The_Pairs_Of_A_Load_List_Row()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "seed-" + System.Guid.NewGuid().ToString("N") + ".xlsx");
+        try
+        {
+            var l = new ASH.Core.Layout.Layout();
+            l.Cps.Add(Cp("SB1", "standby", "A")); l.Cps.Add(Cp("L001", "load", "A")); l.Cps.Add(Cp("L002", "load", "A")); l.Cps.Add(Cp("U001", "unload", "A"));
+            ExcelTemplate.Write(path, l);
+            using (var wb = ExcelReader.Open(path))
+            {
+                var m = wb.Worksheet("Materials");
+                Assert.Equal(new[] { "L001", "L002" }, new[] { 3, 4 }.Select(r => m.Cell(r, Col(m, "SupplyFromCP")).GetString())); // the seed: one row per load CP
+                Assert.Equal(new[] { "U001", "U001" }, new[] { 3, 4 }.Select(r => m.Cell(r, Col(m, "SupplyToCP")).GetString()));
+                m.Cell(3, Col(m, "SupplyFromCP")).Value = "L001-L002";
+                m.Row(4).Delete();
+                wb.Save();
+            }
+            ExcelTemplate.Update(path, l);
+            var p = ExcelReader.Read(path);
+            var r0 = Assert.Single(p.Routes);
+            Assert.Equal(new[] { "L001", "L002" }, r0.FromCps);
+        }
+        finally { File.Delete(path); }
+    }
 }

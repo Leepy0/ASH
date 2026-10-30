@@ -90,6 +90,24 @@ public class SupplyModesIntegrationTests
         Cleanup(run.Work);
     }
 
+    [SkippableFact]
+    public void Call_two_load_cps_builds_and_runs()
+    {
+        Skip.If(AmHome is null, "ASH_AM_HOME not set");
+        // one call-supplied material that picks up at L001 and L002 in turn (L002 on the lane after L001)
+        var p = LogicGeneratorTests.Sample(takt: 20);
+        p.Materials.RemoveAt(1); p.Routes.RemoveAt(1);
+        p.Routes[0] = p.Routes[0] with { SupplyFromCPs = new[] { "L001", "L002" } };
+        var run = BuildAndRun(p, new Dictionary<string, int> { ["G1"] = 2 }, layoutExtra: l => l.Cps.Add(L.Cp("L002", 10, 8, "load")));
+        var logic = File.ReadAllText(Path.Combine(run.Work, "ashrun.arc", "ashrun~.asy"));
+        Assert.Contains("V_fromRot", logic);
+        Assert.Equal(0, V(run.Rows.Single(x => x[0] == "deadlock"), 1));
+        var m = Mat(run, "M1");
+        Console.WriteLine($"M1: supplies {V(m, 3)}");
+        Assert.True(V(m, 3) > 0, "M1 supplies");
+        Cleanup(run.Work);
+    }
+
     sealed class Collect(List<RunOutcome> into) : IProgress<RunOutcome> { public void Report(RunOutcome v) { lock (into) into.Add(v); } }
 
     [SkippableFact]

@@ -40,11 +40,15 @@ public static class RouteView
         }
         var group = input.Groups.FirstOrDefault(x => x.Group == m.Group);
 
+        // several load CPs take turns: each one starts its own first leg and is reached from standby
+        var froms = r.FromCps;
         var legs = new List<(string From, string To, RouteLegKind Kind)>();
-        for (int i = 1; i < chain.Count; i++) legs.Add((chain[i - 1].Name, chain[i].Name, i < supplyStops ? RouteLegKind.Supply : RouteLegKind.Return));
+        for (int i = 1; i < chain.Count; i++)
+            foreach (var from in i == 1 ? froms : new[] { chain[i - 1].Name })
+                legs.Add((from, chain[i].Name, i < supplyStops ? RouteLegKind.Supply : RouteLegKind.Return));
         foreach (var s in group?.StandbyCPs ?? new List<string>())
         {
-            legs.Add((s, chain[0].Name, RouteLegKind.Standby));
+            foreach (var from in froms) legs.Add((s, from, RouteLegKind.Standby));
             legs.Add((chain[chain.Count - 1].Name, s, RouteLegKind.Standby));
         }
 
@@ -53,11 +57,11 @@ public static class RouteView
         var role = new Dictionary<string, string>();
         var labels = new Dictionary<string, List<int>>();
         for (int i = 0; i < chain.Count; i++)
-        {
-            var (name, rl) = chain[i];
-            if (!role.ContainsKey(name)) { role[name] = rl; order.Add(name); labels[name] = new List<int>(); }
-            labels[name].Add(i + 1);
-        }
+            foreach (var (name, rl) in i == 0 ? froms.Select(f => (f, chain[0].Role)) : new[] { chain[i] })
+            {
+                if (!role.ContainsKey(name)) { role[name] = rl; order.Add(name); labels[name] = new List<int>(); }
+                labels[name].Add(i + 1);
+            }
         foreach (var (name, rl) in (group?.StandbyCPs ?? new List<string>()).Select(s => (s, "대기"))
                      .Concat(string.IsNullOrEmpty(group?.FinishCP) ? Enumerable.Empty<(string, string)>() : new[] { (group!.FinishCP!, "종료") }))
             if (!role.ContainsKey(name)) { role[name] = rl; order.Add(name); labels[name] = new List<int>(); }

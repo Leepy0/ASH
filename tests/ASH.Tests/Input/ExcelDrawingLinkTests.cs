@@ -378,4 +378,23 @@ public class ExcelDrawingLinkTests
         }
         finally { File.Delete(path); }
     }
+
+    [Fact]
+    public void Diff_Of_A_Load_List_Reports_Only_The_Missing_Cps_And_Marks_That_One_Cell()
+    {
+        var path = Tmp();
+        try
+        {
+            ExcelTemplate.Write(path, Drawing());
+            using (var wb = ExcelReader.Open(path)) { var m = wb.Worksheet("Materials"); m.Cell(3, Col(m, "SupplyFromCP")).Value = "L001-L004"; wb.Save(); }
+            var p = ExcelReader.Read(path);
+            var missing = ExcelDrawingDiff.Compare(p, Drawing()).Where(d => d.Kind == ExcelDrawingDiff.Missing).Select(d => d.Finding).ToList();
+            Assert.Equal(new[] { "SupplyFromCP 'L003'", "SupplyFromCP 'L004'" }, missing.Select(f => f.Message.Substring(0, f.Message.IndexOf(':'))));
+            using var wb2 = ExcelReader.Open(path);
+            var mark = Assert.Single(ExcelMarks.Plan(wb2, missing));
+            Assert.Equal(("Materials", 3, Col(wb2.Worksheet("Materials"), "SupplyFromCP")), (mark.Sheet, mark.Row, mark.Col));
+            Assert.Contains("L003", mark.Text); Assert.Contains("L004", mark.Text);
+        }
+        finally { File.Delete(path); }
+    }
 }

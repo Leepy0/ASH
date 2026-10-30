@@ -110,4 +110,15 @@ public class DetourCausesTests
         Assert.Contains(f, x => x.Where == "A→B" && x.Title == "M7 도달 불가" && x.Fix == "P2 방향 확인");
         Assert.All(f, x => Assert.True(x.Fix is "P2 방향 확인" or "경로 연결 확인")); // B -> S is stranded too, but no single flip on its own route helps
     }
+
+    [Fact]
+    public void Every_Load_Cp_Of_A_List_Is_Checked()
+    {
+        var l = Ring(L.Line("P1", 0, 0, 50, 0), L.Line("P2", 100, 0, 50, 0)); // P2 drawn against the corridor
+        l.Cps.Add(L.Cp("C", 60, 0));
+        var p = Input();
+        p.Routes[0] = p.Routes[0] with { SupplyFromCPs = new[] { "A", "C" } };
+        var where = DetourCauses.Find(Ctx(l, p)).Select(f => f.Where).ToList();
+        Assert.Contains("A→B", where); Assert.Contains("C→B", where);
+    }
 }

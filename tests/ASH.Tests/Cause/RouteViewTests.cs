@@ -105,4 +105,17 @@ public class RouteViewTests
         Assert.All(pts, p => Assert.Equal(10, p.DistanceTo(new Point2(0, 0)), 6));
         Assert.Equal(pts[0], RouteView.Sample(arc, arc.Length, 0).Last()); // either order
     }
+
+    [Fact]
+    public void Every_Load_Cp_Of_A_List_Gets_Its_Supply_And_Standby_Legs()
+    {
+        var l = Corridor(); l.Cps.Add(L.Cp("C", 20, 0));
+        var p = Input(false, null, null, "S");
+        p.Routes[0] = p.Routes[0] with { SupplyFromCPs = new[] { "A", "C" } };
+        var r = RouteView.Build(l, p, "M7")!;
+        Assert.Equal(new[] { ("A", "B", RouteLegKind.Supply), ("C", "B", RouteLegKind.Supply), ("S", "A", RouteLegKind.Standby), ("S", "C", RouteLegKind.Standby), ("B", "S", RouteLegKind.Standby) },
+            r.Legs.Select(x => (x.From, x.To, x.Kind)));
+        Assert.All(r.Legs, x => Assert.Null(x.Problem));
+        Assert.Equal(new[] { ("A", "1", "공급 출발"), ("C", "1", "공급 출발"), ("B", "2", "공급 도착"), ("S", "", "대기") }, r.Stops.Select(s => (s.Name, s.Label, s.Role)));
+    }
 }

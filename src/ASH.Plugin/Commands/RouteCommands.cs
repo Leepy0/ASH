@@ -97,7 +97,7 @@ public sealed class RouteCommands
     static void Report(Editor ed, MaterialRoute r)
     {
         double perM = DrawingUnits.PerMeter;
-        ed.WriteMessage($"\n루트 {r.Material} (그룹 {r.Group}): " + string.Join(" → ", r.Stops.Where(s => s.Label.Length > 0).Select(s => s.Name)));
+        ed.WriteMessage($"\n루트 {r.Material} (그룹 {r.Group}): " + string.Join(" → ", r.Stops.Where(s => s.Label.Length > 0).GroupBy(s => s.Label).Select(g => string.Join(",", g.Select(s => s.Name))))); // load CPs that take turns share label 1
         foreach (var l in r.Legs)
             ed.WriteMessage(l.Problem != null ? $"\n  {l.Problem}" : $"\n  {l.From}→{l.To}  {l.Distance!.Value / perM:0.#} m");
         double sum = r.Legs.Where(l => l.Kind != RouteLegKind.Standby && l.Distance != null).Sum(l => l.Distance!.Value) / perM;

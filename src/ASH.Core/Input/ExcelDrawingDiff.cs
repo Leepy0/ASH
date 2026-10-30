@@ -44,7 +44,7 @@ public static class ExcelDrawingDiff
             var id = At(input.RouteSheet, r.Row, i);
             var group = input.Materials.FirstOrDefault(m => m.Material == r.Material)?.Group;
             string who = $"자재 {r.Material}";
-            Ref(id, "SupplyFromCP", r.SupplyFromCP, "load", group, who);
+            foreach (var from in r.FromCps) Ref(id, "SupplyFromCP", from, "load", group, who);
             Ref(id, "SupplyToCP", r.SupplyToCP, "unload", group, who);
             Ref(id, "BufferCP", r.BufferCP, "buffer", group, who);
             Ref(id, "ReturnFromCP", r.ReturnFromCP, "rtnload", group, who);

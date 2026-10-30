@@ -369,4 +369,21 @@ public class InputTableTests
         Assert.Equal(new[] { "L2", "L10" }, by["load"]);
         Assert.Equal(new[] { "S1" }, by["standby"]);
     }
+
+    [Fact]
+    public void A_Cp_List_Cell_Reads_Back_As_Typed()
+    {
+        var path = Tmp();
+        try
+        {
+            using (var wb = ExcelReader.NewWorkbook()) { var ws = Sheet(wb, "Materials"); Put(ws, 3, "Material", "M001"); Put(ws, 3, "SupplyFromCP", "L001"); wb.SaveAs(path); }
+            InputTable t; InputTable e;
+            using (var wb = ExcelReader.Open(path)) { t = InputTable.Load(wb, "Materials")!; e = Copy(t); }
+            e.Rows[0].Values[Idx(t, "SupplyFromCP")] = "L001,L002";
+            InputTable.SaveFile(path, t.Diff(e));
+            using var after = ExcelReader.Open(path);
+            Assert.Equal("L001,L002", InputTable.Load(after, "Materials")!.Rows[0].Values[Idx(t, "SupplyFromCP")]);
+        }
+        finally { File.Delete(path); }
+    }
 }

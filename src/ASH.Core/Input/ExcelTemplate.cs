@@ -421,8 +421,10 @@ public static class ExcelTemplate
             if (rc.TryGetValue("SupplyFromCP", out var fcol))
                 for (int r = 3, last = LastDataRow(rws); r <= last; r++)
                 {
-                    var f = rws.Cell(r, fcol).GetString().Trim();
-                    if (f.Length > 0) have.Add((f, rc.TryGetValue("SupplyToCP", out var tcol) ? rws.Cell(r, tcol).GetString().Trim() : ""));
+                    // a list cell (L1-L2, U1,U2) holds every pair of its load and unload CPs
+                    var f = CpList.Parse(rws.Cell(r, fcol).GetString(), new List<string>(), new List<string>());
+                    var t = rc.TryGetValue("SupplyToCP", out var tcol) ? CpList.Parse(rws.Cell(r, tcol).GetString(), new List<string>(), new List<string>()) : new List<string>();
+                    foreach (var from in f) foreach (var to in t.DefaultIfEmpty("")) have.Add((from, to));
                 }
             var names = new HashSet<string>(Values(mws, "Material").Concat(legacy ? Values(rws, "Material") : new List<string>()));
             var recordedOf = CpRoutes.From(layout!).SelectMany(r => r.Load.Select(l => (Load: l, Route: r))).GroupBy(x => x.Load).ToDictionary(x => x.Key, x => x.First().Route);

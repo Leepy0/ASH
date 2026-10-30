@@ -20,7 +20,7 @@ public static class RouteGroupCheck
         {
             var m = input.Materials.FirstOrDefault(x => x.Material == r.Material);
             if (m == null || m.Group.Length == 0) continue;
-            foreach (var (col, name) in new[] { ("SupplyFromCP", r.SupplyFromCP), ("SupplyToCP", r.SupplyToCP), ("BufferCP", r.BufferCP), ("ReturnFromCP", r.ReturnFromCP), ("ReturnToCP", r.ReturnToCP) })
+            foreach (var (col, name) in r.FromCps.Select(c => ("SupplyFromCP", (string?)c)).Concat(new[] { ("SupplyToCP", (string?)r.SupplyToCP), ("BufferCP", r.BufferCP), ("ReturnFromCP", r.ReturnFromCP), ("ReturnToCP", r.ReturnToCP) }))
             {
                 if (string.IsNullOrEmpty(name) || !cps.TryGetValue(name!, out var cp) || cp.Group.Length == 0 || cp.Group == m.Group) continue;
                 res.Add(new Finding(FindingCode.InputError,

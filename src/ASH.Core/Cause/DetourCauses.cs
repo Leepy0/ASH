@@ -37,11 +37,13 @@ public static class DetourCauses
                 if (!string.IsNullOrEmpty(r.ReturnFromCP)) stops.Add(r.ReturnFromCP!);
                 if (!string.IsNullOrEmpty(r.ReturnToCP)) stops.Add(r.ReturnToCP!);
             }
+            // several load CPs take turns: each one drives the first leg and is reached from standby
             var legs = new List<(string, string)>();
-            for (int i = 1; i < stops.Count; i++) legs.Add((stops[i - 1], stops[i]));
+            for (int i = 1; i < stops.Count; i++)
+                foreach (var from in i == 1 ? r.FromCps : new[] { stops[i - 1] }) legs.Add((from, stops[i]));
             foreach (var s in c.Input.Groups.FirstOrDefault(x => x.Group == m.Group)?.StandbyCPs ?? new List<string>())
             {
-                legs.Add((s, stops[0]));
+                foreach (var from in r.FromCps) legs.Add((s, from));
                 legs.Add((stops[stops.Count - 1], s));
             }
             plan.Add((m.Material, legs.Distinct().ToList()));
