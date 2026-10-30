@@ -131,6 +131,93 @@ public class StockoutCausesTests
         Assert.Empty(StockoutCauses.Find(new CauseContext(Corridor(), Input(1))));
     }
 
+    /// <summary>G1 as a Cycle group: Materials row M1 split into stations M1@B (unload B at 50) and M1@C (unload C at 70), both loaded at A, takt
+    /// <paramref name="takt"/> each (1 container a cycle). Free lap of M1@B = 10 + 10 + 40 m / 1 + 40 m back to A / 2 = 80 s.</summary>
+    static ProjectInput CycleInput(double takt, int max)
+    {
+        var p = new ProjectInput();
+        p.AgvTypes.Add(new AgvType("T1", 1, 2, 0.5, 0.5, 1, 10, 10, 0, 0, 1.5, 1, ""));
+        p.Groups.Add(new AgvGroup("G1", "T1", 1, max, new List<string>(), "Nearest", SupplyMode: "Cycle"));
+        foreach (var cp in new[] { "B", "C" })
+        {
+            p.Materials.Add(new MaterialInfo("M1@" + cp, "ST" + cp, "G1", takt, 1, 1, 0, 1, null, null, false, Source: "M1"));
+            p.Routes.Add(new Route("M1@" + cp, "A", cp, null, null, null, 0));
+        }
+        return p;
+    }
+
+    static ASH.Core.Layout.Layout CycleCorridor() { var l = Corridor(); l.Cps.Add(L.Cp("C", 70, 0)); return l; }
+
+    /// <summary>M1@B stood <paramref name="stop"/> s; <paramref name="active"/> vehicles each 1000 s window over <paramref name="jobs"/> laps (none at 0), idle 20 %.</summary>
+    static ResultSet CycleRun(double stop, int active, int jobs, double waitC = 0, double waitB = 0.2)
+    {
+        var veh = jobs == 0 ? new List<VehicleResult>()
+            : Enumerable.Range(1, active).Select(i => new VehicleResult("V" + i, "G1", 800, 0, jobs, 1000, i, 0, new TimeSplit(1000, 800, 0, 0, 0, 0, 0))).ToList();
+        return new ResultSet(new List<MaterialResult> { new("M1@B", "G1", 0, 1, 10, 10, stop, 10, waitB), new("M1@C", "G1", 0, 1, 10, 10, 0, 10, waitC) },
+            new List<GroupResult> { new("G1", active) }, new List<BlockResult>(), 0, 3600, new List<ResultRow>(), veh, new List<MaterialStat>());
+    }
+
+    static StockoutCheck Cycle(ProjectInput p, ResultSet r) => Assert.Single(StockoutCauses.Check(new CauseContext(CycleCorridor(), p, r)));
+
+    static void NoCallHint(StockoutCheck k)
+    {
+        Assert.Null(k.SuggestCall);
+        Assert.DoesNotContain("CallThreshold", k.Fix); Assert.DoesNotContain("호출 기준", k.Fix);
+    }
+
+    [Fact]
+    public void Cycle_Structural_When_Even_Max_Vehicles_Lap_Too_Slowly()
+    {
+        // 3 vehicles x 1 / 80 s = 0.0375 a second < 2 stations x 1 / 40 s = 0.05
+        var k = Cycle(CycleInput(40, 3), CycleRun(300, 2, 10));
+        Assert.Equal((StockoutCauses.Structural, 80.0), (k.Verdict, k.FreeLapSec));
+        NoCallHint(k);
+        var f = Assert.Single(StockoutCauses.Find(new CauseContext(CycleCorridor(), CycleInput(40, 3), CycleRun(300, 2, 10))));
+        Assert.Equal(("M1@B 자재 품절 · 구조적", "B", 50.0), (f.Title, f.Where, f.X)); // the station's unload CP
+    }
+
+    [Fact]
+    public void Cycle_Fleet_Names_The_Vehicles_That_Would_Do()
+    {
+        // 2 stations x 1 / 60 s = 1/30 a second: 4 vehicles give 0.05, the 2 active only 0.025; ceil(80 / 30) = 3 do
+        var k = Cycle(CycleInput(60, 4), CycleRun(300, 2, 10));
+        Assert.Equal(StockoutCauses.Fleet, k.Verdict);
+        Assert.Equal("G1 대수 3대 이상", k.Fix);
+        NoCallHint(k);
+        Assert.Equal("자유 바퀴 1:20 · 실제 바퀴 1:40 · 공급 90·소비 120 · 대수 2/4 · 공급 대기 0.2 · 유휴 20% · 품절 5:00 · 자료 부족: tsplit", StockoutCauses.Detail(k));
+    }
+
+    [Fact]
+    public void Cycle_Traffic_When_The_Actual_Lap_Is_Inflated()
+    {
+        // enough vehicles (1 / 80 s >= 2 / 200 s) but a lap takes 1000 / 5 = 200 s against 80 s free
+        var k = Cycle(CycleInput(200, 3), CycleRun(300, 1, 5));
+        Assert.Equal((StockoutCauses.Traffic, 200.0), (k.Verdict, k.LapSec));
+        Assert.Equal("경로 정체 점검", k.Fix);
+        NoCallHint(k);
+    }
+
+    [Fact]
+    public void Cycle_Turn_When_Vehicles_Are_Held_At_The_Other_Station()
+    {
+        // lap 100 s is within 1.5 x 80 s; M1@C keeps 1.5 containers waiting on vehicles
+        var k = Cycle(CycleInput(200, 3), CycleRun(300, 1, 10, waitC: 1.5));
+        Assert.Equal(StockoutCauses.Turn, k.Verdict);
+        Assert.Equal("M1@C UnloadThreshold 낮춤 · 공정 분리", k.Fix);
+        NoCallHint(k);
+        // nothing held elsewhere: no class applies
+        Assert.Equal(StockoutCauses.Other, Cycle(CycleInput(200, 3), CycleRun(300, 1, 10, waitC: 0.5)).Verdict);
+    }
+
+    [Fact]
+    public void Cycle_Without_Vehicle_Rows_Is_No_Data()
+    {
+        var k = Cycle(CycleInput(200, 3), CycleRun(300, 1, 0));
+        Assert.Contains("차량 시간", k.Missing);
+        Assert.Equal((StockoutCauses.NoData, ""), (k.Verdict, k.Fix));
+        Assert.True(double.IsNaN(k.LapSec));
+    }
+
     [Fact]
     public void Cause_Analysis_Lists_Them_After_Deadlocks_And_Ms_Formats()
     {
