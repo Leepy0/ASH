@@ -9,7 +9,7 @@ public sealed class CpSettings
 
     private string _type = "traffic";
 
-    /// <summary>Setting Type also resets Prefix and Cap to the type's defaults (traffic: 1, every other type: unlimited).</summary>
+    /// <summary>Setting Type also resets Prefix and Cap to the type's defaults (unlimited for every type).</summary>
     public string Type
     {
         get => _type;

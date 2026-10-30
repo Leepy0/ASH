@@ -29,7 +29,7 @@ public sealed class InitCommands
             using (var tr = doc.Database.TransactionManager.StartTransaction())
             {
                 int made = Init(doc.Database, tr, out var fixedDefs);
-                int recolored = ByLayerOnAshLayers(doc.Database, tr);
+                int recolored = ByLayerOnAshLayers(doc.Database, tr) + DrawingWriter.SyncTrafficCpLayers(doc.Database, tr);
                 var missing = MissingCpTags(doc.Database, tr);
                 tr.Commit();
                 ed.WriteMessage($"\nASH 양식 초기화: 새로 만든 항목 {made}개, 레이어 색·블록 정의 복구 {fixedDefs}개, 색을 ByLayer로, 숨김을 표시로 되돌린 객체 {recolored}개.");

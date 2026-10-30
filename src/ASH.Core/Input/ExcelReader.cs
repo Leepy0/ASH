@@ -139,6 +139,7 @@ public static class ExcelReader
             TrafficMode = S("TrafficMode", def.TrafficMode),
             WorkDefinition = S("WorkDefinition", def.WorkDefinition),
             DeadlockSec = N("DeadlockSec", def.DeadlockSec),
+            CycleFollowRate = N("CycleFollowRate", def.CycleFollowRate),
         };
 
         foreach (var r in Rows(wb, "AGV_Types"))
@@ -149,7 +150,7 @@ public static class ExcelReader
         foreach (var r in Rows(wb, "AGV_Groups"))
             p.Groups.Add(new AgvGroup(r.Str("Group"), r.Str("Type"), r.Int("MinCount"), r.Int("MaxCount"),
                 r.Str("StandbyCPs").Split(',').Select(s => s.Trim()).Where(s => s.Length > 0).ToList(), r.Str("Dispatch"), r.RowNum,
-                r.StrIfColumn("FinishCP") is { Length: > 0 } fin ? fin : null));
+                r.StrIfColumn("FinishCP") is { Length: > 0 } fin ? fin : null, r.StrIfColumn("SupplyMode")));
         // Conveyors rows are read first: a conveyor-fed material gets its TaktTime from them, so its Materials T/T may be blank. Units per product =
         // the material's UnitsPerCycle (set below; an older workbook's UnitsPerProduct column is not read)
         foreach (var r in Rows(wb, "Conveyors", optional: true))
@@ -183,9 +184,26 @@ public static class ExcelReader
                 per, Threshold("CallThreshold"), Threshold("UnloadThreshold", UnloadThresholdBlank), r.OptNum("InitStock"), r.OptNum("SafetyStock"), false, r.RowNum, r.StrIfColumn("Form"), r.OptNumIfColumn("LoadLength"), r.OptNumIfColumn("LoadWidth"), r.OptNumIfColumn("LoadHeight"), r.StrIfColumn("Flow")));
             routeRows.Add(r);
         }
+        // a load / unload cell may list several CPs (L001,L003 or L001-L005): the first load CP stands for the route, and each unload CP becomes a
+        // station material (StationExpansion, at the end)
+        var unloadLists = new Dictionary<string, List<string>>();
+        List<string> Cps(Row r, string col)
+        {
+            var errors = new List<string>(); var dups = new List<string>();
+            var cps = CpList.Parse(r.Str(col), errors, dups);
+            foreach (var e in errors) p.CpListErrors.Add((p.RouteSheet, r.RowNum, col, e));
+            if (dups.Count > 0)
+                w.Add(new Finding(FindingCode.InputWarning, $"자재 '{r.Str("Material")}'의 {col}에 같은 CP가 두 번 있습니다: {string.Join(", ", dups.Distinct())}",
+                    default(Point2), $"{p.RouteSheet}!{r.RowNum}"));
+            return cps;
+        }
         foreach (var r in merged ? routeRows : Rows(wb, "Routes"))
-            p.Routes.Add(new Route(r.Str("Material"), r.Str("SupplyFromCP"), r.Str("SupplyToCP"), r.OptStr("BufferCP"),
-                r.OptStr("ReturnFromCP"), r.OptStr("ReturnToCP"), r.Num("ExtraTime", 0), r.RowNum, r.OptNumIfColumn("BufferWaitSec") ?? 0));
+        {
+            var from = Cps(r, "SupplyFromCP"); var to = Cps(r, "SupplyToCP");
+            if (to.Count > 1) unloadLists[r.Str("Material")] = to;
+            p.Routes.Add(new Route(r.Str("Material"), from.FirstOrDefault() ?? "", to.FirstOrDefault() ?? "", r.OptStr("BufferCP"),
+                r.OptStr("ReturnFromCP"), r.OptStr("ReturnToCP"), r.Num("ExtraTime", 0), r.RowNum, r.OptNumIfColumn("BufferWaitSec") ?? 0, from.Count > 1 ? from : null));
+        }
         // a disabled material takes its Routes row and any Conveyors row with it
         if (p.DisabledMaterials.Count > 0)
         {
@@ -209,6 +227,8 @@ public static class ExcelReader
             var route = p.Routes.FirstOrDefault(x => x.Material == p.Materials[i].Material);
             p.Materials[i] = p.Materials[i] with { EmptyReturn = route != null && (route.ReturnFromCP != null || route.ReturnToCP != null) };
         }
+        // last: the station copies inherit ConveyorFed and EmptyReturn
+        StationExpansion.Expand(p, unloadLists);
         foreach (var r in Rows(wb, "Stations", optional: true))
             p.Stations.Add(new StationInfo(r.Str("Station"), r.Str("CPName"), r.Num("BufferCapacity", 0), r.RowNum));
         foreach (var r in Rows(wb, "Ext", optional: true))

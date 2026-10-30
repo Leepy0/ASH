@@ -136,4 +136,48 @@ public class ConclusionTests
         var all = await env.Http.GetStringAsync($"/analyses/{aid}?tab=conclusion&map=all");
         Assert.True(VbWidth(all) > 11); Assert.DoesNotContain("<svg class=\"mm\"", all);
     }
+
+    static GroupView Cyc(string n, double util = 0.9, bool ok = true) =>
+        new(n, "T", 1, 6, 2, util, 1, ok, ok ? null : "뒤차 대기 90% < 95%", Cycle: true, FollowRate: 0.96, SwapAvg: 12, SwapMax: 40);
+
+    [Fact] public async Task Cycle_Group_Rows_Show_Follow_Numbers_And_The_Reason_Not_Utilization()
+    {
+        using var env = new JobEnv(); var j = await env.WaitFinished(await env.SendFiled("라인 증설", "A안")); var v = JobView.For(env.Store, j);
+        Set(v, "Groups", new List<GroupView> { Cyc("G1"), G("G2", 0.5), Cyc("G3", ok: false) });
+        var sb = new StringBuilder(); JobPages.ClusterBars(sb, j, v);
+        var rows = sb.ToString().Split("</div>", StringSplitOptions.RemoveEmptyEntries);
+        var g1 = rows.Single(r => r.StartsWith("<div>G1"));
+        foreach (var s in new[] { "뒤차 대기 96%", "교체 평균 12초", "교체 최대 40초", "뒤차 대기 ≥ 95%", "<b>권장 2대</b>" }) Assert.Contains(s, g1);
+        Assert.DoesNotContain("가동률", g1); Assert.DoesNotContain("<span class=\"bar\">", g1); // utilization 90 % is not shown, nor judged
+        Assert.DoesNotContain("경고", g1);
+        var g2 = rows.Single(r => r.StartsWith("<div>G2")); // a call group keeps its utilization bar
+        Assert.Contains("가동률 50.0%", g2); Assert.DoesNotContain("뒤차", g2);
+        var g3 = rows.Single(r => r.StartsWith("<div>G3")); // a failed one shows the verdict text instead of the reason it would be recommended for
+        Assert.Contains("실패: 뒤차 대기 90% &lt; 95%", g3); Assert.DoesNotContain("≥", g3);
+
+        var page = new StringBuilder(); JobPages.Conclusion(page, j, v, small: false);
+        Assert.Contains("뒤차 대기 ≥ 95%", page.ToString());
+    }
+
+    [Fact] public async Task Analysis_Conclusion_Tab_Lists_A_Cycle_Group_With_Follow_Numbers_And_No_Utilization_Warning()
+    {
+        using var env = new JobEnv(); var j = await env.WaitFinished(await env.SendFiled("라인 증설", "A안"));
+        Set(JobView.For(env.Store, j), "Groups", new List<GroupView> { Cyc("G1", util: 0.95) }); // 95 % is over the 75 % limit
+        var aid = env.Factory.Services.GetRequiredService<AnalysisStore>().All().Single().Id;
+        var html = await env.Http.GetStringAsync($"/analyses/{aid}?tab=conclusion&job={j.Id}");
+        foreach (var s in new[] { "뒤차 대기 96%", "교체 평균 12초", "교체 최대 40초", "뒤차 대기 ≥ 95%", "class=\"gr g-ok\"" }) Assert.Contains(s, html);
+        Assert.DoesNotContain("class=\"gr g-over\"", html);
+        Assert.DoesNotContain("▲ 95%", html);
+    }
+
+    [Fact] public async Task Report_Page_Shows_Cycle_Numbers_Wait_On_The_Stock_Line_And_The_Cycle_Note()
+    {
+        var (env, j) = await SupplyFixture.Cycle(); using var _ = env;
+        var aid = env.Factory.Services.GetRequiredService<AnalysisStore>().All().Single().Id;
+        var html = System.Net.WebUtility.HtmlDecode(await env.Http.GetStringAsync($"/analyses/{aid}/report")); // table cells are encoded, "·" included
+        Assert.Contains("뒤차 대기 96% · 교체 평균 12초 · 교체 최대 40초", html);
+        Assert.Contains("3 / 1 / 6 · 공급 대기 평균 1.5", html); // container stock line of the material table
+        Assert.Contains("순환: 운행 시작 기준", html);
+        Assert.DoesNotContain("▲ 90.0", html); // the cycle group's utilization is not shown
+    }
 }

@@ -27,8 +27,18 @@ public sealed record StockoutRow(string Material, string Group, double StopSum, 
 public sealed record StockoutView(IReadOnlyList<StockoutRow> Rows, int RunsRead);
 
 /// <summary>Per group at the recommended counts: mean over the confirm runs. AllOk = no real failure (stockout, supply, deadlock, no result);
-/// a run over the utilization limit only is a warning (UtilOver), not a failure. Reason = the first real failure.</summary>
-public sealed record GroupView(string Group, string Type, int Min, int Max, int? Decided, double Util, double MinStockRatio, bool AllOk, string? Reason, bool UtilOver = false);
+/// a run over the utilization limit only is a warning (UtilOver), not a failure. Reason = the first real failure.
+/// A cycle-supply group (Cycle) is judged on the follow rate, not utilization: FollowRate = mean over the confirm runs, SwapAvg = mean swap seconds,
+/// SwapMax = the longest swap; NaN without swaps (a summary.tsv from before them).</summary>
+public sealed record GroupView(string Group, string Type, int Min, int Max, int? Decided, double Util, double MinStockRatio, bool AllOk, string? Reason, bool UtilOver = false,
+    bool Cycle = false, double FollowRate = double.NaN, double SwapAvg = double.NaN, double SwapMax = double.NaN)
+{
+    /// <summary>The group has a utilization worth showing: a cycle group's vehicles circle whether needed or not, so its utilization says nothing.</summary>
+    public bool HasUtil => !Cycle && !double.IsNaN(Util);
+}
+
+/// <summary>Per count of one cycle group (all runs where the group had that many active): mean follow rate, mean swap seconds, longest swap, runs.</summary>
+public sealed record CyclePoint(int Active, double FollowRate, double SwapAvg, double SwapMax, int Runs);
 
 /// <summary>Investment at the recommended counts; Unpriced = types without a unit price (left out of the sum).</summary>
 public sealed record InvestmentView(decimal Total, string Currency, IReadOnlyList<string> Unpriced, bool AnyPriced = true);
@@ -54,9 +64,11 @@ public sealed record GroupVehicleView(string Group, int Count, double Util, doub
 
 /// <summary>Per material: lead times (call -> load CP, call -> unload done) and stock statistics, plus supplies and stop time. Mean over the confirm runs,
 /// except the Max/Min columns (extreme over the runs). Safety is NaN when the input is unreadable. Trips = supply jobs and Distance = metres driven
-/// for them (pickup run to home, after warmup); NaN for models that do not write them.</summary>
+/// for them (pickup run to home, after warmup); NaN for models that do not write them. WaitAvg / WaitMax / WaitVehAvg = containers (mean, extreme)
+/// and vehicles held on vehicles for the unload threshold; NaN for models built before them.</summary>
 public sealed record MaterialView(string Name, string Group, double Supplies, double Expected, double StopSec, double PickAvg, double PickMax,
-    double DelivAvg, double DelivMax, double StockAvg, double StockStd, double StockMin, double StockMax, double Safety, double Trips = double.NaN, double Distance = double.NaN)
+    double DelivAvg, double DelivMax, double StockAvg, double StockStd, double StockMin, double StockMax, double Safety, double Trips = double.NaN, double Distance = double.NaN,
+    double WaitAvg = double.NaN, double WaitMax = double.NaN, double WaitVehAvg = double.NaN)
 {
     public double DistPerTrip => Trips > 0 ? Distance / Trips : double.NaN;
 
@@ -92,6 +104,10 @@ public sealed class JobView
     /// <summary>Null without conveyor rows. shortcut: not kept in stats.tsv, so it is gone once the run folders are purged; keep it there if that matters.</summary>
     public ConveyorSummary? Conveyors { get; private set; }
     public double UtilMax => Input?.Settings.UtilMax ?? 0.75;
+    /// <summary>The follow rate a cycle group needs to be recommended (Settings.CycleFollowRate).</summary>
+    public double FollowMin => Input?.Settings.CycleFollowRate ?? 0.95;
+    /// <summary>Cycle group -> its tested counts, fewest first; absent for a call group.</summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<CyclePoint>> CycleCurves { get; private set; } = new Dictionary<string, IReadOnlyList<CyclePoint>>();
     /// <summary>Deadlocks summed over the confirm runs (each run's count is model-wide, repeated per group row).</summary>
     public int Deadlocks { get; private set; }
     /// <summary>Runs and places of the confirm runs' deadlocks; null when none deadlocked.</summary>
@@ -185,8 +201,11 @@ public sealed class JobView
                 var bad = at.FirstOrDefault(Failed);
                 if (bad != null) badRun[g.Group] = bad.RunId;
                 return new GroupView(g.Group, g.Type, g.MinCount, g.MaxCount, decided, Mean(at.Select(r => r.Utilization)),
-                    at.Count == 0 ? double.NaN : at.Min(r => r.MinStockRatio), at.Count > 0 && !at.Any(Failed), bad?.Reason, at.Any(UtilOnly));
+                    at.Count == 0 ? double.NaN : at.Min(r => r.MinStockRatio), at.Count > 0 && !at.Any(Failed), bad?.Reason, at.Any(UtilOnly),
+                    g.IsCycle, Mean(at.Select(r => r.FollowRate)), Mean(at.Select(r => r.SwapAvgSec)), Max(at.Select(r => r.SwapMaxSec)));
             }).ToList();
+            v.CycleCurves = v.Input.Groups.Where(g => g.IsCycle).ToDictionary(g => g.Group, g => (IReadOnlyList<CyclePoint>)v.Rows.Where(r => r.Group == g.Group).GroupBy(r => r.Active).OrderBy(x => x.Key)
+                .Select(x => new CyclePoint(x.Key, Mean(x.Select(r => r.FollowRate)), Mean(x.Select(r => r.SwapAvgSec)), Max(x.Select(r => r.SwapMaxSec)), x.Count())).ToList());
             v.Curves = v.Input.Groups.ToDictionary(g => g.Group, g => (IReadOnlyList<CountPoint>)v.Rows.Where(r => r.Group == g.Group).GroupBy(r => r.Active).OrderBy(x => x.Key)
                 .Select(x =>
                 {
@@ -216,8 +235,7 @@ public sealed class JobView
         var traffic = new Dictionary<string, List<double>>(StringComparer.Ordinal);
         foreach (var id in confirm)
         {
-            var rep = Path.Combine(runs, id, job.Model + ".report");
-            if (!File.Exists(rep)) continue;
+            if (ModelVariants.ReportPath(Path.Combine(runs, id), job.Model) is not { } rep) continue; // a cycle group's run: its count model's report
             try { foreach (var kv in ResultParser.ParseReport(rep).PathTotals ?? new Dictionary<string, int>()) { if (!traffic.TryGetValue(kv.Key, out var tl)) traffic[kv.Key] = tl = new List<double>(); tl.Add(kv.Value); } }
             catch (Exception e) when (e is IOException or InvalidDataException or FormatException) { }
         }
@@ -370,7 +388,8 @@ public sealed class JobView
             return new MaterialView(name, st[0].Group, Mean(ma.Select(m => (double)m.Supplies)), Mean(ma.Select(m => m.Expected)), Mean(ma.Select(m => m.StopTimeSec)),
                 Mean(st.Select(m => m.PickAvg)), Max(st.Select(m => m.PickMax)), Mean(st.Select(m => m.DelivAvg)), Max(st.Select(m => m.DelivMax)),
                 Mean(st.Select(m => m.StockAvg)), Mean(st.Select(m => m.StockStd)), Min(st.Select(m => m.StockMin)), Max(st.Select(m => m.StockMax)), safety,
-                Mean(jobs.Select(r => r.Values[7])), Mean(jobs.Select(r => r.Values[6] / perM)));
+                Mean(jobs.Select(r => r.Values[7])), Mean(jobs.Select(r => r.Values[6] / perM)),
+                Mean(ma.Select(m => m.WaitAvg)), Max(ma.Select(m => m.WaitMax)), Mean(ma.Select(m => m.WaitVehAvg)));
         }).ToList();
     }
 
@@ -381,8 +400,9 @@ public sealed class JobView
         return new[] { "kind\tname\tgroup\tvalues" }
             .Concat(v.Vehicles.Select(x => string.Join("\t", new[] { "vehicle", x.Name, x.Group, R(x.Util), R(x.BusySec), R(x.Distance), R(x.Jobs), R(x.Down) }
                 .Concat(x.Split is { } p ? new[] { p.Window, p.Busy, p.Loaded, p.Handling, p.BufferBusy, p.BufferIdle, p.Repair }.Select(R) : Array.Empty<string>()))))
-            .Concat(v.Materials.Select(m => string.Join("\t", "material", m.Name, m.Group, R(m.Supplies), R(m.Expected), R(m.StopSec), R(m.PickAvg), R(m.PickMax),
-                R(m.DelivAvg), R(m.DelivMax), R(m.StockAvg), R(m.StockStd), R(m.StockMin), R(m.StockMax), R(m.Safety), R(m.Trips), R(m.Distance)))).ToArray();
+            .Concat(v.Materials.Select(m => string.Join("\t", new[] { "material", m.Name, m.Group, R(m.Supplies), R(m.Expected), R(m.StopSec), R(m.PickAvg), R(m.PickMax),
+                R(m.DelivAvg), R(m.DelivMax), R(m.StockAvg), R(m.StockStd), R(m.StockMin), R(m.StockMax), R(m.Safety), R(m.Trips), R(m.Distance) }
+                .Concat(double.IsNaN(m.WaitAvg) && double.IsNaN(m.WaitMax) && double.IsNaN(m.WaitVehAvg) ? Array.Empty<string>() : new[] { R(m.WaitAvg), R(m.WaitMax), R(m.WaitVehAvg) })))).ToArray();
     }
 
     static void ReadStats(JobView v, string path)
@@ -395,7 +415,8 @@ public sealed class JobView
                 t.Length >= 15 ? new TimeSplit(D(t[8]), D(t[9]), D(t[10]), D(t[11]), D(t[12]), D(t[13]), D(t[14])) : null)); // stats.tsv from before the split: none
             else if (t[0] == "material" && t.Length >= 15)
                 mat.Add(new MaterialView(t[1], t[2], D(t[3]), D(t[4]), D(t[5]), D(t[6]), D(t[7]), D(t[8]), D(t[9]), D(t[10]), D(t[11]), D(t[12]), D(t[13]), D(t[14]),
-                    t.Length > 16 ? D(t[15]) : double.NaN, t.Length > 16 ? D(t[16]) : double.NaN)); // stats.tsv from before the supply columns: no data
+                    t.Length > 16 ? D(t[15]) : double.NaN, t.Length > 16 ? D(t[16]) : double.NaN, // stats.tsv from before the supply columns: no data
+                    t.Length > 19 ? D(t[17]) : double.NaN, t.Length > 19 ? D(t[18]) : double.NaN, t.Length > 19 ? D(t[19]) : double.NaN)); // ... and before the wait columns
         }
         v.Vehicles = veh; v.Materials = mat;
     }

@@ -122,10 +122,12 @@ public class PolylineFilletTests
 
     // ---- CP types ----
 
-    [Fact] public void Only_traffic_cps_default_to_capacity_one()
+    [Fact] public void Every_cp_defaults_to_unlimited_and_traffic_cap_one_has_its_own_layer()
     {
-        Assert.Equal(1, CpTypes.DefaultCap("traffic"));
-        foreach (var t in CpTypes.All.Where(t => t != "traffic")) Assert.Equal(CpTypes.Infinity, CpTypes.DefaultCap(t));
+        foreach (var t in CpTypes.All) Assert.Equal(CpTypes.Infinity, CpTypes.DefaultCap(t));
+        Assert.True(CpTypes.IsSingleTraffic(" Traffic ", 1));
+        Assert.False(CpTypes.IsSingleTraffic("traffic", 2)); Assert.False(CpTypes.IsSingleTraffic("traffic", CpTypes.Infinity)); Assert.False(CpTypes.IsSingleTraffic("load", 1));
+        Assert.NotEqual(ASH.Core.Layout.LayerColors.DefaultOf("AGV_CP_TRAFFIC"), ASH.Core.Layout.LayerColors.DefaultOf(CpTypes.SingleTrafficLayer));
     }
 
     [Theory]

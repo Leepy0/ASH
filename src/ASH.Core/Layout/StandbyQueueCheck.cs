@@ -25,7 +25,7 @@ public static class StandbyQueueCheck
         foreach (var g in input.Groups)
         {
             var type = input.AgvTypes.FirstOrDefault(t => t.Type == g.Type);
-            if (type == null || g.StandbyCPs.Count == 0) continue;
+            if (type == null || g.IsCycle || g.StandbyCPs.Count == 0) continue; // a Cycle group's standby CPs are unused (the validator warns)
             var cp = l.Cps.FirstOrDefault(c => c.Name == g.StandbyCPs[0]);
             if (cp == null || LayoutChecker.Project(l, cp.Position) is not { } pr) continue;
             double need = g.MaxCount * (type.Length + Gap);          // metres

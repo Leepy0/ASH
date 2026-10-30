@@ -26,6 +26,25 @@ public class JobPackageTests
         finally { Directory.Delete(proj, true); }
     }
 
+    [Fact]
+    public void Model_Package_Carries_The_Layout_So_The_Server_Can_Make_Cycle_Count_Models()
+    {
+        var proj = Project(dxf: false, frame: false);
+        try
+        {
+            var zip = Path.Combine(proj, "p.zip");
+            Assert.DoesNotContain(JobPackage.Create(proj, "m", zip), f => f.Path == "layout.tsv"); // an older folder without it still sends
+            File.WriteAllText(Path.Combine(proj, "layout.tsv"), "x");
+            File.WriteAllText(Path.Combine(proj, "ash.settings.tsv"), "x");
+            Assert.Contains(JobPackage.Create(proj, "m", zip), f => f.Path == "layout.tsv");
+            var dest = Path.Combine(proj, "out");
+            JobPackage.Extract(zip, dest, "m");
+            Assert.All(JobPackage.RequiredSource, p => Assert.True(File.Exists(Path.Combine(dest, p)), p));
+            Assert.False(JobPackage.IsSource(dest, "m")); // still the model form: the server does not make the base model again
+        }
+        finally { Directory.Delete(proj, true); }
+    }
+
     static string Project(bool dxf, bool frame)
     {
         var proj = Path.Combine(Path.GetTempPath(), "ash_pkg_" + Guid.NewGuid().ToString("N"));

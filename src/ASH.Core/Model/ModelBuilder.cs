@@ -66,10 +66,12 @@ public static class ModelBuilder
         // CP positions in model metres (as ArcLayout reads them back) for the deadlock rows
         var cpm = new Dictionary<string, Point2>();
         foreach (var c in l.Cps) { var q = o.ToModel(c.Position); cpm[c.Name] = new Point2(q.X / o.UnitsPerMeter, q.Y / o.UnitsPerMeter); }
-        var info = new LayoutInfo(l.Cps.Select(c => c.Name).ToList(), l.Blocks.Select(b => b.Name).ToList(), standby, CpMetres: cpm);
-
         var agv = Path.Combine(arc, "agv.asy");
         var sys = AsyReader.ReadFile(agv);
+        // the export's start-only CPs too: a Cycle group's loads board its vehicles there
+        var info = new LayoutInfo(l.Cps.Select(c => c.Name).Concat(sys.ControlPoints.Where(LayoutExporter.IsStartCp).Select(c => c.Name)).ToList(),
+            l.Blocks.Select(b => b.Name).ToList(), standby, CpMetres: cpm);
+
         LogicGenerator.AddDispatchLists(sys, input, info);
         AsyWriter.WriteFile(sys, agv);
 
@@ -122,12 +124,13 @@ public static class ModelBuilder
     }
 
     /// <summary>One AGVS vehicle type per group, named after the group (the logic's vehicle procedures and dispatch filters are per AGVS type),
-    /// with the numbers of the group's AGV_Types row: several groups may share a row.</summary>
+    /// with the numbers of the group's AGV_Types row: several groups may share a row. A Cycle group starts at the first load CP of its material.</summary>
     public static List<VehicleGroupSpec> VehicleGroups(ProjectInput input) => input.Groups.Select(g =>
     {
         var t = input.AgvTypes.FirstOrDefault(x => string.Equals(x.Type, g.Type, StringComparison.OrdinalIgnoreCase)) ?? throw new InvalidOperationException($"AGV_Groups {g.Group}: 유형 {g.Type}이 AGV_Types에 없습니다.");
+        var route = g.IsCycle ? input.Routes.FirstOrDefault(r => input.Materials.Any(m => m.Group == g.Group && m.Material == r.Material)) : null;
         return new VehicleGroupSpec(g.Group, g.Group, g.MaxCount, t.SpeedLoaded, t.Length, t.Width, Accel: t.Accel, Decel: t.Decel, Kind: string.IsNullOrWhiteSpace(t.Kind) ? "Standard" : t.Kind, SpeedEmpty: t.SpeedEmpty,
-            SpeedCurve: t.SpeedLoadedCurve ?? 0, SpeedEmptyCurve: t.SpeedEmptyCurve ?? 0, StandbyCps: g.StandbyCPs);
+            SpeedCurve: t.SpeedLoadedCurve ?? 0, SpeedEmptyCurve: t.SpeedEmptyCurve ?? 0, StandbyCps: g.StandbyCPs, CycleStartCp: route?.SupplyFromCP);
     }).ToList();
 
     static List<string> Warn(List<Finding> f) => f.Where(x => x.Code == FindingCode.InputWarning).Select(x => x.Message).ToList();

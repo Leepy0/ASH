@@ -1,0 +1,23 @@
+	/* A_hold = time held for the unload threshold (at the buffer, or at the unload CP without one): not busy (the load, unload and extra times set in the input stay busy) */
+	if A_tPick >= V_warmup then begin
+		inc V_vBusy(A_vid) by A_ret + A_fin - A_tPick - A_hold
+		inc V_vJobs(A_vid) by 1
+		/* where the busy time went: loaded legs, load/unload/extra waits, buffer hold within / beyond the allowance, repairs held */
+		inc V_vLoad(A_vid) by A_ld
+		inc V_vHand(A_vid) by {{HANDLE}}
+		inc V_vBufB(A_vid) by A_bw - A_hold
+		inc V_vBufX(A_vid) by A_hold
+		inc V_vRep(A_vid) by A_dn
+		set V_x to A_veh total distance traveled
+		inc V_vDist(A_vid) by V_x - A_veh A_dLast
+		inc V_mDist({{M}}) by V_x - A_veh A_dLast
+		inc V_mJobs({{M}}) by 1
+		/* time split per group (tsplit row): job time, its runs at free speed, standing in them, the fixed waits, turning on the spot */
+		inc V_gT({{GT_JOBS}}) by 1
+		inc V_gT({{GT_JOB}}) by A_fin - A_tPick - A_hold
+		inc V_gT({{GT_FREE}}) by A_jf
+		inc V_gT({{GT_STOP}}) by V_vT(A_vid + {{NV}}) - A_js0
+		inc V_gT({{GT_HAND}}) by {{HANDLE}}
+		inc V_gT({{GT_TURN}}) by V_vT(A_vid + {{NV2}}) - A_jt0
+	end
+	set A_veh A_dLast to A_veh total distance traveled

@@ -8,8 +8,8 @@
 |---|---|---|
 | Settings | 설정 하나(Key / Value) | SimLength(h), Warmup(h), Replications, UtilMax(가동률 상한, 기본 0.75), SafetyStock |
 | AGV_Types | 차량 제원 하나 | 속도(적재·공차), 가감속, Capacity(용기 수), LoadTime·UnloadTime(초), Length·Width(m), Kind |
-| AGV_Groups | 차량 무리 하나 | Type, MinCount~MaxCount(찾을 범위), StandbyCPs, FinishCP(선택) |
-| Materials | 자재 하나와 그 운반 경로 | Group, TaktTime(초), UnitsPerCycle, UnitsPerContainer, CallThreshold(호출 임계), Form, SupplyFromCP(load) → SupplyToCP(unload), 선택: ReturnFromCP·ReturnToCP(빈 용기 회수), BufferCP |
+| AGV_Groups | 차량 무리 하나 | Type, MinCount~MaxCount(찾을 범위), StandbyCPs, FinishCP(선택), SupplyMode(공급 방식: Call / Cycle, 빈칸 = Call) |
+| Materials | 자재 하나와 그 운반 경로 | Group, TaktTime(초), UnitsPerCycle, UnitsPerContainer, CallThreshold(호출 임계), Form, SupplyFromCP(load) → SupplyToCP(unload, 둘 다 CP 목록 가능), 선택: ReturnFromCP·ReturnToCP(빈 용기 회수), BufferCP |
 | Conveyors (선택) | 컨베이어 하나 | Conveyor(CAD 이름 `CV###`), Material, ProductTakt |
 
 Materials와 AGV_Types는 기본 열이 앞에 있고, 나머지 고급 열(Station, 임계 자재 열·합계, 언로딩 임계, InitStock·SafetyStock, 적재물 크기, Flow, Use, BufferCP, ExtraTime, BufferWaitSec / 분류, 곡선 속도, 가감속, MTBF·MTTR, 색, 에셋)은 뒤에 묶여 접혀 있다. 열 머리글 위 **+** 로 펼친다. 예전 양식의 Routes 시트는 `AGVEXCEL` `U`가 Materials에 합친다(4.2).
@@ -28,6 +28,11 @@ Materials와 AGV_Types는 기본 열이 앞에 있고, 나머지 고급 열(Stat
 - `Materials.Use`가 `N`인 자재는 모델·검증·결과에서 빠진다(같은 행의 경로도).
 - `Materials.Flow` = `Output`이면 빈 용기 공급 + 풀 용기 반출(교환). 결과의 자재 이름에 "(반출)".
 - 가동 시간은 대기 CP에서 탄 순간부터 FinishCP(없으면 대기 CP) 도착까지.
+- CP 목록: SupplyFromCP·SupplyToCP에 `L001,L003`, 범위 `L001-L010`, 섞기 `L001-L003,L007`.
+  - 상차 CP 여러 개: 운행마다 입력 순서대로 돌아가며 상차.
+  - 하차 CP 여러 개: 하차 CP마다 공정 하나. 결과 이름 `M001@U002`(하차 CP가 하나면 `M001` 그대로).
+- 공급 방식 `Cycle`: 호출 없이 차량이 상차→하차를 계속 순환. 그룹당 자재 행 하나, 대기 CP·FinishCP 안 씀. 권장 대수 기준은 뒤차 대기율(Settings `CycleFollowRate`, 기본 0.95).
+- 자세한 규칙: [input-template.md "공급 방식과 CP 목록"](../input-template.md#공급-방식과-cp-목록).
 
 ## 4.2 도면으로 채우기 (`AGVEXCEL`)
 
@@ -101,7 +106,7 @@ CP 이름 드롭다운은 막지 않고 경고만 한다. 도면에 아직 없�
 | 모델 파일을 만들었습니다… | 성공 |
 | 입력 오류가 있어 모델을 만들지 않았습니다. | 엑셀 빨강 칸을 고친다 |
 | `input.xlsx이 없어 경로·CP만 내보냅니다…` | 엑셀이 없다. `AGVEXCEL` 먼저 |
-| 모델 생성 중단: 그룹 G1에 standby/buffer CP가 없습니다. | 그룹마다 대기 CP가 하나 이상 있어야 한다 |
+| 모델 생성 중단: 그룹 G1에 standby/buffer CP가 없습니다. | 그룹마다 대기 CP가 하나 이상 있어야 한다(Cycle 그룹은 제외) |
 | 경고: 그룹 G1: 대기 CP S001 앞에 줄 설 공간이 n m뿐입니다… | 대기 CP 앞 레인이 "최대 대수 × (차량 길이 + 0.5 m)"보다 짧다. 대기 CP를 옮기거나 MaxCount를 줄인다 |
 
 | 다른 버튼 | 명령 | 하는 일 |

@@ -39,6 +39,13 @@ public class GroupClustersTests
         Assert.Single(c.Clusters); Assert.Equal(2, c.Clusters[0].Count);
         Assert.Equal(2, c.UsedPaths["G1"].Count);
     }
+    [Fact] public void Second_Load_Cp_Shares_Path_Makes_One_Cluster()
+    {
+        var (l, p) = Setup("D1", "C2");
+        p.Routes[1] = p.Routes[1] with { SupplyFromCPs = new[] { "D1", "C1" } };   // only the second load CP shares G1's p1/p2
+        var c = GroupClusters.Build(l, p, TrafficTable.Build(l));
+        Assert.Single(c.Clusters);
+    }
     [Fact] public void Disjoint_Groups_Are_Separate_Clusters()
     {
         var (l, p) = Setup("D1", "D2");

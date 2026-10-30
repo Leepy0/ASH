@@ -13,13 +13,44 @@ public static class DrawingWriter
 {
     public static ObjectId AddCp(Database db, Transaction tr, LayoutCp cp)
     {
-        var id = InsertBlock(db, tr, Conventions.CpBlockName, Conventions.LayerCpFor(cp.Type), cp.Position, 0, new Dictionary<string, string>
+        var id = InsertBlock(db, tr, Conventions.CpBlockName, Conventions.LayerCpFor(cp.Type, cp.Cap), cp.Position, 0, new Dictionary<string, string>
         {
             ["NAME"] = cp.Name, ["TYPE"] = cp.Type, ["GROUP"] = cp.Group,
             ["CAP"] = ASH.Core.Traffic.CpTypes.FormatCap(cp.Cap),
         });
         if (cp.RouteId.Length > 0) XData.WriteCpRoute((Entity)tr.GetObject(id, OpenMode.ForWrite), cp.RouteId, tr); // AGVCPROUTE: AGVEXCEL builds route rows from it
         return id;
+    }
+
+    /// <summary>Moves traffic CPs between AGV_CP_TRAFFIC and AGV_CP_TRAFFIC_CAP1 to match their CAP (a CAP edited by hand, or a drawing older than the
+    /// CAP 1 layer); other CPs are left where they are. Returns how many moved.</summary>
+    public static int SyncTrafficCpLayers(Database db, Transaction tr)
+    {
+        int n = 0;
+        foreach (var id in DrawingReader.ModelSpace(db, tr, OpenMode.ForRead))
+        {
+            if (!(tr.GetObject(id, OpenMode.ForRead) is BlockReference br) || br.IsErased || !Conventions.IsCpLayer(br.Layer)
+                || !DrawingReader.Eq(DrawingReader.BlockName(br, tr), Conventions.CpBlockName)) continue;
+            var a = DrawingReader.Attributes(br, tr);
+            var type = a.TryGetValue("TYPE", out var t) ? t.Trim() : "";
+            if (!DrawingReader.Eq(type, "traffic")) continue;
+            var cap = a.TryGetValue("CAP", out var c) && ASH.Core.Traffic.CpTypes.TryParseCap(c, out var v) ? v : 1;
+            var layer = Conventions.LayerCpFor(type, cap);
+            if (DrawingReader.Eq(br.Layer, layer)) continue;
+            SetLayer(tr, id, layer);
+            n++;
+        }
+        return n;
+    }
+
+    /// <summary>The block and its attribute texts move to the layer together.</summary>
+    public static void SetLayer(Transaction tr, ObjectId id, string layer)
+    {
+        var br = (BlockReference)tr.GetObject(id, OpenMode.ForWrite);
+        if (DrawingReader.Eq(br.Layer, layer)) return;
+        br.Layer = layer;
+        foreach (ObjectId aid in br.AttributeCollection)
+            if (tr.GetObject(aid, OpenMode.ForWrite) is AttributeReference ar && !ar.IsErased) ar.Layer = layer;
     }
 
     /// <summary>Adds the closed rectangle (returned id) plus an AGV_BLOCK attribute tag at its centre.</summary>

@@ -16,7 +16,7 @@ public class ResumeTests
 
     sealed class Collect(List<RunOutcome> into) : IProgress<RunOutcome> { public void Report(RunOutcome v) { lock (into) into.Add(v); } }
 
-    /// <summary>A fake AutoMod: each run leaves a valid result.tsv and report in runs\&lt;RunId&gt;, and is counted.</summary>
+    /// <summary>A fake AutoMod: each run leaves a valid result.tsv and report (named after the model that ran) in runs\&lt;RunId&gt;, and is counted.</summary>
     static Func<RunRequest, RunOutcome> Runner(string runs, List<string> calls) => r =>
     {
         var id = ModelRunner.RunId(r.Input, r.Scenario);
@@ -24,9 +24,36 @@ public class ResumeTests
         var dir = Path.Combine(runs, id);
         Directory.CreateDirectory(dir);
         File.Copy(Fx("result.tsv"), Path.Combine(dir, "result.tsv"), true);
-        File.Copy(Fx(Model + ".report"), Path.Combine(dir, Model + ".report"), true);
-        return new RunOutcome(id, true, dir, TimeSpan.FromSeconds(7), null, 0, null, Path.Combine(dir, "result.tsv"), Path.Combine(dir, Model + ".report"));
+        File.Copy(Fx(Model + ".report"), Path.Combine(dir, r.ModelName + ".report"), true);
+        return new RunOutcome(id, true, dir, TimeSpan.FromSeconds(7), null, 0, null, Path.Combine(dir, "result.tsv"), Path.Combine(dir, r.ModelName + ".report"));
     };
+
+    [Fact]
+    public void A_Resumed_Cycle_Run_Is_Found_By_The_Report_Of_Its_Count_Model()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "ash_resume_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var runs = Path.Combine(dir, "runs");
+            var input = LogicGeneratorTests.TwoGroups();
+            input.Groups[1] = input.Groups[1] with { SupplyMode = "Cycle", MaxCount = 4 };
+            var s = new RunScenario(1, new Dictionary<string, int> { ["G1"] = 2, ["G2"] = 3 });
+            Func<RunScenario, string> modelFor = sc => ModelVariants.NameFor(input, "Agv", sc); // the variant is there already
+            var calls = new List<string>();
+            new ModelExecutor(new ExecutorOptions(dir, "Agv", 1, RunsDir: runs), input, Runner(runs, calls), modelFor).Run(1, s);
+            var id = Assert.Single(calls);
+            Assert.True(File.Exists(Path.Combine(runs, id, "Agv_c3.report")));
+
+            // resume: the run is kept (its report is the count model's) and taken again without running
+            Assert.Equal(1, SearchJob.KeepReadableRuns(runs, "Agv"));
+            calls.Clear();
+            var again = new ModelExecutor(new ExecutorOptions(dir, "Agv", 1, RunsDir: runs, Reuse: true), input, Runner(runs, calls), modelFor);
+            again.Run(1, s);
+            Assert.Empty(calls); Assert.Equal(1, again.Reused);
+        }
+        finally { try { Directory.Delete(dir, true); } catch (IOException) { } }
+    }
 
     [Fact]
     public void A_Resumed_Search_Takes_Finished_Runs_Again_And_Runs_Only_The_Rest()

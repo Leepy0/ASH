@@ -71,6 +71,69 @@ public class JobReportTests
         finally { File.Delete(path); }
     }
 
+    static int Col(IXLWorksheet ws, int headerRow, string head) => ws.Row(headerRow).CellsUsed().Single(c => c.GetString() == head).Address.ColumnNumber;
+
+    [Fact]
+    public async Task Old_Results_Leave_The_Wait_Cells_Empty_And_Add_No_Cycle_Columns()
+    {
+        using var env = new JobEnv();
+        var job = await env.WaitFinished(Id(await (await env.Send(JobEnv.MakePackage(env.Dir))).Content.ReadAsStringAsync()));
+        var path = Tmp();
+        try
+        {
+            JobReport.Write(job, JobView.For(env.Store, job), path);
+            using var wb = new XLWorkbook(path);
+            var mat = wb.Worksheet("자재 통계");
+            foreach (var h in new[] { "공급 대기 평균", "공급 대기 최대", "대기 차량" }) Assert.True(mat.Cell(2, Col(mat, 1, h)).IsEmpty(), h);
+            Assert.Equal("주의", mat.Cell(2, 15).GetString());
+            Assert.Null(wb.Worksheet("요약").Search("뒤차 대기율").FirstOrDefault()); Assert.False(wb.Worksheets.Contains("순환 대수별"));
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task Cycle_Job_Report_Has_Wait_And_Swap_Columns_And_A_Per_Count_Sheet()
+    {
+        var (env, job) = await SupplyFixture.Cycle(); using var _ = env;
+        var view = JobView.For(env.Store, job);
+        var path = Tmp();
+        try
+        {
+            JobReport.Write(job, view, path);
+            using var wb = new XLWorkbook(path);
+
+            var mat = wb.Worksheet("자재 통계");
+            Assert.Equal(1.5, mat.Cell(2, Col(mat, 1, "공급 대기 평균")).GetDouble(), 6);
+            Assert.Equal(3, mat.Cell(2, Col(mat, 1, "공급 대기 최대")).GetDouble(), 6);
+            Assert.Equal(0.8, mat.Cell(2, Col(mat, 1, "대기 차량")).GetDouble(), 6);
+            Assert.Equal("0.0", mat.Cell(2, Col(mat, 1, "공급 대기 평균")).Style.NumberFormat.Format);
+            Assert.Equal("주의", mat.Cell(2, 15).GetString());
+            // the per-part stock copy still sits under its header, wherever the wait columns went
+            var m = view.Materials[0];
+            Assert.Equal(m.StockAvg * JobPages.PerContainer(view, m), mat.Cell(2, Col(mat, 1, "재고 평균(개)")).GetDouble(), 6);
+
+            var sum = wb.Worksheet("요약");
+            var head = sum.Search("그룹별 권장 대수").First().Address.RowNumber + 1;
+            Assert.Equal(0.96, sum.Cell(head + 1, Col(sum, head, "뒤차 대기율")).GetDouble(), 6);
+            Assert.Equal("0.0%", sum.Cell(head + 1, Col(sum, head, "뒤차 대기율")).Style.NumberFormat.Format);
+            Assert.Equal(12, sum.Cell(head + 1, Col(sum, head, "교체 평균(초)")).GetDouble(), 6);
+            Assert.Equal(40, sum.Cell(head + 1, Col(sum, head, "교체 최대(초)")).GetDouble(), 6);
+            Assert.True(sum.Cell(head + 1, Col(sum, head, "가동률(%)")).IsEmpty()); // utilization is not shown for a cycle group
+            Assert.Equal("통과", sum.Cell(head + 1, Col(sum, head, "판정")).GetString());
+
+            var pc = wb.Worksheet("순환 대수별");
+            Assert.Equal(new[] { "그룹", "대수(대)", "뒤차 대기율", "교체 평균(초)", "교체 최대(초)", "실행 수(회)", "권장 여부" }, pc.Row(1).CellsUsed().Select(c => c.GetString()).ToArray());
+            Assert.Equal(3, pc.LastRowUsed()!.RowNumber() - 1); // counts 1..3
+            var two = pc.Rows(2, 4).Single(r => r.Cell(2).GetDouble() == 2);
+            Assert.Equal("G1", two.Cell(1).GetString());
+            Assert.Equal(0.94, two.Cell(3).GetDouble(), 6); Assert.Equal("0.0%", two.Cell(3).Style.NumberFormat.Format);
+            Assert.Equal(13, two.Cell(4).GetDouble(), 6); Assert.Equal(60, two.Cell(5).GetDouble(), 6);
+            Assert.Equal(2, two.Cell(6).GetDouble()); Assert.Equal("권장", two.Cell(7).GetString());
+            Assert.Equal("", pc.Rows(2, 4).Single(r => r.Cell(2).GetDouble() == 1).Cell(7).GetString());
+        }
+        finally { File.Delete(path); }
+    }
+
     [Fact]
     public async Task Job_Without_Results_Still_Gets_A_Workbook()
     {

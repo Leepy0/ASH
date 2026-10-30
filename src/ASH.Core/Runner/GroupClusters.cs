@@ -49,13 +49,16 @@ public sealed class GroupClusters
             foreach (var m in input.Materials.Where(x => x.Group == g.Group))
                 foreach (var rt in input.Routes.Where(x => x.Material == m.Material))
                 {
-                    var cps = new[] { rt.SupplyFromCP, rt.BufferCP, rt.SupplyToCP, rt.ReturnFromCP, rt.ReturnToCP }
-                        .Where(s => !string.IsNullOrEmpty(s)).Select(s => s!).ToList();
-                    for (int i = 0; i + 1 < cps.Count; i++) legs.Add((cps[i], cps[i + 1]));
-                    var last = cps[cps.Count - 1];   // ReturnTo ?? ... ?? SupplyTo
-                    if (!string.IsNullOrEmpty(g.FinishCP)) { legs.Add((last, g.FinishCP!)); last = g.FinishCP!; }
-                    foreach (var sb in g.StandbyCPs) { legs.Add((sb, rt.SupplyFromCP)); legs.Add((last, sb)); }
-                    if (g.StandbyCPs.Count == 0) legs.Add((last, rt.SupplyFromCP));
+                    foreach (var from in rt.FromCps)   // every load CP of the list, each with its own legs
+                    {
+                        var cps = new[] { from, rt.BufferCP, rt.SupplyToCP, rt.ReturnFromCP, rt.ReturnToCP }
+                            .Where(s => !string.IsNullOrEmpty(s)).Select(s => s!).ToList();
+                        for (int i = 0; i + 1 < cps.Count; i++) legs.Add((cps[i], cps[i + 1]));
+                        var last = cps[cps.Count - 1];   // ReturnTo ?? ... ?? SupplyTo
+                        if (!string.IsNullOrEmpty(g.FinishCP)) { legs.Add((last, g.FinishCP!)); last = g.FinishCP!; }
+                        foreach (var sb in g.StandbyCPs) { legs.Add((sb, from)); legs.Add((last, sb)); }
+                        if (g.StandbyCPs.Count == 0) legs.Add((last, from));
+                    }
                 }
             foreach (var (a, b) in legs.Distinct())
             {
@@ -82,15 +85,19 @@ public sealed class GroupClusters
         var supply = new Dictionary<string, double>();
         foreach (var rt in input.Routes)
         {
-            var cps = new[] { rt.SupplyFromCP, rt.BufferCP, rt.SupplyToCP }.Where(s => !string.IsNullOrEmpty(s)).Select(s => s!).ToList();
-            double total = 0;
-            for (int i = 0; i + 1 < cps.Count && !double.IsNaN(total); i++)
+            foreach (var from in rt.FromCps)
             {
-                if (!cpPos.TryGetValue(cps[i], out var pa) || !cpPos.TryGetValue(cps[i + 1], out var pb)) { total = double.NaN; break; }
-                total += pa.Path == pb.Path ? (pb.Dist >= pa.Dist ? pb.Dist - pa.Dist : double.NaN) // behind: loop length unknown, skip
-                    : Route(graph, nodeOf, sssp, pa.Path, pb.Path, out var between) == null ? double.NaN : pa.Path.Length - pa.Dist + between + pb.Dist;
+                var cps = new[] { from, rt.BufferCP, rt.SupplyToCP }.Where(s => !string.IsNullOrEmpty(s)).Select(s => s!).ToList();
+                double total = 0;
+                for (int i = 0; i + 1 < cps.Count && !double.IsNaN(total); i++)
+                {
+                    if (!cpPos.TryGetValue(cps[i], out var pa) || !cpPos.TryGetValue(cps[i + 1], out var pb)) { total = double.NaN; break; }
+                    total += pa.Path == pb.Path ? (pb.Dist >= pa.Dist ? pb.Dist - pa.Dist : double.NaN) // behind: loop length unknown, skip
+                        : Route(graph, nodeOf, sssp, pa.Path, pb.Path, out var between) == null ? double.NaN : pa.Path.Length - pa.Dist + between + pb.Dist;
+                }
+                // the shortest of the load CPs
+                if (!double.IsNaN(total) && (!supply.TryGetValue(rt.Material, out var cur) || total < cur)) supply[rt.Material] = total;
             }
-            if (!double.IsNaN(total) && !supply.ContainsKey(rt.Material)) supply[rt.Material] = total;
         }
 
         var r = new GroupClusters { Clusters = gs.GroupBy(Find).Select(x => (IReadOnlyList<string>)x.ToList()).ToList() };

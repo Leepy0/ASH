@@ -110,6 +110,9 @@ public static class InputValidator
         var types = new HashSet<string>(input.AgvTypes.Select(t => t.Type));
         var groups = new HashSet<string>(input.Groups.Select(g => g.Group));
         var mats = new HashSet<string>(input.Materials.Select(m => m.Material));
+        var sources = new HashSet<string>(input.Materials.Select(m => m.SourceName)); // a conveyor row names the Materials row, not its station materials (M001@U001)
+        // a Materials row with several unload CPs is several station materials: say what is about the row once
+        bool FirstOfRow(int k) => input.Materials.FindIndex(x => x.SourceName == input.Materials[k].SourceName) == k;
         var cps = layoutCpNames == null ? null : new HashSet<string>(layoutCpNames);
 
         Dups("AGV_Types", input.AgvTypes, t => t.Type, t => t.Row, "AGV 타입");
@@ -152,12 +155,24 @@ public static class InputValidator
             OneOf("AGV_Groups", g.Row, i, "Dispatch", g.Dispatch, "Nearest", "FIFO");
             if (cps != null)
                 foreach (var cp in g.StandbyCPs.Where(c => !cps.Contains(c))) Err("AGV_Groups", g.Row, i, $"StandbyCP '{cp}'이(가) 레이아웃에 없습니다.");
+            var mode = g.SupplyMode.Trim();
+            if (mode.Length > 0 && !new[] { "Call", "Cycle" }.Contains(mode, StringComparer.OrdinalIgnoreCase)) Err("AGV_Groups", g.Row, i, $"그룹 '{g.Group}'의 공급 방식 '{mode}'은(는) Call 또는 Cycle입니다.");
+            if (!g.IsCycle) continue; // keep this the last statement of the loop body
+            // a Cycle group circles one material's route (all its station materials) without being called: no standby, no finish
+            int n = input.Materials.Where(m => m.Group == g.Group).Select(m => m.SourceName).Distinct().Count();
+            if (n != 1) Err("AGV_Groups", g.Row, i, $"그룹 '{g.Group}'은(는) 순환(Cycle)인데 자재가 {n}개입니다. 순환 그룹에는 자재 하나만 둡니다.");
+            if (g.StandbyCPs.Count > 0) Warn("AGV_Groups", g.Row, i, $"그룹 '{g.Group}'은(는) 순환이라 대기 CP를 쓰지 않습니다.");
+            if (!string.IsNullOrEmpty(g.FinishCP)) Warn("AGV_Groups", g.Row, i, $"그룹 '{g.Group}'은(는) 순환이라 완료 CP를 쓰지 않습니다.");
         }
         for (int i = 0; i < input.Materials.Count; i++)
         {
             var m = input.Materials[i];
             Blank("Materials", m.Row, i, "Material", m.Material);
             Blank("Materials", m.Row, i, "Group", m.Group);
+            if (m.Source.Length > 0 && input.Materials.Where((x, k) => k != i && x.Material == m.Material).Any()) Err("Materials", m.Row, i, $"공정 자재 이름 '{m.Material}'이(가) 다른 자재 이름과 같습니다.");
+            // a conveyor or an Output flow serves one place: the Materials row may not list several unload CPs
+            if ((m.ConveyorFed || m.IsOutput) && m.Source.Length > 0 && FirstOfRow(i) && input.Materials.Count(x => x.SourceName == m.SourceName) > 1)
+                Err("Materials", m.Row, i, $"자재 '{m.SourceName}'은(는) 컨베이어/반출 자재라 하차 CP를 하나만 씁니다.");
             if (m.Material.Length > 0 && !IsAmText(m.Material)) Err("Materials", m.Row, i, $"자재 이름 '{m.Material}'은(는) AutoMod에서 쓸 수 없습니다(영문·숫자·기호만, 한글·공백·따옴표·역슬래시 불가).");
             if (m.Material.Length > 0 && !input.Routes.Any(r => r.Material == m.Material)) Err("Materials", m.Row, i, $"자재 '{m.Material}'의 Routes 행이 없습니다.");
             if (m.Group.Length > 0 && !groups.Contains(m.Group)) Err("Materials", m.Row, i, $"자재 '{m.Material}'의 Group '{m.Group}'이(가) AGV_Groups에 없습니다.");
@@ -187,6 +202,8 @@ public static class InputValidator
         }
         // route cells on the material's own row (RouteSheet Materials): the material checks above already cover a blank or repeated name
         var rs = input.RouteSheet; bool own = rs != "Materials";
+        // the column leads, as in the other cell messages: the Excel mark finds the cell by it
+        foreach (var (sheet, row, col, token) in input.CpListErrors) Err(sheet, row, 0, $"{col} '{token}': 범위가 잘못됐습니다(시작이 끝보다 크거나 1000개 초과).");
         for (int i = 0; i < input.Routes.Count; i++)
         {
             var r = input.Routes[i];
@@ -198,7 +215,8 @@ public static class InputValidator
             if (own && r.Material.Length > 0 && input.Routes.Take(i).Any(x => x.Material == r.Material)) Err(rs, r.Row, i, $"자재 '{r.Material}'의 Routes 행이 중복되었습니다(자재당 1행).");
             if (!(r.BufferWaitSec >= 0)) Err(rs, r.Row, i, $"자재 '{r.Material}'의 BufferWaitSec(버퍼 대기 허용)은 0 이상이어야 합니다(비우면 0).");
             if (cps == null) continue;
-            foreach (var (col, cp) in new[] { ("SupplyFromCP", r.SupplyFromCP), ("SupplyToCP", r.SupplyToCP), ("BufferCP", r.BufferCP), ("ReturnFromCP", r.ReturnFromCP), ("ReturnToCP", r.ReturnToCP) })
+            // every load CP of a list is checked like the single one
+            foreach (var (col, cp) in r.FromCps.Select(c => ("SupplyFromCP", (string?)c)).Concat(new (string, string?)[] { ("SupplyToCP", r.SupplyToCP), ("BufferCP", r.BufferCP), ("ReturnFromCP", r.ReturnFromCP), ("ReturnToCP", r.ReturnToCP) }))
                 if (!string.IsNullOrWhiteSpace(cp) && !cps.Contains(cp!)) Err(rs, r.Row, i, $"{col} '{cp}'이(가) 레이아웃에 없습니다.");
         }
         for (int i = 0; i < input.Conveyors.Count; i++)
@@ -206,7 +224,7 @@ public static class InputValidator
             var c = input.Conveyors[i];
             Blank("Conveyors", c.Row, i, "Conveyor", c.Conveyor);
             Blank("Conveyors", c.Row, i, "Material", c.Material);
-            if (c.Material.Length > 0 && !mats.Contains(c.Material)) Err("Conveyors", c.Row, i, $"컨베이어 '{c.Conveyor}'의 Material '{c.Material}'이(가) Materials에 없습니다(Use가 N인 자재는 제외됨).");
+            if (c.Material.Length > 0 && !sources.Contains(c.Material)) Err("Conveyors", c.Row, i, $"컨베이어 '{c.Conveyor}'의 Material '{c.Material}'이(가) Materials에 없습니다(Use가 N인 자재는 제외됨).");
             var first = c.Material.Length == 0 ? -1 : input.Conveyors.FindIndex(x => x.Material == c.Material);
             if (first >= 0 && first < i) Err("Conveyors", c.Row, i, $"자재 '{c.Material}'을(를) 컨베이어 '{input.Conveyors[first].Conveyor}'과(와) '{c.Conveyor}'이(가) 함께 소비합니다(자재당 컨베이어 1개).");
             if (!(c.ProductTakt > 0)) Err("Conveyors", c.Row, i, $"컨베이어 '{c.Conveyor}'의 ProductTakt는 0보다 커야 합니다(비우면 60).");
@@ -217,8 +235,10 @@ public static class InputValidator
         }
         foreach (var m in input.Materials.Where(m => m.ConveyorFed))
         {
-            var c = input.Conveyors.First(x => x.Material == m.Material);
-            Warn("Materials", m.Row, input.Materials.IndexOf(m), $"자재 '{m.Material}': 컨베이어 '{c.Conveyor}'가 소비하므로 Materials의 T/T는 무시하고 Conveyors의 ProductTakt {F(c.ProductTakt)}초를 씁니다. 제품 1개당 자재 수량 = 소요 원수 {F(c.UnitsPerProduct)}.");
+            var mi = input.Materials.IndexOf(m);
+            var c = input.Conveyors.FirstOrDefault(x => x.Material == m.SourceName);
+            if (c == null || !FirstOfRow(mi)) continue;
+            Warn("Materials", m.Row, mi, $"자재 '{m.SourceName}': 컨베이어 '{c.Conveyor}'가 소비하므로 Materials의 T/T는 무시하고 Conveyors의 ProductTakt {F(c.ProductTakt)}초를 씁니다. 제품 1개당 자재 수량 = 소요 원수 {F(c.UnitsPerProduct)}.");
         }
         for (int i = 0; i < input.Stations.Count; i++)
         {

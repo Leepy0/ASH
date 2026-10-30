@@ -242,6 +242,10 @@ public sealed class ModelCommands
                 ed.WriteMessage($"\n모델 생성 중단: {ex.Message}");
                 return Fail();
             }
+            // a cycle group's per-count models are made from it (ModelVariants), here or on the server; the model is built, so a failure only warns
+            try { LayoutSnapshot.Write(layout, Path.Combine(dir, LayoutSnapshot.FileName)); }
+            catch (System.Exception ex) when (ex is IOException || ex is UnauthorizedAccessException || ex is InvalidOperationException || ex is ArgumentException)
+            { ed.WriteMessage($"\n도면 스냅샷 저장 실패(순환 대수별 모델용): {ex.Message}"); }
             foreach (var f in r.Findings.Where(f => f.Code != FindingCode.InputWarning)) ed.WriteMessage($"\n[{f.Code}] {f.Message}");
             foreach (var w in r.Warnings) ed.WriteMessage($"\n경고: {w}");
             MarkExcel(ed, xlsx, r.Findings);

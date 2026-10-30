@@ -1,0 +1,11 @@
+		/* reorder on the stock position (on hand + containers already called), as many calls as needed at once; one call is one trip and
+		   brings a full vehicle, Capacity containers (the clone keeps A_qty). Also call when the position cannot cover one cycle, or a call
+		   threshold below the per-cycle need would stop forever */
+		while V_stock({{M}}) + V_pending({{M}}) <= V_call({{M}}) + 0.000001 or V_stock({{M}}) + V_pending({{M}}) < V_need({{M}}) - 0.000001 do begin
+			set A_qty to {{CAPACITY}}
+			if V_events = 1 and ac >= V_warmup then print ac "\tcall\t{{NAME}}\t\t" A_qty to V_ev
+			inc V_pending({{M}}) by A_qty
+			set V_extMat to {{M}}
+			set V_tmp to F_ext_on_call()
+			clone 1 load to P_supply_{{M}}
+		end

@@ -76,6 +76,11 @@ public class JobLocalAndRetentionTests
         var project = env.Store.ProjectDir(id);
         Directory.CreateDirectory(Path.Combine(project, "m.dir"));
         File.WriteAllText(Path.Combine(project, "m.dir", "big.dll"), new string('x', 1000));
+        foreach (var v in new[] { "m_c2", "m_c3x1" }) // a cycle group's count models, as the search leaves them
+        {
+            Directory.CreateDirectory(Path.Combine(project, v + ".dir")); File.WriteAllText(Path.Combine(project, v + ".dir", v + "64.dll"), "dll");
+            File.WriteAllText(Path.Combine(project, v + ".exe"), "exe"); Directory.CreateDirectory(Path.Combine(project, v + ".arc"));
+        }
         var zipPath = Path.Combine(env.Store.JobDir(id), "runs.zip");
         var original = File.ReadAllText(Path.Combine(project, "runs", "n2_s1", "result.tsv"));
         var retention = env.Factory.Services.GetRequiredService<JobRetention>();
@@ -85,6 +90,8 @@ public class JobLocalAndRetentionTests
         Assert.Equal(1, retention.Sweep(DateTime.UtcNow.AddDays(31)));  // default 30 days
         Assert.False(Directory.Exists(Path.Combine(project, "runs", "n2_s1")));   // original folder gone ...
         Assert.False(Directory.Exists(Path.Combine(project, "m.dir")));           // ... build output too (rebuilt on demand)
+        foreach (var v in new[] { "m_c2", "m_c3x1" })                             // ... the count models' too, their .arc kept to build from
+            Assert.Equal((false, false, true), (Directory.Exists(Path.Combine(project, v + ".dir")), File.Exists(Path.Combine(project, v + ".exe")), Directory.Exists(Path.Combine(project, v + ".arc"))));
         Assert.True(File.Exists(Path.Combine(project, "runs", "summary.tsv")));
         Assert.True(File.Exists(env.Store.UploadPath(id)));
         Assert.NotNull(env.Store.Get(id)!.RunsPurgedUtc);

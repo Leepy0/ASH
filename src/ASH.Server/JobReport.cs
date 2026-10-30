@@ -14,6 +14,7 @@ public static class JobReport
         using var wb = ExcelReader.NewWorkbook();
         Summary(wb.AddWorksheet("요약"), job, view);
         Curves(wb.AddWorksheet("대수별 가동률"), job, view);
+        if (view.CycleCurves.Any(kv => kv.Value.Count > 0)) CycleCounts(wb.AddWorksheet("순환 대수별"), job, view);
         Runs(wb.AddWorksheet("실행 목록"), view);
         if (view.Deadlock != null) Deadlocks(wb.AddWorksheet("교착"), job, view);
         if (view.Stockout != null) Stockouts(wb.AddWorksheet("자재 품절 원인"), view);
@@ -105,14 +106,19 @@ public static class JobReport
         Kv("모델 실행 수(회)", j.RunsDone); Kv("실패 수(회)", j.RunsFailed);
 
         r++; Title(ws, r++, "그룹별 권장 대수");
-        Header(ws, r++, "그룹", "AGV 타입", "권장(대)", "최소(대)", "최대(대)", "가동률(%)", "최소 재고/안전재고(배)", "판정", "사유", "공급 횟수(회)", "총 이동 거리(km)", "공급당 이동 거리(m)");
+        // a cycle group is judged on its follow rate: three more columns, filled for those groups only (and no utilization for them)
+        bool cycle = JobPages.AnyCycle(v);
+        Header(ws, r++, new[] { "그룹", "AGV 타입", "권장(대)", "최소(대)", "최대(대)", "가동률(%)", "최소 재고/안전재고(배)", "판정", "사유", "공급 횟수(회)", "총 이동 거리(km)", "공급당 이동 거리(m)" }
+            .Concat(cycle ? new[] { "뒤차 대기율", "교체 평균(초)", "교체 최대(초)" } : Array.Empty<string>()).ToArray());
         var byGroup = v.VehicleGroups.ToDictionary(x => x.Group, StringComparer.Ordinal);
         foreach (var g in v.Groups)
         {
             Put(ws, r, 1, g.Group); Put(ws, r, 2, g.Type); Put(ws, r, 3, g.Decided); Put(ws, r, 4, g.Min); Put(ws, r, 5, g.Max);
-            Put(ws, r, 6, g.Util, Pct); Put(ws, r, 7, g.MinStockRatio, "0.00");
+            if (g.HasUtil) Put(ws, r, 6, g.Util, Pct);
+            Put(ws, r, 7, g.MinStockRatio, "0.00");
             Put(ws, r, 8, !g.AllOk ? "실패" : JobPages.Over(g, v.UtilMax) ? "경고: 가동률 초과" : "통과"); Put(ws, r, 9, g.Reason);
             if (byGroup.TryGetValue(g.Group, out var vg)) { Put(ws, r, 10, vg.Jobs * vg.Count, "0"); Put(ws, r, 11, vg.Distance * vg.Count / 1000, "0.0"); Put(ws, r, 12, vg.DistPerJob, "0.#"); }
+            if (g.Cycle) { Put(ws, r, 13, g.FollowRate, Pct); Put(ws, r, 14, g.SwapAvg, "0.#"); Put(ws, r, 15, g.SwapMax, "0.#"); }
             r++;
         }
         if (j.Warnings.Count > 0)
@@ -134,6 +140,22 @@ public static class JobReport
                 int? dec = j.Decided != null && j.Decided.TryGetValue(group, out var d) ? d : null;
                 Put(ws, r, 1, group); Put(ws, r, 2, p.Active); Put(ws, r, 3, p.Mean, Pct); Put(ws, r, 4, p.Lo, Pct); Put(ws, r, 5, p.Hi, Pct);
                 Put(ws, r, 6, p.Runs); Put(ws, r, 7, p.Failed); Put(ws, r, 8, dec == p.Active ? "권장" : "");
+                r++;
+            }
+        ws.SheetView.FreezeRows(1); Widths(ws);
+    }
+
+    /// <summary>One row per tested count of each cycle group: follow rate and swap seconds (mean over the runs at that count, longest swap).</summary>
+    static void CycleCounts(IXLWorksheet ws, JobInfo j, JobView v)
+    {
+        Header(ws, 1, "그룹", "대수(대)", "뒤차 대기율", "교체 평균(초)", "교체 최대(초)", "실행 수(회)", "권장 여부");
+        int r = 2;
+        foreach (var (group, points) in v.CycleCurves)
+            foreach (var p in points)
+            {
+                int? dec = j.Decided != null && j.Decided.TryGetValue(group, out var d) ? d : null;
+                Put(ws, r, 1, group); Put(ws, r, 2, p.Active); Put(ws, r, 3, p.FollowRate, Pct); Put(ws, r, 4, p.SwapAvg, "0.#"); Put(ws, r, 5, p.SwapMax, "0.#");
+                Put(ws, r, 6, p.Runs); Put(ws, r, 7, dec == p.Active ? "권장" : "");
                 r++;
             }
         ws.SheetView.FreezeRows(1); Widths(ws);
@@ -250,6 +272,7 @@ public static class JobReport
         if (v.Materials.Count == 0) { Note(ws, "자재 통계가 없습니다(모델이 쓰지 않았거나 확인 실행 결과가 없음)."); return; }
         Header(ws, 1, "자재", "그룹", "공급(회)", "기대 공급(회)", "자재 품절 시간(초)", "호출→상차 평균(초)", "호출→상차 최대(초)", "호출→하차 평균(초)", "호출→하차 최대(초)",
             "재고 평균(용기)", "재고 표준편차(용기)", "재고 최소(용기)", "재고 최대(용기)", "안전재고(용기)", "주의",
+            "공급 대기 평균", "공급 대기 최대", "대기 차량",
             "공급 횟수(회)", "공급 빈도(초)", "공급당 이동 거리(m)", "재고 평균(개)", "재고 최소(개)", "재고 최대(개)");
         int r = 2;
         foreach (var m in v.Materials)
@@ -258,9 +281,10 @@ public static class JobReport
             Put(ws, r, 6, m.PickAvg, "0.0"); Put(ws, r, 7, m.PickMax, "0.0"); Put(ws, r, 8, m.DelivAvg, "0.0"); Put(ws, r, 9, m.DelivMax, "0.0");
             Put(ws, r, 10, m.StockAvg, "0.0"); Put(ws, r, 11, m.StockStd, "0.0"); Put(ws, r, 12, m.StockMin, "0.#"); Put(ws, r, 13, m.StockMax, "0.#");
             Put(ws, r, 14, m.Safety, "0.##"); Put(ws, r, 15, m.Warn ? "주의" : "");
+            Put(ws, r, 16, m.WaitAvg, "0.0"); Put(ws, r, 17, m.WaitMax, "0.#"); Put(ws, r, 18, m.WaitVehAvg, "0.0");
             var per = JobPages.PerContainer(v, m);
-            Put(ws, r, 16, m.Trips, "0.#"); Put(ws, r, 17, JobPages.SupplyInterval(v, m), "0"); Put(ws, r, 18, m.DistPerTrip, "0.#");
-            Put(ws, r, 19, m.StockAvg * per, "0"); Put(ws, r, 20, m.StockMin * per, "0"); Put(ws, r, 21, m.StockMax * per, "0");
+            Put(ws, r, 19, m.Trips, "0.#"); Put(ws, r, 20, JobPages.SupplyInterval(v, m), "0"); Put(ws, r, 21, m.DistPerTrip, "0.#");
+            Put(ws, r, 22, m.StockAvg * per, "0"); Put(ws, r, 23, m.StockMin * per, "0"); Put(ws, r, 24, m.StockMax * per, "0");
             r++;
         }
         ws.SheetView.FreezeRows(1); Widths(ws);

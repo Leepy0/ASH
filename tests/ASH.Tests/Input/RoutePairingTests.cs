@@ -126,4 +126,18 @@ public class RouteGroupCheckTests
         p.RouteSheet = "Routes"; // an older workbook's own sheet
         Assert.Equal("Routes!3", Assert.Single(RouteGroupCheck.Check(p, l)).EntityId);
     }
+
+    [Fact]
+    public void Every_Load_Cp_Of_A_List_Is_Judged()
+    {
+        var l = new ASH.Core.Layout.Layout();
+        l.Cps.Add(new LayoutCp { Name = "L001", Type = "load", Group = "G1" });
+        l.Cps.Add(new LayoutCp { Name = "L002", Type = "load", Group = "G2" });
+        l.Cps.Add(new LayoutCp { Name = "U001", Type = "unload", Group = "G1" });
+        var p = new ProjectInput();
+        p.Materials.Add(new MaterialInfo("M001", "", "G1", 60, 1, 1, 1, 1, null, null, false, Row: 3));
+        p.Routes.Add(new Route("M001", "L001", "U001", null, null, null, 0, Row: 3, SupplyFromCPs: new[] { "L001", "L002" }));
+        var f = Assert.Single(RouteGroupCheck.Check(p, l));
+        Assert.Contains("SupplyFromCP: L002", f.Message);
+    }
 }

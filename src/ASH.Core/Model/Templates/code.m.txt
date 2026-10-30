@@ -45,7 +45,7 @@ end
 {{MATERIAL_LOGIC}}
 begin model snap function
 	open "result.tsv" for writing save result as V_out
-	print "kind\tname\tgroup\tvalue1\tvalue2\tvalue3\tvalue4\tvalue5\tvalue6\tvalue7\tvalue8\tvalue9\tvalue10\tvalue11" to V_out
+	print "kind\tname\tgroup\tvalue1\tvalue2\tvalue3\tvalue4\tvalue5\tvalue6\tvalue7\tvalue8\tvalue9\tvalue10\tvalue11\tvalue12\tvalue13\tvalue14\tvalue15" to V_out
 {{SNAP_ROWS}}
 	print "deadlock\tdeadlock\t\t" V_deadlock "\t0\t0\t0\t0\t0\t0\t0" to V_out
 	set V_x to ac

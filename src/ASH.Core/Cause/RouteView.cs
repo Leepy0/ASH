@@ -15,12 +15,25 @@ public sealed record RouteStop(string Name, string Role, string Label, Point2? P
 /// <summary>One leg of the route with the directed shortest way over the paths. Distance and Points are set when it can be driven; otherwise Problem says why ("L003→U001 도달 불가").</summary>
 public sealed record RouteLeg(string From, string To, RouteLegKind Kind, double? Distance, IReadOnlyList<Point2> Points, string? Problem);
 
-public sealed record MaterialRoute(string Material, string Group, IReadOnlyList<RouteStop> Stops, IReadOnlyList<RouteLeg> Legs);
+public sealed record MaterialRoute(string Material, string Group, IReadOnlyList<RouteStop> Stops, IReadOnlyList<RouteLeg> Legs)
+{
+    /// <summary>One trip's distance from each load CP (the load CPs take turns, so their mean is the typical trip): that CP's own first leg + the shared supply
+    /// legs [+ the return legs]. Distance null when one of its legs cannot be driven.</summary>
+    public IReadOnlyList<(string From, double? Distance)> Trips(bool withReturn)
+    {
+        var loads = Stops.Where(s => s.Role == RouteView.LoadRole).Select(s => s.Name).ToList();
+        var legs = Legs.Where(l => l.Kind == RouteLegKind.Supply || (withReturn && l.Kind == RouteLegKind.Return)).ToList();
+        double? Sum(IEnumerable<RouteLeg> ls) => ls.Aggregate((double?)0, (a, l) => a + l.Distance);
+        var shared = Sum(legs.Where(l => !loads.Contains(l.From)));
+        return loads.Select(f => (f, shared + Sum(legs.Where(l => l.From == f)))).ToList();
+    }
+}
 
 /// <summary>Route view: what one material drives (same legs as the detour check): supply from → [buffer] → supply to → [return from → return to], and standby → first stop / last stop → standby.</summary>
 public static class RouteView
 {
     const double ArcStepDeg = 10;
+    public const string LoadRole = "공급 출발";
 
     /// <summary>Null when the material or its route row is missing.</summary>
     public static MaterialRoute? Build(Layout.Layout layout, ProjectInput input, string material)
@@ -29,7 +42,7 @@ public static class RouteView
         var r = input.Routes.FirstOrDefault(x => x.Material == material);
         if (m == null || r == null) return null;
 
-        var chain = new List<(string Name, string Role)> { (r.SupplyFromCP, "공급 출발") };
+        var chain = new List<(string Name, string Role)> { (r.SupplyFromCP, LoadRole) };
         if (!string.IsNullOrEmpty(r.BufferCP)) chain.Add((r.BufferCP!, "버퍼"));
         chain.Add((r.SupplyToCP, "공급 도착"));
         int supplyStops = chain.Count;
@@ -40,11 +53,15 @@ public static class RouteView
         }
         var group = input.Groups.FirstOrDefault(x => x.Group == m.Group);
 
+        // several load CPs take turns: each one starts its own first leg and is reached from standby
+        var froms = r.FromCps;
         var legs = new List<(string From, string To, RouteLegKind Kind)>();
-        for (int i = 1; i < chain.Count; i++) legs.Add((chain[i - 1].Name, chain[i].Name, i < supplyStops ? RouteLegKind.Supply : RouteLegKind.Return));
+        for (int i = 1; i < chain.Count; i++)
+            foreach (var from in i == 1 ? froms : new[] { chain[i - 1].Name })
+                legs.Add((from, chain[i].Name, i < supplyStops ? RouteLegKind.Supply : RouteLegKind.Return));
         foreach (var s in group?.StandbyCPs ?? new List<string>())
         {
-            legs.Add((s, chain[0].Name, RouteLegKind.Standby));
+            foreach (var from in froms) legs.Add((s, from, RouteLegKind.Standby));
             legs.Add((chain[chain.Count - 1].Name, s, RouteLegKind.Standby));
         }
 
@@ -53,11 +70,11 @@ public static class RouteView
         var role = new Dictionary<string, string>();
         var labels = new Dictionary<string, List<int>>();
         for (int i = 0; i < chain.Count; i++)
-        {
-            var (name, rl) = chain[i];
-            if (!role.ContainsKey(name)) { role[name] = rl; order.Add(name); labels[name] = new List<int>(); }
-            labels[name].Add(i + 1);
-        }
+            foreach (var (name, rl) in i == 0 ? froms.Select(f => (f, chain[0].Role)) : new[] { chain[i] })
+            {
+                if (!role.ContainsKey(name)) { role[name] = rl; order.Add(name); labels[name] = new List<int>(); }
+                labels[name].Add(i + 1);
+            }
         foreach (var (name, rl) in (group?.StandbyCPs ?? new List<string>()).Select(s => (s, "대기"))
                      .Concat(string.IsNullOrEmpty(group?.FinishCP) ? Enumerable.Empty<(string, string)>() : new[] { (group!.FinishCP!, "종료") }))
             if (!role.ContainsKey(name)) { role[name] = rl; order.Add(name); labels[name] = new List<int>(); }

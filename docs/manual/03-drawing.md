@@ -72,7 +72,9 @@ CP(Control Point)는 차량이 서거나 판단하는 점이다. 경로 위(0.05
 | rtnload | 복귀 로딩(빈 용기 상차) | RL### | `AGV_CP_RTNLOAD` / 30 주황 | INF |
 | rtnunload | 복귀 언로딩(빈 용기 하차) | RU### | `AGV_CP_RTNUNLOAD` / 6 자홍 | INF |
 | buffer | 버퍼 | B### | `AGV_CP_BUFFER` / 4 하늘 | INF |
-| traffic | 교통(block 앞) | T### | `AGV_CP_TRAFFIC` / 1 빨강 | 1 |
+| traffic | 교통(block 앞) | T### | `AGV_CP_TRAFFIC` / 1 빨강 | INF |
+
+CAP을 1로 바꾼 traffic CP는 `AGV_CP_TRAFFIC_CAP1` 레이어(200 보라)로 옮겨 따로 보인다. 색은 AGVLAYERCOLOR에서 바꾼다.
 
 ### 놓기
 

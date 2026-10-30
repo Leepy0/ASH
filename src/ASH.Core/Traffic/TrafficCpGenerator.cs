@@ -95,7 +95,7 @@ public static class TrafficCpGenerator
             if (l.Cps.Concat(cps).Any(c => c.Position.DistanceTo(pos) <= dup)) return;
             var n = AutoNamer.Next("T", names);
             names.Add(n);
-            cps.Add(new LayoutCp { Name = n, Type = "traffic", Cap = 1, Position = pos });
+            cps.Add(new LayoutCp { Name = n, Type = "traffic", Cap = CpTypes.DefaultCap("traffic"), Position = pos });
         }
 
         if (l.Blocks.Count == 0) warns.Add("block이 없습니다. AGVBLOCKAUTO를 먼저 실행하세요.");

@@ -104,4 +104,34 @@ public class LimitTests
         Assert.Contains(">중단</span>", page);
         Assert.Contains("<b>+0%까지 통과</b>", page);
     }
+
+    [Fact]
+    public async Task A_Cycle_Group_Runs_The_Model_Of_Its_Decided_Count()
+    {
+        using var env = new JobEnv();
+        var j = await env.WaitFinished(await env.SendFiled("생산 증설", "A안", addFiles: JobEnv.CycleG1));
+        env.Film.Result = r => Result(r, false); // +0 % and +10 % fail: two steps
+        await Post(env, $"/jobs/{j.Id}/limit", $"/analyses/{j.AnalysisId}?tab=conclusion&job={j.Id}");
+        var info = await JobEnv.Until(() => LimitWorker.Read(env.Store, j.Id) is { Done: true } x ? x : null);
+        Assert.Null(info.Error);
+        Assert.Equal(new[] { 0, 10 }, info.Steps.Select(s => s.Pct));
+        var runs = LimitRuns(env);
+        Assert.NotEmpty(runs);
+        Assert.All(runs, r => Assert.Equal("m_c2", r.ModelName)); // G1 decided at 2: never the base model with an idle third vehicle
+        Assert.Contains("numveh 2", File.ReadAllText(Path.Combine(env.Store.ProjectDir(j.Id), "m_c2.arc", "agv.asy")));
+    }
+
+    [Fact]
+    public void A_Follow_Failure_Is_Named_After_Deadlock_With_The_Station_Followed_Least()
+    {
+        Assert.Equal("뒤차 대기", LimitWorker.RuleName(RuleCode.Follow));
+        Assert.Equal(new[] { RuleCode.Deadlock, RuleCode.Follow, RuleCode.Utilization },
+            new[] { RuleCode.Utilization, RuleCode.Follow, RuleCode.Deadlock }.OrderBy(LimitWorker.Order));
+        static MaterialResult M(string station, double swaps, double follow) => new("M001@" + station, "G2", 1, 2, 3, 4, 0, 4, SwapN: swaps, FollowN: follow);
+        static ResultSet Rs(params MaterialResult[] m) => new(m, new[] { new GroupResult("G2", 2) }, new BlockResult[0], 0, 3600, new ResultRow[0]);
+        // over two seeds: U001 18/20, U002 14/20 = 70 %, U003 no swaps (left out)
+        var sets = new List<ResultSet> { Rs(M("U001", 10, 9), M("U002", 10, 6), M("U003", 0, 0)), Rs(M("U001", 10, 9), M("U002", 10, 8), M("U003", 0, 0)) };
+        Assert.Equal("M001@U002 70%", LimitWorker.Worst(RuleCode.Follow, new List<string> { "G2" }, sets));
+        Assert.Equal("", LimitWorker.Worst(RuleCode.Follow, new List<string> { "G2" }, new List<ResultSet> { Rs(M("U001", double.NaN, double.NaN)) }));
+    }
 }

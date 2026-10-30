@@ -90,6 +90,18 @@ public class ResultJudgeTests
     }
 
     [Fact]
+    public void ResultParser_Reads_The_Supply_Wait_Values_NaN_When_The_Row_Has_None()
+    {
+        const string H = "kind\tname\tgroup\tvalue1\nclock\tclock\t\t0\t5\n";
+        // a row from a model built before value9..15: the new fields are unknown, not 0
+        var old = Assert.Single(ResultParser.Parse(W(H + "material\tM001\tG1\t1\t2\t3\t4\t5\t6\t7\t8\n")).Materials);
+        Assert.Equal(6, old.Consumed);
+        Assert.All(new[] { old.WaitAvg, old.WaitMax, old.WaitVehAvg, old.SwapN, old.SwapSum, old.SwapMax, old.FollowN }, x => Assert.True(double.IsNaN(x)));
+        var m = Assert.Single(ResultParser.Parse(W(H + "material\tM001\tG1\t1\t2\t3\t4\t5\t6\t7\t8\t9\t10\t11\t12\t13\t14\t15\n")).Materials);
+        Assert.Equal((9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0), (m.WaitAvg, m.WaitMax, m.WaitVehAvg, m.SwapN, m.SwapSum, m.SwapMax, m.FollowN));
+    }
+
+    [Fact]
     public void Judge_Fails_On_Stop_Time_Even_If_Ratio_Ok()
     {
         var v = Judge.Evaluate(new[] { K(stock: 5, stop: 120) }, S);
@@ -180,6 +192,102 @@ public class ResultJudgeTests
     {
         Assert.Equal(RuleCode.NoResult, Judge.Evaluate(new[] { K(util: double.NaN) }, S).Rule);
         Assert.Equal(RuleCode.NoResult, Judge.Evaluate(new[] { K(stock: double.NaN) }, S).Rule);
+    }
+
+    [Fact]
+    public void Judge_Keeps_The_Call_Group_Reasons()
+    {
+        Assert.Equal(new Verdict(false, "가동률 초과: 90 % > 75 %", RuleCode.Utilization), Judge.Evaluate(new[] { K(util: 0.9) }, S)); // invariant P0 puts a space
+        Assert.Equal(new Verdict(false, "재고 부족(공정 정지 120초)", RuleCode.StopTime), Judge.Evaluate(new[] { K(stop: 120) }, S));
+        Assert.Equal(new Verdict(false, "생산 미달: 소비 9 < 이론 10의 95%", RuleCode.Supply), Judge.Evaluate(new[] { K(con: 9) }, S));
+        Assert.Equal(new Verdict(false, "교착 1건", RuleCode.Deadlock), Judge.Evaluate(new[] { K(dead: 1) }, S));
+        Assert.Equal(new Verdict(true, "주의: 평균 최소재고가 안전재고의 0.8배", RuleCode.None), Judge.Evaluate(new[] { K(stock: 0.8) }, S));
+        // a call kpi with a follow rate (it never has one) is still judged by the call rules
+        Assert.Equal(RuleCode.Utilization, Judge.Evaluate(new[] { K(util: 0.9) with { FollowRate = 0.1 } }, S).Rule);
+    }
+
+    static RunKpi C(double follow, double stop = 0, int dead = 0) => K(stop: stop, dead: dead) with { Cycle = true, FollowRate = follow };
+
+    [Fact]
+    public void Judge_Cycle_Group_On_Follow_Rate()
+    {
+        Assert.Equal(new Verdict(true, "", RuleCode.None), Judge.Evaluate(new[] { C(0.96) }, S));
+        Assert.Equal(new Verdict(false, "뒤차 대기 90% < 95%", RuleCode.Follow), Judge.Evaluate(new[] { C(0.90) }, S));
+        Assert.Equal(new Verdict(false, "교체 없음", RuleCode.Follow), Judge.Evaluate(new[] { C(double.NaN), C(double.NaN) }, S));
+        // the rounded rate would equal the rounded threshold: one decimal tells them apart
+        Assert.Equal(new Verdict(false, "뒤차 대기 94.9% < 95.0%", RuleCode.Follow), Judge.Evaluate(new[] { C(0.949) }, S));
+        // a model from before the swap values: say how to get them
+        Assert.Equal(new Verdict(false, "교체 없음 · AGVMODEL로 모델 다시 만들기", RuleCode.Follow),
+            Judge.Evaluate(new[] { C(double.NaN) with { NoSwapValues = true } }, S));
+        // a process stop is a note for a cycle group, not a failure
+        Assert.Equal(new Verdict(true, "주의: 공정 정지 30초", RuleCode.None), Judge.Evaluate(new[] { C(0.96, stop: 30) }, S));
+        // replications averaged, a replication without swaps left out: (0.9 + 1.0) / 2 = 0.95 passes
+        Assert.True(Judge.Evaluate(new[] { C(0.9), C(double.NaN), C(1.0) }, S).Ok);
+        Assert.Equal(RuleCode.Follow, Judge.Evaluate(new[] { C(0.96) }, new ASH.Core.Input.Settings { CycleFollowRate = 0.97 }).Rule);
+        // utilization, production and stock rules do not apply
+        Assert.True(Judge.Evaluate(new[] { K(util: 0.99, stock: 0.1, con: 0) with { Cycle = true, FollowRate = 1 } }, S).Ok);
+    }
+
+    [Fact]
+    public void Judge_Cycle_Group_Order_Is_NoResult_Deadlock_Follow()
+    {
+        Assert.Equal(new Verdict(false, "교착 1건", RuleCode.Deadlock), Judge.Evaluate(new[] { C(0.5, dead: 1) }, S));
+        Assert.Equal(RuleCode.NoResult, Judge.Evaluate(new[] { C(0.5, dead: 1) with { Utilization = double.NaN } }, S).Rule);
+        Assert.Equal(RuleCode.NoResult, Judge.Evaluate(Array.Empty<RunKpi>(), S).Rule);
+    }
+
+    static ResultSet Swaps(params string[] rows) =>
+        ResultParser.Parse(W("kind\tname\tgroup\tvalue1\nclock\tclock\t\t0\t5\n" + string.Concat(rows.Select(r => r + "\n")))) with { Groups = new[] { new GroupResult("G1", 2) } };
+
+    [Fact]
+    public void Kpi_Cycle_Group_Follow_Rate_And_Swap_Times()
+    {
+        var input = LogicGeneratorTests.Sample();
+        input.Groups[0] = input.Groups[0] with { SupplyMode = "Cycle" };
+        // value12..15 = SwapN, SwapSum, SwapMax, FollowN: M1 9 of 10 swaps followed, M2 10 of 10
+        var k = Kpi.FromRun(Swaps("material\tM1\tG1\t1\t2\t3\t4\t0\t4\t0\t0\t0\t0\t0\t10\t300\t50\t9",
+            "material\tM2\tG1\t1\t2\t3\t4\t0\t4\t0\t0\t0\t0\t0\t10\t500\t80\t10"), null, input).Single();
+        Assert.True(k.Cycle);
+        Assert.Equal(0.95, k.FollowRate, 9);
+        Assert.Equal((40.0, 80.0), (k.SwapAvgSec, k.SwapMaxSec)); // (300 + 500) / 20, max
+        // no swaps at all (no vehicle active, or too short a run): no rate, and the judge says so instead of dividing by zero
+        var none = Kpi.FromRun(Swaps("material\tM1\tG1\t1\t2\t3\t4\t0\t4\t0\t0\t0\t0\t0\t0\t0\t0\t0",
+            "material\tM2\tG1\t1\t2\t3\t4\t0\t4\t0\t0\t0\t0\t0\t0\t0\t0\t0"), null, input).Single();
+        Assert.All(new[] { none.FollowRate, none.SwapAvgSec, none.SwapMaxSec }, x => Assert.True(double.IsNaN(x)));
+        Assert.Equal(new Verdict(false, "교체 없음", RuleCode.Follow), Judge.Evaluate(new[] { none with { Utilization = 0 } }, S));
+        // a model from before the swap values, and a call group (SwapN 0): blank, not a rate
+        var old = Kpi.FromRun(Swaps("material\tM1\tG1\t1\t2\t3\t4\t0\t4", "material\tM2\tG1\t1\t2\t3\t4\t0\t4"), null, input).Single();
+        Assert.True(double.IsNaN(old.FollowRate) && double.IsNaN(old.SwapMaxSec));
+        Assert.True(old.NoSwapValues); Assert.False(none.NoSwapValues);
+        var call = Kpi.FromRun(Swaps("material\tM1\tG1\t1\t2\t3\t4\t0\t4\t0\t0\t0\t0\t0\t0\t0\t0\t0", "material\tM2\tG1\t1\t2\t3\t4\t0\t4"), null,
+            LogicGeneratorTests.Sample()).Single();
+        Assert.False(call.Cycle);
+        Assert.All(new[] { call.FollowRate, call.SwapAvgSec, call.SwapMaxSec }, x => Assert.True(double.IsNaN(x)));
+    }
+
+    [Fact]
+    public void Summary_Swap_Columns_Read_Back_And_An_Old_File_Still_Reads()
+    {
+        var p = Path.Combine(Path.GetTempPath(), "ash_sum_" + Guid.NewGuid().ToString("N"), "summary.tsv");
+        var cycle = new SummaryRow("n2_s1", "G2", 2, 1, true, "", 0.4, 2, 10, 10, 0, 0, 5, "G1=1;G2=2", 0.95, 40.5, 80);
+        var call = cycle with { Group = "G1", Active = 1, FollowRate = double.NaN, SwapAvgSec = double.NaN, SwapMaxSec = double.NaN };
+        SummaryTsv.Append(p, cycle); SummaryTsv.Append(p, call);
+        var lines = File.ReadAllLines(p);
+        Assert.EndsWith("\tscenario\tfollowRate\tswapAvgSec\tswapMaxSec", lines[0]);
+        Assert.EndsWith("\tG1=1;G2=2\t0.95\t40.5\t80", lines[1]);
+        Assert.EndsWith("\tG1=1;G2=2\t\t\t", lines[2]); // a call group's are blank
+        Assert.Equal(new[] { cycle, call }, SummaryTsv.ReadAll(p));
+
+        // a summary.tsv written before the swap columns: read with NaN, and appending to it still works
+        File.WriteAllText(p, "runId\tgroup\tactive\tseed\tok\treason\tutilization\tminStockRatio\tsupplies\texpected\tstopTimeSec\tdeadlocks\tdurationSec\tscenario\n"
+            + "n1_s1\tG1\t1\t1\t1\t\t0.55\t1.8\t3\t5.5\t0\t0\t1.25\tG1=1\n");
+        var old = new SummaryRow("n1_s1", "G1", 1, 1, true, "", 0.55, 1.8, 3, 5.5, 0, 0, 1.25, "G1=1");
+        Assert.Equal(new[] { old }, SummaryTsv.ReadAll(p));
+        Assert.True(double.IsNaN(SummaryTsv.ReadAll(p)[0].FollowRate));
+        SummaryTsv.Append(p, cycle);
+        Assert.Equal(new[] { old, cycle }, SummaryTsv.ReadAll(p, out var skipped));
+        Assert.Equal(0, skipped);
+        Directory.Delete(Path.GetDirectoryName(p)!, true);
     }
 
     [Fact]

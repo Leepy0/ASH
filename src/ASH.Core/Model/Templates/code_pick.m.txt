@@ -1,0 +1,4 @@
+	if ac >= V_warmup then begin
+		tabulate ac - A_tCall in T_pick_{{M}}
+		if V_events = 1 then print ac "\tpick\t{{NAME}}\t{{FROM}}\t" ac - A_tCall to V_ev
+	end

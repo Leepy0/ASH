@@ -3,9 +3,13 @@ using System.Collections.Generic;
 namespace ASH.Core.Runner;
 
 /// <summary>Supplies = deliveries after warmup; Consumed = containers consumed after warmup (value6); Expected = theoretical consumption.
-/// The raw row also carries value7 = distance and value8 = count of the material's supply jobs (0 in models built before them).</summary>
+/// The raw row also carries value7 = distance and value8 = count of the material's supply jobs (0 in models built before them).
+/// value9..15 (NaN in models built before them), sampled once per takt after warmup: WaitAvg / WaitMax = containers on vehicles held for the
+/// unload threshold, WaitVehAvg = those vehicles; SwapN / SwapSum / SwapMax = cycle-supply swaps at the station (count, seconds), FollowN = swaps
+/// by a vehicle already waiting behind (0 for call supply).</summary>
 public sealed record MaterialResult(string Name, string Group, double MinStock, double AvgStock, int Supplies, double Expected, double StopTimeSec,
-    double Consumed);
+    double Consumed, double WaitAvg = double.NaN, double WaitMax = double.NaN, double WaitVehAvg = double.NaN, double SwapN = double.NaN,
+    double SwapSum = double.NaN, double SwapMax = double.NaN, double FollowN = double.NaN);
 public sealed record GroupResult(string Group, int ActiveCount);
 public sealed record BlockResult(string Name, double Passes, double AvgWaitSec, double MaxWaitSec, double Utilization);
 

@@ -37,9 +37,11 @@ public static class Conventions
     public static string DirBlockFor(bool spur, bool twoWay, bool crab) => twoWay ? DirTwoBlockName : spur ? DirSpurBlockName : crab ? DirCrabBlockName : DirBlockName;
     /// <summary>Length of the arrow block definitions (meters); the inserted size is ArrowSize / this.</summary>
     public const double ArrowDefMeters = 0.6;
-    /// <summary>One layer per CP type (AGV_CP_LOAD, ...) so each type has its own colour and can be switched off; unknown types and old drawings use AGV_CP.</summary>
-    public static string LayerCpFor(string? type)
+    /// <summary>One layer per CP type (AGV_CP_LOAD, ...) so each type has its own colour and can be switched off; unknown types and old drawings use AGV_CP.
+    /// A traffic CP at CAP 1 has its own layer (AGV_CP_TRAFFIC_CAP1).</summary>
+    public static string LayerCpFor(string? type, int cap = ASH.Core.Traffic.CpTypes.Infinity)
     {
+        if (ASH.Core.Traffic.CpTypes.IsSingleTraffic(type, cap)) return ASH.Core.Traffic.CpTypes.SingleTrafficLayer;
         var t = (type ?? "").Trim().ToLowerInvariant();
         return System.Array.IndexOf(ASH.Core.Traffic.CpTypes.All, t) >= 0 ? LayerCpPrefix + t.ToUpperInvariant() : LayerCp;
     }

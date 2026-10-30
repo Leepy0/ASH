@@ -17,6 +17,7 @@ public sealed record PackageFile(string Path, long Size, string Sha256);
 /// input.cells.tsv. The workbook itself is not sent: company document encryption leaves it readable by Excel only, and the snapshot is exactly what the model
 /// was built from. The server builds the model itself, so no .exe or .dir is needed. The same rules check the zip on the server.
 /// The source form (<see cref="CreateSource"/>) carries layout.tsv and ash.settings.tsv instead of the .arc: the server then makes the model too (SourceBuild).
+/// The model form carries them too when the folder has them: a cycle group's per-count models are made from them (ModelVariants).
 /// </summary>
 public static class JobPackage
 {
@@ -66,8 +67,11 @@ public static class JobPackage
             if (Path.GetFileName(f).IndexOf(".asy.bak", StringComparison.OrdinalIgnoreCase) < 0) // ExportRunner's backups (<x>.asy.bak.<time>) stay at home
                 files.Add((model + ".arc/" + f.Substring(arc.Length + 1).Replace(Path.DirectorySeparatorChar, '/'), f));
         // ash.settings.tsv: the server does not use it (its AmHome is this PC's); it only travels so continue.zip hands it back
+        // (and, with layout.tsv, for a cycle group's per-count models: units, origin and scale)
         var settings = Path.Combine(projectDir, SettingsInPackage);
         if (File.Exists(settings)) files.Add((SettingsInPackage, settings));
+        var layout = Path.Combine(projectDir, ASH.Core.Layout.LayoutSnapshot.FileName);
+        if (File.Exists(layout)) files.Add((ASH.Core.Layout.LayoutSnapshot.FileName, layout));
         files.Add((CellDump.FileName, Path.Combine(projectDir, CellDump.FileName)));
         AddDrawing(files, projectDir, dwgPath);
         if (includeResults)

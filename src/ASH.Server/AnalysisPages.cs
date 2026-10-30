@@ -28,7 +28,7 @@ public static class AnalysisPages
         if (j.State != JobState.Done || j.Decided == null) return null;
         var v = JobView.For(js, j);
         if (v.Input == null) return null;
-        var utils = v.Groups.Select(g => g.Util).Where(u => !double.IsNaN(u)).ToList();
+        var utils = v.Groups.Where(g => g.HasUtil).Select(g => g.Util).ToList();
         var stops = v.Materials.Select(m => m.StopSec).Where(s => !double.IsNaN(s)).ToList();
         return new Metrics(j.Decided.Values.Sum(), utils.Count == 0 ? double.NaN : utils.Max(), stops.Count == 0 ? double.NaN : stops.Sum(), v, prices == null ? null : InvestmentOf(v.Input, j.Decided, prices));
     }
@@ -180,7 +180,7 @@ public static class AnalysisPages
 .gr.g-fail{--c:var(--red);background:var(--red-b);color:var(--red);border-radius:6px}.gr.g-over{--c:var(--orange);background:var(--orange-b);color:var(--orange);border-radius:6px}.wn{color:var(--orange)}.gr.g-under{--c:var(--gray);color:var(--sub2)}.gr.g-ok{--c:var(--blue)}
 .gr .gn{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.gr .gb{position:relative;height:6px;border-radius:3px;background:var(--fill)}
 .gr .gb i{display:block;height:100%;border-radius:3px;background:var(--c)}.gr .gb b{position:absolute;top:-5px;bottom:-5px;width:2px;background:var(--ink);opacity:.55}
-.gr .gc{text-align:right;font-weight:700;font-size:17px}.gr .gc span,.pr .v b span{font-size:12px;font-weight:600}.gr .gu{text-align:right;font-size:13px;color:var(--c)}.gr.g-ok .gu{color:var(--sub2)}
+.gr .gf{font-size:12px;line-height:1.35;color:var(--sub2)}.gr .gc{text-align:right;font-weight:700;font-size:17px}.gr .gc span,.pr .v b span{font-size:12px;font-weight:600}.gr .gu{text-align:right;font-size:13px;color:var(--c)}.gr.g-ok .gu{color:var(--sub2)}
 .lg{display:flex;gap:14px;justify-content:center;font-size:13px;color:var(--sub2);padding-top:10px}.lg i{display:inline-block;width:10px;height:10px;border-radius:2px;background:var(--c);margin-right:4px}
 .pl{display:flex;flex-direction:column;gap:8px}
 .pr{display:grid;grid-template-columns:minmax(0,1fr) repeat(4,64px);align-items:center;gap:6px;border:1px solid var(--line);border-radius:12px;padding:8px 14px;color:var(--ink);text-decoration:none}
@@ -323,7 +323,7 @@ public static class AnalysisPages
 
     /// <summary>"fail" (red ⚠: judgement failed), "over" (orange ▲ warning: above UtilMax), "under" (gray ▼: below 10 %) or "ok" (blue).</summary>
     internal static string GroupClass(GroupView g, double utilMax) =>
-        !g.AllOk ? "fail" : Over(g, utilMax) ? "over" : !double.IsNaN(g.Util) && g.Util < UnderUtil ? "under" : "ok";
+        !g.AllOk ? "fail" : Over(g, utilMax) ? "over" : g.HasUtil && g.Util < UnderUtil ? "under" : "ok";
 
     /// <summary>Groups with the problems first: failed, over (busiest first), then under (idlest first), then the rest in input order.</summary>
     internal static List<GroupView> ProblemsFirst(IEnumerable<GroupView> groups, double utilMax) =>
@@ -376,7 +376,7 @@ public static class AnalysisPages
         sb.Append(Kpi("권장 대수", total.ToString(CultureInfo.InvariantCulture), "대", "blue",
             diff is { } df ? df == 0 ? $"{H(other.Name)} 대비 동일" : $"{H(other.Name)}보다 {Math.Abs(df)}대 {(df < 0 ? "적음" : "많음")}" : $"시험 {v.Input.Groups.Sum(g => g.MinCount)}~{v.Input.Groups.Sum(g => g.MaxCount)}대",
             diff is < 0 ? "green" : ""));
-        var top = v.Groups.Where(g => !double.IsNaN(g.Util)).OrderByDescending(g => g.Util).FirstOrDefault();
+        var top = v.Groups.Where(g => g.HasUtil).OrderByDescending(g => g.Util).FirstOrDefault();
         var over = top != null && Over(top, v.UtilMax);
         sb.Append(Kpi("최대 가동률", top == null ? "-" : F(top.Util * 100, "0"), top == null ? "" : "%", over ? "orange" : "ink",
             ""));
@@ -403,9 +403,11 @@ public static class AnalysisPages
             var c = GroupClass(g, v.UtilMax);
             var sym = c == "fail" ? "⚠ " : c == "over" ? "▲ " : c == "under" ? "▼ " : "";
             var w = double.IsNaN(g.Util) ? 0 : Math.Clamp(g.Util, 0, 1);
-            var tip = $"{g.Group} · {g.Type} · 범위 {g.Min}~{g.Max}대" + (c == "fail" ? " · 실패: " + g.Reason : c == "over" ? " · 경고: 가동률 초과" : "");
-            sb.Append($"<div class=\"gr g-{c}\" title=\"{H(tip)}\"><span class=\"gn\">{H(g.Group)}</span><span class=\"gb\"><i style=\"width:{F(w * 100, "0.#")}%\"></i><b style=\"left:{tick}%\"></b></span>" +
-                $"<span class=\"gc\">{g.Decided?.ToString(CultureInfo.InvariantCulture) ?? "-"}<span>대</span></span><span class=\"gu\">{sym}{Pc0(g.Util)}</span></div>");
+            var tip = $"{g.Group} · {g.Type} · 범위 {g.Min}~{g.Max}대" + (c == "fail" ? " · 실패: " + g.Reason : c == "over" ? " · 경고: 가동률 초과" : g.Cycle ? " · 권장 사유 뒤차 대기 ≥ " + RatePct(v.FollowMin) : "");
+            // a cycle group is judged on its follow rate: its numbers take the bar's place, no utilization
+            var bar = g.Cycle ? $"<span class=\"gf\">{CycleText(g)}</span>" : $"<span class=\"gb\"><i style=\"width:{F(w * 100, "0.#")}%\"></i><b style=\"left:{tick}%\"></b></span>";
+            sb.Append($"<div class=\"gr g-{c}\" title=\"{H(tip)}\"><span class=\"gn\">{H(g.Group)}</span>{bar}" +
+                $"<span class=\"gc\">{g.Decided?.ToString(CultureInfo.InvariantCulture) ?? "-"}<span>대</span></span><span class=\"gu\">{sym}{(g.Cycle ? "" : Pc0(g.Util))}</span></div>");
         }
         int nFail = groups.Count(g => GroupClass(g, v.UtilMax) == "fail"), nOver = groups.Count(g => GroupClass(g, v.UtilMax) == "over"), nUnder = groups.Count(g => GroupClass(g, v.UtilMax) == "under");
         sb.Append($"</div><div class=\"lg\">{(nFail > 0 ? $"<span class=\"c-red\"><i></i>실패 {nFail}</span>" : "")}<span class=\"c-orange\"><i></i>경고: 상한 {F(v.UtilMax * 100, "0")}% 초과 {nOver}</span><span class=\"c-blue\"><i></i>적정 {groups.Count - nFail - nOver - nUnder}</span>" +

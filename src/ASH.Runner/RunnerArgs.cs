@@ -7,7 +7,7 @@ namespace ASH.Runner;
 public sealed record RunnerArgs(string ProjectDir, string Model, string? AmHome = null, int Parallel = 2, string? DialogButton = null,
     int TimeoutMin = 30, int InitialReps = 1, bool Impact = false, bool Debug = false, bool Append = false, string? Server = null, bool NoUpdate = false)
 {
-    public const string Usage = "usage: ash-run <ProjectDir> --model <name> [--am-home <AutoMod dir>] [--parallel 2] [--dialog-button \"Student Version\"] [--timeout-min 30] [--initial-reps 1] [--impact] [--append] [--debug] [--server <http://host:port>] [--no-update]\n       ash-run --update [--server <http://host:port>]   (check the server and update ash-run now)\n       ash-run --version";
+    public const string Usage = "usage: ash-run <ProjectDir> --model <name> [--am-home <AutoMod dir>] [--parallel 2] [--dialog-button \"Student Version\"] [--timeout-min 30] [--initial-reps 1] [--impact] [--append] [--debug] [--server <http://host:port>] [--no-update]\n       (a project with a Cycle group needs --am-home: each vehicle count runs in its own model, built here)\n       ash-run --update [--server <http://host:port>]   (check the server and update ash-run now)\n       ash-run --version";
 
     /// <summary>Null result = error (message in <paramref name="error"/>).</summary>
     public static RunnerArgs? Parse(string[] args, out string? error)

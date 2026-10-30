@@ -20,6 +20,17 @@ public static class JobPages
     internal static string Cost(InvestmentView? inv) => inv is not { AnyPriced: true } ? "-" : Won(inv.Total);
     /// <summary>Percent without the sign, for table cells whose header carries "(%)".</summary>
     internal static string P(double d) => double.IsNaN(d) ? "-" : (d * 100).ToString("0.0", CultureInfo.InvariantCulture);
+    /// <summary>A share as a whole percent with the sign and no space, as the verdict text writes it ("96%"); "-" when unknown.</summary>
+    internal static string RatePct(double r) => double.IsNaN(r) ? "-" : F(r * 100, "0") + "%";
+    /// <summary>A cycle group's numbers in place of its utilization: "뒤차 대기 96% · 교체 평균 12초 · 교체 최대 40초" ("-" for what is unknown).
+    /// Trusted text (literals and formatted numbers): HTML-encoding it would turn the "·" into an entity.</summary>
+    internal static string CycleText(GroupView g) =>
+        $"뒤차 대기 {RatePct(g.FollowRate)} · 교체 평균 {Sec(g.SwapAvg)} · 교체 최대 {Sec(g.SwapMax)}";
+    static string Sec(double s) => double.IsNaN(s) ? "-" : F(s, "0") + "초";
+    /// <summary>" · 공급 대기 평균 1.5" for the stock line of a material; nothing for a result from before the wait values.</summary>
+    internal static string WaitNote(MaterialView m) => double.IsNaN(m.WaitAvg) ? "" : " · 공급 대기 평균 " + F(m.WaitAvg, "0.0");
+    /// <summary>True when the job has a cycle-supply group: its lead times start at the start of the run, not at a call.</summary>
+    internal static bool AnyCycle(JobView v) => v.Groups.Any(g => g.Cycle);
     internal static string When(DateTime? utc) => utc is { } t ? SeoulTime.Text(t) : "-";
     internal static string Dur(TimeSpan? d) => d is { } x ? (x.TotalHours >= 1 ? $"{(int)x.TotalHours}시간 {x.Minutes}분" : x.TotalMinutes >= 1 ? $"{(int)x.TotalMinutes}분 {x.Seconds}초" : $"{x.Seconds}초") : "-";
 
@@ -144,7 +155,10 @@ document.querySelectorAll('table.sort').forEach(function(t){
 </script>";
 
     /// <summary>A header cell the sort script can sort by.</summary>
-    internal static string Th(string label) => $"<th aria-sort=\"none\"><button type=\"button\">{label}</button></th>";
+    /// <summary>A sortable header; <paramref name="note"/> (trusted text) sits beside the button, outside the sort control.</summary>
+    internal static string Th(string label, string note = "") => $"<th aria-sort=\"none\"><button type=\"button\">{label}</button>{(note.Length == 0 ? "" : $" <small class=\"muted\">{note}</small>")}</th>";
+    /// <summary>The lead-time note of a job with a cycle group, else nothing.</summary>
+    internal static string LeadNote(JobView v) => AnyCycle(v) ? "순환: 운행 시작 기준" : "";
 
     // sidebar entries: key, label, link, icon colour, icon path (24px grid)
     static readonly (string Key, string Label, string Href, string Color, string Icon)[] Nav =
@@ -445,7 +459,7 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
         }
         int total = j.Decided.Values.Sum(), min = v.Input.Groups.Sum(g => g.MinCount), max = v.Input.Groups.Sum(g => g.MaxCount);
         bool allOk = v.Groups.All(g => g.AllOk);
-        var top = v.Groups.Where(g => !double.IsNaN(g.Util)).OrderByDescending(g => g.Util).FirstOrDefault();
+        var top = v.Groups.Where(g => g.HasUtil).OrderByDescending(g => g.Util).FirstOrDefault();
         bool topOver = top != null && Over(top, v.UtilMax);
         double stop = v.Materials.Where(m => !double.IsNaN(m.StopSec)).Sum(m => m.StopSec);
 
@@ -474,16 +488,20 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
         foreach (var g in v.Groups.OrderBy(g => !g.AllOk ? 0 : Over(g, v.UtilMax) ? 1 : 2))
         {
             var w = double.IsNaN(g.Util) ? 0 : Math.Min(1, g.Util);
-            bool over = Over(g, v.UtilMax), under = !double.IsNaN(g.Util) && g.Util < 0.10;
+            bool over = Over(g, v.UtilMax), under = g.HasUtil && g.Util < 0.10;
             var bc = over ? " o" : under ? " g" : "";
             var sym = over ? " <span class=\"sym o\" title=\"경고: 가동률 상한 초과\">▲</span>" : under ? " <span class=\"sym g\" title=\"10% 미만\">▼</span>" : "";
             var vg = byGroup.GetValueOrDefault(g.Group);
             var verdict = !g.AllOk ? $"<td class=\"bad\">▲ 실패: {H(g.Reason)}</td>" : over ? "<td class=\"wn\">⚠ 경고: 가동률 초과</td>" : "<td class=\"ok\">✓ 통과</td>";
+            // a cycle group is judged on its follow rate: the cell carries that and the swap seconds, no utilization bar
+            var utilCell = g.Cycle ? $"<td>{CycleText(g)}</td>"
+                : $"<td><span class=\"bar{bc}\"><i style=\"width:{F(w * 100, "0.#")}%\"></i><b style=\"left:{F(Math.Min(1, v.UtilMax) * 100, "0.#")}%\"></b></span> {P(g.Util)}{sym}</td>";
             sb.Append($"<tr{(!g.AllOk ? " class=\"over\"" : over ? " class=\"ow\"" : under ? " class=\"under\"" : "")}><td>{H(g.Group)}</td><td>{H(g.Type)}</td><td><b>{(g.Decided?.ToString(CultureInfo.InvariantCulture) ?? "-")}</b></td><td>{g.Min}~{g.Max}</td>" +
-                $"<td><span class=\"bar{bc}\"><i style=\"width:{F(w * 100, "0.#")}%\"></i><b style=\"left:{F(Math.Min(1, v.UtilMax) * 100, "0.#")}%\"></b></span> {P(g.Util)}{sym}</td>" +
-                $"<td>{SplitBar(vg?.Split, v.UtilMax)}</td><td>{F(g.MinStockRatio)}</td><td>{(vg == null ? "-" : F(vg.Jobs * vg.Count, "0"))}</td><td>{(vg == null ? "-" : F(vg.Distance * vg.Count / 1000, "0.0"))}</td><td>{(vg == null ? "-" : F(vg.DistPerJob, "0.#"))}</td>{verdict}</tr>");
+                utilCell +
+                $"<td>{(g.Cycle ? "-" : SplitBar(vg?.Split, v.UtilMax))}</td><td>{F(g.MinStockRatio)}</td><td>{(vg == null ? "-" : F(vg.Jobs * vg.Count, "0"))}</td><td>{(vg == null ? "-" : F(vg.Distance * vg.Count / 1000, "0.0"))}</td><td>{(vg == null ? "-" : F(vg.DistPerJob, "0.#"))}</td>{verdict}</tr>");
         }
-        sb.Append($"</tbody></table></div><div class=\"t4\">▲ 상한 초과(경고) · ▼ 10% 미만 · 세로선 = 가동률 상한 {Pct(v.UtilMax)} · 공급·거리·시간 내역 = 권장 대수 차량의 합</div>");
+        sb.Append($"</tbody></table></div><div class=\"t4\">▲ 상한 초과(경고) · ▼ 10% 미만 · 세로선 = 가동률 상한 {Pct(v.UtilMax)} · 공급·거리·시간 내역 = 권장 대수 차량의 합" +
+            (AnyCycle(v) ? $" · 순환 그룹 기준 = 뒤차 대기율 {RatePct(v.FollowMin)} 이상" : "") + "</div>");
         if (byGroup.Values.Any(x => x.Split != null)) sb.Append(SplitLegend(v.UtilMax));
         sb.Append("</div>");
         RerunPage.Box(sb, j, v, canRerun);
@@ -499,14 +517,16 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
         if (v.Materials.Count > 0)
         {
             sb.Append("<div class=\"box\"><h2>자재별 리드타임·재고</h2><div class=\"scroll\"><table class=\"sort\"><thead><tr>").Append(Th("자재")).Append(Th("그룹")).Append(Th("공급/기대(회)")).Append(Th("자재 품절 시간(초)"))
-              .Append(Th("호출→상차 평균/최대(초)")).Append(Th("호출→하차 평균/최대(초)")).Append(Th("재고 평균(용기)")).Append(Th("표준편차(용기)")).Append(Th("최소(용기)")).Append(Th("최대(용기)")).Append(Th("주의")).Append("</tr></thead><tbody>");
+              .Append(Th("호출→상차 평균/최대(초)", LeadNote(v))).Append(Th("호출→하차 평균/최대(초)")).Append(Th("재고 평균(용기)")).Append(Th("표준편차(용기)")).Append(Th("최소(용기)")).Append(Th("최대(용기)"))
+              .Append(Th("공급 대기 평균")).Append(Th("공급 대기 최대")).Append(Th("대기 차량")).Append(Th("재고+대기 평균")).Append(Th("주의")).Append("</tr></thead><tbody>");
             foreach (var m in v.Materials)
                 sb.Append($"<tr><td>{H(MatLabel(v, m))}</td><td>{H(m.Group)}</td><td class=\"num\">{F(m.Supplies, "0.#")} / {F(m.Expected, "0.#")}</td><td class=\"num\">{F(m.StopSec, "0")}</td>" +
                     $"<td class=\"num\">{F(m.PickAvg, "0.0")} / {F(m.PickMax, "0.0")}</td><td class=\"num\">{F(m.DelivAvg, "0.0")} / {F(m.DelivMax, "0.0")}</td>" +
                     $"<td class=\"num\">{F(m.StockAvg, "0.0")}</td><td class=\"num\">{F(m.StockStd, "0.0")}</td><td class=\"num\">{F(m.StockMin, "0.#")}</td><td class=\"num\">{F(m.StockMax, "0.#")}</td>" +
+                    $"<td class=\"num\">{F(m.WaitAvg, "0.0")}</td><td class=\"num\">{F(m.WaitMax, "0.#")}</td><td class=\"num\">{F(m.WaitVehAvg, "0.0")}</td><td class=\"num\">{F(m.StockAvg + m.WaitAvg, "0.0")}</td>" +
                     (m.Warn ? $"<td class=\"bad\" title=\"재고 평균 − 2σ {F(m.StockAvg - 2 * m.StockStd, "0.0")} &lt; 안전재고 {F(m.Safety)}\"><b>주의</b></td></tr>" : "<td></td></tr>"));
-            sb.Append("</tbody></table></div><div class=\"t4\" title=\"호출→상차: 호출부터 상차 CP 도착까지. 호출→하차: 호출부터 하차 완료까지. 재고는 takt마다 한 번 잰 값, 최대·최소는 확인 실행 전체의 극값. 주의: 재고 평균 − 2σ가 안전재고보다 낮은 자재(경고일 뿐 판정에는 쓰이지 않음).\">" +
-                "재고는 takt마다 한 번 잰 값 · 주의 = 평균 − 2σ가 안전재고 미만(판정 제외)</div>" + "</div>");
+            sb.Append("</tbody></table></div><div class=\"t4\" title=\"호출→상차: 호출부터 상차 CP 도착까지. 호출→하차: 호출부터 하차 완료까지. 재고는 takt마다 한 번 잰 값, 최대·최소는 확인 실행 전체의 극값. 공급 대기: 하차 임계를 채우려고 차량에 실려 기다리는 용기(평균·최대)와 그 차량 수. 재고+대기: 재고 평균 + 공급 대기 평균. 주의: 재고 평균 − 2σ가 안전재고보다 낮은 자재(경고일 뿐 판정에는 쓰이지 않음).\">" +
+                "재고는 takt마다 한 번 잰 값 · 공급 대기 = 차량에 실려 하차 임계를 기다리는 용기 · 주의 = 평균 − 2σ가 안전재고 미만(판정 제외)</div>" + "</div>");
         }
         DeadlockPanel.Section(sb, j, v, true);
         StockoutPanel.Section(sb, j, v, true);
@@ -538,7 +558,7 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
     {
         if (j.Decided == null || v.Input == null) { sb.Append("<p class=\"muted\">결과가 없습니다.</p>"); return; }
         int total = j.Decided.Values.Sum(), min = v.Input.Groups.Sum(g => g.MinCount), max = v.Input.Groups.Sum(g => g.MaxCount);
-        var top = v.Groups.Where(g => !double.IsNaN(g.Util)).OrderByDescending(g => g.Util).FirstOrDefault();
+        var top = v.Groups.Where(g => g.HasUtil).OrderByDescending(g => g.Util).FirstOrDefault();
         bool occ = metric == "occ";
         double Val(BlockView b) => occ ? b.Utilization : b.AvgWaitSec;
         var worst = v.Blocks.Where(b => !double.IsNaN(Val(b))).OrderByDescending(Val).FirstOrDefault();
@@ -580,7 +600,7 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
     public const int ManyGroups = 3;
 
     /// <summary>Over the utilization limit: the mean, or any confirm run (a warning, not a failure).</summary>
-    internal static bool Over(GroupView g, double utilMax) => g.UtilOver || !double.IsNaN(g.Util) && g.Util > utilMax;
+    internal static bool Over(GroupView g, double utilMax) => !g.Cycle && (g.UtilOver || !double.IsNaN(g.Util) && g.Util > utilMax); // a cycle group is judged on its follow rate
 
     /// <summary>The parts of a time split in bar order (busy first, so the busy ones end at the utilization): name, CSS class, seconds.</summary>
     internal static (string Name, string Cls, double Sec)[] Parts(ASH.Core.Runner.TimeSplit s) => new[]
@@ -606,13 +626,13 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
 
     /// <summary>At most five groups worth a look: judgement failed first, then over the limit, then the busiest.</summary>
     internal static List<GroupView> Notable(JobView v) =>
-        v.Groups.OrderBy(g => !g.AllOk ? 0 : Over(g, v.UtilMax) ? 1 : 2).ThenByDescending(g => double.IsNaN(g.Util) ? -1 : g.Util).Take(5).ToList();
+        v.Groups.OrderBy(g => !g.AllOk ? 0 : Over(g, v.UtilMax) ? 1 : 2).ThenByDescending(g => !g.HasUtil ? -1 : g.Util).Take(5).ToList();
 
     /// <summary>결론 with many groups: 주목 그룹 bars, the distribution strip, and every group's bar in a closed details.</summary>
     static void ManyGroupsBlock(StringBuilder sb, JobInfo j, JobView v)
     {
         sb.Append("<h3>주목 그룹</h3>");
-        foreach (var g in Notable(v)) GroupRow(sb, g, v.UtilMax);
+        foreach (var g in Notable(v)) GroupRow(sb, g, v.UtilMax, v.FollowMin);
         sb.Append("<h3>분포 그림</h3>").Append(Strip(v));
         sb.Append($"<details><summary>전체 {v.Groups.Count}개 그룹 보기</summary>");
         ClusterBars(sb, j, v);
@@ -631,7 +651,7 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
         var lx = F(X(v.UtilMax), "0.#");
         sb.Append($"<line x1=\"{lx}\" x2=\"{lx}\" y1=\"4\" y2=\"{mid + 18}\" stroke=\"#a32d2d\" stroke-dasharray=\"4 3\"><title>가동률 상한 {F(v.UtilMax * 100, "0")}%</title></line>");
         var placed = new List<double>();
-        foreach (var g in v.Groups.Where(g => !double.IsNaN(g.Util)).OrderBy(g => g.Util))
+        foreach (var g in v.Groups.Where(g => g.HasUtil).OrderBy(g => g.Util))
         {
             double x = X(g.Util); int k = placed.Count(px => Math.Abs(px - x) < 7); placed.Add(x);
             double y = mid + (k % 2 == 1 ? -1 : 1) * ((k + 1) / 2 % 4) * 5; // 0, -5, +5, -10, +10, -15, +15, then round again
@@ -642,8 +662,15 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
     }
 
     /// <summary>One group's bar line: utilisation vs the limit, recommended count in bold, the failure reason in red, over the limit as an orange warning.</summary>
-    static void GroupRow(StringBuilder sb, GroupView g, double utilMax)
+    static void GroupRow(StringBuilder sb, GroupView g, double utilMax, double followMin)
     {
+        if (g.Cycle)
+        {
+            // judged on the follow rate: its numbers and the reason it is recommended (or the verdict text when it failed), no utilization bar
+            sb.Append($"<div>{H(g.Group)} · {H(g.Type)} · {CycleText(g)} · <b>권장 {(g.Decided?.ToString(CultureInfo.InvariantCulture) ?? "-")}대</b> · 범위 {g.Min}~{g.Max}대" +
+                (!g.AllOk ? $" · <span class=\"bad\">실패: {H(g.Reason)}</span>" : $" · 권장 사유 뒤차 대기 ≥ {RatePct(followMin)}") + "</div>");
+            return;
+        }
         var w = double.IsNaN(g.Util) ? 0 : Math.Min(1, g.Util);
         bool warn = g.AllOk && Over(g, utilMax);
         sb.Append($"<div>{H(g.Group)} · {H(g.Type)} · <span class=\"bar\"><i style=\"width:{F(w * 100, "0.#")}%{(!g.AllOk ? ";background:var(--bad)" : warn ? ";background:var(--orange)" : "")}\"></i><b style=\"left:{F(Math.Min(1, utilMax) * 100, "0.#")}%\"></b></span> " +
@@ -654,7 +681,7 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
     /// <summary>One bar line per group (utilisation vs the limit, recommended count in bold), under a "묶음: G1, G2" heading per cluster; flat when the job has none.</summary>
     internal static void ClusterBars(StringBuilder sb, JobInfo j, JobView v)
     {
-        void Row(GroupView g) => GroupRow(sb, g, v.UtilMax);
+        void Row(GroupView g) => GroupRow(sb, g, v.UtilMax, v.FollowMin);
         if (j.Clusters is not { Count: > 0 }) { foreach (var g in v.Groups) Row(g); return; }
         var shown = new HashSet<string>(StringComparer.Ordinal); var single = new List<GroupView>(); var headed = false;
         foreach (var c in j.Clusters)
@@ -741,15 +768,18 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
     static void Detail(StringBuilder sb, JobInfo j, JobView? v)
     {
         if (v?.Input == null || v.Rows.Count == 0) { sb.Append("<div class=\"empty\">아직 실행 결과가 없습니다.</div>"); return; }
-        sb.Append("<div class=\"box\"><div class=\"box-head\"><h2 title=\"파란 선은 그 대수로 돌린 실행들의 평균, 띠는 최소~최대(다른 그룹 대수와 시드가 달라 생기는 폭), 빨간 점선은 가동률 상한, 초록 세로선은 권장 대수, 빨간 점은 판정 실패가 있었던 대수입니다.\">그룹별 대수에 따른 가동률</h2>" +
-            "<span class=\"t4\">파란 선 평균 · 띠 최소~최대 · 빨간 점선 상한 · 초록 선 권장 · 빨간 점 판정 실패</span></div><div class=\"curves\">");
+        bool anyCurve = v.Input.Groups.Any(g => !g.IsCycle); // a cycle group has no utilization curve: its counts are in the 순환 그룹 대수별 table
+        if (anyCurve)
+            sb.Append("<div class=\"box\"><div class=\"box-head\"><h2 title=\"파란 선은 그 대수로 돌린 실행들의 평균, 띠는 최소~최대(다른 그룹 대수와 시드가 달라 생기는 폭), 빨간 점선은 가동률 상한, 초록 세로선은 권장 대수, 빨간 점은 판정 실패가 있었던 대수입니다.\">그룹별 대수에 따른 가동률</h2>" +
+                "<span class=\"t4\">파란 선 평균 · 띠 최소~최대 · 빨간 점선 상한 · 초록 선 권장 · 빨간 점 판정 실패</span></div><div class=\"curves\">");
         foreach (var g in v.Input.Groups)
         {
-            if (!v.Curves.TryGetValue(g.Group, out var pts) || pts.Count == 0) continue;
+            if (g.IsCycle || !v.Curves.TryGetValue(g.Group, out var pts) || pts.Count == 0) continue;
             int? dec = j.Decided != null && j.Decided.TryGetValue(g.Group, out var d) ? d : null;
             sb.Append("<div>").Append(Curve(g.Group, g.MinCount, g.MaxCount, pts, v.UtilMax, dec)).Append("</div>");
         }
-        sb.Append("</div></div>");
+        if (anyCurve) sb.Append("</div></div>");
+        CycleTable(sb, j, v);
         if (v.Vehicles.Count > 0)
         {
             bool down = v.Vehicles.Any(x => x.Down > 0), split = v.Vehicles.Any(x => x.Split != null);
@@ -832,6 +862,25 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
         sb.Append("</details>");
     }
 
+    /// <summary>상세 tab, one table per cycle group: a line per tested count with the follow rate and swap seconds from summary.tsv (mean over its runs, the longest
+    /// swap), the recommended count in bold. Nothing without a cycle group.</summary>
+    static void CycleTable(StringBuilder sb, JobInfo j, JobView v)
+    {
+        var shown = v.CycleCurves.Where(kv => kv.Value.Count > 0).ToList();
+        if (shown.Count == 0) return;
+        sb.Append($"<div class=\"box\"><div class=\"box-head\"><h2>순환 그룹 대수별</h2><span class=\"t4\">시험한 실행 평균 · 교체 최대 = 가장 긴 교체 · 권장 기준 뒤차 대기율 {RatePct(v.FollowMin)} 이상</span></div>");
+        foreach (var (group, pts) in shown)
+        {
+            int? dec = j.Decided != null && j.Decided.TryGetValue(group, out var d) ? d : null;
+            sb.Append($"<h3>{H(group)}</h3><div class=\"scroll\"><table><tr><th>대수</th><th>뒤차 대기율</th><th>교체 평균(초)</th><th>교체 최대(초)</th></tr>");
+            foreach (var p in pts)
+                sb.Append($"<tr><td class=\"num\">{(p.Active == dec ? $"<b>{p.Active}</b>" : p.Active.ToString(CultureInfo.InvariantCulture))}</td><td class=\"num\">{RatePct(p.FollowRate)}</td>" +
+                    $"<td class=\"num\">{F(p.SwapAvg, "0.#")}</td><td class=\"num\">{F(p.SwapMax, "0")}</td></tr>");
+            sb.Append("</table></div>");
+        }
+        sb.Append("</div>");
+    }
+
     /// <summary>Mean interval between a material's supply jobs over the measured window; NaN without jobs.</summary>
     internal static double SupplyInterval(JobView v, MaterialView m) =>
         v.Input == null || !(m.Trips > 0) ? double.NaN : (v.Input.Settings.SimLengthSec - v.Input.Settings.WarmupSec) / m.Trips;
@@ -851,13 +900,13 @@ tr.over td{background:var(--red-b)}tr.under td{color:var(--sub2)}
     {
         sb.Append("<div class=\"box\"><div class=\"box-head\"><h2>자재별</h2><span class=\"t4\" title=\"공급 빈도 = 측정 시간 ÷ 공급 횟수. 공급당 이동 거리 = 데리러 가는 길부터 대기 CP 복귀까지. 리드 타임 = 호출부터 하차 완료까지. 재고는 takt마다 잰 값, 최소·최대는 확인 실행 전체의 극값.\">확인 실행 평균 · 재고 평균 / 최소 / 최대</span></div>" +
             "<div class=\"scroll\"><table class=\"sort\"><thead><tr>").Append(Th("자재")).Append(Th("그룹")).Append(Th("공급 횟수(회)")).Append(Th("공급 빈도(초)")).Append(Th("공급당 이동 거리(m)"))
-          .Append(Th("리드 타임 평균(초)")).Append(Th("리드 타임 최대(초)")).Append(Th("용기 수량(용기)")).Append(Th("자재 수량(개)")).Append("</tr></thead><tbody>");
+          .Append(Th("리드 타임 평균(초)", LeadNote(v))).Append(Th("리드 타임 최대(초)")).Append(Th("용기 수량(용기)")).Append(Th("자재 수량(개)")).Append("</tr></thead><tbody>");
         foreach (var m in v.Materials)
         {
             var per = PerContainer(v, m);
             string Three(double k, string f) => $"{F(m.StockAvg * k, f)} / {F(m.StockMin * k, f)} / {F(m.StockMax * k, f)}";
             sb.Append($"<tr><td>{H(MatLabel(v, m))}</td><td>{H(m.Group)}</td><td class=\"num\">{F(m.Trips, "0.#")}</td><td class=\"num\">{F(SupplyInterval(v, m), "0")}</td><td class=\"num\">{F(m.DistPerTrip, "0.#")}</td>" +
-                $"<td class=\"num\">{F(m.DelivAvg, "0.0")}</td><td class=\"num\">{F(m.DelivMax, "0.0")}</td><td class=\"num\">{Three(1, "0.#")}</td><td class=\"num\">{Three(per, "0")}</td></tr>");
+                $"<td class=\"num\">{F(m.DelivAvg, "0.0")}</td><td class=\"num\">{F(m.DelivMax, "0.0")}</td><td class=\"num\">{Three(1, "0.#")}{WaitNote(m)}</td><td class=\"num\">{Three(per, "0")}</td></tr>");
         }
         sb.Append("</tbody></table></div>");
         sb.Append("</div>");

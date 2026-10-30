@@ -75,7 +75,7 @@ public class LogicGeneratorTests
         var t = LogicGenerator.Render(p, Layout);
         Assert.Contains("print \"group\\tG1\\tG1\\t\" V_active(1) \"", t);                     // requested active count, not Max - parked
         Assert.Contains("inc V_consumed(1) by V_need(1)", t);
-        Assert.Contains("V_stop(1) \"\\t\" V_consumed(1) \"\\t\" V_mDist(1) \"\\t\" V_mJobs(1) to V_out", t); // value7/8: the supply jobs' distance and count
+        Assert.Contains("V_stop(1) \"\\t\" V_consumed(1) \"\\t\" V_mDist(1) \"\\t\" V_mJobs(1) \"\\t\"", t); // value7/8: the supply jobs' distance and count
         // supply legs of material 1 use slot 1, its return legs slot 1 + 2 = 3; durations come from the load's A_t0
         var supply = t.Substring(t.IndexOf("begin P_supply_1"), t.IndexOf("begin P_consume_2") - t.IndexOf("begin P_supply_1"));
         Assert.Equal(2, Regex.Matches(supply, @"set V_inLeg\(1\) to 1").Count);
@@ -100,11 +100,14 @@ public class LogicGeneratorTests
         Assert.Contains("inc V_vBusy(A_vid) by A_ret + A_fin - A_tPick - A_hold", supply);
         // the load and unload times set in the input stay busy: they are plain waits inside the busy span
         Assert.Matches(@"set A_tPick to ac[\s\S]*?wait for 10 sec[\s\S]*?wait for 10 sec[\s\S]*?inc V_vBusy", supply);
-        // without a buffer there is no hold, the busy time is unchanged
+        // without a buffer the vehicle holds at the unload CP itself: after the unload leg, before the unload time and the stock going up
         var p = Sample(); for (int i = 0; i < p.Routes.Count; i++) p.Routes[i] = p.Routes[i] with { BufferCP = null };
         var plain = LogicGenerator.Render(p, Layout);
-        Assert.DoesNotContain("set A_hold to ac", plain);
-        Assert.Contains("set A_hold to 0", plain);
+        var ps = plain.Substring(plain.IndexOf("begin P_supply_1"), plain.IndexOf("begin P_consume_2") - plain.IndexOf("begin P_supply_1"));
+        Assert.DoesNotContain("B001", ps);
+        Assert.Matches(@"travel to agv:U001[\s\S]*?\tset A_hold to ac\n\twhile V_stock\(1\) > V_unload\(1\) do begin\n\t\twait for 5 sec\n\tend\n\tset A_hold to ac - A_hold\n" +
+            @"(?:(?!travel to)[\s\S])*?wait for 10 sec\n\tinc V_stock\(1\) by A_qty", ps);
+        Assert.Single(Regex.Matches(ps, @"while V_stock\(1\) > V_unload\(1\)"));
         // the material's supply jobs count and distance go with the vehicle's
         Assert.Contains("inc V_mDist(1) by V_x - A_veh A_dLast\n\t\tinc V_mJobs(1) by 1", supply);
     }
@@ -125,6 +128,103 @@ public class LogicGeneratorTests
         Assert.Contains("inc V_vBusy(A_vid) by A_ret + A_fin - A_tPick - A_hold", supply);
         Assert.Single(Regex.Matches(t, "A_hold - 90")); // per route: M2 keeps no allowance
         Assert.Contains("\tset A_hold to ac - A_hold\n", t.Substring(t.IndexOf("begin P_supply_2")));
+    }
+
+    /// <summary>P_supply_k of a rendered logic, up to its closing end.</summary>
+    static string Supply(string t, int k)
+    {
+        int i = t.IndexOf($"begin P_supply_{k} arriving procedure", StringComparison.Ordinal);
+        return t.Substring(i, t.IndexOf("\nend\n", i, StringComparison.Ordinal) - i);
+    }
+
+    [Fact]
+    public void Load_Cps_Take_Turns_Per_Materials_Row()
+    {
+        // one Materials row with load CPs L001, L002 unloading at two stations: both station materials share the row's turn (index 1)
+        var p = Sample();
+        for (int i = 0; i < 2; i++)
+        {
+            var name = $"M1@U00{i + 1}";
+            p.Materials[i] = p.Materials[i] with { Material = name, Source = "M1" };
+            p.Routes[i] = p.Routes[i] with { Material = name, SupplyFromCPs = new[] { "L001", "L002" } };
+        }
+        var t = LogicGenerator.Render(p, Layout2);
+        foreach (var s in new[] { Supply(t, 1), Supply(t, 2) })
+        {
+            Assert.Contains("\tinc V_fromRot(1) by 1\n\tif V_fromRot(1) > 2 then set V_fromRot(1) to 1\n\tset A_from to V_fromRot(1)\n\tif A_from = 1 then begin\n", s);
+            // the pickup run of each branch is the usual measured travel, one tab deeper; the load follows the chain
+            Assert.Matches(@"\tif A_from = 1 then begin\n(\t\t.*\n)*?\t\ttravel to agv:L001\n(\t\t.*\n)*?\tend\n\telse begin\n(\t\t.*\n)*?\t\ttravel to agv:L002\n(\t\t.*\n)*?\tend\n" +
+                @"[\s\S]*?scale to x 1, y 1, z 1\n\twait for 10 sec\n", s);
+            Assert.DoesNotContain("V_fromRot(2)", s);
+        }
+        // three load CPs: the middle one is an else if
+        for (int i = 0; i < 2; i++) p.Routes[i] = p.Routes[i] with { SupplyFromCPs = new[] { "L001", "L002", "L003" } };
+        var layout3 = Layout2 with { CpNames = Layout2.CpNames.Concat(new[] { "L003" }).ToArray() };
+        var s3 = Supply(LogicGenerator.Render(p, layout3), 1);
+        Assert.Contains("\tif V_fromRot(1) > 3 then set V_fromRot(1) to 1\n", s3);
+        Assert.Matches(@"travel to agv:L001\n(\t\t.*\n)*?\tend\n\telse if A_from = 2 then begin\n(\t\t.*\n)*?\t\ttravel to agv:L002\n(\t\t.*\n)*?\tend\n\telse begin\n(\t\t.*\n)*?\t\ttravel to agv:L003\n", s3);
+
+        // a single load CP renders no turn
+        var plain = LogicGenerator.Render(Sample(), Layout);
+        Assert.DoesNotContain("V_fromRot", plain);
+        Assert.DoesNotContain("A_from", plain);
+
+        var pm = LogicGenerator.BuildProcessModel(p, layout3, "Meters");
+        Assert.Contains(pm.Atts, a => a.Name == "A_from" && a.Type == "Integer");
+        foreach (var v in new[] { "V_waitQty", "V_waitVeh", "V_waitSum", "V_waitVehSum", "V_waitMax", "V_fromRot", "V_swapN", "V_swapSum", "V_swapMax", "V_follow", "V_lastLeave", "V_swapOpen" })
+            Assert.Contains(pm.Vars, x => x.Name == v && x.ArraySize == 2);
+    }
+
+    [Fact]
+    public void Supply_Wait_Counts_The_Containers_Held_For_The_Unload_Threshold()
+    {
+        const string Inc = "\tinc V_waitQty(1) by A_qty\n\tinc V_waitVeh(1) by 1\n\tset A_bw to ac\n\tset A_hold to ac\n\twhile V_stock(1) > V_unload(1) do begin\n";
+        const string Dec = "\tset A_bw to ac - A_bw\n\tdec V_waitQty(1) by A_qty\n\tdec V_waitVeh(1) by 1\n";
+        // at the buffer (here with an allowance): from the arrival there to the leave for the unload CP
+        var p = Sample(); p.Routes[0] = p.Routes[0] with { BufferWaitSec = 90 };
+        var s = Supply(LogicGenerator.Render(p, Layout), 1);
+        Assert.Contains("\tif A_hold < 0 then set A_hold to 0\n" + Dec, s);
+        Assert.True(s.IndexOf("travel to agv:B001") < s.IndexOf(Inc) && s.IndexOf(Inc) < s.IndexOf(Dec) && s.IndexOf(Dec) < s.IndexOf("travel to agv:U001"));
+        // without a buffer: at the unload CP, before the unload time
+        p = Sample(); p.Routes[0] = p.Routes[0] with { BufferCP = null };
+        s = Supply(LogicGenerator.Render(p, Layout), 1);
+        Assert.Contains("\tset A_hold to ac - A_hold\n" + Dec, s);
+        Assert.True(s.IndexOf("travel to agv:U001") < s.IndexOf(Inc) && s.IndexOf(Dec) < s.IndexOf("inc V_stock(1) by A_qty"));
+        Assert.Single(Regex.Matches(s, "inc V_waitQty"));
+        // the cycle procedure (Task 5) holds by its station index attribute
+        var h = LogicGenerator.HoldBlock("A_m", "\tset A_hold to ac - A_hold\n");
+        Assert.StartsWith("\tinc V_waitQty(A_m) by A_qty\n\tinc V_waitVeh(A_m) by 1\n", h);
+        Assert.Contains("while V_stock(A_m) > V_unload(A_m) do begin", h);
+        Assert.EndsWith("\tset A_bw to ac - A_bw\n\tdec V_waitQty(A_m) by A_qty\n\tdec V_waitVeh(A_m) by 1\n", h);
+
+        // sampled once per takt after warmup, next to the stock
+        var t = LogicGenerator.Render(Sample(), Layout);
+        Assert.Contains("\t\t\tif V_stock(1) < V_minStock(1) then set V_minStock(1) to V_stock(1)\n\t\t\t/* supply wait", t);
+        Assert.Matches(@"\t\t\tinc V_waitSum\(1\) by V_waitQty\(1\)\n\t\t\tinc V_waitVehSum\(1\) by V_waitVeh\(1\)\n" +
+            @"\t\t\tif V_waitQty\(1\) > V_waitMax\(1\) then set V_waitMax\(1\) to V_waitQty\(1\)\n\t\tend\n\t\twait for V_takt\(1\) sec\n", t);
+        // value9..15 of the material row: wait average / maximum, waiting vehicles average (0 without samples), then the cycle swap values
+        Assert.Contains("\tset V_n to V_samples(1)\n\tif V_n = 0 then set V_n to 1\n", t);
+        Assert.Contains("V_mJobs(1) \"\\t\" V_waitSum(1) / V_n \"\\t\" V_waitMax(1) \"\\t\" V_waitVehSum(1) / V_n \"\\t\" V_swapN(1) \"\\t\" V_swapSum(1) \"\\t\" V_swapMax(1) \"\\t\" V_follow(1) to V_out", t);
+        Assert.Contains("\\tvalue11\\tvalue12\\tvalue13\\tvalue14\\tvalue15\" to V_out", t);
+    }
+
+    [Fact]
+    public void Single_Cp_Call_Material_Renders_As_In_0_36_0_Plus_The_Wait_Counters()
+    {
+        var t = LogicGenerator.Render(Sample(), Layout);
+        var m1 = t.Substring(t.IndexOf("/* material 1 = "), t.IndexOf("/* material 2 = ") - t.IndexOf("/* material 1 = "));
+        Assert.Contains("\n\t\twhile V_stock(1) + V_pending(1) <= V_call(1) + 0.000001 or V_stock(1) + V_pending(1) < V_need(1) - 0.000001 do begin\n", m1);
+        Assert.Contains("\n\twait for 10 sec\n\tinc V_stock(1) by A_qty\n", m1);
+        // P_consume_1 and P_supply_1 as rendered at c491ce6 (0.36.0 logic), less the new lines
+        var before = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Fixtures", "model", "material1-0.36.0.m.txt")).Replace("\r\n", "\n");
+        bool New(string l) => l.Contains("V_wait") || l.Contains("/* supply wait");
+        var lines = m1.Split('\n');
+        Assert.Equal(new[] {
+            "\t\t\t/* supply wait (value9..11): containers on vehicles held for the unload threshold, and those vehicles */",
+            "\t\t\tinc V_waitSum(1) by V_waitQty(1)", "\t\t\tinc V_waitVehSum(1) by V_waitVeh(1)",
+            "\t\t\tif V_waitQty(1) > V_waitMax(1) then set V_waitMax(1) to V_waitQty(1)",
+            "\tinc V_waitQty(1) by A_qty", "\tinc V_waitVeh(1) by 1", "\tdec V_waitQty(1) by A_qty", "\tdec V_waitVeh(1) by 1" }, lines.Where(New));
+        Assert.Equal(before, string.Join("\n", lines.Where(l => !New(l))));
     }
 
     [Fact]

@@ -2,17 +2,7 @@
 /* one consumer cycle per takt: call check, then consume or stay stopped; a stopped cycle re-checks every takt */
 begin P_consume_{{M}} arriving procedure
 	while 1 = 1 do begin
-		/* reorder on the stock position (on hand + containers already called), as many calls as needed at once; one call is one trip and
-		   brings a full vehicle, Capacity containers (the clone keeps A_qty). Also call when the position cannot cover one cycle, or a call
-		   threshold below the per-cycle need would stop forever */
-		while V_stock({{M}}) + V_pending({{M}}) <= V_call({{M}}) + 0.000001 or V_stock({{M}}) + V_pending({{M}}) < V_need({{M}}) - 0.000001 do begin
-			set A_qty to {{CAPACITY}}
-			if V_events = 1 and ac >= V_warmup then print ac "\tcall\t{{NAME}}\t\t" A_qty to V_ev
-			inc V_pending({{M}}) by A_qty
-			set V_extMat to {{M}}
-			set V_tmp to F_ext_on_call()
-			clone 1 load to P_supply_{{M}}
-		end
+{{CALL}}
 		if V_stock({{M}}) < V_need({{M}}) - 0.000001 then begin
 			if V_stopped({{M}}) = 0 then begin
 				set V_stopped({{M}}) to 1
@@ -36,93 +26,12 @@ begin P_consume_{{M}} arriving procedure
 			tabulate V_stock({{M}}) in T_stock_{{M}}
 			inc V_stockSum({{M}}) by V_stock({{M}})
 			if V_stock({{M}}) < V_minStock({{M}}) then set V_minStock({{M}}) to V_stock({{M}})
+			/* supply wait (value9..11): containers on vehicles held for the unload threshold, and those vehicles */
+			inc V_waitSum({{M}}) by V_waitQty({{M}})
+			inc V_waitVehSum({{M}}) by V_waitVeh({{M}})
+			if V_waitQty({{M}}) > V_waitMax({{M}}) then set V_waitMax({{M}}) to V_waitQty({{M}})
 		end
 		wait for V_takt({{M}}) sec
 	end
-end
-
-/* One supply job, start to end, driven by the load: it enters the system at the group's standby CP, where calls queue first come first served
-   whether or not a vehicle is there, boards the first free vehicle, rides along every leg with travel to, and brings the vehicle home before it
-   dies, so the park list never decides where a vehicle goes. AutoMod's vehicle states no longer mean anything (the load is on board the whole
-   job), so busy time, distance and lead times are kept here. */
-begin P_supply_{{M}} arriving procedure
-	set A_grp to {{G}}
-{{SET_TYPE}}
-	/* a call is no container yet: AutoMod cannot hide a load, so it is shrunk out of sight until the pickup CP */
-	scale to x 0.001, y 0.001, z 0.001
-	set A_tCall to ac
-	set V_extMat to {{M}}
-	set V_tmp to F_ext_select_vehicle()
-	move into {{SYS}}:{{HOME}}
-	set A_veh to this load vehicle
-	set A_vid to A_veh A_index + {{VID_OFFSET}}
-	set A_tPick to ac
-	set A_hold to 0
-	set A_bw to 0
-	set A_ld to 0
-	set A_dn to 0
-	set A_jf to 0
-	set A_js0 to V_vT(A_vid + {{NV}})
-	set A_jt0 to V_vT(A_vid + {{NV2}})
-	/* a vehicle that came over from elsewhere to take this load: AutoMod counts that run as retrieving; the share since its last pickup is this job's */
-	set V_x to (A_veh percent time retrieving) / 100 * ac
-	set A_ret to V_x - A_veh A_rLast
-	set A_veh A_rLast to V_x
-{{FAIL_IDLE}}
-{{EMPTY_SPEED}}
-{{PICK_TRAVEL}}
-{{FAIL_LEG}}
-{{LOADED_SPEED}}
-	if ac >= V_warmup then begin
-		tabulate ac - A_tCall in T_pick_{{M}}
-		if V_events = 1 then print ac "\tpick\t{{NAME}}\t{{FROM}}\t" ac - A_tCall to V_ev
-	end
-	scale to x 1, y 1, z 1
-	wait for {{LOAD_TIME}} sec
-{{SUPPLY_LEGS}}
-	set V_extMat to {{M}}
-	set V_tmp to F_ext_before_unload()
-	wait for {{UNLOAD_TIME}} sec
-	inc V_stock({{M}}) by A_qty
-	if ac >= V_warmup then begin
-		inc V_supplies({{M}}) by A_qty
-		tabulate ac - A_tCall in T_deliv_{{M}}
-		if V_events = 1 then print ac "\tdeliver\t{{NAME}}\t{{TO_CP}}\t" ac - A_tCall to V_ev
-	end
-	dec V_pending({{M}}) by A_qty
-{{EMPTY_TYPE}}
-{{AFTER_UNLOAD_HIDE}}
-{{AFTER_UNLOAD_SPEED}}
-{{RETURN_LEGS}}
-{{FINISH}}
-	/* home first, always: the next job starts from the standby CP */
-{{HOME_TRAVEL}}
-{{FAIL_HOME}}
-{{FINISH_AT_HOME}}
-{{SPEC_SPEED}}
-	/* A_hold = time held at the buffer for the unload threshold: not busy (the load, unload and extra times set in the input stay busy) */
-	if A_tPick >= V_warmup then begin
-		inc V_vBusy(A_vid) by A_ret + A_fin - A_tPick - A_hold
-		inc V_vJobs(A_vid) by 1
-		/* where the busy time went: loaded legs, load/unload/extra waits, buffer hold within / beyond the allowance, repairs held */
-		inc V_vLoad(A_vid) by A_ld
-		inc V_vHand(A_vid) by {{HANDLE}}
-		inc V_vBufB(A_vid) by A_bw - A_hold
-		inc V_vBufX(A_vid) by A_hold
-		inc V_vRep(A_vid) by A_dn
-		set V_x to A_veh total distance traveled
-		inc V_vDist(A_vid) by V_x - A_veh A_dLast
-		inc V_mDist({{M}}) by V_x - A_veh A_dLast
-		inc V_mJobs({{M}}) by 1
-		/* time split per group (tsplit row): job time, its runs at free speed, standing in them, the fixed waits, turning on the spot */
-		inc V_gT({{GT_JOBS}}) by 1
-		inc V_gT({{GT_JOB}}) by A_fin - A_tPick - A_hold
-		inc V_gT({{GT_FREE}}) by A_jf
-		inc V_gT({{GT_STOP}}) by V_vT(A_vid + {{NV}}) - A_js0
-		inc V_gT({{GT_HAND}}) by {{HANDLE}}
-		inc V_gT({{GT_TURN}}) by V_vT(A_vid + {{NV2}}) - A_jt0
-	end
-	set A_veh A_dLast to A_veh total distance traveled
-	send to die
 end
 

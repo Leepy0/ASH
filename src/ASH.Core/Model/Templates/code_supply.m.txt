@@ -1,0 +1,56 @@
+/* One supply job, start to end, driven by the load: it enters the system at the group's standby CP, where calls queue first come first served
+   whether or not a vehicle is there, boards the first free vehicle, rides along every leg with travel to, and brings the vehicle home before it
+   dies, so the park list never decides where a vehicle goes. AutoMod's vehicle states no longer mean anything (the load is on board the whole
+   job), so busy time, distance and lead times are kept here. */
+begin P_supply_{{M}} arriving procedure
+	set A_grp to {{G}}
+{{SET_TYPE}}
+	/* a call is no container yet: AutoMod cannot hide a load, so it is shrunk out of sight until the pickup CP */
+	scale to x 0.001, y 0.001, z 0.001
+	set A_tCall to ac
+	set V_extMat to {{M}}
+	set V_tmp to F_ext_select_vehicle()
+	move into {{SYS}}:{{HOME}}
+	set A_veh to this load vehicle
+	set A_vid to A_veh A_index + {{VID_OFFSET}}
+	set A_tPick to ac
+	set A_hold to 0
+	set A_bw to 0
+	set A_ld to 0
+	set A_dn to 0
+	set A_jf to 0
+	set A_js0 to V_vT(A_vid + {{NV}})
+	set A_jt0 to V_vT(A_vid + {{NV2}})
+	/* a vehicle that came over from elsewhere to take this load: AutoMod counts that run as retrieving; the share since its last pickup is this job's */
+	set V_x to (A_veh percent time retrieving) / 100 * ac
+	set A_ret to V_x - A_veh A_rLast
+	set A_veh A_rLast to V_x
+{{FAIL_IDLE}}
+{{EMPTY_SPEED}}
+{{PICK_TRAVEL}}
+{{FAIL_LEG}}
+{{LOADED_SPEED}}
+{{PICK_STATS}}
+	scale to x 1, y 1, z 1
+	wait for {{LOAD_TIME}} sec
+{{SUPPLY_LEGS}}
+	set V_extMat to {{M}}
+	set V_tmp to F_ext_before_unload()
+	wait for {{UNLOAD_TIME}} sec
+	inc V_stock({{M}}) by A_qty
+{{DELIVER_STATS}}
+	dec V_pending({{M}}) by A_qty
+{{EMPTY_TYPE}}
+{{AFTER_UNLOAD_HIDE}}
+{{AFTER_UNLOAD_SPEED}}
+{{RETURN_LEGS}}
+{{FINISH}}
+	/* home first, always: the next job starts from the standby CP */
+{{HOME_TRAVEL}}
+{{FAIL_HOME}}
+{{FINISH_AT_HOME}}
+{{SPEC_SPEED}}
+{{BUSY}}
+	send to die
+end
+
