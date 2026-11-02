@@ -129,6 +129,27 @@ public static class DrawingWriter
         foreach (var c in layout.Conveyors) InsertArrows(db, tr, c.Segments, Conventions.DirBlockName);
     }
 
+    /// <summary>The arrows of the given paths only, for edits that keep a path's geometry (type, direction): its arrows sit at its segment midpoints,
+    /// so the ones there are replaced and every other arrow stays. Handles that are no path any more are skipped.</summary>
+    public static void RefreshDirectionArrows(Database db, Transaction tr, IReadOnlyCollection<string> pathHandles)
+    {
+        var paths = new List<LayoutPath>();
+        foreach (var h in pathHandles)
+            if (FromHandle(db, h) is { IsNull: false, IsErased: false } id && tr.GetObject(id, OpenMode.ForRead) is Entity e
+                && Conventions.PathLayers.Any(l => DrawingReader.Eq(e.Layer, l)) && DrawingReader.ReadPath(e, Conventions.KindOfLayer(e.Layer)) is { } p)
+                paths.Add(p);
+        var mids = paths.SelectMany(p => p.Segments).Select(s => s.PointAt(s.Length / 2)).ToList();
+        double tol = 1e-6 * DrawingUnits.PerMeter;
+        foreach (var id in DrawingReader.ModelSpace(db, tr, OpenMode.ForRead))
+            if (tr.GetObject(id, OpenMode.ForRead) is BlockReference br && !br.IsErased && DrawingReader.Eq(br.Layer, Conventions.LayerDir)
+                && mids.Any(m => Math.Abs(m.X - br.Position.X) <= tol && Math.Abs(m.Y - br.Position.Y) <= tol))
+            {
+                br.UpgradeOpen();
+                br.Erase();
+            }
+        foreach (var p in paths) InsertArrows(db, tr, p.Segments, Conventions.DirBlockFor(p.IsSpur, p.IsTwoWay, p.IsCrab));
+    }
+
     static void InsertArrows(Database db, Transaction tr, IEnumerable<Segment> segs, string block)
     {
         foreach (var s in segs)

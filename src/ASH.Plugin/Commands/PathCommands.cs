@@ -214,7 +214,7 @@ public sealed class PathCommands
         var pick = ed.GetEntity(msg);
         if (pick.Status != PromptStatus.OK) return null;
         var layer = ((Entity)tr.GetObject(pick.ObjectId, OpenMode.ForRead)).Layer;
-        var all = DrawingReader.ModelSpace(db, tr, OpenMode.ForRead)
+        var all = DrawingReader.OnLayer(db, layer)?.ToArray() ?? DrawingReader.AllModelSpace(db, tr)
             .Where(i => tr.GetObject(i, OpenMode.ForRead) is Entity e && DrawingReader.Eq(e.Layer, layer)).ToArray();
         ed.WriteMessage($"\n레이어 {layer}: 객체 {all.Length}개");
         return all;
@@ -268,6 +268,7 @@ public sealed class PathCommands
         if (key == null) return false;
         var kind = KindOf(key);
         foreach (var id in ids) SetKind((Entity)tr.GetObject(id, OpenMode.ForWrite), kind, tr);
+        ArrowScope = ids.Select(i => i.Handle.ToString()).ToList();
         Ed.WriteMessage($"\n경로 {ids.Count}개를 {PathKinds.Label(kind.Spur, kind.Two, kind.Crab)}(으)로 변경.");
         return true;
     });
@@ -298,6 +299,7 @@ public sealed class PathCommands
                 if (!Conventions.PathLayers.Any(l => DrawingReader.Eq(e.Layer, l))) { Ed.WriteMessage("\n경로가 아닙니다."); return false; }
                 e.UpgradeOpen();
                 SetKind(e, kind, tr);
+                ArrowScope = new List<string> { e.Handle.ToString() };
                 FinalStatus = $"종류 붓: {label} {++n}개";
                 return true;
             });
@@ -392,6 +394,7 @@ public sealed class PathCommands
             var kind = x is { } t ? (t.IsSpur, t.IsTwoWay, t.IsCrab) : Conventions.KindOfLayer(e.Layer);
             XData.WritePath(e, x?.Name ?? "?" + e.Handle, !(x?.Reversed ?? false), kind, tr);
         }
+        ArrowScope = ids.Select(i => i.Handle.ToString()).ToList();
         Ed.WriteMessage($"\n경로 {ids.Count}개 방향 반전.");
         return ids.Count > 0;
     });
@@ -698,6 +701,9 @@ public sealed class PathCommands
     /// <summary>A body may set this for its final status line instead of "변경 없음" (returns false) or "완료" (returns true).</summary>
     internal static string? FinalStatus;
 
+    /// <summary>A body that keeps path geometry (type, direction) sets the handles it changed: only their arrows are redrawn, not the whole drawing's.</summary>
+    internal static List<string>? ArrowScope;
+
     internal static void Run(Document doc, string cmd, Func<Database, Transaction, bool> body, bool refreshArrows = true, double? unitsPerMeter = null)
     {
         DrawingUnits.PerMeter = unitsPerMeter ?? ExportCommands.UnitsPerMeter(doc.Editor);
@@ -711,16 +717,21 @@ public sealed class PathCommands
             {
                 using (PluginLog.Time(cmd + " 준비")) InitCommands.Init(doc.Database, tr); // layers/blocks must exist before any Layer set or block insert
                 FinalStatus = null;
+                ArrowScope = null;
                 bool changed;
                 using (PluginLog.Time(cmd + " 본문")) changed = body(doc.Database, tr);
                 using (PluginLog.Time(cmd + " 그룹 목록")) RefreshCpGroups(doc.Database, tr);
                 QueueNextSteps(changed);
                 if (!changed) { Ui.PaletteStatus.Set(FinalStatus ?? $"{cmd}: 변경 없음"); FinalStatus = null; return; }
-                if (refreshArrows) DrawingWriter.RefreshDirectionArrows(doc.Database, tr);
-                DrawingWriter.SyncTrafficCpLayers(doc.Database, tr); // a CAP typed in the properties panel, or a drawing older than the CAP 1 layer
+                if (refreshArrows)
+                    using (PluginLog.Time(cmd + " 화살표"))
+                        if (ArrowScope != null) DrawingWriter.RefreshDirectionArrows(doc.Database, tr, ArrowScope);
+                        else DrawingWriter.RefreshDirectionArrows(doc.Database, tr);
+                // a CAP typed in the properties panel, or a drawing older than the CAP 1 layer
+                using (PluginLog.Time(cmd + " CP 레이어")) DrawingWriter.SyncTrafficCpLayers(doc.Database, tr);
                 string? gaps = null;
                 // markers only: a locked AGV_PATH_GAP layer or the like must not undo the edit
-                try { if (PathEditCommands.Contains(cmd)) gaps = RefreshGapMarkers(doc.Database, tr); }
+                try { if (PathEditCommands.Contains(cmd)) using (PluginLog.Time(cmd + " 끊긴 끝")) gaps = RefreshGapMarkers(doc.Database, tr); }
                 catch (System.Exception ex) { PluginLog.Write("gap markers", ex); }
                 tr.Commit();
                 if (gaps != null) doc.Editor.WriteMessage("\n" + gaps);
