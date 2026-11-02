@@ -167,10 +167,71 @@ public static class DrawingReader
         return PathConvert.FromVertices(v, p.Closed);
     }
 
+    /// <summary>The model-space objects ASH reads or writes: everything on an AGV_ layer plus ASH blocks on any layer (stations, 3D assets, arrows).
+    /// Every caller filters to those, so ZWCAD's own filter (ssget "X": off, frozen and locked layers included) picks them without opening each
+    /// of the drawing's other objects, which took seconds per scan on a 300 MB drawing. The first scan of a drawing is checked against a full walk;
+    /// a mismatch falls back to the full walk for that drawing, as does no editor or a failed selection.</summary>
     internal static IEnumerable<ObjectId> ModelSpace(Database db, Transaction tr, OpenMode mode)
     {
+        var ids = _filterOff.Contains(db) ? null : Selected(db, Ash);
+        if (ids != null && _checked.Add(db))
+        {
+            var full = AllModelSpace(db, tr).Where(i => IsAsh(tr.GetObject(i, OpenMode.ForRead) as Entity, tr)).ToList();
+            if (full.Count != ids.Count || full.Except(ids).Any())
+            {
+                PluginLog.Write($"ASH 개체 선택 필터 불일치(필터 {ids.Count}개, 전체 검사 {full.Count}개): 전체 검사로 전환");
+                _filterOff.Add(db);
+                ids = null;
+            }
+            else PluginLog.Write($"ASH 개체 선택 필터 사용: {ids.Count}개");
+        }
+        return ids ?? AllModelSpace(db, tr);
+    }
+
+    /// <summary>Model-space objects on one layer (any layer, e.g. the one AGVCONVERT converts) by the same filter; null = walk model space instead.</summary>
+    internal static List<ObjectId>? OnLayer(Database db, string layer) =>
+        _filterOff.Contains(db) ? null : Selected(db, new[] { new TypedValue((int)DxfCode.LayoutName, "Model"), new TypedValue((int)DxfCode.LayerName, Literal(layer)) });
+
+    // a layer name taken literally: #, @, ., *, ?, ~, [, ], -, , and ` are wildcards in a selection filter; ` escapes the next character
+    static string Literal(string name) => string.Concat(name.Select(c => "#@.*?~[]-,`".IndexOf(c) >= 0 ? "`" + c : c.ToString()));
+
+    static readonly TypedValue[] Ash =
+    {
+        new TypedValue((int)DxfCode.Operator, "<AND"), new TypedValue((int)DxfCode.LayoutName, "Model"),
+        new TypedValue((int)DxfCode.Operator, "<OR"),
+        new TypedValue((int)DxfCode.LayerName, "AGV_*"), new TypedValue((int)DxfCode.BlockName, "AGV_*," + Conventions.Asset3dBlockPrefix + "*"),
+        new TypedValue((int)DxfCode.Operator, "OR>"), new TypedValue((int)DxfCode.Operator, "AND>"),
+    };
+    static readonly HashSet<Database> _checked = new HashSet<Database>(), _filterOff = new HashSet<Database>();
+
+    static bool IsAsh(Entity? e, Transaction tr)
+    {
+        if (e == null || e.IsErased) return false;
+        if (e.Layer.StartsWith("AGV_", StringComparison.OrdinalIgnoreCase)) return true;
+        if (!(e is BlockReference br)) return false;
+        // the filter matches the reference's own block name; a dynamic block's reference names its anonymous copy, so compare that one
+        var name = ((BlockTableRecord)tr.GetObject(br.BlockTableRecord, OpenMode.ForRead)).Name;
+        return name.StartsWith("AGV_", StringComparison.OrdinalIgnoreCase) || name.StartsWith(Conventions.Asset3dBlockPrefix, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // null = no filter here (another drawing than the active one, or the selection failed or matched nothing): the caller walks model space instead
+    static List<ObjectId>? Selected(Database db, TypedValue[] filter)
+    {
+        try
+        {
+            var doc = ZwSoft.ZwCAD.ApplicationServices.Application.DocumentManager.MdiActiveDocument;
+            if (doc == null || doc.Database != db) return null;
+            var r = doc.Editor.SelectAll(new ZwSoft.ZwCAD.EditorInput.SelectionFilter(filter));
+            return r.Status == ZwSoft.ZwCAD.EditorInput.PromptStatus.OK ? r.Value.GetObjectIds().ToList() : null;
+        }
+        catch (System.Exception ex) { PluginLog.Write("ASH 개체 선택 필터", ex); return null; }
+    }
+
+    /// <summary>Every model-space object, opened by nobody: for the rare caller that needs non-ASH objects too.</summary>
+    internal static List<ObjectId> AllModelSpace(Database db, Transaction tr)
+    {
         var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);
-        var ms = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], mode);
+        var ms = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForRead);
         return ms.Cast<ObjectId>().Where(i => !i.IsErased).ToList();
     }
 
