@@ -88,7 +88,7 @@ public class SmallFilterTests
         int hole = items.Count; items.Add(new LiteCircle("E", 100, 0, 20));      // touches the outline but stands alone
         int box = items.Count; items.Add(new LitePolyline("E", new[] { new LiteVertex(0, 0), new LiteVertex(50, 0), new LiteVertex(50, 50) }, true));
         var size = new double[items.Count];
-        SmallFilter.GroupSizes(items, _ => true, 1, size);
+        SmallFilter.GroupSizes(items, 1, size);
         double whole = Math.Sqrt(5050 * 5050 + 2000 * 2000);
         for (int i = 0; i < lone; i++) Assert.Equal(whole, size[i], 3);
         Assert.Equal(100, size[lone], 9);

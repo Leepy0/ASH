@@ -44,11 +44,11 @@ public sealed class LiteDialog : Form
         MaximizeBox = MinimizeBox = false;
         ShowInTaskbar = false;
         StartPosition = FormStartPosition.CenterScreen;
-        ClientSize = new Size(497, 610); // 96 dpi; 17 px of it are for the scroll bar. FitHeight below keeps it on the screen
+        ClientSize = new Size(497, 640); // 96 dpi; 17 px of it are for the scroll bar. FitHeight below keeps it on the screen
 
         var info = new Label { AutoSize = true, MaximumSize = new Size(448, 0), ForeColor = Theme.Muted, Margin = new Padding(2, 8, 0, 0), Text = $"{drawing}  →  {output}" };
 
-        int auto = AutoLevel(levels);
+        int auto = LiteLevels.Auto(levels.Select(e => e.Bytes).ToList());
         var table = new TableLayoutPanel { AutoSize = true, ColumnCount = 3, Margin = new Padding(0, 2, 0, 4) };
         table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
         table.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 140));
@@ -91,6 +91,9 @@ public sealed class LiteDialog : Form
         cancel.DialogResult = DialogResult.Cancel;
         ok.Click += (s, e) =>
         {
+            bool selectable(LiteLayerRow l) => l.State.Length == 0;
+            if (layers.Any(selectable) && ExcludedLayers.Count == layers.Count(selectable)
+                && MessageBox.Show(this, "레이어 전부 제외\n빈 DXF가 됨\n그대로 만들까요?", Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
             var chosen = levels[Level ?? auto];
             if (chosen.Bytes > LiteLevels.WarnBytes
                 && MessageBox.Show(this, $"10 MB 초과 ({Mb(chosen.Bytes)} MB)\nAutoMod 느려질 수 있음\n그대로 만들까요?", Text, MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes) return;
@@ -108,14 +111,6 @@ public sealed class LiteDialog : Form
         Controls.Add(flow); // Fill first, then the bottom bar docks before it
         Controls.Add(bar);
         Theme.FitHeight(this, null);
-    }
-
-    /// <summary>The level automatic stops at: the first that fits the target size, else the last.</summary>
-    private static int AutoLevel(IReadOnlyList<LiteLevelEstimate> levels)
-    {
-        for (int i = 0; i < levels.Count; i++)
-            if (levels[i].Bytes <= LiteLevels.TargetBytes) return i;
-        return levels.Count - 1;
     }
 
     private static Label Cell(string text, Color color, bool header) =>

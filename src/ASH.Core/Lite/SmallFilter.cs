@@ -13,7 +13,7 @@ public static class SmallFilter
         removed = 0;
         if (!(minSize > 0)) return all;
         var size = new double[all.Count];
-        GroupSizes(all, _ => true, snap, size);
+        GroupSizes(all, snap, size);
         var o = new List<LiteEntity>(all.Count);
         for (int i = 0; i < all.Count; i++)
         {
@@ -25,9 +25,8 @@ public static class SmallFilter
 
     /// <summary>Size of each item for the minimum-size rule: the box diagonal of the group it belongs to. Lines, arcs and open polylines whose end points
     /// meet (within <paramref name="snap"/>, drawing units) are one group, branches included and layers ignored, so a large outline drawn as many short pieces — common in equipment blocks
-    /// from other CAD — is kept as a whole instead of losing every piece; a closed shape or a circle stands alone (a bolt hole stays a small detail).
-    /// <paramref name="links"/> says which items may link at all.</summary>
-    internal static void GroupSizes(IReadOnlyList<LiteEntity> items, Func<int, bool> links, double snap, double[] size)
+    /// from other CAD — is kept as a whole instead of losing every piece; a closed shape or a circle stands alone (a bolt hole stays a small detail).</summary>
+    internal static void GroupSizes(IReadOnlyList<LiteEntity> items, double snap, double[] size)
     {
         int n = items.Count;
         var parent = new int[n];
@@ -46,7 +45,6 @@ public static class SmallFilter
         }
         for (int i = 0; i < n; i++)
         {
-            if (!links(i)) continue;
             switch (items[i])
             {
                 case LiteLine l: End(i, l.X1, l.Y1); End(i, l.X2, l.Y2); break;

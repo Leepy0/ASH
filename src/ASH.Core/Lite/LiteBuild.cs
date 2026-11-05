@@ -283,7 +283,7 @@ public sealed class LiteBuild
         for (int level = 0; ; level++)
         {
             measuring?.Invoke(level);
-            if (Total(level) <= targetBytes || level == LiteLevels.Max) return level;
+            if (LiteLevels.Fits(level, Total(level), targetBytes)) return level;
         }
     }
 

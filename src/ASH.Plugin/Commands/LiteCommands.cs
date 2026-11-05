@@ -63,7 +63,8 @@ public sealed class LiteCommands
         catch (System.Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
         {
             settings = new LiteSettings();
-            saveSettings = adjust; // what AGVLITEX fixed in that file must outlive an AGVLITE run; AGVLITEX saves the person's own choice
+            if (adjust) { Say($"{cmd}: 설정 파일 읽기 실패: {settingsPath}"); return; } // saving over a file that was not read would lose what is in it
+            saveSettings = false; // what AGVLITEX fixed in that file must outlive this run (AGVLITEX itself stops above)
             Say($"{cmd}: 설정 파일 읽기 실패, 자동 단계 사용: {ex.Message}");
         }
 
@@ -83,10 +84,9 @@ public sealed class LiteCommands
                 .Select(kv => new LiteLayerRow(kv.Key, kv.Value.Frozen ? "동결" : kv.Value.Off ? "꺼짐" : "", !excluded.Contains(kv.Key))).ToList();
             using var dlg = new LiteDialog(Path.GetFileName(dwg), Path.Combine("lite", name + "_lite.dxf"), measured, rows, settings.Level, settings.NoBlobs);
             if (Application.ShowModalDialog(dlg) != System.Windows.Forms.DialogResult.OK) { Say(cmd + " 취소"); return; }
-            var listed = new HashSet<string>(rows.Select(r => r.Name), StringComparer.Ordinal);
             settings.Level = dlg.Level;
             settings.NoBlobs = dlg.NoBlobs;
-            settings.ExcludeLayers = dlg.ExcludedLayers.Concat(settings.ExcludeLayers.Where(n => !listed.Contains(n))).ToList(); // a name the list could not show stays as it was
+            settings.SetExcluded(rows.Where(r => r.State.Length == 0).Select(r => r.Name), dlg.ExcludedLayers); // off, frozen and absent layers keep their saved exclusion
         }
 
         var files = new LiteFiles(dwg, File.Exists(dwg) ? new FileInfo(dwg).Length : 0, dxfPath, reportPath, settingsPath);
@@ -149,8 +149,12 @@ public sealed class LiteCommands
         }
         finally
         {
-            if (guarded) docs.DocumentActivationEnabled = activation;
-            if (task != null && !task.IsCompleted) esc.Cancel(); // never leave the work running behind an error
+            if (task != null && !task.IsCompleted) esc.Cancel(); // never leave the work running behind an error, nor behind a restore that throws
+            if (guarded)
+            {
+                try { docs.DocumentActivationEnabled = activation; }
+                catch (System.Exception ex) { PluginLog.Write(cmd + " activation restore", ex); }
+            }
         }
         HostApplicationServices.Current.UserBreak(); // an Esc from the last wait is spent here, not on the prompt below
         return task.GetAwaiter().GetResult();

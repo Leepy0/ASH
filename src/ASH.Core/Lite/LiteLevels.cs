@@ -26,6 +26,17 @@ public static class LiteLevels
         new LiteLevel(30, 200, 5_000, 100_000), // 가늠값: docs/lite-baseline.md 측정 뒤 조정
     };
 
+    /// <summary>The rule automatic stops by: a level fits when its size is within the target, and the last one always does.</summary>
+    public static bool Fits(int level, long bytes, long targetBytes) => bytes <= targetBytes || level == Max;
+
+    /// <summary>The level automatic picks from the sizes of levels 0..: the first that fits (what ChooseLevel measures one by one).</summary>
+    public static int Auto(IReadOnlyList<long> sizes, long targetBytes = TargetBytes)
+    {
+        for (int i = 0; i < sizes.Count - 1; i++)
+            if (Fits(i, sizes[i], targetBytes)) return i;
+        return Math.Max(0, sizes.Count - 1);
+    }
+
     /// <summary>The thresholds of a level for a drawing's unit; noBlobs turns the outlines off whatever the level.</summary>
     public static LiteThresholds Get(int level, int insUnits, bool noBlobs = false)
     {
@@ -70,6 +81,13 @@ public sealed class LiteSettings
                 s._other.Add(line);
         }
         return s;
+    }
+
+    /// <summary>Replaces the exclusions of the layers a person could choose (selectable) by <paramref name="unticked"/>; saved ones for any other layer (off, frozen, or not in the drawing) stay.</summary>
+    public void SetExcluded(IEnumerable<string> selectable, IEnumerable<string> unticked)
+    {
+        var chosen = new HashSet<string>(selectable, StringComparer.Ordinal);
+        ExcludeLayers = unticked.Concat(ExcludeLayers.Where(n => !chosen.Contains(n))).Distinct(StringComparer.Ordinal).ToList();
     }
 
     /// <summary>What a person fixed, in short words for AGVLITE's first line; null when all of it is auto.</summary>

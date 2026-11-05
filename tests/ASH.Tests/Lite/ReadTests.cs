@@ -327,4 +327,16 @@ public class ReadTests
         Unchanged(t.Files, old);
         Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(t.Files.Dxf)!, "*.tmp"));
     }
+
+    [Fact]
+    public void A_Held_Settings_File_Is_Named_And_Neither_Old_File_Moves()
+    {
+        using var t = new Folder();
+        var old = OldRun(t.Files);
+        LiteOutcome o;
+        using (new FileStream(t.Files.Settings, FileMode.Open, FileAccess.Read, FileShare.None)) o = NewJob(t.Files); // Excel has the tsv open
+        Assert.Equal(t.Files.Settings, o.Failed);
+        Unchanged(t.Files, old);
+        Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(t.Files.Dxf)!, "*.tmp"));
+    }
 }

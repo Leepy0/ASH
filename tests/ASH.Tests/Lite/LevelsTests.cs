@@ -698,19 +698,51 @@ public class LevelsTests
     }
 
     [Fact]
-    public void Measure_Gives_Every_Level_Its_Size_And_Null_When_Stopped()
+    public void Measure_Gives_Every_Level_Its_Size_And_Blobs_And_Null_When_Stopped()
     {
-        var d = Drawing(4, new Geo3[] { L3(0, 0, 1000, 0), L3(0, 500, 1000, 500) });
+        // a 2 m robot mesh: lines up to level 1, one outline from level 2 on
+        var robot = BlobsTests.Robot(0, 0).Select(e => e switch
+        {
+            LiteLine l => (Geo3)new Line3(l.Layer, new Vec3(l.X1, l.Y1, 0), new Vec3(l.X2, l.Y2, 0)),
+            LitePolyline p => new Poly3(p.Layer, p.Vertices, p.Closed, new Vec3(0, 0, 1), 0),
+            _ => throw new InvalidOperationException(),
+        }).ToArray();
+        var d = Drawing(4, robot);
         var heard = new List<int>();
-        var all = LiteJob.Measure(new LiteBuild(d), default, heard.Add)!;
-        Assert.Equal(new[] { 0, 1, 2, 3, 4 }, heard);
-        Assert.Equal(5, all.Count);
         var b = new LiteBuild(d);
-        Assert.Equal(b.Total(1), all[1].Bytes);
-        Assert.All(all, e => Assert.Equal(0, e.Blobs));
+        var all = LiteJob.Measure(b, default, heard.Add)!;
+        Assert.Equal(new[] { 0, 1, 2, 3, 4 }, heard);
+        Assert.Equal(new[] { 0, 0, 1, 1, 1 }, all.Select(e => e.Blobs));
+        var fresh = new LiteBuild(d);
+        for (int i = 0; i <= LiteLevels.Max; i++) Assert.Equal(fresh.Total(i), all[i].Bytes);
+        Assert.True(all[2].Bytes < all[1].Bytes); // the outline weighs less than the mesh
         using var stop = new CancellationTokenSource();
         stop.Cancel();
         Assert.Null(LiteJob.Measure(new LiteBuild(d), stop.Token, _ => { }));
+    }
+
+    [Fact]
+    public void Auto_Is_The_First_Level_That_Fits_Whatever_ChooseLevel_Measures()
+    {
+        long T = LiteLevels.TargetBytes;
+        Assert.Equal(0, LiteLevels.Auto(new[] { T, 1L, 1L, 1L, 1L }));
+        Assert.Equal(2, LiteLevels.Auto(new[] { T + 1, T + 1, T, 1L, 1L }));
+        Assert.Equal(4, LiteLevels.Auto(new[] { T + 1, T + 1, T + 1, T + 1, T + 1 }));
+        var d = Drawing(4, new Geo3[] { L3(0, 0, 1000, 0) });
+        var b = new LiteBuild(d);
+        var sizes = Enumerable.Range(0, 5).Select(i => b.Total(i)).ToList();
+        foreach (long target in new[] { 1L, sizes[0], sizes[0] - 1 })
+            Assert.Equal(new LiteBuild(d).ChooseLevel(target), LiteLevels.Auto(sizes, target));
+    }
+
+    [Fact]
+    public void SetExcluded_Replaces_Only_What_Could_Be_Chosen()
+    {
+        var s = new LiteSettings { ExcludeLayers = { "A", "OFF", "GONE", "B" } };
+        s.SetExcluded(new[] { "A", "B", "C" }, new[] { "C", "A" }); // B ticked again, C newly excluded
+        Assert.Equal(new[] { "C", "A", "OFF", "GONE" }, s.ExcludeLayers); // OFF (now off/frozen) and GONE (not in the drawing) keep their saved exclusion
+        s.SetExcluded(new[] { "A", "C" }, Array.Empty<string>());
+        Assert.Equal(new[] { "OFF", "GONE" }, s.ExcludeLayers);
     }
 
     [Fact]

@@ -60,6 +60,11 @@ public static class LiteJob
             NotHeld(f.Dxf);
             at = f.Report;
             NotHeld(f.Report);
+            if (saveSettings)
+            {
+                at = f.Settings;
+                NotHeld(f.Settings); // a settings file held open would fail after the pair was replaced
+            }
             at = f.Dxf;
             Put(dxfTmp, f.Dxf);
             at = f.Report;
