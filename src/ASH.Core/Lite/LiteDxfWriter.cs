@@ -16,7 +16,14 @@ public static class LiteDxfWriter
 
     public static void Write(TextWriter w, IReadOnlyList<LiteEntity> ents, IReadOnlyDictionary<string, string> names, IReadOnlyDictionary<string, short> colors, double dx, double dy)
     {
-        var box = LiteBox.Of(ents);
+        Begin(w, LiteBox.Of(ents), ents.Select(e => e.Layer), names, colors, dx, dy);
+        foreach (var e in ents) Entity(w, e, Name(names, e.Layer), dx, dy);
+        End(w);
+    }
+
+    /// <summary>Header, tables and the start of ENTITIES for a stream of entities (LiteBuild.Write): box is their extents, layers the original layer names they use.</summary>
+    public static void Begin(TextWriter w, LiteBox box, IEnumerable<string> layers, IReadOnlyDictionary<string, string> names, IReadOnlyDictionary<string, short> colors, double dx, double dy)
+    {
         if (box.IsEmpty) box = new LiteBox { MinX = dx, MinY = dy, MaxX = dx, MaxY = dy };
         Pair(w, 0, "SECTION"); Pair(w, 2, "HEADER");
         Pair(w, 9, "$ACADVER"); Pair(w, 1, "AC1009");
@@ -28,21 +35,24 @@ public static class LiteDxfWriter
         Pair(w, 0, "ENDSEC");
 
         // layer table: "0" always, then every layer an entity uses, in name order
-        var layers = ents.Select(e => e.Layer).Distinct(StringComparer.Ordinal).Select(l => (Out: Name(names, l), Color: colors.TryGetValue(l, out var c) ? c : (short)7))
+        var table = layers.Distinct(StringComparer.Ordinal).Select(l => (Out: Name(names, l), Color: colors.TryGetValue(l, out var c) ? c : (short)7))
             .Where(l => l.Out != "0").GroupBy(l => l.Out, StringComparer.Ordinal).Select(g => g.First()).OrderBy(l => l.Out, StringComparer.Ordinal).ToList();
         Pair(w, 0, "SECTION"); Pair(w, 2, "TABLES");
         Pair(w, 0, "TABLE"); Pair(w, 2, "LTYPE"); Int(w, 70, 1);
         Pair(w, 0, "LTYPE"); Pair(w, 2, "CONTINUOUS"); Int(w, 70, 0); Pair(w, 3, "Solid line"); Int(w, 72, 65); Int(w, 73, 0); Real(w, 40, 0);
         Pair(w, 0, "ENDTAB");
-        Pair(w, 0, "TABLE"); Pair(w, 2, "LAYER"); Int(w, 70, layers.Count + 1);
+        Pair(w, 0, "TABLE"); Pair(w, 2, "LAYER"); Int(w, 70, table.Count + 1);
         Layer(w, "0", colors.TryGetValue("0", out var c0) ? c0 : (short)7);
-        foreach (var (o, col) in layers) Layer(w, o, col);
+        foreach (var (o, col) in table) Layer(w, o, col);
         Pair(w, 0, "ENDTAB");
         Pair(w, 0, "ENDSEC");
         Pair(w, 0, "SECTION"); Pair(w, 2, "BLOCKS"); Pair(w, 0, "ENDSEC");
 
         Pair(w, 0, "SECTION"); Pair(w, 2, "ENTITIES");
-        foreach (var e in ents) Entity(w, e, Name(names, e.Layer), dx, dy);
+    }
+
+    public static void End(TextWriter w)
+    {
         Pair(w, 0, "ENDSEC");
         Pair(w, 0, "EOF");
     }
@@ -89,7 +99,7 @@ public static class LiteDxfWriter
         }
     }
 
-    static string Name(IReadOnlyDictionary<string, string> names, string layer) => names.TryGetValue(layer, out var n) ? n : "0";
+    public static string Name(IReadOnlyDictionary<string, string> names, string layer) => names.TryGetValue(layer, out var n) ? n : "0";
 
     static void Layer(TextWriter w, string name, short color)
     {

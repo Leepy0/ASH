@@ -140,8 +140,8 @@ public readonly record struct Affine3(double M00, double M01, double M02, double
         o.M20 * M00 + o.M21 * M10 + o.M22 * M20, o.M20 * M01 + o.M21 * M11 + o.M22 * M21, o.M20 * M02 + o.M21 * M12 + o.M22 * M22, o.M20 * M03 + o.M21 * M13 + o.M22 * M23 + o.M23);
     /// <summary>The plan rows without their z terms; the whole plan transform when PlanHasZ is false.</summary>
     public Affine2 Plan => new(M00, M01, M10, M11, M03, M13);
-    /// <summary>A point's plan position depends on its local z: the placement tilts the block.</summary>
-    public bool PlanHasZ => Math.Abs(M02) > 1e-9 || Math.Abs(M12) > 1e-9;
+    /// <summary>A point's plan position depends on its local z: the placement tilts the block. Relative to the plan scale, so a tiny block's tilt still counts.</summary>
+    public bool PlanHasZ => Math.Max(Math.Abs(M02), Math.Abs(M12)) > 1e-9 * Math.Max(Plan.Norm, 1e-300);
     /// <summary>The 3x3 part alone (translation zero).</summary>
     public Affine3 Linear => new(M00, M01, M02, 0, M10, M11, M12, 0, M20, M21, M22, 0);
 }
