@@ -102,10 +102,13 @@ public sealed class LiteCommands
         ed.WriteMessage($"\n{cmd}: {r.Level}단계, 엔티티 {r.Entities:N0}개, {mb:0.00} MB, 덩어리 {s.Blobs:N0}개 외곽선, 중복 {s.Duplicate.Count + r.Deduped:N0}개·작은 요소 {s.Small.Count + s.SmallInstances:N0}개 제거 (원본 DWG {files.SourceBytes / 1048576.0:0.00} MB)");
         ed.WriteMessage($"\n원점 이동 ({r.ShiftX:0.###}, {r.ShiftY:0.###}): 원본 좌표로 되돌리려면 ash.settings.tsv에 OriginX {-r.ShiftX:0.###}, OriginY {-r.ShiftY:0.###} (보고서 참고)");
         ed.WriteMessage($"\nDXF: {dxfPath}\n보고서: {reportPath}");
+        if (s.Partial) ed.WriteMessage("\n경고: 예산 초과, 일부만 출력. 빠진 인스턴스가 있습니다.");
         if (o.Bytes > LiteLevels.WarnBytes) ed.WriteMessage("\n경고: 10 MB를 넘습니다. AutoMod가 느려지거나 멈출 수 있습니다(보고서의 큰 덩어리·큰 레이어 참고).");
+        if (o.Unsaved != null) ed.WriteMessage($"\n경고: 설정 저장 실패: {o.Unsaved}");
         if (log.ExplodeFailed > 0) ed.WriteMessage($"\n참고: 폭발 실패 {log.ExplodeFailed:N0}개, 범위 상자로 대체.");
+        if (log.Over3D > 0) ed.WriteMessage($"\n참고: 3D 예산 초과 {log.Over3D:N0}개, 범위 상자로 대체.");
         if (log.Failures > 0) ed.WriteMessage($"\n참고: 읽지 못한 엔티티 {log.Failures:N0}개를 건너뛰었습니다.");
-        PaletteStatus.Set($"{cmd} 완료: {r.Level}단계, {mb:0.00} MB" + (o.Bytes > LiteLevels.WarnBytes ? " (10 MB 초과)" : ""));
+        PaletteStatus.Set($"{cmd} 완료: {r.Level}단계, {mb:0.00} MB" + (o.Bytes > LiteLevels.WarnBytes ? " (10 MB 초과)" : "") + (s.Partial ? " (일부만 출력)" : ""));
 
         if (PathCommands.Keyword(ed, "\n경량 도면을 ZWCAD에서 열까요? [Y/N] <Y>", "Y", "Y", "N") != "Y") return;
         try
@@ -264,10 +267,8 @@ public sealed class LiteCommands
                 case MInsertBlock mi:
                 {
                     if (Target(mi) is not int def) break;
-                    var xf = Affine3.From(mi.BlockTransform.ToArray());
-                    for (int r = 0; r < mi.Rows; r++)
-                        for (int c = 0; c < mi.Columns; c++)
-                            g.Uses.Add(new BlockUse(def, LiteRead.Minsert(xf, V(mi.Normal), mi.Rotation, c * mi.ColumnSpacing, r * mi.RowSpacing), layer));
+                    foreach (var cell in LiteRead.Minsert(Affine3.From(mi.BlockTransform.ToArray()), V(mi.Normal), mi.Rotation, mi.Rows, mi.Columns, mi.RowSpacing, mi.ColumnSpacing, _log))
+                        g.Uses.Add(new BlockUse(def, cell, layer));
                     break;
                 }
                 case BlockReference br:
@@ -341,19 +342,14 @@ public sealed class LiteCommands
         }
 
         // an object or one exploded piece of it goes in whole, or as its box with a count: half a solid would look like a real shape
-        private void Whole(BlockDef g, Entity e, Action<BlockDef> read)
+        private void Whole(BlockDef g, Entity e, Action<BlockDef> read) =>
+            g.Geo.AddRange(LiteRead.Whole(_log, _depth == 0, () => { var one = new BlockDef(); read(one); return one.Geo; }, () => Box(e)));
+
+        private static Geo3 Box(Entity e)
         {
-            var one = new BlockDef();
-            try
-            {
-                read(one);
-                if (!LiteRead.TooBig(one.Geo)) { g.Geo.AddRange(one.Geo); return; }
-            }
-            catch (System.Exception) { } // the box below: Explode throws on what it cannot take apart
             var x = e.GeometricExtents;
             var box = new[] { new LiteVertex(x.MinPoint.X, x.MinPoint.Y), new LiteVertex(x.MaxPoint.X, x.MinPoint.Y), new LiteVertex(x.MaxPoint.X, x.MaxPoint.Y), new LiteVertex(x.MinPoint.X, x.MaxPoint.Y) };
-            g.Geo.Add(new Poly3(e.Layer, box, true, Up, x.MinPoint.Z));
-            _log.ExplodeFailed++;
+            return new Poly3(e.Layer, box, true, Up, x.MinPoint.Z);
         }
 
         private void Burst(BlockDef g, Entity e)

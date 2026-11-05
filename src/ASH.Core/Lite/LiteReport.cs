@@ -61,7 +61,7 @@ public static class LiteReport
         Row("선택", b.Settings.Level != null ? "고정" : "자동");
         Row("목표", Mb(LiteLevels.TargetBytes));
         Row("예상 크기", Mb(estimate));
-        if (run.Truncated > 0) Row("예산 초과", run.Truncated + "개 노드");
+        if (run.Truncated > 0) Row("예산 초과", run.Stats.Partial ? "일부만 출력" : run.Truncated + "개 노드");
         if (density.Cut) Row("밀도 예산 초과", "예");
         if (liteBytes > LiteLevels.WarnBytes)
         {
@@ -119,6 +119,8 @@ public static class LiteReport
             foreach (var kv in read.Removed) Row(kv.Key, Int(kv.Value));
             Row("3D 객체", Int(read.Solids.Sum()));
             Row("폭발 실패 (범위 상자로 대체)", Int(read.ExplodeFailed));
+            Row("3D 예산 초과 (범위 상자로 대체)", Int(read.Over3D));
+            Row("MINSERT 셀 상한 초과", Int(read.MinsertOver));
             Row("읽지 못한 엔티티", Int(read.Failures));
         }
 

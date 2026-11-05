@@ -65,8 +65,16 @@ public static class LiteDxfWriter
         return cw.Count;
     }
 
-    public static void Entity(TextWriter w, LiteEntity e, string layer, double dx, double dy, int decimals)
+    /// <summary>Returns the R12 kind written, null when nothing was: an arc the angle precision cannot hold is written as its chord, and dropped when that is a point at this precision.</summary>
+    public static string? Entity(TextWriter w, LiteEntity e, string layer, double dx, double dy, int decimals)
     {
+        if (e is LiteArc arc && AnglesMeet(arc))
+        {
+            var (x1, y1) = (arc.Cx + arc.R * Math.Cos(arc.StartDeg * Math.PI / 180), arc.Cy + arc.R * Math.Sin(arc.StartDeg * Math.PI / 180));
+            var (x2, y2) = (arc.Cx + arc.R * Math.Cos(arc.EndDeg * Math.PI / 180), arc.Cy + arc.R * Math.Sin(arc.EndDeg * Math.PI / 180));
+            if (Num(x1 - dx, Formats[decimals]) == Num(x2 - dx, Formats[decimals]) && Num(y1 - dy, Formats[decimals]) == Num(y2 - dy, Formats[decimals])) return null;
+            e = new LiteLine(arc.Layer, x1, y1, x2, y2);
+        }
         switch (e)
         {
             case LiteLine l:
@@ -94,6 +102,16 @@ public static class LiteDxfWriter
                 break;
             default: throw new ArgumentException("unknown lite entity " + e.GetType().Name);
         }
+        return e.Kind;
+    }
+
+    /// <summary>A tiny arc whose angles write the same: ZWCAD and DxfLite would read a full circle. Near 360 degrees that reading is the right one, so those stay arcs.</summary>
+    static bool AnglesMeet(LiteArc a)
+    {
+        string Text(double deg) { var s = Num(deg, Formats[AngleDecimals]); return s == "360.0" ? "0.0" : s; }
+        double sweep = a.EndDeg - a.StartDeg;
+        if (sweep <= 0) sweep += 360;
+        return sweep < 180 && Text(a.StartDeg) == Text(a.EndDeg);
     }
 
     public static string Name(IReadOnlyDictionary<string, string> names, string layer) => names.TryGetValue(layer, out var n) ? n : "0";

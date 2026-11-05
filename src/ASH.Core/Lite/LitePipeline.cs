@@ -33,6 +33,8 @@ public sealed class LiteStats
     public readonly LiteStep Degenerate = new(), Duplicate = new(), Overlap = new(), Small = new(), Blob = new();
     /// <summary>Blobs replaced by an outline; child instances dropped whole inside one (R18); instances not placed because their box was under MinSize (R2a).</summary>
     public int Blobs, DroppedInstances, SmallInstances;
+    /// <summary>The sheet hit the budget: instances past that point are missing from the output.</summary>
+    public bool Partial;
     /// <summary>The TopCount blobs with most lines, most first (X then Y break ties).</summary>
     public readonly List<LiteBlobInfo> TopBlobs = new();
 

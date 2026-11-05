@@ -665,14 +665,23 @@ public class LevelsTests
     [Fact]
     public void Report_Names_The_Budget_Overrun_By_Nodes()
     {
-        var d = Drawing(4, Array.Empty<Geo3>(), new Geo3[] { L3(0, 0, 1000, 0), L3(0, 300, 1000, 300), L3(0, 600, 1000, 600), L3(0, 900, 1000, 900) });
+        var zigzag = new Points3("A", Enumerable.Range(0, 20).Select(i => new Vec3(i * 50, i % 2 * 500, 0)).ToList(), false);
+        var d = Drawing(4, Array.Empty<Geo3>(), new Geo3[] { zigzag });
         Use(d, 0, 1, Move(0));
-        var b = new LiteBuild(d) { Budget = 2 };
+        var b = new LiteBuild(d) { Budget = 3 }; // 19 chords, but 2 instances and 1 entity: the sheet is whole
         var t = Report(b, 2);
         Assert.Equal(1, b.Run(b.Thresholds(2)).Truncated);
         Assert.Contains("예산 초과\t1개 노드", t);
         Assert.Contains("밀도 예산 초과\t예", t);
         Assert.DoesNotContain("예산 초과", Report(new LiteBuild(Plant()), 2));
+    }
+
+    [Fact]
+    public void Report_Says_A_Partial_Output()
+    {
+        var d = Drawing(4, Array.Empty<Geo3>(), new Geo3[] { L3(0, 0, 1000, 0) });
+        for (int i = 0; i < 5; i++) Use(d, 0, 1, Move(i * 2000));
+        Assert.Contains("예산 초과\t일부만 출력", Report(new LiteBuild(d) { Budget = 4 }, 0));
     }
 
     [Fact]

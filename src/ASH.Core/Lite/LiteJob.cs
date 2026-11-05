@@ -10,8 +10,9 @@ namespace ASH.Core.Lite;
 /// <summary>Where one AGVLITE run reads from and writes to. SourceBytes = 0: unknown.</summary>
 public sealed record LiteFiles(string Source, long SourceBytes, string Dxf, string Report, string Settings);
 
-/// <summary>Cancelled: nothing was written. Failed: the file that could not be written, Why: the system's words. Otherwise Result is the DXF written, Bytes its size.</summary>
-public sealed record LiteOutcome(bool Cancelled = false, string? Failed = null, string? Why = null, LiteResult? Result = null, long Bytes = 0, LiteStats? Stats = null);
+/// <summary>Cancelled: nothing was written. Failed: the file that could not be written, Why: the system's words. Otherwise Result is the DXF written, Bytes its size;
+/// Unsaved: the settings file that could not be saved (Why says why), the DXF and the report are in place all the same.</summary>
+public sealed record LiteOutcome(bool Cancelled = false, string? Failed = null, string? Why = null, LiteResult? Result = null, long Bytes = 0, LiteStats? Stats = null, string? Unsaved = null);
 
 /// <summary>One level as AGVLITEX shows it: the estimated file size and the blobs replaced by an outline.</summary>
 public sealed record LiteLevelEstimate(long Bytes, int Blobs);
@@ -70,13 +71,18 @@ public static class LiteJob
             at = f.Report;
             Put(reportTmp, f.Report);
 
+            string? unsaved = null, why = null;
             if (saveSettings)
-            {
-                at = f.Settings;
-                b.Settings.Record(level, b.Thresholds(level));
-                b.Settings.Save(f.Settings);
-            }
-            return new LiteOutcome(Result: r, Bytes: bytes, Stats: b.Run(b.Thresholds(level)).Stats);
+                try
+                {
+                    b.Settings.Record(level, b.Thresholds(level));
+                    b.Settings.Save(f.Settings);
+                }
+                catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException) // the pair is already in place: not a failed run
+                {
+                    (unsaved, why) = (f.Settings, ex.Message);
+                }
+            return new LiteOutcome(Result: r, Bytes: bytes, Stats: b.Run(b.Thresholds(level)).Stats, Why: why, Unsaved: unsaved);
         }
         catch (Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
         {

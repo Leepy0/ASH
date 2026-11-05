@@ -156,6 +156,58 @@ public class LiteDxfWriterTests
         Assert.Contains("$EXTMIN\r\n 10\r\n-1000.0\r\n 20\r\n0.0", text);
     }
 
+    // radius 100 m, sweep under 0.0001 degrees: start and end write the same 4 decimals
+    [Theory]
+    [InlineData(10.00001, 10.00002)]
+    [InlineData(359.99999, 0.00001)] // across zero: "360.0" and "0.0" are one angle
+    public void A_Tiny_Arc_Is_Written_As_Its_Chord_Not_A_Circle(double start, double end)
+    {
+        var e = new LiteArc("A", 0, 0, 100_000, start, end);
+        var sw = new StringWriter();
+        Assert.Equal("LINE", LiteDxfWriter.Entity(sw, e, "A", -200_000, -200_000, 3));
+        Assert.Equal(sw.ToString().Length, LiteDxfWriter.Bytes(e, "A", -200_000, -200_000, 3));
+
+        var d = DxfLite.Read(new StringReader(Write(new LiteEntity[] { e }, -200_000, -200_000)));
+        var s = Assert.Single(d.Segs);
+        Assert.InRange(Math.Sqrt((s.X2 - s.X1) * (s.X2 - s.X1) + (s.Y2 - s.Y1) * (s.Y2 - s.Y1)), 0, 1);
+    }
+
+    [Fact]
+    public void A_Tiny_Arc_That_Rounds_To_A_Point_Is_Dropped()
+    {
+        var e = new LiteArc("A", 0, 0, 10, 10.00001, 10.00002);
+        var sw = new StringWriter();
+        Assert.Null(LiteDxfWriter.Entity(sw, e, "A", 0, 0, 4));
+        Assert.Equal(0, sw.ToString().Length);
+        Assert.Equal(0, LiteDxfWriter.Bytes(e, "A", 0, 0, 4));
+        Assert.Empty(DxfLite.Read(new StringReader(Write(new LiteEntity[] { e }, 0, 0))).Segs);
+    }
+
+    [Fact]
+    public void An_Arc_Just_Short_Of_A_Circle_Stays_An_Arc()
+    {
+        var sw = new StringWriter();
+        Assert.Equal("ARC", LiteDxfWriter.Entity(sw, new LiteArc("A", 0, 0, 1000, 10.00002, 10.00001), "A", 0, 0, 2));
+        Assert.Contains("ARC", sw.ToString());
+    }
+
+    [Fact]
+    public void The_Build_Counts_What_A_Tiny_Arc_Became()
+    {
+        var line = new Line3("A", new Vec3(0, 0, 0), new Vec3(5000, 0, 0));
+        var up = new Vec3(0, 0, 1);
+        double rad(double deg) => deg * Math.PI / 180;
+        var d = new LiteBlocks();
+        d.Defs.Add(new BlockDef { Geo = { line, new Arc3("A", new Vec3(0, 50_000, 0), up, 100_000, rad(10.00001), rad(10.00002)), new Arc3("A", new Vec3(0, 90_000, 0), up, 1000, rad(10.00001), rad(10.00002)) } });
+        var b = new LiteBuild(d);
+        var sw = new StringWriter();
+        var r = b.Write(sw, 0);
+        Assert.False(r.Written.ContainsKey("ARC"));
+        Assert.Equal(2, r.Written["LINE"]);
+        Assert.Equal(2, r.Entities);
+        Assert.Equal(sw.ToString().Length, b.Total(0));
+    }
+
     [Fact]
     public void Bulged_Polyline_Round_Trips_As_Arc()
     {

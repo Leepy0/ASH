@@ -51,6 +51,28 @@ public class ReadTests
     }
 
     [Fact]
+    public void Minsert_Cells_Run_Row_By_Row()
+    {
+        var log = new LiteReadLog();
+        var cells = LiteRead.Minsert(Affine3.Identity, Up, 0, 2, 3, 100, 10, log);
+        Assert.Equal(new[] { 0.0, 10, 20, 0, 10, 20 }, cells.Select(c => c.M03).ToArray());
+        Assert.Equal(new[] { 0.0, 0, 0, 100, 100, 100 }, cells.Select(c => c.M13).ToArray());
+        Assert.Equal(0, log.MinsertOver);
+    }
+
+    [Theory]
+    [InlineData(1, LiteRead.MaxMinsertCells, 0)]
+    [InlineData(1, LiteRead.MaxMinsertCells + 1, 1)]
+    [InlineData(300, 300, 300 * 300 - LiteRead.MaxMinsertCells)]
+    [InlineData(100_000, 100_000, 100_000L * 100_000 - LiteRead.MaxMinsertCells)] // the product passes int
+    public void Minsert_Cells_Stop_At_The_Cap_And_The_Rest_Are_Counted(int rows, int columns, long over)
+    {
+        var log = new LiteReadLog();
+        Assert.Equal(LiteRead.MaxMinsertCells, LiteRead.Minsert(Affine3.Identity, Up, 0, rows, columns, 1, 1, log).Count);
+        Assert.Equal(over, log.MinsertOver);
+    }
+
+    [Fact]
     public void Minsert_Cells_Reach_The_File_Apart()
     {
         // a real MINSERT: scale 2, rotated 90 degrees, at (1000, 1000). The line of 500 stands 1000 tall
@@ -97,6 +119,55 @@ public class ReadTests
     public void A_Mesh_Over_The_Limit_Throws_So_The_Reader_Falls_Back_To_The_Box()
     {
         Assert.Throws<InvalidOperationException>(() => LiteRead.GridEdges(10_000, 10_000, false, false));
+    }
+
+    static readonly Points3 Heavy = new("A", Enumerable.Repeat(new Vec3(0, 0, 0), LiteRead.MaxPointsPerObject).ToList(), false);
+    static readonly Geo3 BoxGeo = new Poly3("A", new[] { new LiteVertex(0, 0), new LiteVertex(1, 0), new LiteVertex(1, 1) }, true, Up, 0);
+    static List<Geo3> Read(params Geo3[] g) => g.ToList();
+
+    [Fact]
+    public void Three_D_Objects_Past_The_Drawing_Budget_Become_Boxes_Unread()
+    {
+        var log = new LiteReadLog();
+        int kept = 0, reads = 0;
+        for (int i = 0; i < 1000; i++)
+            if (LiteRead.Whole(log, true, () => { reads++; return Read(Heavy); }, () => BoxGeo)[0] == Heavy) kept++;
+
+        long perObject = LiteRead.MaxPointsPerObject, needed = (LiteRead.MaxPoints3D + perObject - 1) / perObject;
+        Assert.Equal(needed, kept); // the object crossing the budget stays whole
+        Assert.Equal(needed, reads);
+        Assert.Equal(1000 - needed, log.Over3D);
+        Assert.Equal(0, log.ExplodeFailed);
+        Assert.InRange(log.Points3D, LiteRead.MaxPoints3D, LiteRead.MaxPoints3D + perObject);
+    }
+
+    [Fact]
+    public void An_Exploded_Piece_Is_Neither_Charged_Nor_Cut_By_The_Drawing_Budget()
+    {
+        var log = new LiteReadLog { Points3D = LiteRead.MaxPoints3D };
+        var line = L3(0, 0, 1, 1);
+        Assert.Same(line, LiteRead.Whole(log, false, () => Read(line), () => BoxGeo)[0]);
+        Assert.Equal(LiteRead.MaxPoints3D, log.Points3D);
+        Assert.Equal(0, log.Over3D);
+    }
+
+    [Fact]
+    public void Whole_Counts_Explode_Failures_Apart_From_The_Budget()
+    {
+        var log = new LiteReadLog();
+        Assert.Same(BoxGeo, LiteRead.Whole(log, true, () => throw new InvalidOperationException(), () => BoxGeo)[0]);
+        Assert.Same(BoxGeo, LiteRead.Whole(log, true, () => Read(Heavy, L3(0, 0, 1, 1)), () => BoxGeo)[0]);
+        Assert.Equal(2, log.ExplodeFailed);
+        Assert.Equal(0, log.Over3D);
+        Assert.Equal(0, log.Points3D); // what became a box takes nothing from the budget
+    }
+
+    [Fact]
+    public void A_Box_That_Cannot_Be_Made_Counts_Nothing()
+    {
+        var log = new LiteReadLog { Points3D = LiteRead.MaxPoints3D };
+        Assert.Throws<ArgumentException>(() => LiteRead.Whole(log, true, () => Read(), () => throw new ArgumentException()));
+        Assert.Equal(0, log.Over3D);
     }
 
     [Fact]
@@ -208,7 +279,7 @@ public class ReadTests
     public void A_Run_Writes_The_Dxf_The_Report_And_The_Settings()
     {
         using var t = new Folder();
-        var log = new LiteReadLog { Failures = 2, ExplodeFailed = 3 };
+        var log = new LiteReadLog { Failures = 2, ExplodeFailed = 3, Over3D = 6, MinsertOver = 8 };
         log.Before["Line"] = 7;
         log.Removed["해치"] = 4;
         log.Solids.Add(5);
@@ -220,7 +291,7 @@ public class ReadTests
         Assert.Equal(new FileInfo(t.Files.Dxf).Length, o.Bytes);
         Assert.Single(DxfLite.Read(new StringReader(File.ReadAllText(t.Files.Dxf))).Segs);
         var report = File.ReadAllText(t.Files.Report, Encoding.UTF8);
-        foreach (var row in new[] { "[원본 엔티티 (모델 공간 최상위)]", "Line\t7", "합계\t7", "[제거한 항목 (정의 단위)]", "해치\t4", "3D 객체\t5", "폭발 실패 (범위 상자로 대체)\t3", "읽지 못한 엔티티\t2", "원본 크기 (DWG)" })
+        foreach (var row in new[] { "[원본 엔티티 (모델 공간 최상위)]", "Line\t7", "합계\t7", "[제거한 항목 (정의 단위)]", "해치\t4", "3D 객체\t5", "폭발 실패 (범위 상자로 대체)\t3", "3D 예산 초과 (범위 상자로 대체)\t6", "MINSERT 셀 상한 초과\t8", "읽지 못한 엔티티\t2", "원본 크기 (DWG)" })
             Assert.Contains(row, report);
         Assert.Contains("UsedLevel\t0", File.ReadAllText(t.Files.Settings));
     }
@@ -310,6 +381,29 @@ public class ReadTests
         Assert.Null(o.Result);
         Unchanged(t.Files, old);
         Assert.False(File.Exists(t.Files.Dxf + ".tmp"));
+    }
+
+    [Fact]
+    public void A_Settings_File_That_Cannot_Be_Saved_Is_A_Warning_Not_A_Failure()
+    {
+        using var t = new Folder();
+        Directory.CreateDirectory(t.Files.Settings); // saving over a folder throws, and nothing holds a file open beforehand
+        var o = NewJob(t.Files);
+        Assert.Null(o.Failed);
+        Assert.Equal(t.Files.Settings, o.Unsaved);
+        Assert.False(string.IsNullOrEmpty(o.Why));
+        Assert.NotNull(o.Result);
+        Assert.Equal(new FileInfo(t.Files.Dxf).Length, o.Bytes);
+        Assert.True(File.Exists(t.Files.Report));
+    }
+
+    [Fact]
+    public void A_Saved_Settings_File_Leaves_No_Warning()
+    {
+        using var t = new Folder();
+        var o = NewJob(t.Files);
+        Assert.Null(o.Unsaved);
+        Assert.Null(o.Why);
     }
 
     [Theory]

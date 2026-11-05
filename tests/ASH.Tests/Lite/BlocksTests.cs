@@ -248,19 +248,66 @@ public class BlocksTests
     [Fact]
     public void Over_The_Budget_The_Own_Geometry_Is_Still_Judged_And_The_Output_Stays_Complete()
     {
-        var d = Drawing(Array.Empty<Geo3>(), Geo(BlobsTests.Robot(0, 0)), new[] { L3(-50, 0, 50, 0, "X"), L3(0, -50, 0, 50, "X") });
+        var zigzag = new Points3("X", Enumerable.Range(0, 40).Select(i => new Vec3(i * 2.5, i % 2 * 100, 0)).ToList(), false);
+        var d = Drawing(Array.Empty<Geo3>(), Geo(BlobsTests.Robot(0, 0)), new Geo3[] { zigzag });
         Use(d, 0, 1, Affine3.Identity);
         for (int i = 0; i < 5; i++) Use(d, 1, 2, Move(500 + i * 200, 1000));
-        var b = new LiteBuild(d) { Budget = 3 };
+        var b = new LiteBuild(d) { Budget = 20 }; // 39 chords in each child, but 13 instances and entities: the sheet is not cut
         var run = b.Run(L2);
         var p = Assert.Single(run.Root.Uses).Child;
         Assert.Single(p.Own);                 // the mesh became its outline
         Assert.Equal(5, p.Uses.Count);        // the children were given up, not dropped
-        Assert.Equal(2, run.Truncated);       // P and the root both stream more than 3 chords from their children
+        Assert.Equal(2, run.Truncated);       // P and the root both stream more than 20 chords from their children
         Assert.Equal(0, run.Stats.DroppedInstances);
         var ents = Entities(Dxf(b, L2));
-        Assert.Equal(10, ents.Count(e => e.Kind == "LINE" && e.Layer == "X"));
+        Assert.False(run.Stats.Partial);
+        Assert.Equal(5, ents.Count(e => e.Kind == "POLYLINE" && e.Layer == "X"));
         Assert.Equal(1, ents.Count(e => e.Kind == "POLYLINE" && e.Layer == "ROBOT"));
+    }
+
+    /// <summary>Ten levels of ten inserts over one line: 10^10 lines if they were all placed.</summary>
+    static LiteBlocks Runaway()
+    {
+        var d = Drawing(Enumerable.Range(0, 11).Select(i => (IEnumerable<Geo3>)(i == 10 ? new[] { L3(0, 0, 1000, 0, "X") } : Array.Empty<Geo3>())).ToArray());
+        for (int level = 0; level < 10; level++)
+            for (int i = 0; i < 10; i++) Use(d, level, level + 1, Move(i * 2000, level * 100));
+        return d;
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    public void A_Runaway_Drawing_Stops_At_The_Budget_And_Says_The_Output_Is_Partial(int level)
+    {
+        var b = new LiteBuild(Runaway()) { Budget = 1000 };
+        var sw = new StringWriter();
+        var r = b.Write(sw, level);
+        var run = b.Run(b.Thresholds(level));
+        Assert.True(run.Stats.Partial);
+        Assert.Equal(1, run.Truncated);
+        Assert.InRange(r.Entities, 1, 1000);
+        Assert.Equal(sw.ToString().Length, b.Total(level) - r.DedupedBytes);
+    }
+
+    [Fact]
+    public void The_Budget_Counts_Entities_Too()
+    {
+        var d = Drawing(Array.Empty<Geo3>(), Enumerable.Range(0, 100).Select(i => (Geo3)L3(0, i * 300, 5000, i * 300, "X")));
+        for (int i = 0; i < 10; i++) Use(d, 0, 1, Move(i * 10000));
+        var b = new LiteBuild(d) { Budget = 500 };
+        var r = b.Write(new StringWriter(), LiteLevels.Max);
+        Assert.True(b.Run(b.Thresholds(LiteLevels.Max)).Stats.Partial);
+        Assert.Equal(400, r.Entities); // one root visit plus 101 per instance: four fit
+    }
+
+    [Fact]
+    public void Within_The_Budget_Nothing_Is_Partial()
+    {
+        var d = Drawing(Array.Empty<Geo3>(), new[] { L3(0, 0, 5000, 0, "X") });
+        for (int i = 0; i < 10; i++) Use(d, 0, 1, Move(i * 10000));
+        var b = new LiteBuild(d) { Budget = 21 };
+        Assert.Equal(10, b.Write(new StringWriter(), 0).Entities);
+        Assert.False(b.Run(b.Thresholds(0)).Stats.Partial);
     }
 
     [Fact]

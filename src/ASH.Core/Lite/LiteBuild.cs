@@ -37,7 +37,7 @@ public sealed class LiteRun
     /// <summary>Every node, parents before children.</summary>
     public List<LiteNode> Nodes { get; } = new();
     public LiteStats Stats { get; } = new();
-    /// <summary>Nodes whose blob step hit the budget: their own geometry was judged alone, their children all stayed.</summary>
+    /// <summary>Budget hits. Per node whose blob step gave up: its own geometry was judged alone, its children all stayed, the output is whole. One more when the sheet stopped placing (Stats.Partial).</summary>
     public int Truncated { get; internal set; }
     /// <summary>The file of this run: what writing needs, made once.</summary>
     internal LiteSheet? Sheet;
@@ -65,7 +65,7 @@ internal sealed class LiteSheet
     public Dictionary<string, (int Count, long Bytes)> Tally = null!;
 
     public void Begin(TextWriter w) => LiteDxfWriter.Begin(w, Box, Layers.Keys, Names, Colors, Sx, Sy, Decimals);
-    public void Entity(TextWriter w, LiteEntity e) => LiteDxfWriter.Entity(w, e, LiteDxfWriter.Name(Names, e.Layer), Sx, Sy, Decimals);
+    public string? Entity(TextWriter w, LiteEntity e) => LiteDxfWriter.Entity(w, e, LiteDxfWriter.Name(Names, e.Layer), Sx, Sy, Decimals);
     public long Bytes(LiteEntity e) => LiteDxfWriter.Bytes(e, LiteDxfWriter.Name(Names, e.Layer), Sx, Sy, Decimals);
 }
 
@@ -81,8 +81,11 @@ public sealed class LiteBuild
     /// <summary>A stack guard only: cycles are cut by path (R9).</summary>
     public const int MaxDepth = 256;
     /// <summary>Chords one definition's blob step may stream from its children before it judges its own geometry alone (a runaway fan-out guard: the root streams the whole drawing by
-    /// design, R18, and 2 million entities is an ordinary 300 MB drawing), and the most the density histogram walks. Settable for tests.</summary>
+    /// design, R18, and 2 million entities is an ordinary 300 MB drawing), the most the density histogram walks, and the instances plus entities the sheet places: past that the output
+    /// is partial (LiteStats.Partial). Settable for tests.</summary>
     public long Budget { get; set; } = 200_000_000;
+    /// <summary>Instances the sheet holds, 64 bytes each: the next doubling of the list would pass .NET Framework's 2 GB array limit, long before Budget.</summary>
+    public const int MaxPlaces = 16_000_000;
     /// <summary>Looked at between nodes and instances: cleaning, measuring and the histogram stop with OperationCanceledException. Clear it before writing a file.</summary>
     public CancellationToken Cancel { get; set; }
 
@@ -415,8 +418,8 @@ public sealed class LiteBuild
                 dedupedBytes += sheet.Bytes(e);
                 continue;
             }
-            sheet.Entity(w, e);
-            written[e.Kind] = (written.TryGetValue(e.Kind, out var c) ? c : 0) + 1;
+            if (sheet.Entity(w, e) is not string kind) continue;
+            written[kind] = (written.TryGetValue(kind, out var c) ? c : 0) + 1;
             count++;
         }
         LiteDxfWriter.End(w);
@@ -436,7 +439,7 @@ public sealed class LiteBuild
         foreach (var e in Entities(run, sheet))
         {
             long before = cw.Count;
-            sheet.Entity(cw, e);
+            if (sheet.Entity(cw, e) == null) continue;
             tally.TryGetValue(e.Layer, out var x);
             tally[e.Layer] = (x.Count + 1, x.Bytes + cw.Count - before);
         }
@@ -459,7 +462,19 @@ public sealed class LiteBuild
     {
         if (run.Sheet != null) return run.Sheet;
         var t = run.Thresholds;
-        var sheet = new LiteSheet { Places = Placements(run.Root, Affine2.Identity, "0", 0).ToList(), Decimals = LiteDxfWriter.Precision(t.InsUnits) };
+        var sheet = new LiteSheet { Places = new(), Decimals = LiteDxfWriter.Precision(t.InsUnits) };
+        long placed = 0;
+        foreach (var p in Placements(run.Root, Affine2.Identity, "0", 0))
+        {
+            placed += 1 + p.Node.Own.Count; // the entities count too: they are what Entities streams
+            if (placed > Budget || sheet.Places.Count >= MaxPlaces)
+            {
+                run.Truncated++;
+                run.Stats.Partial = true;
+                break;
+            }
+            sheet.Places.Add(p);
+        }
         foreach (int pi in Enumerable.Range(0, sheet.Places.Count).OrderBy(i => sheet.Places[i].Node.Def)) // stable: original order inside a definition
         {
             var (n, _, inherit) = sheet.Places[pi];
