@@ -156,6 +156,26 @@ public class BlobsTests
     }
 
     [Fact]
+    public void A_Line_In_The_Gap_Of_A_Concave_Blob_Stays()
+    {
+        // an L of three meshes: its box covers (2000..4000, 2000..4000), its cells do not; the line there is judged by its cells
+        var scene = Robot(0, 0).Concat(Robot(0, 2000)).Concat(Robot(2000, 0)).Concat(new[] { L(2600, 2600, 3400, 3400, "GAP") }).ToList();
+        var stats = new LiteStats();
+        var r = Replace(scene, L2, stats);
+        Assert.Equal(2, r.Count);
+        Assert.Contains(r, e => e.Layer == "GAP");
+        var box = LiteBox.Of(r.Where(e => e.Layer == "ROBOT"));
+        Assert.Equal((0, 0, 4000, 4000), (box.MinX, box.MinY, box.MaxX, box.MaxY));
+        Assert.Equal(1, stats.Blobs);
+    }
+
+    [Fact]
+    public void Outline_Of_No_Cells_Is_Empty()
+    {
+        Assert.Empty(Blobs.Outline(Array.Empty<(long, long)>(), Cell, 1, "A").Vertices);
+    }
+
+    [Fact]
     public void Outline_Takes_The_Layer_Most_Removed_Lines_Had()
     {
         var scene = Robot(0, 0, "MANY").Concat(Enumerable.Range(0, 10).Select(i => (LiteEntity)L(10, i * 20 + 10, 30, i * 20 + 10, "FEW"))).ToList();

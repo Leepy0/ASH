@@ -20,9 +20,28 @@ public sealed class LiteNode
     /// <summary>Child instances still placed, in original order.</summary>
     public List<LiteUse> Uses { get; internal set; } = new();
     public LiteBox Box { get; internal set; } = LiteBox.Empty;
-    /// <summary>Count and bytes (LiteDxfWriter.Bytes in node coordinates, unshifted) of Own per symbolic layer.</summary>
-    public Dictionary<string, (int Count, long Bytes)> OwnTally { get; } = new(StringComparer.Ordinal);
+    /// <summary>Own per symbolic layer: count, and the size parts Task 6 bounds from above (R15).</summary>
+    public Dictionary<string, LiteTally> OwnTally { get; } = new(StringComparer.Ordinal);
     internal Dictionary<string, List<int>>? ByLayer;
+}
+
+/// <summary>Size parts of some entities. Bytes is what LiteDxfWriter writes for them with an empty layer name, in node coordinates, unshifted; LayerSlots is how often a layer name is
+/// written (1 per LINE/CIRCLE/ARC, 2 + vertices per POLYLINE); Coords is how many x or y values are written (each at least "0.0", 3 characters; radii, angles and bulges do not move with
+/// the shift and are already in Bytes). Upper bound after placement: Bytes + LayerSlots x longest R12 name + Coords x (widest coordinate - 3).</summary>
+public readonly record struct LiteTally(int Count, long Bytes, long LayerSlots, long Coords)
+{
+    public static LiteTally operator +(LiteTally a, LiteTally b) => new(a.Count + b.Count, a.Bytes + b.Bytes, a.LayerSlots + b.LayerSlots, a.Coords + b.Coords);
+    public static LiteTally Of(LiteEntity e)
+    {
+        var (slots, coords) = e switch
+        {
+            LiteLine => (1, 4),
+            LiteCircle or LiteArc => (1, 2),
+            LitePolyline p => (2 + p.Vertices.Count, 2 * p.Vertices.Count),
+            _ => throw new ArgumentException("unknown lite entity " + e.GetType().Name),
+        };
+        return new LiteTally(1, LiteDxfWriter.Bytes(e, "", 0, 0), slots, coords);
+    }
 }
 
 /// <summary>A kept child instance: Placement maps the child's node coordinates into the parent's; Layer is the insert's ("0" inherits).</summary>
@@ -36,7 +55,7 @@ public sealed class LiteRun
     /// <summary>Every node, parents before children.</summary>
     public List<LiteNode> Nodes { get; } = new();
     public LiteStats Stats { get; } = new();
-    /// <summary>Nodes whose blob step hit the budget and was skipped.</summary>
+    /// <summary>Nodes whose blob step hit the budget: their own geometry was judged alone, their children all stayed.</summary>
     public int Truncated { get; internal set; }
     internal LiteRun(LiteThresholds t) => Thresholds = t;
 }
@@ -48,8 +67,9 @@ public sealed class LiteBuild
 {
     /// <summary>A stack guard only: cycles are cut by path (R9).</summary>
     public const int MaxDepth = 256;
-    /// <summary>Placed entities one definition's blob step may stream before it gives up (a runaway fan-out, not a real drawing).</summary>
-    public const int Budget = 2_000_000;
+    /// <summary>Chords one definition's blob step may stream from its children before it judges its own geometry alone (a runaway fan-out guard: the root streams the whole drawing by
+    /// design, R18, and 2 million entities is an ordinary 300 MB drawing). Settable for tests.</summary>
+    public long Budget { get; set; } = 200_000_000;
 
     readonly LiteBlocks _src;
     readonly HashSet<string> _exclude;
@@ -86,6 +106,7 @@ public sealed class LiteBuild
             for (int i = 0; i < uses.Count; i++)
             {
                 int c = uses[i].Def;
+                // cut once per definition on the first DFS path (the old per-path Walk could cut another edge of the same loop): differs only on malformed drawings
                 if (c < 0 || c >= n || state[c] == 1 || depth >= MaxDepth) { cut.Add((d, i)); continue; }
                 if (state[c] == 0) Dfs(c, depth + 1);
             }
@@ -160,7 +181,7 @@ public sealed class LiteBuild
         }
 
         var streams = uses.Select(u => (Func<IEnumerable<LiteEntity>>)(() => Place(u.Child, u.Placement, u.Layer == "0" ? null : u.Layer, tol, 1))).ToList();
-        own = Blobs.Replace(own, streams, out var keptChildren, t, nd.ScaleMax, run.Stats, nd.Def, Budget);
+        own = Blobs.Replace(own, streams, out var keptChildren, t, nd.ScaleMax, run.Stats, nd, Budget);
         if (keptChildren == null) run.Truncated++;
         nd.Own = own;
         nd.Uses = keptChildren == null ? uses : keptChildren.Select(i => uses[i]).ToList();
@@ -172,11 +193,7 @@ public sealed class LiteBuild
             if (!m.IsEmpty) { box.Add(m.MinX, m.MinY); box.Add(m.MaxX, m.MaxY); }
         }
         nd.Box = box;
-        foreach (var e in own)
-        {
-            var v = nd.OwnTally.TryGetValue(e.Layer, out var x) ? x : (0, 0L);
-            nd.OwnTally[e.Layer] = (v.Item1 + 1, v.Item2 + LiteDxfWriter.Bytes(e, e.Layer, 0, 0));
-        }
+        foreach (var e in own) nd.OwnTally[e.Layer] = (nd.OwnTally.TryGetValue(e.Layer, out var x) ? x : default) + LiteTally.Of(e);
     }
 
     static LiteBox Map(LiteBox b, Affine2 xf)
@@ -223,18 +240,17 @@ public sealed class LiteBuild
         }
     }
 
-    /// <summary>Count and bytes per original layer of everything Write would place: definition bytes x instances, in node coordinates (an upper bound comes with R15 in Task 6).</summary>
-    public Dictionary<string, (int Count, long Bytes)> Estimate(LiteThresholds t)
+    /// <summary>Per original layer, everything Write would place: definition tallies x instances (see LiteTally for the upper bound Task 6 makes of it, R15).</summary>
+    public Dictionary<string, LiteTally> Estimate(LiteThresholds t)
     {
         var run = Run(t);
-        var d = new Dictionary<string, (int Count, long Bytes)>(StringComparer.Ordinal);
+        var d = new Dictionary<string, LiteTally>(StringComparer.Ordinal);
         foreach (var (n, _, inherit) in Placements(run.Root, Affine2.Identity, "0", 0))
             foreach (var kv in n.OwnTally)
             {
                 var layer = kv.Key == "0" ? inherit : kv.Key;
                 if (kv.Key == "0" && Excluded(layer)) continue;
-                var v = d.TryGetValue(layer, out var x) ? x : (0, 0L);
-                d[layer] = (v.Item1 + kv.Value.Count, v.Item2 + kv.Value.Bytes);
+                d[layer] = (d.TryGetValue(layer, out var x) ? x : default) + kv.Value;
             }
         return d;
     }
@@ -291,8 +307,8 @@ public sealed class LiteBuild
                     else continue;
                     foreach (int i in at)
                     {
-                        var e = n.Own[i];
-                        LiteDxfWriter.Entity(w, CurveApprox.Transform(e, xf, tol, layer), name, sx, sy);
+                        var e = CurveApprox.Transform(n.Own[i], xf, tol, layer);
+                        LiteDxfWriter.Entity(w, e, name, sx, sy);
                         written[e.Kind] = (written.TryGetValue(e.Kind, out var c) ? c : 0) + 1;
                         count++;
                     }

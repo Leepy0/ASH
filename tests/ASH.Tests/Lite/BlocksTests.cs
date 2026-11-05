@@ -186,6 +186,61 @@ public class BlocksTests
     }
 
     [Fact]
+    public void A_Child_Straddling_A_Parent_Blob_Stays_While_One_Inside_Goes()
+    {
+        // X: one cross; S: a cross plus another 3 m away. Both placed at (1000, 1000) in the 2 m mesh: S's second cross lands outside, in a sparse group of its own.
+        var d = Drawing(Array.Empty<Geo3>(), Geo(BlobsTests.Robot(0, 0)), new[] { L3(-50, 0, 50, 0, "X"), L3(0, -50, 0, 50, "X") },
+            new[] { L3(-50, 0, 50, 0, "S"), L3(0, -50, 0, 50, "S"), L3(2950, 0, 3050, 0, "S"), L3(3000, -50, 3000, 50, "S") });
+        Use(d, 0, 1, Affine3.Identity);
+        Use(d, 1, 2, Move(1000, 1000));
+        Use(d, 1, 3, Move(1000, 1000));
+        var run = new LiteBuild(d).Run(L2);
+        var p = Assert.Single(run.Root.Uses).Child;
+        Assert.Equal(3, Assert.Single(p.Uses).Child.Def);
+        Assert.Equal(1, run.Stats.DroppedInstances);
+    }
+
+    [Fact]
+    public void Thresholds_Follow_The_Largest_Placement_Scale()
+    {
+        // a 20 mm line: under MinSize 50 at scale 1, 60 mm at scale 3. The definition is cleaned at scale 3, so the line survives; the scale 1 instance is then not placed (R2a).
+        var d = Drawing(Array.Empty<Geo3>(), new[] { L3(0, 0, 20, 0, "S") });
+        Use(d, 0, 1, Move(0));
+        Use(d, 0, 1, Move(1000, 0, 3));
+        var b = new LiteBuild(d);
+        var run = b.Run(L2);
+        var node = Assert.Single(run.Nodes.Where(n => n.Def == 1));
+        Assert.Equal(3, node.ScaleMax);
+        Assert.Single(node.Own);
+        Assert.Single(run.Root.Uses);
+        Assert.Equal(1, run.Stats.SmallInstances);
+        var seg = Assert.Single(DxfLite.Read(new StringReader(Dxf(b, L2))).Segs);
+        Assert.Equal(60, Math.Abs(seg.X2 - seg.X1), 6);
+
+        var alone = Drawing(Array.Empty<Geo3>(), new[] { L3(0, 0, 20, 0, "S") });
+        Use(alone, 0, 1, Move(0));
+        Assert.Empty(new LiteBuild(alone).Run(L2).Nodes.Single(n => n.Def == 1).Own);
+    }
+
+    [Fact]
+    public void Over_The_Budget_The_Own_Geometry_Is_Still_Judged_And_The_Output_Stays_Complete()
+    {
+        var d = Drawing(Array.Empty<Geo3>(), Geo(BlobsTests.Robot(0, 0)), new[] { L3(-50, 0, 50, 0, "X"), L3(0, -50, 0, 50, "X") });
+        Use(d, 0, 1, Affine3.Identity);
+        for (int i = 0; i < 5; i++) Use(d, 1, 2, Move(500 + i * 200, 1000));
+        var b = new LiteBuild(d) { Budget = 3 };
+        var run = b.Run(L2);
+        var p = Assert.Single(run.Root.Uses).Child;
+        Assert.Single(p.Own);                 // the mesh became its outline
+        Assert.Equal(5, p.Uses.Count);        // the children were given up, not dropped
+        Assert.Equal(2, run.Truncated);       // P and the root both stream more than 3 chords from their children
+        Assert.Equal(0, run.Stats.DroppedInstances);
+        var ents = Entities(Dxf(b, L2));
+        Assert.Equal(10, ents.Count(e => e.Kind == "LINE" && e.Layer == "X"));
+        Assert.Equal(1, ents.Count(e => e.Kind == "POLYLINE" && e.Layer == "ROBOT"));
+    }
+
+    [Fact]
     public void Writing_Order_Is_Layer_Then_Definition_Then_Original()
     {
         var d = Drawing(new[] { L3(0, 0, 1000, 0, "B"), L3(0, 1, 1000, 1, "A") }, new[] { L3(0, 2, 1000, 2, "A") });

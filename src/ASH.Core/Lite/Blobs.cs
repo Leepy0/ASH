@@ -30,6 +30,8 @@ public sealed class Blobs
     readonly Dictionary<(long, long), double> _len = new();
     readonly Dictionary<(long, long), int> _blobOf = new();
     readonly List<Blob> _blobs = new();
+    /// <summary>Chords walked into the occupancy so far (the budget counts these, not entities).</summary>
+    public long Chords { get; private set; }
 
     /// <summary>cell, tol in local units; unitsPerMm = local units per mm (UnitsPerMm / scaleMax); dense = 0 selects nothing.</summary>
     public Blobs(double cell, double unitsPerMm, double tol, double denseMmPerM2, double maxBlobMm)
@@ -47,12 +49,14 @@ public sealed class Blobs
     public void Add(LiteEntity e)
     {
         if (IsLong(e)) return;
-        Walk(e, (x, y, l) => _len[(x, y)] = (_len.TryGetValue((x, y), out var v) ? v : 0) + l);
+        Chords += Walk(e, (x, y, l) => _len[(x, y)] = (_len.TryGetValue((x, y), out var v) ? v : 0) + l);
     }
 
-    void Walk(LiteEntity e, Action<long, long, double> cell)
+    int Walk(LiteEntity e, Action<long, long, double> cell)
     {
-        foreach (var (x1, y1, x2, y2) in LiteStat.Segments(new[] { e }, _tol)) LiteStat.WalkCells(x1, y1, x2, y2, _cell, cell);
+        int n = 0;
+        foreach (var (x1, y1, x2, y2) in LiteStat.Segments(new[] { e }, _tol)) { LiteStat.WalkCells(x1, y1, x2, y2, _cell, cell); n++; }
+        return n;
     }
 
     /// <summary>Groups the occupied cells, measures each blob and selects the dense ones.</summary>
@@ -147,6 +151,7 @@ public sealed class Blobs
     /// where two cells touch only at a corner the ring turns right, so both stay inside one ring. The lowest-leftmost cell's bottom edge is on the outer ring, so the trace starts there.</summary>
     public static LitePolyline Outline(IReadOnlyList<(long X, long Y)> cells, double cell, double tol, string layer)
     {
+        if (cells.Count == 0) return new LitePolyline(layer, Array.Empty<LiteVertex>(), true);
         var set = new HashSet<(long, long)>(cells);
         var outgoing = new Dictionary<(long, long), List<int>>(); // vertex → directions (0 east, 1 north, 2 west, 3 south) of boundary edges leaving it
         var dx = new long[] { 1, 0, -1, 0 };
@@ -182,26 +187,35 @@ public sealed class Blobs
     }
 
     /// <summary>Replaces every dense blob of <paramref name="ents"/> (local units of one definition at its largest instance scale) by its outline, on the layer most of its lines had.
-    /// Entities not fully inside a selected blob stay. Stats: Blob (lines removed, their bytes), Blobs, TopBlobs (def tags them).</summary>
-    public static List<LiteEntity> Replace(IEnumerable<LiteEntity> ents, LiteThresholds t, double scaleMax, LiteStats stats, int def = 0)
+    /// Entities not fully inside a selected blob stay. Stats: Blob (lines removed, their bytes), Blobs, TopBlobs (node tags them, null here).</summary>
+    public static List<LiteEntity> Replace(IEnumerable<LiteEntity> ents, LiteThresholds t, double scaleMax, LiteStats stats, LiteNode? node = null)
     {
         var own = new List<LiteEntity>(ents);
-        var kept = Replace(own, Array.Empty<Func<IEnumerable<LiteEntity>>>(), out _, t, scaleMax, stats, def, int.MaxValue);
+        var kept = Replace(own, Array.Empty<Func<IEnumerable<LiteEntity>>>(), out _, t, scaleMax, stats, node, long.MaxValue);
         return kept;
     }
 
     /// <summary>As above, with child instances streamed in for the occupancy (R18): each child's geometry is enumerated, never stored. A child fully inside one selected blob is dropped
-    /// (its index is left out of keptChildren); one partly inside stays. Over <paramref name="budget"/> streamed entities nothing is replaced, every child stays and keptChildren is null.</summary>
-    public static List<LiteEntity> Replace(IReadOnlyList<LiteEntity> own, IReadOnlyList<Func<IEnumerable<LiteEntity>>> children, out List<int>? keptChildren, LiteThresholds t, double scaleMax, LiteStats stats, int def, int budget)
+    /// (its index is left out of keptChildren); one partly inside stays. Past <paramref name="budget"/> chords (a runaway fan-out, never a real drawing) the children are given up:
+    /// G runs over the own geometry alone, every child stays and keptChildren is null so the caller can report it.</summary>
+    public static List<LiteEntity> Replace(IReadOnlyList<LiteEntity> own, IReadOnlyList<Func<IEnumerable<LiteEntity>>> children, out List<int>? keptChildren, LiteThresholds t, double scaleMax, LiteStats stats, LiteNode? node, long budget)
     {
         keptChildren = Enumerable.Range(0, children.Count).ToList();
         if (!(t.DenseMmPerM2 > 0)) return new List<LiteEntity>(own);
         double unit = t.UnitsPerMm / scaleMax, cell = t.CellMm * unit, tol = t.ToleranceMm * unit;
         var blobs = new Blobs(cell, unit, tol, t.DenseMmPerM2, t.MaxBlobMm);
-        long left = budget;
-        foreach (var e in own) { if (left-- <= 0) { keptChildren = null; return new List<LiteEntity>(own); } blobs.Add(e); }
+        foreach (var e in own) blobs.Add(e);
         foreach (var c in children)
-            foreach (var e in c()) { if (left-- <= 0) { keptChildren = null; return new List<LiteEntity>(own); } blobs.Add(e); }
+            foreach (var e in c())
+            {
+                blobs.Add(e);
+                if (blobs.Chords > budget)
+                {
+                    var alone = Replace(own, Array.Empty<Func<IEnumerable<LiteEntity>>>(), out _, t, scaleMax, stats, node, long.MaxValue);
+                    keptChildren = null;
+                    return alone;
+                }
+            }
         blobs.Solve();
         if (!blobs.Selected.Any()) return new List<LiteEntity>(own);
 
@@ -231,7 +245,7 @@ public sealed class Blobs
             stats.Blob.Count += b.Lines;
             stats.Blob.Bytes += b.Bytes;
             var box = b.Box(cell);
-            stats.AddTop(new LiteBlobInfo(def, box.MinX, box.MinY, box.MaxX - box.MinX, box.MaxY - box.MinY, b.Lines, b.Density));
+            stats.AddTop(new LiteBlobInfo(node, box.MinX, box.MinY, box.MaxX - box.MinX, box.MaxY - box.MinY, b.Lines, b.Density));
         }
         return o;
     }

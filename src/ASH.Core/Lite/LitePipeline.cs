@@ -22,8 +22,8 @@ public sealed class LiteStep
     public long Bytes;
 }
 
-/// <summary>One blob that became an outline: where (lower left, size) in the coordinates of definition Def, how many lines it replaced and its density (mm of line per m²).</summary>
-public sealed record LiteBlobInfo(int Def, double X, double Y, double W, double H, int Lines, double Density);
+/// <summary>One blob that became an outline: where (lower left, size) in the coordinates of Node (null outside LiteBuild), how many lines it replaced and its density (mm of line per m²).</summary>
+public sealed record LiteBlobInfo(LiteNode? Node, double X, double Y, double W, double H, int Lines, double Density);
 
 /// <summary>Removed per step, added up over LitePipeline.Run and Blobs.Replace calls. Counts and bytes are per definition, not multiplied by instances.</summary>
 public sealed class LiteStats
