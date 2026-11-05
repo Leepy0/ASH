@@ -5,8 +5,9 @@ using ASH.Core.Settings;
 
 namespace ASH.Core.Lite;
 
-/// <summary>Cleanup limits in mm, whatever the drawing's unit (INSUNITS).</summary>
-public sealed record LiteThresholds(double ToleranceMm, double MinSizeMm, int InsUnits)
+/// <summary>Cleanup limits in mm, whatever the drawing's unit (INSUNITS). DenseMmPerM2 = 0 turns the blob outlines (G) off; MaxBlobMm is the largest blob replaced (and the shortest entity
+/// left out of the occupancy, R6); CellMm is the occupancy cell for connectivity and the outline, density is always measured per 1 m cell (R5).</summary>
+public sealed record LiteThresholds(double ToleranceMm, double MinSizeMm, int InsUnits, double DenseMmPerM2 = 0, double MaxBlobMm = 0, double CellMm = 200)
 {
     public const double GridMm = 0.1, DegenerateMm = 0.01;
 
@@ -21,11 +22,26 @@ public sealed class LiteStep
     public long Bytes;
 }
 
-/// <summary>Removed per step, added up over LitePipeline.Run calls.</summary>
+/// <summary>One blob that became an outline: where (lower left, size) in the coordinates of definition Def, how many lines it replaced and its density (mm of line per m²).</summary>
+public sealed record LiteBlobInfo(int Def, double X, double Y, double W, double H, int Lines, double Density);
+
+/// <summary>Removed per step, added up over LitePipeline.Run and Blobs.Replace calls. Counts and bytes are per definition, not multiplied by instances.</summary>
 public sealed class LiteStats
 {
-    /// <summary>퇴화, 중복, 겹침, 작은 요소.</summary>
-    public readonly LiteStep Degenerate = new(), Duplicate = new(), Overlap = new(), Small = new();
+    public const int TopCount = 30;
+    /// <summary>퇴화, 중복, 겹침, 작은 요소, 덩어리 외곽선 (lines a blob replaced, placed child lines included).</summary>
+    public readonly LiteStep Degenerate = new(), Duplicate = new(), Overlap = new(), Small = new(), Blob = new();
+    /// <summary>Blobs replaced by an outline; child instances dropped whole inside one (R18); instances not placed because their box was under MinSize (R2a).</summary>
+    public int Blobs, DroppedInstances, SmallInstances;
+    /// <summary>The TopCount blobs with most lines, most first (X then Y break ties).</summary>
+    public readonly List<LiteBlobInfo> TopBlobs = new();
+
+    public void AddTop(LiteBlobInfo b)
+    {
+        int i = TopBlobs.FindIndex(x => x.Lines < b.Lines || x.Lines == b.Lines && (x.X > b.X || x.X == b.X && x.Y > b.Y));
+        TopBlobs.Insert(i < 0 ? TopBlobs.Count : i, b);
+        if (TopBlobs.Count > TopCount) TopBlobs.RemoveAt(TopCount);
+    }
 }
 
 /// <summary>The cleanup of AGVLITE over one definition's geometry.</summary>
