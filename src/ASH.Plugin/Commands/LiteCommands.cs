@@ -73,15 +73,23 @@ public sealed class LiteCommands
         using (var esc = new CancellationTokenSource())
         {
             int level = -1, shown = -1;
+            var docs = Application.DocumentManager;
+            bool activation = docs.DocumentActivationEnabled;
+            docs.DocumentActivationEnabled = false; // the pump below must not switch or close the drawing under ed
             var work = Task.Run(() => LiteJob.Run(build, log, files, saveSettings, clock, esc.Token, k => Volatile.Write(ref level, k)));
-            while (!((IAsyncResult)work).AsyncWaitHandle.WaitOne(100))
+            try
             {
-                int k = Volatile.Read(ref level);
-                if (k != shown) Say($"AGVLITE: 정리 중 {shown = k}단계…");
-                if (HostApplicationServices.Current.UserBreak()) esc.Cancel();
-                // a minutes-long wait: without a pump the window goes "not responding" and these lines never paint. After UserBreak, so the pump cannot eat the Esc.
-                System.Windows.Forms.Application.DoEvents();
+                while (!((IAsyncResult)work).AsyncWaitHandle.WaitOne(100))
+                {
+                    int k = Volatile.Read(ref level);
+                    if (k != shown) Say($"AGVLITE: 정리 중 {shown = k}단계…");
+                    if (HostApplicationServices.Current.UserBreak()) esc.Cancel();
+                    // a minutes-long wait: without a pump the window goes "not responding" and these lines never paint. After UserBreak, so the pump cannot eat the Esc.
+                    System.Windows.Forms.Application.DoEvents();
+                }
             }
+            finally { docs.DocumentActivationEnabled = activation; }
+            HostApplicationServices.Current.UserBreak(); // an Esc from the last wait is spent here, not on the prompt below
             o = work.GetAwaiter().GetResult();
         }
         if (o.Cancelled) { Say("AGVLITE 취소"); return; }
@@ -314,19 +322,21 @@ public sealed class LiteCommands
         private void Burst(BlockDef g, Entity e)
         {
             if (_depth >= MaxExplode) throw new InvalidOperationException("explode too deep");
-            var parts = new DBObjectCollection();
-            _depth++;
-            try
+            using (var parts = new DBObjectCollection())
             {
-                e.Explode(parts);
-                if (parts.Count == 0) throw new InvalidOperationException("explode gave nothing");
-                foreach (DBObject o in parts)
-                    if (o is Entity pe) Add(g, pe);
-            }
-            finally
-            {
-                _depth--;
-                foreach (DBObject o in parts) o.Dispose(); // they are in no database: nothing else frees them
+                _depth++;
+                try
+                {
+                    e.Explode(parts);
+                    if (parts.Count == 0) throw new InvalidOperationException("explode gave nothing");
+                    foreach (DBObject o in parts)
+                        if (o is Entity pe) Add(g, pe);
+                }
+                finally
+                {
+                    _depth--;
+                    foreach (DBObject o in parts) o.Dispose(); // they are in no database: nothing else frees them
+                }
             }
         }
 

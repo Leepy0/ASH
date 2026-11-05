@@ -53,8 +53,9 @@ public class ReadTests
     [Fact]
     public void Minsert_Cells_Reach_The_File_Apart()
     {
+        // a real MINSERT: scale 2, rotated 90 degrees, at (1000, 1000). The line of 500 stands 1000 tall
         var d = Drawing(4, Array.Empty<Geo3>(), new Geo3[] { L3(0, 0, 500, 0) });
-        var xf = Move(1000, 1000);
+        var xf = new Affine3(0, -2, 0, 1000, 2, 0, 0, 1000, 0, 0, 2, 0);
         for (int r = 0; r < 2; r++)
             for (int c = 0; c < 3; c++)
                 d.Defs[0].Uses.Add(new BlockUse(1, LiteRead.Minsert(xf, Up, Math.PI / 2, c * 2000, r * 2000), "0"));
@@ -63,8 +64,8 @@ public class ReadTests
         Assert.Equal(6, res.Entities);
         Assert.Equal(0, res.Deduped);
         var ext = res.Extents;
-        Assert.Equal(4000, ext.MaxY - ext.MinY, 6); // three columns run up the rotated x
-        Assert.Equal(2000 + 500, ext.MaxX - ext.MinX, 6); // two rows run back along the rotated y, each line 500 long
+        Assert.Equal(2 * 2000 + 1000, ext.MaxY - ext.MinY, 6); // three columns up the rotated x, 2000 apart: unscaled
+        Assert.Equal(2000, ext.MaxX - ext.MinX, 6); // two rows back along the rotated y
     }
 
     // --- meshes and the limit
@@ -260,7 +261,7 @@ public class ReadTests
     public void An_Unwritable_File_Is_Named()
     {
         using var t = new Folder();
-        Directory.CreateDirectory(t.Files.Dxf); // a folder in its place: opening it fails on every system
+        Directory.CreateDirectory(t.Files.Dxf); // a folder in its place: nothing can replace it on any system
         var o = Job(t.Files);
         Assert.Equal(t.Files.Dxf, o.Failed);
         Assert.False(string.IsNullOrEmpty(o.Why));
@@ -268,5 +269,62 @@ public class ReadTests
         Directory.Delete(t.Files.Dxf);
         Directory.CreateDirectory(t.Files.Report);
         Assert.Equal(t.Files.Report, Job(t.Files).Failed);
+    }
+
+    /// <summary>A previous good run, kept to compare bytes.</summary>
+    static (byte[] Dxf, byte[] Report) OldRun(LiteFiles f)
+    {
+        Assert.Null(Job(f).Failed);
+        return (File.ReadAllBytes(f.Dxf), File.ReadAllBytes(f.Report));
+    }
+
+    static void Unchanged(LiteFiles f, (byte[] Dxf, byte[] Report) old)
+    {
+        Assert.Equal(old.Dxf, File.ReadAllBytes(f.Dxf));
+        Assert.Equal(old.Report, File.ReadAllBytes(f.Report));
+    }
+
+    static LiteBlocks Other() => Drawing(4, new[] { (Geo3)L3(0, 0, 20_000, 7_000, "OTHER") });
+
+    static LiteOutcome NewJob(LiteFiles f) => LiteJob.Run(new LiteBuild(Other()), new LiteReadLog(), f, true, Stopwatch.StartNew(), default, _ => { });
+
+    [Fact]
+    public void A_Replaced_Pair_Leaves_No_Tmp_And_Both_Files_New()
+    {
+        using var t = new Folder();
+        var old = OldRun(t.Files);
+        Assert.Null(NewJob(t.Files).Failed);
+        Assert.NotEqual(old.Dxf, File.ReadAllBytes(t.Files.Dxf));
+        Assert.NotEqual(old.Report, File.ReadAllBytes(t.Files.Report));
+        Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(t.Files.Dxf)!, "*.tmp"));
+    }
+
+    [Fact]
+    public void A_Failing_Write_Leaves_The_Old_Pair_And_No_Tmp()
+    {
+        using var t = new Folder();
+        var old = OldRun(t.Files);
+        Directory.CreateDirectory(t.Files.Report + ".tmp"); // the report cannot start: the DXF's tmp is whole by then
+        var o = NewJob(t.Files);
+        Assert.Equal(t.Files.Report, o.Failed);
+        Assert.Null(o.Result);
+        Unchanged(t.Files, old);
+        Assert.False(File.Exists(t.Files.Dxf + ".tmp"));
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void A_Held_File_Is_Named_And_Neither_Old_File_Moves(bool dxf)
+    {
+        using var t = new Folder();
+        var old = OldRun(t.Files);
+        string held = dxf ? t.Files.Dxf : t.Files.Report;
+        LiteOutcome o;
+        using (new FileStream(held, FileMode.Open, FileAccess.Read, FileShare.None)) o = NewJob(t.Files); // ZWCAD or Excel has it open
+        Assert.Equal(held, o.Failed);
+        Assert.False(string.IsNullOrEmpty(o.Why));
+        Unchanged(t.Files, old);
+        Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(t.Files.Dxf)!, "*.tmp"));
     }
 }
