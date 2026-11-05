@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Text;
@@ -11,6 +12,9 @@ public sealed record LiteFiles(string Source, long SourceBytes, string Dxf, stri
 
 /// <summary>Cancelled: nothing was written. Failed: the file that could not be written, Why: the system's words. Otherwise Result is the DXF written, Bytes its size.</summary>
 public sealed record LiteOutcome(bool Cancelled = false, string? Failed = null, string? Why = null, LiteResult? Result = null, long Bytes = 0, LiteStats? Stats = null);
+
+/// <summary>One level as AGVLITEX shows it: the estimated file size and the blobs replaced by an outline.</summary>
+public sealed record LiteLevelEstimate(long Bytes, int Blobs);
 
 /// <summary>Everything of AGVLITE after the drawing is read. It runs off ZWCAD's thread and holds no ZWCAD object.</summary>
 public static class LiteJob
@@ -78,6 +82,25 @@ public static class LiteJob
             Drop(dxfTmp);
             Drop(reportTmp);
         }
+    }
+
+    /// <summary>The size of the file and the blobs outlined at every level, lowest first, for the current exclusions (AGVLITEX shows them). Null when ct stopped it.</summary>
+    public static List<LiteLevelEstimate>? Measure(LiteBuild b, CancellationToken ct, Action<int> measuring)
+    {
+        b.Cancel = ct;
+        try
+        {
+            var all = new List<LiteLevelEstimate>();
+            for (int level = 0; level <= LiteLevels.Max; level++)
+            {
+                measuring(level);
+                long bytes = b.Total(level);
+                all.Add(new LiteLevelEstimate(bytes, b.Run(b.Thresholds(level)).Stats.Blobs)); // Total left that run cached
+            }
+            return all;
+        }
+        catch (OperationCanceledException) { return null; }
+        finally { b.Cancel = default; }
     }
 
     /// <summary>Throws what replacing the file would throw, before anything has moved.</summary>

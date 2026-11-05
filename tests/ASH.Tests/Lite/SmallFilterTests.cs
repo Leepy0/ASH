@@ -77,6 +77,26 @@ public class SmallFilterTests
     }
 
     [Fact]
+    public void GroupSizes_Judges_A_Big_Outline_Of_Short_Pieces_As_A_Whole()
+    {
+        var items = new List<LiteEntity>();
+        // 4000 x 2000 equipment outline drawn as 100-long segments, closed by an arc and an open polyline
+        for (int x = 0; x < 4000; x += 100) { items.Add(L(x, 0, x + 100, 0, "E")); items.Add(L(x, 2000, x + 100.5, 2000, "E")); }
+        items.Add(new LiteArc("E", 4000, 1000, 1000, -90, 90));
+        items.Add(new LitePolyline("E", new[] { new LiteVertex(0, 2000), new LiteVertex(-50, 1000), new LiteVertex(0, 0) }, false));
+        int lone = items.Count; items.Add(L(9000, 9000, 9100, 9000, "E"));
+        int hole = items.Count; items.Add(new LiteCircle("E", 100, 0, 20));      // touches the outline but stands alone
+        int box = items.Count; items.Add(new LitePolyline("E", new[] { new LiteVertex(0, 0), new LiteVertex(50, 0), new LiteVertex(50, 50) }, true));
+        var size = new double[items.Count];
+        SmallFilter.GroupSizes(items, _ => true, 1, size);
+        double whole = Math.Sqrt(5050 * 5050 + 2000 * 2000);
+        for (int i = 0; i < lone; i++) Assert.Equal(whole, size[i], 3);
+        Assert.Equal(100, size[lone], 9);
+        Assert.Equal(Math.Sqrt(40 * 40 + 40 * 40), size[hole], 9);
+        Assert.Equal(Math.Sqrt(50 * 50 + 50 * 50), size[box], 9);
+    }
+
+    [Fact]
     public void Clean_Removes_Each_Kind_In_Its_Own_Step_And_Counts_It()
     {
         var src = new LiteEntity[]

@@ -17,6 +17,9 @@ public sealed class BlockDef
 /// ("0" inherits from the parent insert, R8).</summary>
 public readonly record struct BlockUse(int Def, Affine3 Xf, string Layer);
 
+/// <summary>A layer's colour (ACI) and state as the drawing has it.</summary>
+public sealed record LiteLayerState(short Color, bool Off, bool Frozen);
+
 /// <summary>The input of LiteBuild: every definition the drawing uses, model space included. Defs are numbered in first-seen order (the writing order's "definition", R8), so the
 /// reader adds a definition the first time an insert names it. Layers: every layer of the drawing with its colour and state; a layer missing here counts as on and thawed.</summary>
 public sealed class LiteBlocks

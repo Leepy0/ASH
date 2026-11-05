@@ -109,7 +109,9 @@ public class LiteDxfWriterTests
     {
         var names = LiteLayers.R12Names(ents.Select(e => e.Layer));
         var sw = new StringWriter();
-        LiteDxfWriter.Write(sw, ents, names, NoColors, dx, dy);
+        LiteDxfWriter.Begin(sw, LiteBox.Of(ents), ents.Select(e => e.Layer), names, NoColors, dx, dy, 4);
+        foreach (var e in ents) LiteDxfWriter.Entity(sw, e, LiteDxfWriter.Name(names, e.Layer), dx, dy, 4);
+        LiteDxfWriter.End(sw);
         return sw.ToString();
     }
 
@@ -169,166 +171,56 @@ public class LiteDxfWriterTests
     public void Bytes_Match_What_Write_Emits()
     {
         var ents = new LiteEntity[] { new LiteLine("A", 1.5, 2, 3, 4), new LiteCircle("A", 0, 0, 1), new LitePolyline("A", new[] { new LiteVertex(0, 0, 0.5), new LiteVertex(1, 1) }, true) };
-        long sum = ents.Sum(e => LiteDxfWriter.Bytes(e, "A", 0, 0));
+        long sum = ents.Sum(e => LiteDxfWriter.Bytes(e, "A", 0, 0, 4));
         var empty = Write(Array.Empty<LiteEntity>()).Length;
         Assert.InRange(Write(ents).Length - empty - sum, 0, 120); // only the one extra layer row and the extents' digits differ
-        Assert.InRange(empty, LiteDxfWriter.OverheadBytes(0) * 0.8, LiteDxfWriter.OverheadBytes(0) * 1.2);
     }
 }
 
-public class LitePlanTests
+public class LiteShiftTests
 {
-    static LiteSource Sample()
-    {
-        var s = new LiteSource { InsUnits = 4, Tolerance = 10 };
-        s.Layers["WALL"] = new LiteLayerState(1, false, false);
-        s.Layers["DIM"] = new LiteLayerState(2, false, false);
-        s.Layers["OLD"] = new LiteLayerState(3, true, false);
-        s.Items.Add(new LiteItem(new LiteLine("WALL", 123456, 45678, 130000, 45678), LiteFlags.None));
-        s.Items.Add(new LiteItem(new LiteLine("DIM", 124500, 46500, 125044, 46822), LiteFlags.None));
-        s.Items.Add(new LiteItem(new LiteLine("OLD", 0, 0, 1, 1), LiteFlags.Hidden));
-        s.Items.Add(new LiteItem(new LiteLine("WALL", 200000, 50000, 201000, 50000), LiteFlags.Xref));
-        s.Items.Add(new LiteItem(new LitePolyline("WALL", new[] { new LiteVertex(125000, 46000), new LiteVertex(126000, 46000), new LiteVertex(126000, 47000), new LiteVertex(125000, 47000) }, true), LiteFlags.Footprint, LiteTypes.Footprint));
-        s.Solids3d = 1; s.XrefRefs = 1;
-        LiteSource.Count(s.Removed, "해치", 7);
-        LiteSource.Count(s.Before, "LINE", 3);
-        return s;
-    }
-
     [Theory]
     [InlineData(123456.7, 4, 123000)]
     [InlineData(5, 4, 0)]
     [InlineData(-0.5, 6, -1)]
     [InlineData(12.3, 1, 10)]
     [InlineData(-12345.6, 0, -13000)]
-    public void Shift_Rounds_Down_To_A_Clean_Step(double min, int insUnits, double shift) => Assert.Equal(shift, LitePlan.Shift(min, insUnits), 9);
-
-    [Fact]
-    public void A_Block_Smaller_Than_The_Minimum_Goes_Whole_And_A_Big_One_Is_Judged_Inside()
-    {
-        var s = new LiteSource { InsUnits = 4, Tolerance = 1 };
-        s.Layers["0"] = new LiteLayerState(7, false, false);
-        void Line(double x1, double y1, double x2, double y2) => s.Items.Add(new LiteItem(new LiteLine("0", x1, y1, x2, y2), LiteFlags.None));
-        Line(0, 0, 5000, 0);                       // model space wall, touching the small block below
-        int big = s.Items.Count;                   // big block: 3000 frame + nested 300 x 300 block + lone 50 detail
-        Line(10000, 0, 13000, 0);
-        int small = s.Items.Count;
-        Line(10000, 500, 10300, 500); Line(10300, 500, 10300, 800);
-        s.CloseBlock(small);
-        Line(12000, 1000, 12050, 1000);
-        s.CloseBlock(big);
-        int tiny = s.Items.Count;                  // 40 block chained to the wall
-        Line(5000, 0, 5040, 0);
-        s.CloseBlock(tiny);
-        var plan = new LitePlan(s);
-        Assert.Equal(double.PositiveInfinity, s.Items[0].Block);
-        Assert.Equal(Math.Sqrt(3000 * 3000 + 1000 * 1000), s.Items[big].Block, 6);
-        Assert.Equal(Math.Sqrt(300 * 300 + 300 * 300), s.Items[small].Block, 6);
-        Assert.Equal(3000, plan.SizeOf(big), 6);
-        Assert.Equal(Math.Sqrt(300 * 300 + 300 * 300), plan.SizeOf(small + 1), 6);
-        Assert.Equal(50, plan.SizeOf(small + 2), 6);
-        Assert.Equal(40, plan.SizeOf(tiny), 6);     // chains to the 5040 wall but its block is 40
-        Assert.Equal(5040, plan.SizeOf(0), 6);
-    }
-
-    [Fact]
-    public void ChainSizes_Judges_A_Big_Outline_Of_Short_Pieces_As_A_Whole()
-    {
-        var items = new List<LiteItem>();
-        // 4000 x 2000 equipment outline drawn as 100-long segments, closed by an arc and an open polyline
-        for (int x = 0; x < 4000; x += 100) { items.Add(new LiteItem(new LiteLine("E", x, 0, x + 100, 0), LiteFlags.None)); items.Add(new LiteItem(new LiteLine("E", x, 2000, x + 100.5, 2000), LiteFlags.None)); }
-        items.Add(new LiteItem(new LiteArc("E", 4000, 1000, 1000, -90, 90), LiteFlags.None));
-        items.Add(new LiteItem(new LitePolyline("E", new[] { new LiteVertex(0, 2000), new LiteVertex(-50, 1000), new LiteVertex(0, 0) }, false), LiteFlags.None));
-        int lone = items.Count; items.Add(new LiteItem(new LiteLine("E", 9000, 9000, 9100, 9000), LiteFlags.None));
-        int hole = items.Count; items.Add(new LiteItem(new LiteCircle("E", 100, 0, 20), LiteFlags.None));      // touches the outline but stands alone
-        int box = items.Count; items.Add(new LiteItem(new LitePolyline("E", new[] { new LiteVertex(0, 0), new LiteVertex(50, 0), new LiteVertex(50, 50) }, true), LiteFlags.None));
-        var size = new double[items.Count];
-        LitePlan.ChainSizes(items, 1, size);
-        double whole = Math.Sqrt(5050 * 5050 + 2000 * 2000);
-        for (int i = 0; i < lone; i++) Assert.Equal(whole, size[i], 3);
-        Assert.Equal(100, size[lone], 9);
-        Assert.Equal(Math.Sqrt(40 * 40 + 40 * 40), size[hole], 9);
-        Assert.Equal(Math.Sqrt(50 * 50 + 50 * 50), size[box], 9);
-    }
-
-    [Fact]
-    public void Options_Types_And_MinSize_Select_Items_And_Shift_Follows_What_Is_Written()
-    {
-        var plan = new LitePlan(Sample());
-        Assert.Equal(new[] { LiteTypes.Line, LiteTypes.Footprint }, plan.Types);
-        Assert.False(plan.DefaultOn(LiteTypes.Footprint));
-        var o = new LiteOptions();
-        Assert.Equal(2, plan.ByType(o)[LiteTypes.Line].Count); // WALL, DIM: hidden and xref out
-        Assert.Equal(4, plan.ByType(o with { IncludeXref = true, SkipHidden = false })[LiteTypes.Line].Count);
-        var big = o with { MinSize = plan.FromMm(1000) }; // the DIM line is 632 mm long
-        Assert.Equal(1, plan.ByType(big)[LiteTypes.Line].Count);
-        Assert.Equal(1, plan.Small(big));
-
-        var on = new[] { LiteTypes.Line, LiteTypes.Footprint };
-        var sw = new StringWriter();
-        var r = plan.Write(sw, big, on);
-        Assert.Equal(2, r.Entities); // WALL line + the 1414 mm footprint box
-        Assert.Equal(123000, r.ShiftX); Assert.Equal(45000, r.ShiftY);
-        var d = DxfLite.Read(new StringReader(sw.ToString()));
-        Assert.Equal(1 + 4, d.Segs.Count);
-        Assert.Contains(new DxfSeg(456, 678, 7000, 678, "WALL"), d.Segs);
-        Assert.DoesNotMatch(@"\n 3[0-9]\r?\n(?!0\.0\r?\n)", sw.ToString()); // every Z is 0
-        // the estimate uses the provisional (all-geometry) shift, here 0, so its coordinates carry 3 more digits: a little high, never far off
-        Assert.InRange((double)sw.ToString().Length / plan.Total(big, on), 0.8, 1.05);
-    }
-
-    [Fact]
-    public void Report_Has_Origin_Removed_Counts_And_Type_Table()
-    {
-        var plan = new LitePlan(Sample());
-        var o = new LiteOptions(MinSize: plan.FromMm(1000)); var on = new[] { LiteTypes.Line };
-        var r = plan.Write(new StringWriter(), o, on);
-        var w = new StringWriter();
-        LiteReport.Write(w, plan, o, on, r, @"D:\p\a.dwg", 123456789, @"D:\p\lite\a_lite.dxf", 2000, new DateTime(2026, 10, 23, 9, 0, 0));
-        var t = w.ToString();
-        Assert.Contains("OriginX	-123000", t);
-        Assert.Contains("OriginY	-45000", t);
-        Assert.Contains("해치	7", t);
-        Assert.Contains("3D 솔리드·메시·서피스	1 (제거)", t);
-        Assert.Contains("꺼진·동결 레이어의 선·곡선	1", t);
-        Assert.Contains("선택 해제한 종류의 선·곡선	1", t); // the footprint box
-        Assert.Contains("최소 크기 미만 (블록 안 포함)	1", t); // DIM
-        Assert.Contains("선	예	1	", t);
-        Assert.Contains("INSUNITS 4 = mm", t);
-        Assert.Contains("목표(5 MB 이하) 충족", t);
-    }
+    public void Shift_Rounds_Down_To_A_Clean_Step(double min, int insUnits, double shift) => Assert.Equal(shift, LiteBuild.Shift(min, insUnits), 9);
 
     [Fact]
     public void Thousands_Of_Random_Entities_Estimate_Well_And_Write_Fast()
     {
         var rnd = new Random(7);
-        var s = new LiteSource { InsUnits = 4 };
         double R() => 500000 + rnd.NextDouble() * 200000;
+        var up = new Vec3(0, 0, 1);
+        var geo = new List<Geo3>();
         for (int i = 0; i < 6000; i++)
         {
             var layer = "L" + rnd.Next(20);
-            LiteEntity e = (i % 4) switch
+            geo.Add((i % 4) switch
             {
-                0 => new LiteLine(layer, R(), R(), R(), R()),
-                1 => new LiteCircle(layer, R(), R(), rnd.NextDouble() * 1000),
-                2 => new LiteArc(layer, R(), R(), rnd.NextDouble() * 1000, rnd.NextDouble() * 360, rnd.NextDouble() * 360),
-                _ => new LitePolyline(layer, Enumerable.Range(0, 2 + rnd.Next(20)).Select(_ => new LiteVertex(R(), R(), rnd.Next(4) == 0 ? rnd.NextDouble() - 0.5 : 0)).ToArray(), rnd.Next(2) == 0),
-            };
-            s.Items.Add(new LiteItem(e, LiteFlags.None));
-            s.Layers[layer] = new LiteLayerState(7, false, false);
+                0 => new Line3(layer, new Vec3(R(), R(), 0), new Vec3(R(), R(), 0)),
+                1 => new Circle3(layer, new Vec3(R(), R(), 0), up, 1 + rnd.NextDouble() * 1000),
+                2 => new Arc3(layer, new Vec3(R(), R(), 0), up, 1 + rnd.NextDouble() * 1000, rnd.NextDouble() * 6.28, rnd.NextDouble() * 6.28),
+                _ => new Poly3(layer, Enumerable.Range(0, 2 + rnd.Next(20)).Select(_ => new LiteVertex(R(), R(), rnd.Next(4) == 0 ? rnd.NextDouble() - 0.5 : 0)).ToArray(), rnd.Next(2) == 0, up, 0),
+            });
         }
+        var d = new LiteBlocks { InsUnits = 4 };
+        d.Defs.Add(new BlockDef { Geo = geo });
+
         var watch = Stopwatch.StartNew();
-        var plan = new LitePlan(s);
+        var b = new LiteBuild(d);
+        var t = b.Thresholds(0);
+        long est = b.Total(t);
         var sw = new StringWriter();
-        var r = plan.Write(sw, new LiteOptions(), plan.Types.ToList());
+        var r = b.Write(sw, t);
         watch.Stop();
         Assert.True(watch.Elapsed.TotalSeconds < 10, $"took {watch.Elapsed.TotalSeconds:0.0} s");
-        Assert.Equal(6000, r.Entities);
-        long est = plan.Total(new LiteOptions(), plan.Types.ToList());
-        Assert.InRange((double)sw.ToString().Length / est, 0.98, 1.02);
-        var d = DxfLite.Read(new StringReader(sw.ToString()));
-        Assert.False(d.Truncated);
-        Assert.Equal(20, d.Layers.Count);
-        Assert.InRange(d.Segs.Min(x => Math.Min(x.X1, x.X2)), -1, 1000); // shifted near the origin (polyline bulges may reach a little below the vertex box)
+        Assert.InRange(r.Entities, 5990, 6000); // level 0 only drops degenerate pieces
+        Assert.InRange((double)sw.ToString().Length / est, 0.98, 1.0); // the estimate keeps duplicates in: never below the file
+        var read = DxfLite.Read(new StringReader(sw.ToString()));
+        Assert.False(read.Truncated);
+        Assert.Equal(20, read.Layers.Count);
+        Assert.InRange(read.Segs.Min(x => Math.Min(x.X1, x.X2)), -1, 1000); // shifted near the origin (polyline bulges may reach a little below the vertex box)
     }
 }

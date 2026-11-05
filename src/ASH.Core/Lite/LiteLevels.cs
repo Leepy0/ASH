@@ -72,6 +72,16 @@ public sealed class LiteSettings
         return s;
     }
 
+    /// <summary>What a person fixed, in short words for AGVLITE's first line; null when all of it is auto.</summary>
+    public string? Describe()
+    {
+        var p = new List<string>();
+        if (Level is int l) p.Add($"단계 {l.ToString(C)} 고정");
+        if (ExcludeLayers.Count > 0) p.Add($"레이어 {ExcludeLayers.Count.ToString(C)}개 제외");
+        if (NoBlobs) p.Add("외곽선 끔");
+        return p.Count == 0 ? null : "저장된 조정값: " + string.Join(", ", p) + " · AGVLITEX에서 자동으로";
+    }
+
     /// <summary>The file's lines; Parse(Lines()) keeps everything.</summary>
     public string[] Lines() => new[]
     {

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
+using ASH.Core.Settings;
 
 namespace ASH.Core.Lite;
 
@@ -67,6 +68,9 @@ internal sealed class LiteSheet
     public void Entity(TextWriter w, LiteEntity e) => LiteDxfWriter.Entity(w, e, LiteDxfWriter.Name(Names, e.Layer), Sx, Sy, Decimals);
     public long Bytes(LiteEntity e) => LiteDxfWriter.Bytes(e, LiteDxfWriter.Name(Names, e.Layer), Sx, Sy, Decimals);
 }
+
+/// <summary>Deduped, DedupedBytes: placed entities the writer dropped as duplicates, and what they would have added. Level: the level written, -1 for bare thresholds.</summary>
+public sealed record LiteResult(double ShiftX, double ShiftY, LiteBox Extents, IReadOnlyDictionary<string, int> Written, int Entities, int Deduped = 0, long DedupedBytes = 0, int Level = -1);
 
 /// <summary>The plan of AGVLITE over block definitions: every (definition, orientation) is cleaned once, leaves first; a parent counts its children's placed geometry in a stream and
 /// keeps them as instances; writing expands the instances through their matrices (layer, then definition in first-seen order, then original order) and drops what is already written at
@@ -390,7 +394,7 @@ public sealed class LiteBuild
     public LiteResult Write(TextWriter w, int level) => Write(w, Thresholds(level)) with { Level = level };
 
     /// <summary>Writes the drawing as R12 DXF at the unit's precision, expanding the instances through their matrices: layer (ordinal), then definition (first-seen index), then original
-    /// order. An entity whose placed coordinates match one already written, on any layer, is dropped. Moved so the lower left sits just above (0, 0) (LitePlan.Shift).
+    /// order. An entity whose placed coordinates match one already written, on any layer, is dropped. Moved so the lower left sits just above (0, 0) (<see cref="Shift"/>).
     /// Holds a 64-bit key per entity, never the entities.</summary>
     public LiteResult Write(TextWriter w, LiteThresholds t)
     {
@@ -442,6 +446,15 @@ public sealed class LiteBuild
         return sheet;
     }
 
+    /// <summary>The lower-left coordinate rounded down to a clean step: the power of ten closest below one metre in drawing units (1000 in a mm drawing, 1 in m, 10 in inches),
+    /// so the shift is a round number and every written coordinate is >= 0.</summary>
+    public static double Shift(double min, int insUnits)
+    {
+        double perMeter = 1 / UnitScale.FromInsUnits(insUnits);
+        double step = Math.Pow(10, Math.Floor(Math.Log10(perMeter) + 1e-9));
+        return Math.Round(Math.Floor(min / step) * step, 9);
+    }
+
     LiteSheet Sheet(LiteRun run)
     {
         if (run.Sheet != null) return run.Sheet;
@@ -460,7 +473,7 @@ public sealed class LiteBuild
             }
         }
         foreach (var e in Entities(run, sheet)) e.Extend(ref sheet.Box);
-        if (!sheet.Box.IsEmpty) (sheet.Sx, sheet.Sy) = (LitePlan.Shift(sheet.Box.MinX, t.InsUnits), LitePlan.Shift(sheet.Box.MinY, t.InsUnits));
+        if (!sheet.Box.IsEmpty) (sheet.Sx, sheet.Sy) = (Shift(sheet.Box.MinX, t.InsUnits), Shift(sheet.Box.MinY, t.InsUnits));
         sheet.Names = LiteLayers.R12Names(_src.Layers.Keys.Concat(sheet.Layers.Keys));
         sheet.Colors = _src.Layers.ToDictionary(kv => kv.Key, kv => kv.Value.Color, StringComparer.Ordinal);
         return run.Sheet = sheet;

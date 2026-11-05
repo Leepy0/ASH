@@ -19,29 +19,35 @@ using Application = ZwSoft.ZwCAD.ApplicationServices.Application;
 namespace ASH.Plugin.Commands;
 
 /// <summary>AGVLITE (spec §5): a light copy of the open factory drawing to draw AGV paths on and to use as AutoMod's background. No dialog: it reads every block definition once
-/// (read-only: the open drawing is never changed), Core picks the cleanup level off ZWCAD's thread and writes lite\&lt;name&gt;_lite.dxf (R12, ASH's own writer) with its report and settings.</summary>
+/// (read-only: the open drawing is never changed), Core picks the cleanup level off ZWCAD's thread and writes lite\&lt;name&gt;_lite.dxf (R12, ASH's own writer) with its report and settings.
+/// AGVLITEX reads and measures the same way, then asks for what a person must override (level, layers left out, blob outlines), saves it to the settings and writes as AGVLITE does.</summary>
 public sealed class LiteCommands
 {
     [CommandMethod("AGVLITE")]
-    public void AgvLite()
+    public void AgvLite() => Guarded("AGVLITE", doc => Make(doc, "AGVLITE", false));
+
+    [CommandMethod("AGVLITEX")]
+    public void AgvLiteX() => Guarded("AGVLITEX", doc => Make(doc, "AGVLITEX", true));
+
+    private static void Guarded(string cmd, Action<Document> run)
     {
         var doc = Application.DocumentManager.MdiActiveDocument;
         if (doc == null) return;
-        try { Run(doc); }
+        try { run(doc); }
         catch (System.Exception ex)
         {
-            doc.Editor.WriteMessage($"\nAGVLITE 오류: {ex.GetType().Name}: {ex.Message}");
-            PluginLog.Write("AGVLITE failed", ex);
-            PaletteStatus.Set("AGVLITE 오류: " + ex.Message);
+            doc.Editor.WriteMessage($"\n{cmd} 오류: {ex.GetType().Name}: {ex.Message}");
+            PluginLog.Write(cmd + " failed", ex);
+            PaletteStatus.Set($"{cmd} 오류: " + ex.Message);
         }
     }
 
-    private static void Run(Document doc)
+    private static void Make(Document doc, string cmd, bool adjust)
     {
         var clock = Stopwatch.StartNew();
         var ed = doc.Editor;
         void Say(string t) { ed.WriteMessage("\n" + t); PaletteStatus.Set(t); }
-        if (Convert.ToInt32(Application.GetSystemVariable("DWGTITLED")) == 0) { Say("AGVLITE: 도면을 먼저 저장하세요. 경량 도면은 도면 폴더의 lite\\ 에 만듭니다."); return; }
+        if (Convert.ToInt32(Application.GetSystemVariable("DWGTITLED")) == 0) { Say($"{cmd}: 도면을 먼저 저장하세요. 경량 도면은 도면 폴더의 lite\\ 에 만듭니다."); return; }
         var dir = (string)Application.GetSystemVariable("DWGPREFIX");
         var dwg = Path.Combine(dir, (string)Application.GetSystemVariable("DWGNAME"));
         var name = Path.GetFileNameWithoutExtension(dwg);
@@ -57,54 +63,49 @@ public sealed class LiteCommands
         catch (System.Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
         {
             settings = new LiteSettings();
-            saveSettings = false; // what AGVLITEX fixed in that file must outlive this run
-            Say($"AGVLITE: 설정 파일 읽기 실패, 자동 단계 사용: {ex.Message}");
+            saveSettings = adjust; // what AGVLITEX fixed in that file must outlive an AGVLITE run; AGVLITEX saves the person's own choice
+            Say($"{cmd}: 설정 파일 읽기 실패, 자동 단계 사용: {ex.Message}");
         }
 
-        Say("AGVLITE: 도면 읽는 중… (원본은 바꾸지 않습니다)");
+        Say($"{cmd}: 도면 읽는 중… (원본은 바꾸지 않습니다)");
         var log = new LiteReadLog();
         var blocks = Read(doc, insUnits, log, Say);
-        if (blocks == null) { Say("AGVLITE 취소"); return; }
-        if (blocks.Defs.All(d => d.Geo.Count == 0)) { Say("AGVLITE: 모델 공간에 남길 선·곡선이 없습니다."); return; }
+        if (blocks == null) { Say(cmd + " 취소"); return; }
+        if (blocks.Defs.All(d => d.Geo.Count == 0)) { Say($"{cmd}: 모델 공간에 남길 선·곡선이 없습니다."); return; }
+
+        if (adjust)
+        {
+            // every level, for the exclusions as saved: the dialog shows them as they are, they do not follow the ticks
+            var measured = Pump(cmd, "측정 중", Say, (ct, k) => LiteJob.Measure(new LiteBuild(blocks, settings), ct, k));
+            if (measured == null) { Say(cmd + " 취소"); return; }
+            var excluded = new HashSet<string>(settings.ExcludeLayers, StringComparer.Ordinal);
+            var rows = blocks.Layers.Where(kv => !LiteLayers.IsAsh(kv.Key)).OrderBy(kv => kv.Key, StringComparer.Ordinal)
+                .Select(kv => new LiteLayerRow(kv.Key, kv.Value.Frozen ? "동결" : kv.Value.Off ? "꺼짐" : "", !excluded.Contains(kv.Key))).ToList();
+            using var dlg = new LiteDialog(Path.GetFileName(dwg), Path.Combine("lite", name + "_lite.dxf"), measured, rows, settings.Level, settings.NoBlobs);
+            if (Application.ShowModalDialog(dlg) != System.Windows.Forms.DialogResult.OK) { Say(cmd + " 취소"); return; }
+            var listed = new HashSet<string>(rows.Select(r => r.Name), StringComparer.Ordinal);
+            settings.Level = dlg.Level;
+            settings.NoBlobs = dlg.NoBlobs;
+            settings.ExcludeLayers = dlg.ExcludedLayers.Concat(settings.ExcludeLayers.Where(n => !listed.Contains(n))).ToList(); // a name the list could not show stays as it was
+        }
 
         var files = new LiteFiles(dwg, File.Exists(dwg) ? new FileInfo(dwg).Length : 0, dxfPath, reportPath, settingsPath);
         var build = new LiteBuild(blocks, settings);
-        LiteOutcome o;
-        using (var esc = new CancellationTokenSource())
-        {
-            int level = -1, shown = -1;
-            var docs = Application.DocumentManager;
-            bool activation = docs.DocumentActivationEnabled;
-            docs.DocumentActivationEnabled = false; // the pump below must not switch or close the drawing under ed
-            var work = Task.Run(() => LiteJob.Run(build, log, files, saveSettings, clock, esc.Token, k => Volatile.Write(ref level, k)));
-            try
-            {
-                while (!((IAsyncResult)work).AsyncWaitHandle.WaitOne(100))
-                {
-                    int k = Volatile.Read(ref level);
-                    if (k != shown) Say($"AGVLITE: 정리 중 {shown = k}단계…");
-                    if (HostApplicationServices.Current.UserBreak()) esc.Cancel();
-                    // a minutes-long wait: without a pump the window goes "not responding" and these lines never paint. After UserBreak, so the pump cannot eat the Esc.
-                    System.Windows.Forms.Application.DoEvents();
-                }
-            }
-            finally { docs.DocumentActivationEnabled = activation; }
-            HostApplicationServices.Current.UserBreak(); // an Esc from the last wait is spent here, not on the prompt below
-            o = work.GetAwaiter().GetResult();
-        }
-        if (o.Cancelled) { Say("AGVLITE 취소"); return; }
-        if (o.Failed != null) { Say($"AGVLITE: {o.Failed}에 쓰지 못했습니다(다른 프로그램이 열고 있나요?): {o.Why}"); return; }
+        var o = Pump(cmd, "정리 중", Say, (ct, k) => LiteJob.Run(build, log, files, saveSettings, clock, ct, k));
+        if (o.Cancelled) { Say(cmd + " 취소"); return; }
+        if (o.Failed != null) { Say($"{cmd}: {o.Failed}에 쓰지 못했습니다(다른 프로그램이 열고 있나요?): {o.Why}"); return; }
 
         var r = o.Result!;
         var s = o.Stats!;
         double mb = o.Bytes / 1048576.0;
-        ed.WriteMessage($"\nAGVLITE: {r.Level}단계, 엔티티 {r.Entities:N0}개, {mb:0.00} MB, 덩어리 {s.Blobs:N0}개 외곽선, 중복 {s.Duplicate.Count + r.Deduped:N0}개·작은 요소 {s.Small.Count + s.SmallInstances:N0}개 제거 (원본 DWG {files.SourceBytes / 1048576.0:0.00} MB)");
+        if (settings.Describe() is string fixedBy) ed.WriteMessage("\n" + fixedBy);
+        ed.WriteMessage($"\n{cmd}: {r.Level}단계, 엔티티 {r.Entities:N0}개, {mb:0.00} MB, 덩어리 {s.Blobs:N0}개 외곽선, 중복 {s.Duplicate.Count + r.Deduped:N0}개·작은 요소 {s.Small.Count + s.SmallInstances:N0}개 제거 (원본 DWG {files.SourceBytes / 1048576.0:0.00} MB)");
         ed.WriteMessage($"\n원점 이동 ({r.ShiftX:0.###}, {r.ShiftY:0.###}): 원본 좌표로 되돌리려면 ash.settings.tsv에 OriginX {-r.ShiftX:0.###}, OriginY {-r.ShiftY:0.###} (보고서 참고)");
         ed.WriteMessage($"\nDXF: {dxfPath}\n보고서: {reportPath}");
         if (o.Bytes > LiteLevels.WarnBytes) ed.WriteMessage("\n경고: 10 MB를 넘습니다. AutoMod가 느려지거나 멈출 수 있습니다(보고서의 큰 덩어리·큰 레이어 참고).");
         if (log.ExplodeFailed > 0) ed.WriteMessage($"\n참고: 폭발 실패 {log.ExplodeFailed:N0}개, 범위 상자로 대체.");
         if (log.Failures > 0) ed.WriteMessage($"\n참고: 읽지 못한 엔티티 {log.Failures:N0}개를 건너뛰었습니다.");
-        PaletteStatus.Set($"AGVLITE 완료: {r.Level}단계, {mb:0.00} MB" + (o.Bytes > LiteLevels.WarnBytes ? " (10 MB 초과)" : ""));
+        PaletteStatus.Set($"{cmd} 완료: {r.Level}단계, {mb:0.00} MB" + (o.Bytes > LiteLevels.WarnBytes ? " (10 MB 초과)" : ""));
 
         if (PathCommands.Keyword(ed, "\n경량 도면을 ZWCAD에서 열까요? [Y/N] <Y>", "Y", "Y", "N") != "Y") return;
         try
@@ -113,14 +114,46 @@ public sealed class LiteCommands
             Application.DocumentManager.ExecuteInApplicationContext(_ =>
             {
                 try { Application.DocumentManager.Open(dxfPath, false); }
-                catch (System.Exception ex) { PluginLog.Write("AGVLITE open", ex); }
+                catch (System.Exception ex) { PluginLog.Write(cmd + " open", ex); }
             }, null);
         }
         catch (System.Exception ex)
         {
-            PluginLog.Write("AGVLITE open", ex);
+            PluginLog.Write(cmd + " open", ex);
             ed.WriteMessage("\n자동으로 열지 못했습니다. 직접 여세요: " + dxfPath);
         }
+    }
+
+    /// <summary>Runs work off ZWCAD's thread while this one keeps the window alive, says each level it reports and stops it on Esc (work then answers for itself: a cancelled outcome or null).</summary>
+    private static T Pump<T>(string cmd, string what, Action<string> say, Func<CancellationToken, Action<int>, T> work)
+    {
+        using var esc = new CancellationTokenSource();
+        int level = -1, shown = -1;
+        var docs = Application.DocumentManager;
+        bool activation = false, guarded = false;
+        Task<T>? task = null;
+        try
+        {
+            // the pump below must not switch or close the drawing under ed; if ZWCAD refuses the guard, carry on without it
+            try { activation = docs.DocumentActivationEnabled; docs.DocumentActivationEnabled = false; guarded = true; }
+            catch (System.Exception ex) { PluginLog.Write(cmd + " activation guard", ex); }
+            task = Task.Run(() => work(esc.Token, k => Volatile.Write(ref level, k)));
+            while (!((IAsyncResult)task).AsyncWaitHandle.WaitOne(100))
+            {
+                int k = Volatile.Read(ref level);
+                if (k != shown) say($"{cmd}: {what} {shown = k}단계…");
+                if (HostApplicationServices.Current.UserBreak()) esc.Cancel();
+                // a minutes-long wait: without a pump the window goes "not responding" and these lines never paint. After UserBreak, so the pump cannot eat the Esc.
+                System.Windows.Forms.Application.DoEvents();
+            }
+        }
+        finally
+        {
+            if (guarded) docs.DocumentActivationEnabled = activation;
+            if (task != null && !task.IsCompleted) esc.Cancel(); // never leave the work running behind an error
+        }
+        HostApplicationServices.Current.UserBreak(); // an Esc from the last wait is spent here, not on the prompt below
+        return task.GetAwaiter().GetResult();
     }
 
     /// <summary>Every block definition model space reaches, in block-local 3D; null when Esc stopped it. The document lock ends here: Core never needs the drawing again.</summary>

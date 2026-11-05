@@ -201,6 +201,29 @@ public class BlocksTests
     }
 
     [Fact]
+    public void A_Block_Smaller_Than_The_Minimum_Goes_Whole_And_A_Big_One_Is_Judged_Inside()
+    {
+        var d = Drawing(new[] { L3(0, 0, 5000, 0) },                                                    // 0 model space: a wall the tiny block touches
+            new[] { L3(10000, 0, 13000, 0), L3(12000, 1000, 12030, 1000) },                              // 1 big block: 3000 frame + a lone 30 detail
+            new[] { L3(10000, 500, 10300, 500), L3(10300, 500, 10300, 800) },                            // 2 nested 300 x 300 block
+            new[] { L3(0, 0, 40, 0) });                                                                   // 3 tiny block (40 mm)
+        Use(d, 0, 1, Affine3.Identity);
+        Use(d, 0, 3, Move(5000));
+        Use(d, 1, 2, Affine3.Identity);
+        var b = new LiteBuild(d);
+        var run = b.Run(L2);
+
+        Assert.Empty(run.Nodes.Single(n => n.Def == 3).Own);    // the tiny block goes whole, though its line touches the wall (no chaining across definitions)
+        Assert.Single(run.Root.Uses);
+        var big = run.Nodes.Single(n => n.Def == 1);
+        Assert.Equal(3000, LiteBox.Size(Assert.Single(big.Own)), 6);  // the frame stays, the lone 30 detail inside the big block is judged by itself and goes
+        var nested = Assert.Single(big.Uses).Child;
+        Assert.Equal(Math.Sqrt(300 * 300 + 300 * 300), LiteBox.Of(nested.Own).Diagonal, 6); // a nested block above the minimum keeps its pieces
+        Assert.Equal(2, run.Stats.Small.Count);               // the lone detail and the tiny block's line
+        Assert.Equal(3, Entities(Dxf(b, L2)).Count);             // wall, frame, nested outline
+    }
+
+    [Fact]
     public void Thresholds_Follow_The_Largest_Placement_Scale()
     {
         // a 20 mm line: under MinSize 50 at scale 1, 60 mm at scale 3. The definition is cleaned at scale 3, so the line survives; the scale 1 instance is then not placed (R2a).

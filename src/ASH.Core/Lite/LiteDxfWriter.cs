@@ -13,8 +13,6 @@ namespace ASH.Core.Lite;
 /// (layer names go through LiteLayers.R12Names first). Every entity is moved by (-dx, -dy).</summary>
 public static class LiteDxfWriter
 {
-    /// <summary>What the old path writes lengths with; LiteBuild passes Precision.</summary>
-    public const int OldDecimals = 4;
     const int AngleDecimals = 4; // degrees: 0.0001 is 0.2 mm on a 100 m radius, whatever the unit
 
     static readonly CultureInfo C = CultureInfo.InvariantCulture;
@@ -23,15 +21,8 @@ public static class LiteDxfWriter
     /// <summary>Decimals of a length in this unit: the power of ten nearest 0.01 mm (mm 2, inch 3, m 5).</summary>
     public static int Precision(int insUnits) => Math.Max(0, (int)Math.Round(-Math.Log10(1e-5 / UnitScale.FromInsUnits(insUnits))));
 
-    public static void Write(TextWriter w, IReadOnlyList<LiteEntity> ents, IReadOnlyDictionary<string, string> names, IReadOnlyDictionary<string, short> colors, double dx, double dy)
-    {
-        Begin(w, LiteBox.Of(ents), ents.Select(e => e.Layer), names, colors, dx, dy);
-        foreach (var e in ents) Entity(w, e, Name(names, e.Layer), dx, dy);
-        End(w);
-    }
-
     /// <summary>Header, tables and the start of ENTITIES for a stream of entities (LiteBuild.Write): box is their extents, layers the original layer names they use.</summary>
-    public static void Begin(TextWriter w, LiteBox box, IEnumerable<string> layers, IReadOnlyDictionary<string, string> names, IReadOnlyDictionary<string, short> colors, double dx, double dy, int decimals = OldDecimals)
+    public static void Begin(TextWriter w, LiteBox box, IEnumerable<string> layers, IReadOnlyDictionary<string, string> names, IReadOnlyDictionary<string, short> colors, double dx, double dy, int decimals)
     {
         if (box.IsEmpty) box = new LiteBox { MinX = dx, MinY = dy, MaxX = dx, MaxY = dy };
         Pair(w, 0, "SECTION"); Pair(w, 2, "HEADER");
@@ -67,17 +58,14 @@ public static class LiteDxfWriter
     }
 
     /// <summary>Bytes Entity writes for e: the size estimate is the writer itself, so it is exact for the entities (the header and tables add a few hundred bytes).</summary>
-    public static long Bytes(LiteEntity e, string layer, double dx, double dy, int decimals = OldDecimals)
+    public static long Bytes(LiteEntity e, string layer, double dx, double dy, int decimals)
     {
         var cw = new CountingWriter();
         Entity(cw, e, layer, dx, dy, decimals);
         return cw.Count;
     }
 
-    /// <summary>Header + tables + section markers for this many layers (approximate, not a bound: the extents' digits and the names vary). The old path only: LiteBuild measures its header.</summary>
-    public static long OverheadBytes(int layers) => 650 + 60L * layers;
-
-    public static void Entity(TextWriter w, LiteEntity e, string layer, double dx, double dy, int decimals = OldDecimals)
+    public static void Entity(TextWriter w, LiteEntity e, string layer, double dx, double dy, int decimals)
     {
         switch (e)
         {

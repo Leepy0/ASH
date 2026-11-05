@@ -146,14 +146,6 @@ public class LevelsTests
         Assert.DoesNotMatch(@"\r\n-?\d+\.\d{" + (decimals + 1) + @",}\r\n", dxf.Substring(0, dxf.IndexOf("ENTITIES", StringComparison.Ordinal))); // the header too
     }
 
-    [Fact]
-    public void The_Old_Path_Keeps_Four_Decimals()
-    {
-        var sw = new StringWriter();
-        LiteDxfWriter.Entity(sw, new LiteLine("A", 1.123456, 0, 2, 0), "A", 0, 0);
-        Assert.Contains("1.1235", sw.ToString());
-    }
-
     // --- bytes
 
     [Fact]
@@ -698,23 +690,35 @@ public class LevelsTests
     }
 
     [Fact]
-    public void The_Old_Report_Overload_Stays()
-    {
-        var s = new LiteSource { InsUnits = 4 };
-        s.Items.Add(new LiteItem(new LiteLine("A", 5000, 0, 6000, 0), LiteFlags.None));
-        var plan = new LitePlan(s);
-        var on = new[] { LiteTypes.Line };
-        var r = plan.Write(new StringWriter(), new LiteOptions(), on);
-        var w = new StringWriter();
-        LiteReport.Write(w, plan, new LiteOptions(), on, r, "a.dwg", 1, "a.dxf", 1, new DateTime(2026, 11, 6));
-        Assert.Contains("OriginX\t-5000", w.ToString());
-    }
-
-    [Fact]
     public void Level_Writes_Are_Stamped()
     {
         var b = new LiteBuild(Drawing(4, new Geo3[] { L3(0, 0, 1000, 0) }));
         Assert.Equal(1, b.Write(new StringWriter(), 1).Level);
         Assert.Equal(-1, b.Write(new StringWriter(), b.Thresholds(1)).Level);
+    }
+
+    [Fact]
+    public void Measure_Gives_Every_Level_Its_Size_And_Null_When_Stopped()
+    {
+        var d = Drawing(4, new Geo3[] { L3(0, 0, 1000, 0), L3(0, 500, 1000, 500) });
+        var heard = new List<int>();
+        var all = LiteJob.Measure(new LiteBuild(d), default, heard.Add)!;
+        Assert.Equal(new[] { 0, 1, 2, 3, 4 }, heard);
+        Assert.Equal(5, all.Count);
+        var b = new LiteBuild(d);
+        Assert.Equal(b.Total(1), all[1].Bytes);
+        Assert.All(all, e => Assert.Equal(0, e.Blobs));
+        using var stop = new CancellationTokenSource();
+        stop.Cancel();
+        Assert.Null(LiteJob.Measure(new LiteBuild(d), stop.Token, _ => { }));
+    }
+
+    [Fact]
+    public void Describe_Names_Only_What_A_Person_Fixed()
+    {
+        Assert.Null(new LiteSettings().Describe());
+        var s = new LiteSettings { Level = 3, ExcludeLayers = { "A", "B" }, NoBlobs = true };
+        Assert.Equal("저장된 조정값: 단계 3 고정, 레이어 2개 제외, 외곽선 끔 · AGVLITEX에서 자동으로", s.Describe());
+        Assert.Equal("저장된 조정값: 단계 0 고정 · AGVLITEX에서 자동으로", new LiteSettings { Level = 0 }.Describe());
     }
 }

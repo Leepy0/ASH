@@ -44,9 +44,9 @@ static class Program
             d.ShowDialog();
             return 0;
         }
-        if (Array.IndexOf(args, "--lite") >= 0) // the AGVLITE dialog with made-up types (about 12 MB checked, so the over-10 MB warning shows)
+        if (Array.IndexOf(args, "--lite") >= 0) // the AGVLITEX dialog with made-up levels and layers
         {
-            using var d = new ASH.Plugin.Ui.LiteDialog(new ASH.Core.Lite.LitePlan(LiteSample()), "공장A_레이아웃.dwg", @"lite\공장A_레이아웃_lite.dxf", 10, 100) { StartPosition = FormStartPosition.Manual, Location = new Point(-2000, 0) };
+            using var d = new ASH.Plugin.Ui.LiteDialog("공장A_레이아웃.dwg", @"lite\공장A_레이아웃_lite.dxf", LiteLevels(), LiteLayers(), 3, false) { StartPosition = FormStartPosition.Manual, Location = new Point(-2000, 0) };
             d.Shown += (s, e) =>
             {
                 Application.DoEvents();
@@ -83,27 +83,17 @@ static class Program
         return 0;
     }
 
-    static ASH.Core.Lite.LiteSource LiteSample()
+    // made-up estimates (one over 10 MB, one over 5 MB) and layers (two off or frozen, one half-excluded) for the AGVLITEX dialog
+    static System.Collections.Generic.List<ASH.Core.Lite.LiteLevelEstimate> LiteLevels() => new()
     {
-        var s = new ASH.Core.Lite.LiteSource { InsUnits = 4, Tolerance = 10, XrefRefs = 2, Solids3d = 340 };
-        var rnd = new Random(1);
-        void Add(string layer, int lines, ASH.Core.Lite.LiteFlags flags = ASH.Core.Lite.LiteFlags.None, bool off = false, bool frozen = false)
-        {
-            s.Layers[layer] = new ASH.Core.Lite.LiteLayerState(7, off, frozen);
-            for (int i = 0; i < lines; i++)
-                s.Items.Add(new ASH.Core.Lite.LiteItem(new ASH.Core.Lite.LiteLine(layer, 1200000 + rnd.NextDouble() * 250000, 400000 + rnd.NextDouble() * 120000, 1200000 + rnd.NextDouble() * 250000, 400000 + rnd.NextDouble() * 120000), flags,
-                    flags == ASH.Core.Lite.LiteFlags.Footprint ? ASH.Core.Lite.LiteTypes.Footprint : i % 5 == 0 ? ASH.Core.Lite.LiteTypes.Polyline : ASH.Core.Lite.LiteTypes.Line));
-        }
-        Add("A-WALL", 52000); Add("A-COLUMN", 9000); Add("설비_라인", 38000); Add("통로", 4000); Add("A-GRID", 1500);
-        Add("A-DIM", 21000); Add("문자", 6000); Add("HATCH-FLOOR", 30000); Add("표제란", 2500); Add("AGV_PATH", 800);
-        Add("3D-EQUIP", 340, ASH.Core.Lite.LiteFlags.Footprint);
-        Add("XREF-BASE|A-WALL", 15000, ASH.Core.Lite.LiteFlags.Xref);
-        Add("OLD_LAYOUT", 7000, ASH.Core.Lite.LiteFlags.Hidden, frozen: true);
-        Add("0", 300);
-        ASH.Core.Lite.LiteSource.Count(s.Removed, "해치", 1800);
-        ASH.Core.Lite.LiteSource.Count(s.Removed, "문자", 9200);
-        return s;
-    }
+        new(41_900_000, 0), new(18_200_000, 0), new(9_400_000, 42), new(4_700_000, 118), new(2_100_000, 230),
+    };
+
+    static System.Collections.Generic.List<ASH.Plugin.Ui.LiteLayerRow> LiteLayers() => new()
+    {
+        new("0", "", true), new("A-GRID", "", false), new("A-WALL", "", true), new("A-COLUMN", "", true), new("OLD_LAYOUT", "동결", false),
+        new("XREF-BASE|A-WALL", "", true), new("공정_라인", "", true), new("설비_로봇", "", true), new("통로", "", true), new("표제란", "꺼짐", false),
+    };
 
     // sample rows for the check table and the finder, so the tabs can be shown without a drawing
     static void Sample()
