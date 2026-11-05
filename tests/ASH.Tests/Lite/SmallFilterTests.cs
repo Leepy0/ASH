@@ -89,7 +89,7 @@ public class SmallFilterTests
         var one = new LiteEntity[] { L(0, 0, 0.001, 0) };
         var dup = new LiteEntity[] { L(6000, 0, 5000, 0) };
         var over = new LiteEntity[] { src[3], src[4] };
-        long Bytes(IEnumerable<LiteEntity> l) => l.Sum(e => LiteDxfWriter.Bytes(e, e.Layer, 0, 0));
+        long Bytes(IEnumerable<LiteEntity> l) => l.Sum(e => LiteDxfWriter.Bytes(e, e.Layer, 0, 0, LiteDxfWriter.Precision(4))); // the writer's precision for this unit
 
         var stats = new LiteStats();
         var r = LitePipeline.Run(src, new LiteThresholds(1, 50, 4), 1, stats);

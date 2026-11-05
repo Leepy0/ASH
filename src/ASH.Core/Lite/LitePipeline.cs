@@ -15,7 +15,7 @@ public sealed record LiteThresholds(double ToleranceMm, double MinSizeMm, int In
     public double UnitsPerMm => 0.001 / UnitScale.FromInsUnits(InsUnits);
 }
 
-/// <summary>What one step removed: entities, and bytes as LiteDxfWriter.Bytes writes them unshifted.</summary>
+/// <summary>What one step removed: entities, and bytes as LiteDxfWriter.Bytes writes them unshifted at the unit's precision.</summary>
 public sealed class LiteStep
 {
     public int Count;
@@ -53,24 +53,25 @@ public static class LitePipeline
     {
         if (!(scaleMax > 0)) throw new ArgumentOutOfRangeException(nameof(scaleMax)); // a zero would turn every limit infinite and remove everything
         double unit = t.UnitsPerMm / scaleMax, grid = LiteThresholds.GridMm * unit;
+        int decimals = LiteDxfWriter.Precision(t.InsUnits);
 
         var all = new List<LiteEntity>(flat);
-        all = Tally(stats.Degenerate, all, Clean.Degenerate(all, LiteThresholds.DegenerateMm * unit, out int n), n);
-        all = Tally(stats.Duplicate, all, Clean.Dedup(all, grid, out n), n);
-        all = Tally(stats.Overlap, all, Clean.MergeCollinear(all, grid, out n), n);
+        all = Tally(stats.Degenerate, all, Clean.Degenerate(all, LiteThresholds.DegenerateMm * unit, out int n), n, decimals);
+        all = Tally(stats.Duplicate, all, Clean.Dedup(all, grid, out n), n, decimals);
+        all = Tally(stats.Overlap, all, Clean.MergeCollinear(all, grid, out n), n, decimals);
         all = Chain.Join(all, grid).ConvertAll(e => e is LitePolyline p ? Chain.Simplify(p, t.ToleranceMm * unit) : e);
-        return Tally(stats.Small, all, SmallFilter.Apply(all, t.MinSizeMm * unit, Math.Max(t.ToleranceMm * unit, grid), out n), n); // gaps a chain cannot cross still make one outline
+        return Tally(stats.Small, all, SmallFilter.Apply(all, t.MinSizeMm * unit, Math.Max(t.ToleranceMm * unit, grid), out n), n, decimals); // gaps a chain cannot cross still make one outline
     }
 
-    static List<LiteEntity> Tally(LiteStep step, List<LiteEntity> before, List<LiteEntity> after, int removed)
+    static List<LiteEntity> Tally(LiteStep step, List<LiteEntity> before, List<LiteEntity> after, int removed, int decimals)
     {
         if (removed > 0)
         {
             step.Count += removed;
-            step.Bytes += Bytes(before) - Bytes(after);
+            step.Bytes += Bytes(before, decimals) - Bytes(after, decimals);
         }
         return after;
     }
 
-    static long Bytes(List<LiteEntity> l) => l.Sum(e => LiteDxfWriter.Bytes(e, e.Layer, 0, 0));
+    static long Bytes(List<LiteEntity> l, int decimals) => l.Sum(e => LiteDxfWriter.Bytes(e, e.Layer, 0, 0, decimals));
 }

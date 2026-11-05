@@ -13,7 +13,8 @@ public static class LiteStat
     /// <summary>Upper edges (mm of line per cell) of the first four bins; the fifth is open.</summary>
     public static readonly double[] BinEdges = { 1_000, 5_000, 20_000, 100_000 };
 
-    public sealed record Hist(int Cells, double P50, double P90, double P99, double Max, int[] Bins, double TotalMm);
+    /// <summary>Cut: the walk stopped at its budget, so the counts cover part of the drawing.</summary>
+    public sealed record Hist(int Cells, double P50, double P90, double P99, double Max, int[] Bins, double TotalMm, bool Cut = false);
 
     /// <summary>Per-definition input for <see cref="BlockTable"/>; the name is for the human table only.</summary>
     public sealed record BlockRow(string Name, int Instances, int Lines, double DiagMm, int Solids3d);
@@ -107,6 +108,19 @@ public static class LiteStat
         w.WriteLine("읽기 초\t" + F(readSec));
         w.WriteLine("히스토그램 초\t" + F(histSec));
         w.WriteLine();
+        WriteHist(w, h);
+        w.WriteLine();
+        w.WriteLine("[블록 상위 30]");
+        w.WriteLine("이름\t인스턴스\t펼친 선 수\t범위 대각선 mm\t3D 수\t인스턴스×선");
+        foreach (var b in BlockTable(blocks)) w.WriteLine($"{b.Name}\t{b.Instances}\t{b.Lines}\t{F(b.DiagMm)}\t{b.Solids3d}\t{(long)b.Instances * b.Lines}");
+        w.WriteLine();
+        w.WriteLine("[종류별 개수]");
+        foreach (var kv in kinds.OrderBy(k => k.Key, StringComparer.Ordinal)) w.WriteLine(kv.Key + "\t" + kv.Value);
+    }
+
+    /// <summary>The histogram section, shared with LiteReport.</summary>
+    public static void WriteHist(TextWriter w, Hist h)
+    {
         w.WriteLine("[밀도 히스토그램]");
         w.WriteLine("점유 셀\t" + h.Cells);
         w.WriteLine("50%\t" + F(h.P50));
@@ -115,12 +129,5 @@ public static class LiteStat
         w.WriteLine("최대\t" + F(h.Max));
         string[] names = { "0~1k", "1k~5k", "5k~20k", "20k~100k", "100k~" };
         for (int i = 0; i < CellBins; i++) w.WriteLine("셀 수 " + names[i] + "\t" + h.Bins[i]);
-        w.WriteLine();
-        w.WriteLine("[블록 상위 30]");
-        w.WriteLine("이름\t인스턴스\t펼친 선 수\t범위 대각선 mm\t3D 수\t인스턴스×선");
-        foreach (var b in BlockTable(blocks)) w.WriteLine($"{b.Name}\t{b.Instances}\t{b.Lines}\t{F(b.DiagMm)}\t{b.Solids3d}\t{(long)b.Instances * b.Lines}");
-        w.WriteLine();
-        w.WriteLine("[종류별 개수]");
-        foreach (var kv in kinds.OrderBy(k => k.Key, StringComparer.Ordinal)) w.WriteLine(kv.Key + "\t" + kv.Value);
     }
 }

@@ -20,28 +20,8 @@ public sealed class LiteNode
     /// <summary>Child instances still placed, in original order.</summary>
     public List<LiteUse> Uses { get; internal set; } = new();
     public LiteBox Box { get; internal set; } = LiteBox.Empty;
-    /// <summary>Own per symbolic layer: count, and the size parts Task 6 bounds from above (R15).</summary>
-    public Dictionary<string, LiteTally> OwnTally { get; } = new(StringComparer.Ordinal);
+    /// <summary>Indices into Own per symbolic layer, in original order.</summary>
     internal Dictionary<string, List<int>>? ByLayer;
-}
-
-/// <summary>Size parts of some entities. Bytes is what LiteDxfWriter writes for them with an empty layer name, in node coordinates, unshifted; LayerSlots is how often a layer name is
-/// written (1 per LINE/CIRCLE/ARC, 2 + vertices per POLYLINE); Coords is how many x or y values are written (each at least "0.0", 3 characters; radii, angles and bulges do not move with
-/// the shift and are already in Bytes). Upper bound after placement: Bytes + LayerSlots x longest R12 name + Coords x (widest coordinate - 3).</summary>
-public readonly record struct LiteTally(int Count, long Bytes, long LayerSlots, long Coords)
-{
-    public static LiteTally operator +(LiteTally a, LiteTally b) => new(a.Count + b.Count, a.Bytes + b.Bytes, a.LayerSlots + b.LayerSlots, a.Coords + b.Coords);
-    public static LiteTally Of(LiteEntity e)
-    {
-        var (slots, coords) = e switch
-        {
-            LiteLine => (1, 4),
-            LiteCircle or LiteArc => (1, 2),
-            LitePolyline p => (2 + p.Vertices.Count, 2 * p.Vertices.Count),
-            _ => throw new ArgumentException("unknown lite entity " + e.GetType().Name),
-        };
-        return new LiteTally(1, LiteDxfWriter.Bytes(e, "", 0, 0), slots, coords);
-    }
 }
 
 /// <summary>A kept child instance: Placement maps the child's node coordinates into the parent's; Layer is the insert's ("0" inherits).</summary>
@@ -57,31 +37,68 @@ public sealed class LiteRun
     public LiteStats Stats { get; } = new();
     /// <summary>Nodes whose blob step hit the budget: their own geometry was judged alone, their children all stayed.</summary>
     public int Truncated { get; internal set; }
+    /// <summary>The file of this run: what writing needs, made once.</summary>
+    internal LiteSheet? Sheet;
     internal LiteRun(LiteThresholds t) => Thresholds = t;
 }
 
+/// <summary>One row of the report's blob table: X, Y = centre in original drawing coordinates at the first placement of its node (NaN when the node is no longer placed, its instances
+/// went into a parent's blob), DiagMm placed there; Instances = placements of the node; Lines = lines replaced in one instance.</summary>
+public sealed record LiteBlobRow(double X, double Y, double DiagMm, double Density, int Lines, int Instances);
+
+/// <summary>What Write and the size measure share, so they cannot differ. Places has one entry per placed instance, never the expanded entities. Layers: original layer to indices into
+/// Places, in definition then original order. Box covers everything placed, before the global dedup: a duplicate lies within a grid step of what stays, and this way the shift, the header
+/// and so every byte but the duplicates' own are the same in the measure and the file.</summary>
+internal sealed class LiteSheet
+{
+    public List<(LiteNode Node, Affine2 Xf, string Inherit)> Places = null!;
+    public readonly SortedDictionary<string, List<int>> Layers = new(StringComparer.Ordinal);
+    public LiteBox Box = LiteBox.Empty;
+    public double Sx, Sy;
+    public int Decimals;
+    public Dictionary<string, string> Names = null!;
+    public Dictionary<string, short> Colors = null!;
+    /// <summary>The measured file, once measured: total, and per original layer.</summary>
+    public long Size = -1;
+    public Dictionary<string, (int Count, long Bytes)> Tally = null!;
+
+    public void Begin(TextWriter w) => LiteDxfWriter.Begin(w, Box, Layers.Keys, Names, Colors, Sx, Sy, Decimals);
+    public void Entity(TextWriter w, LiteEntity e) => LiteDxfWriter.Entity(w, e, LiteDxfWriter.Name(Names, e.Layer), Sx, Sy, Decimals);
+    public long Bytes(LiteEntity e) => LiteDxfWriter.Bytes(e, LiteDxfWriter.Name(Names, e.Layer), Sx, Sy, Decimals);
+}
+
 /// <summary>The plan of AGVLITE over block definitions: every (definition, orientation) is cleaned once, leaves first; a parent counts its children's placed geometry in a stream and
-/// keeps them as instances; writing expands the instances through their matrices (layer, then definition in first-seen order, then original order). Nothing here reads a name.
-/// Task 6 adds: global dedup at writing, per-unit precision (R15), level choice, settings and the report; exclude is the user's layer list from those settings.</summary>
+/// keeps them as instances; writing expands the instances through their matrices (layer, then definition in first-seen order, then original order) and drops what is already written at
+/// that place. Sizes are measured by streaming the same entities through the same writer without that dedup (R20), so an estimate is the file plus its duplicates, never less.
+/// One object per drawing: a level or bare thresholds select the run, the settings hold what a person fixed. Nothing here reads a name.</summary>
 public sealed class LiteBuild
 {
     /// <summary>A stack guard only: cycles are cut by path (R9).</summary>
     public const int MaxDepth = 256;
     /// <summary>Chords one definition's blob step may stream from its children before it judges its own geometry alone (a runaway fan-out guard: the root streams the whole drawing by
-    /// design, R18, and 2 million entities is an ordinary 300 MB drawing). Settable for tests.</summary>
+    /// design, R18, and 2 million entities is an ordinary 300 MB drawing), and the most the density histogram walks. Settable for tests.</summary>
     public long Budget { get; set; } = 200_000_000;
 
     readonly LiteBlocks _src;
     readonly HashSet<string> _exclude;
+    readonly SortedDictionary<int, long> _sizes = new();
     LiteRun? _last;
 
-    public LiteBuild(LiteBlocks src, IEnumerable<string>? exclude = null)
+    public LiteBuild(LiteBlocks src, IEnumerable<string>? exclude = null) : this(src, new LiteSettings { ExcludeLayers = (exclude ?? Array.Empty<string>()).ToList() }) { }
+
+    public LiteBuild(LiteBlocks src, LiteSettings settings)
     {
         _src = src;
-        _exclude = new HashSet<string>(exclude ?? Array.Empty<string>(), StringComparer.Ordinal);
+        Settings = settings;
+        _exclude = new HashSet<string>(settings.ExcludeLayers, StringComparer.Ordinal);
     }
 
     public LiteBlocks Source => _src;
+    public LiteSettings Settings { get; }
+    /// <summary>Levels measured so far (Total, ChooseLevel) and their sizes in bytes.</summary>
+    public IReadOnlyDictionary<int, long> LevelSizes => _sizes;
+
+    public LiteThresholds Thresholds(int level) => LiteLevels.Get(level, _src.InsUnits, Settings.NoBlobs);
 
     /// <summary>Off, frozen, AGV_ or excluded by the user: its geometry is left out before cleaning (R8).</summary>
     public bool Excluded(string layer) => LiteLayers.IsAsh(layer) || _exclude.Contains(layer) || (_src.Layers.TryGetValue(layer, out var s) && (s.Off || s.Frozen));
@@ -193,7 +210,6 @@ public sealed class LiteBuild
             if (!m.IsEmpty) { box.Add(m.MinX, m.MinY); box.Add(m.MaxX, m.MaxY); }
         }
         nd.Box = box;
-        foreach (var e in own) nd.OwnTally[e.Layer] = (nd.OwnTally.TryGetValue(e.Layer, out var x) ? x : default) + LiteTally.Of(e);
     }
 
     static LiteBox Map(LiteBox b, Affine2 xf)
@@ -240,83 +256,166 @@ public sealed class LiteBuild
         }
     }
 
-    /// <summary>Per original layer, everything Write would place: definition tallies x instances (see LiteTally for the upper bound Task 6 makes of it, R15).</summary>
-    public Dictionary<string, LiteTally> Estimate(LiteThresholds t)
+    /// <summary>The first level from 0 up whose measured size fits, or the last one. The run of the level returned stays cached for Write.</summary>
+    public int ChooseLevel(long targetBytes)
     {
-        var run = Run(t);
-        var d = new Dictionary<string, LiteTally>(StringComparer.Ordinal);
-        foreach (var (n, _, inherit) in Placements(run.Root, Affine2.Identity, "0", 0))
-            foreach (var kv in n.OwnTally)
-            {
-                var layer = kv.Key == "0" ? inherit : kv.Key;
-                if (kv.Key == "0" && Excluded(layer)) continue;
-                d[layer] = (d.TryGetValue(layer, out var x) ? x : default) + kv.Value;
-            }
-        return d;
+        for (int level = 0; ; level++)
+            if (Total(level) <= targetBytes || level == LiteLevels.Max) return level;
     }
 
-    public long Total(LiteThresholds t)
-    {
-        var e = Estimate(t);
-        return LiteDxfWriter.OverheadBytes(e.Count) + e.Values.Sum(v => v.Bytes);
-    }
+    public long Total(int level) => _sizes[level] = Total(Thresholds(level));
+
+    /// <summary>The size of the file with the duplicates still in: an upper bound of what Write writes, and exact when there are none.</summary>
+    public long Total(LiteThresholds t) => Measured(Run(t)).Size;
+
+    /// <summary>Per original layer, everything placed, duplicates included: count and bytes as written.</summary>
+    public Dictionary<string, (int Count, long Bytes)> Estimate(LiteThresholds t) => Measured(Run(t)).Tally;
 
     /// <summary>The layers that weigh most.</summary>
     public List<(string Layer, long Bytes)> Biggest(LiteThresholds t, int n = 3) =>
         Estimate(t).Where(kv => kv.Value.Bytes > 0).OrderByDescending(kv => kv.Value.Bytes).ThenBy(kv => kv.Key, StringComparer.Ordinal).Take(n).Select(kv => (kv.Key, kv.Value.Bytes)).ToList();
 
-    /// <summary>Writes the drawing as R12 DXF, expanding the instances through their matrices: layer (ordinal), then definition (first-seen index), then original order.
-    /// Moved so the lower left sits just above (0, 0) (LitePlan.Shift). Holds one entry per placed instance, never the expanded entities.</summary>
+    /// <summary>The blobs of a run that replaced most lines, in drawing terms.</summary>
+    public List<LiteBlobRow> TopBlobs(LiteThresholds t)
+    {
+        var run = Run(t);
+        var first = new Dictionary<LiteNode, (Affine2 Xf, int Count)>();
+        foreach (var (n, xf, _) in Sheet(run).Places) first[n] = first.TryGetValue(n, out var f) ? (f.Xf, f.Count + 1) : (xf, 1);
+        return run.Stats.TopBlobs.Select(b =>
+        {
+            if (b.Node == null || !first.TryGetValue(b.Node, out var f)) return new LiteBlobRow(double.NaN, double.NaN, double.NaN, b.Density, b.Lines, 0);
+            var (cx, cy) = f.Xf.Ap(b.X + b.W / 2, b.Y + b.H / 2);
+            var (x0, y0) = f.Xf.Ap(b.X, b.Y);
+            var (x1, y1) = f.Xf.Ap(b.X + b.W, b.Y + b.H);
+            return new LiteBlobRow(cx, cy, Math.Sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0)) / t.UnitsPerMm, b.Density, b.Lines, f.Count);
+        }).ToList();
+    }
+
+    /// <summary>Line length per 1 m cell of the raw drawing (R5's grid), hidden layers left out (R8): before any cleaning, streamed, never stored. Runs apart from every level.
+    /// Past Budget chords and instances the walk stops and the result says Cut.</summary>
+    public LiteStat.Hist Histogram()
+    {
+        double perMm = Thresholds(0).UnitsPerMm, tol = LiteLevels.Table[0].ToleranceMm * perMm;
+        long chords = 0;
+        var h = LiteStat.Histogram(Raw(_src.Root, Affine3.Identity, "0", new bool[_src.Defs.Count], 0, tol).TakeWhile(_ => chords++ < Budget)
+            .Select(s => (s.Item1 / perMm, s.Item2 / perMm, s.Item3 / perMm, s.Item4 / perMm)), 1000);
+        return h with { Cut = chords > Budget };
+    }
+
+    /// <summary>The chords of a definition's raw geometry under xf and of everything inserted in it, by the visibility rules of Place. A cycle is cut by the path (R9).</summary>
+    IEnumerable<(double, double, double, double)> Raw(int def, Affine3 xf, string inherit, bool[] onPath, int depth, double tol)
+    {
+        onPath[def] = true;
+        yield return default; // an empty chord per visit: a fan-out of empty blocks has to meet the budget too
+        foreach (var g in _src.Defs[def].Geo)
+        {
+            var layer = g.Layer == "0" ? inherit : g.Layer;
+            if (Excluded(layer)) continue;
+            foreach (var s in LiteStat.Segments(new[] { Flatten.To2D(g, xf, tol, layer) }, tol)) yield return s;
+        }
+        foreach (var u in _src.Defs[def].Uses)
+        {
+            var layer = u.Layer == "0" ? inherit : u.Layer;
+            if (u.Def < 0 || u.Def >= onPath.Length || onPath[u.Def] || depth >= MaxDepth || Frozen(layer)) continue;
+            foreach (var s in Raw(u.Def, u.Xf.Then(xf), layer, onPath, depth + 1, tol)) yield return s;
+        }
+        onPath[def] = false;
+    }
+
+    public LiteResult Write(TextWriter w, int level) => Write(w, Thresholds(level)) with { Level = level };
+
+    /// <summary>Writes the drawing as R12 DXF at the unit's precision, expanding the instances through their matrices: layer (ordinal), then definition (first-seen index), then original
+    /// order. An entity whose placed coordinates match one already written, on any layer, is dropped. Moved so the lower left sits just above (0, 0) (LitePlan.Shift).
+    /// Holds a 64-bit key per entity, never the entities.</summary>
     public LiteResult Write(TextWriter w, LiteThresholds t)
     {
         var run = Run(t);
-        double tol = t.ToleranceMm * t.UnitsPerMm;
-        var places = Placements(run.Root, Affine2.Identity, "0", 0).ToList();
-        var byDef = new List<int>[_src.Defs.Count];
-        var layers = new SortedSet<string>(StringComparer.Ordinal);
-        for (int i = 0; i < places.Count; i++)
-        {
-            var (n, _, inherit) = places[i];
-            (byDef[n.Def] ??= new List<int>()).Add(i);
-            foreach (var l in n.OwnTally.Keys)
-                if (l != "0") layers.Add(l);
-                else if (!Excluded(inherit)) layers.Add(inherit);
-        }
-
-        var box = run.Root.Box;
-        double sx = box.IsEmpty ? 0 : LitePlan.Shift(box.MinX, _src.InsUnits), sy = box.IsEmpty ? 0 : LitePlan.Shift(box.MinY, _src.InsUnits);
-        var names = LiteLayers.R12Names(_src.Layers.Keys.Concat(layers));
-        var colors = _src.Layers.ToDictionary(kv => kv.Key, kv => kv.Value.Color, StringComparer.Ordinal);
+        var sheet = Sheet(run);
+        double grid = LiteThresholds.GridMm * t.UnitsPerMm;
+        var seen = new HashSet<long>();
         var written = new SortedDictionary<string, int>(StringComparer.Ordinal);
-        int count = 0;
+        int count = 0, deduped = 0;
+        long dedupedBytes = 0;
 
-        LiteDxfWriter.Begin(w, box, layers, names, colors, sx, sy);
-        foreach (var layer in layers)
+        sheet.Begin(w);
+        foreach (var e in Entities(run, sheet))
         {
-            string name = LiteDxfWriter.Name(names, layer);
-            foreach (var group in byDef)
+            if (!seen.Add(SegKey.Of(e, grid).Hash))
             {
-                if (group == null) continue;
-                foreach (int pi in group)
-                {
-                    var (n, xf, inherit) = places[pi];
-                    n.ByLayer ??= n.Own.Select((e, i) => (e.Layer, i)).GroupBy(x => x.Layer, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Select(x => x.i).ToList(), StringComparer.Ordinal);
-                    IEnumerable<int> at;
-                    if (inherit == layer && n.ByLayer.ContainsKey("0")) at = Enumerable.Range(0, n.Own.Count).Where(i => n.Own[i].Layer == "0" || n.Own[i].Layer == layer); // both kinds, original order
-                    else if (layer != "0" && n.ByLayer.TryGetValue(layer, out var l)) at = l;
-                    else continue;
-                    foreach (int i in at)
-                    {
-                        var e = CurveApprox.Transform(n.Own[i], xf, tol, layer);
-                        LiteDxfWriter.Entity(w, e, name, sx, sy);
-                        written[e.Kind] = (written.TryGetValue(e.Kind, out var c) ? c : 0) + 1;
-                        count++;
-                    }
-                }
+                deduped++;
+                dedupedBytes += sheet.Bytes(e);
+                continue;
             }
+            sheet.Entity(w, e);
+            written[e.Kind] = (written.TryGetValue(e.Kind, out var c) ? c : 0) + 1;
+            count++;
         }
         LiteDxfWriter.End(w);
-        var ext = box.IsEmpty ? box : new LiteBox { MinX = box.MinX - sx, MinY = box.MinY - sy, MaxX = box.MaxX - sx, MaxY = box.MaxY - sy };
-        return new LiteResult(sx, sy, ext, written, count);
+        var box = sheet.Box;
+        var ext = box.IsEmpty ? box : new LiteBox { MinX = box.MinX - sheet.Sx, MinY = box.MinY - sheet.Sy, MaxX = box.MaxX - sheet.Sx, MaxY = box.MaxY - sheet.Sy };
+        return new LiteResult(sheet.Sx, sheet.Sy, ext, written, count, deduped, dedupedBytes);
+    }
+
+    /// <summary>The whole file through a counting writer, duplicates included (R20).</summary>
+    LiteSheet Measured(LiteRun run)
+    {
+        var sheet = Sheet(run);
+        if (sheet.Size >= 0) return sheet;
+        var cw = new LiteDxfWriter.CountingWriter();
+        var tally = new Dictionary<string, (int Count, long Bytes)>(StringComparer.Ordinal);
+        sheet.Begin(cw);
+        foreach (var e in Entities(run, sheet))
+        {
+            long before = cw.Count;
+            sheet.Entity(cw, e);
+            tally.TryGetValue(e.Layer, out var x);
+            tally[e.Layer] = (x.Count + 1, x.Bytes + cw.Count - before);
+        }
+        LiteDxfWriter.End(cw);
+        sheet.Tally = tally;
+        sheet.Size = cw.Count;
+        return sheet;
+    }
+
+    LiteSheet Sheet(LiteRun run)
+    {
+        if (run.Sheet != null) return run.Sheet;
+        var t = run.Thresholds;
+        var sheet = new LiteSheet { Places = Placements(run.Root, Affine2.Identity, "0", 0).ToList(), Decimals = LiteDxfWriter.Precision(t.InsUnits) };
+        foreach (int pi in Enumerable.Range(0, sheet.Places.Count).OrderBy(i => sheet.Places[i].Node.Def)) // stable: original order inside a definition
+        {
+            var (n, _, inherit) = sheet.Places[pi];
+            n.ByLayer ??= n.Own.Select((e, i) => (e.Layer, i)).GroupBy(x => x.Layer, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Select(x => x.i).ToList(), StringComparer.Ordinal);
+            foreach (var key in n.ByLayer.Keys)
+            {
+                var layer = key == "0" ? inherit : key;
+                if (key == "0" && Excluded(layer)) continue;
+                if (!sheet.Layers.TryGetValue(layer, out var l)) sheet.Layers[layer] = l = new List<int>();
+                if (l.Count == 0 || l[l.Count - 1] != pi) l.Add(pi); // "0" and the layer it inherits are one visit
+            }
+        }
+        foreach (var e in Entities(run, sheet)) e.Extend(ref sheet.Box);
+        if (!sheet.Box.IsEmpty) (sheet.Sx, sheet.Sy) = (LitePlan.Shift(sheet.Box.MinX, t.InsUnits), LitePlan.Shift(sheet.Box.MinY, t.InsUnits));
+        sheet.Names = LiteLayers.R12Names(_src.Layers.Keys.Concat(sheet.Layers.Keys));
+        sheet.Colors = _src.Layers.ToDictionary(kv => kv.Key, kv => kv.Value.Color, StringComparer.Ordinal);
+        return run.Sheet = sheet;
+    }
+
+    /// <summary>Everything placed in writing order, one at a time, each carrying its original layer: writing and measuring walk this same stream.</summary>
+    IEnumerable<LiteEntity> Entities(LiteRun run, LiteSheet sheet)
+    {
+        double tol = run.Thresholds.ToleranceMm * run.Thresholds.UnitsPerMm;
+        foreach (var kv in sheet.Layers)
+        {
+            string layer = kv.Key;
+            foreach (int pi in kv.Value)
+            {
+                var (n, xf, inherit) = sheet.Places[pi];
+                IEnumerable<int> at = inherit == layer && n.ByLayer!.ContainsKey("0")
+                    ? Enumerable.Range(0, n.Own.Count).Where(i => n.Own[i].Layer == "0" || n.Own[i].Layer == layer) // both kinds, original order
+                    : n.ByLayer![layer];
+                foreach (int i in at) yield return CurveApprox.Transform(n.Own[i], xf, tol, layer);
+            }
+        }
     }
 }

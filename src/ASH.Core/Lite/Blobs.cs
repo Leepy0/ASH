@@ -220,7 +220,8 @@ public sealed class Blobs
         if (!blobs.Selected.Any()) return new List<LiteEntity>(own);
 
         var o = new List<LiteEntity>(own.Count);
-        void Took(Blob b, LiteEntity e) { b.Lines++; b.Bytes += LiteDxfWriter.Bytes(e, e.Layer, 0, 0); b.Layers[e.Layer] = (b.Layers.TryGetValue(e.Layer, out var n) ? n : 0) + 1; }
+        int decimals = LiteDxfWriter.Precision(t.InsUnits);
+        void Took(Blob b, LiteEntity e) { b.Lines++; b.Bytes += LiteDxfWriter.Bytes(e, e.Layer, 0, 0, decimals); b.Layers[e.Layer] = (b.Layers.TryGetValue(e.Layer, out var n) ? n : 0) + 1; }
         foreach (var e in own)
         {
             int id = blobs.BlobOf(new[] { e });
