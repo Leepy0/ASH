@@ -13,8 +13,8 @@ public static class LiteStat
     /// <summary>Upper edges (mm of line per cell) of the first four bins; the fifth is open.</summary>
     public static readonly double[] BinEdges = { 1_000, 5_000, 20_000, 100_000 };
 
-    /// <summary>Cut: the walk stopped at its budget, so the counts cover part of the drawing.</summary>
-    public sealed record Hist(int Cells, double P50, double P90, double P99, double Max, int[] Bins, double TotalMm, bool Cut = false);
+    /// <summary>Cut: the walk stopped at its budget, so the counts cover part of the drawing. Lines: chords walked (LiteBuild.Histogram).</summary>
+    public sealed record Hist(int Cells, double P50, double P90, double P99, double Max, int[] Bins, double TotalMm, bool Cut = false, long Lines = 0);
 
     /// <summary>Per-definition input for <see cref="BlockTable"/>; the name is for the human table only.</summary>
     public sealed record BlockRow(string Name, int Instances, int Lines, double DiagMm, int Solids3d);
@@ -95,7 +95,7 @@ public static class LiteStat
     static string F(double v) => v.ToString("0.###", CultureInfo.InvariantCulture);
 
     /// <summary>The stat.tsv report: sections are a [name] line, then tab-separated rows.</summary>
-    public static void Write(TextWriter w, string drawing, double readSec, double histSec, int lines, bool truncated, double cellMm, Hist h, IEnumerable<BlockRow> blocks, IReadOnlyDictionary<string, int> kinds)
+    public static void Write(TextWriter w, string drawing, double readSec, double histSec, long lines, bool truncated, double cellMm, Hist h, IEnumerable<BlockRow> blocks, IReadOnlyDictionary<string, int> kinds)
     {
         w.NewLine = "\r\n";
         w.WriteLine("[도면]");

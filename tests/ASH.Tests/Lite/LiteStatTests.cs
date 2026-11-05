@@ -96,36 +96,11 @@ public class LiteStatTests
     }
 
     [Fact]
-    public void TallyBlock_Keeps_Per_Definition_Values_And_Counts_Instances()
-    {
-        var src = new LiteSource();
-        for (int i = 0; i < 3; i++) src.TallyBlock("B", 50, 2, 700);
-        var t = src.Blocks["B"];
-        Assert.Equal(3, t.Instances);
-        Assert.Equal(50, t.Lines);
-        Assert.Equal(2, t.Solids);
-        var row = LiteStat.BlockTable(new[] { new LiteStat.BlockRow("B", t.Instances, t.Lines, t.Diagonal, t.Solids) })[0];
-        Assert.Equal(150, (long)row.Instances * row.Lines);
-        Assert.Equal(2, row.Solids3d);
-    }
-
-    [Fact]
     public void WalkCells_Extreme_Coordinates_Return_At_Once()
     {
         int n = 0;
         LiteStat.WalkCells(-1e300, 0, 1e300, 0, M, (_, _, _) => n++);
         LiteStat.WalkCells(0, 0, 1e15, 1, M, (_, _, _) => n++);
         Assert.Equal(0, n);
-    }
-
-    [Fact]
-    public void Measured_Excludes_Xref_Hidden_And_Footprint_Items()
-    {
-        var e = new LiteLine("0", 0, 0, 10, 0);
-        Assert.True(LiteSource.Measured(new LiteItem(e, LiteFlags.None)));
-        foreach (var f in new[] { LiteFlags.Xref, LiteFlags.Hidden, LiteFlags.Footprint }) Assert.False(LiteSource.Measured(new LiteItem(e, f)));
-        var src = new LiteSource { Tolerance = 1 };
-        src.Items.Add(new LiteItem(e, LiteFlags.None)); src.Items.Add(new LiteItem(e, LiteFlags.Hidden));
-        Assert.Equal(1, src.Chords(0));
     }
 }

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 
 namespace ASH.Core.Lite;
 
@@ -78,6 +79,8 @@ public sealed class LiteBuild
     /// <summary>Chords one definition's blob step may stream from its children before it judges its own geometry alone (a runaway fan-out guard: the root streams the whole drawing by
     /// design, R18, and 2 million entities is an ordinary 300 MB drawing), and the most the density histogram walks. Settable for tests.</summary>
     public long Budget { get; set; } = 200_000_000;
+    /// <summary>Looked at between nodes and instances: cleaning, measuring and the histogram stop with OperationCanceledException. Clear it before writing a file.</summary>
+    public CancellationToken Cancel { get; set; }
 
     readonly LiteBlocks _src;
     readonly HashSet<string> _exclude;
@@ -112,26 +115,7 @@ public sealed class LiteBuild
         var defs = _src.Defs;
         int n = defs.Count;
 
-        // 1. definitions reachable from the root in topological order; an insert back onto the path, or past MaxDepth, is cut
-        var order = new List<int>();
-        var state = new byte[n]; // 0 new, 1 on the path, 2 done
-        var cut = new HashSet<(int, int)>();
-        void Dfs(int d, int depth)
-        {
-            state[d] = 1;
-            var uses = defs[d].Uses;
-            for (int i = 0; i < uses.Count; i++)
-            {
-                int c = uses[i].Def;
-                // cut once per definition on the first DFS path (the old per-path Walk could cut another edge of the same loop): differs only on malformed drawings
-                if (c < 0 || c >= n || state[c] == 1 || depth >= MaxDepth) { cut.Add((d, i)); continue; }
-                if (state[c] == 0) Dfs(c, depth + 1);
-            }
-            state[d] = 2;
-            order.Add(d);
-        }
-        Dfs(_src.Root, 0);
-        order.Reverse();
+        var order = Order(out var cut);
 
         // 2. one node per (definition, orientation), with the largest scale reaching it: parents are final before their children are visited
         var nodes = new Dictionary<(int, bool, Affine3), LiteNode>();
@@ -158,8 +142,39 @@ public sealed class LiteBuild
         // 3. leaves first
         for (int k = order.Count - 1; k >= 0; k--)
             foreach (var nd in byDef[order[k]])
+            {
+                Cancel.ThrowIfCancellationRequested();
                 Process(nd, run, i => !cut.Contains((nd.Def, i)), (def, tilted, linear) => nodes[(def, tilted, linear)]);
+            }
         return _last = run;
+    }
+
+    /// <summary>1. Definitions reachable from the root, parents before children; cut = (definition, use) pairs back onto the path or past MaxDepth (R9).</summary>
+    List<int> Order(out HashSet<(int, int)> cut)
+    {
+        var defs = _src.Defs;
+        int n = defs.Count;
+        var order = new List<int>();
+        var state = new byte[n]; // 0 new, 1 on the path, 2 done
+        var cuts = new HashSet<(int, int)>();
+        void Dfs(int d, int depth)
+        {
+            state[d] = 1;
+            var uses = defs[d].Uses;
+            for (int i = 0; i < uses.Count; i++)
+            {
+                int c = uses[i].Def;
+                // cut once per definition on the first DFS path (the old per-path Walk could cut another edge of the same loop): differs only on malformed drawings
+                if (c < 0 || c >= n || state[c] == 1 || depth >= MaxDepth) { cuts.Add((d, i)); continue; }
+                if (state[c] == 0) Dfs(c, depth + 1);
+            }
+            state[d] = 2;
+            order.Add(d);
+        }
+        Dfs(_src.Root, 0);
+        order.Reverse();
+        cut = cuts;
+        return order;
     }
 
     /// <summary>The child node a use leads to from a node, its placement into the node's coordinates and the scale it reaches there; null for a zero-scale plan placement.</summary>
@@ -237,6 +252,7 @@ public sealed class LiteBuild
         }
         foreach (var u in n.Uses)
         {
+            Cancel.ThrowIfCancellationRequested();
             var layer = u.Layer == "0" ? inherit : u.Layer;
             if (u.Layer == "0" && layer != null && Frozen(layer)) continue; // a frozen parent hides all of it
             foreach (var x in Place(u.Child, u.Placement.Then(xf), layer, tol, depth + 1)) yield return x;
@@ -250,17 +266,21 @@ public sealed class LiteBuild
         yield return (n, xf, inherit);
         foreach (var u in n.Uses)
         {
+            Cancel.ThrowIfCancellationRequested();
             var layer = u.Layer == "0" ? inherit : u.Layer;
             if (u.Layer == "0" && Frozen(layer)) continue;
             foreach (var p in Placements(u.Child, u.Placement.Then(xf), layer, depth + 1)) yield return p;
         }
     }
 
-    /// <summary>The first level from 0 up whose measured size fits, or the last one. The run of the level returned stays cached for Write.</summary>
-    public int ChooseLevel(long targetBytes)
+    /// <summary>The first level from 0 up whose measured size fits, or the last one. The run of the level returned stays cached for Write. measuring hears each level before it is measured.</summary>
+    public int ChooseLevel(long targetBytes, Action<int>? measuring = null)
     {
         for (int level = 0; ; level++)
+        {
+            measuring?.Invoke(level);
             if (Total(level) <= targetBytes || level == LiteLevels.Max) return level;
+        }
     }
 
     public long Total(int level) => _sizes[level] = Total(Thresholds(level));
@@ -296,15 +316,60 @@ public sealed class LiteBuild
     public LiteStat.Hist Histogram()
     {
         double perMm = Thresholds(0).UnitsPerMm, tol = LiteLevels.Table[0].ToleranceMm * perMm;
-        long chords = 0;
+        long chords = 0, lines = 0;
         var h = LiteStat.Histogram(Raw(_src.Root, Affine3.Identity, "0", new bool[_src.Defs.Count], 0, tol).TakeWhile(_ => chords++ < Budget)
-            .Select(s => (s.Item1 / perMm, s.Item2 / perMm, s.Item3 / perMm, s.Item4 / perMm)), 1000);
-        return h with { Cut = chords > Budget };
+            .Select(s =>
+            {
+                if (s != default) lines++;
+                return (s.Item1 / perMm, s.Item2 / perMm, s.Item3 / perMm, s.Item4 / perMm);
+            }), 1000);
+        return h with { Cut = chords > Budget, Lines = lines };
+    }
+
+    /// <summary>AGVLITESTAT's block table over the raw definitions: instances multiply down the tree, lines and 3D counts add up the tree; names and solids per definition, from the reader.
+    /// shortcut: the diagonal is the definition's at unit scale and a tilted child's box is mapped at z = 0, enough for a human table that goes with AGVLITESTAT.</summary>
+    public List<LiteStat.BlockRow> BlockRows(IReadOnlyList<string> names, IReadOnlyList<int> solids)
+    {
+        var defs = _src.Defs;
+        double perMm = Thresholds(0).UnitsPerMm, tol = LiteLevels.Table[0].ToleranceMm * perMm;
+        var order = Order(out var cut);
+        var instances = new long[defs.Count];
+        var lines = new long[defs.Count];
+        var solid = new long[defs.Count];
+        var box = new LiteBox[defs.Count];
+        bool Kept(int d, int i) => !cut.Contains((d, i)) && (defs[d].Uses[i].Layer == "0" || !Frozen(defs[d].Uses[i].Layer));
+
+        instances[_src.Root] = 1;
+        foreach (int d in order)
+            for (int i = 0; i < defs[d].Uses.Count; i++)
+                if (Kept(d, i)) instances[defs[d].Uses[i].Def] += instances[d];
+
+        for (int k = order.Count - 1; k >= 0; k--) // leaves first
+        {
+            int d = order[k];
+            var flat = defs[d].Geo.Where(g => g.Layer == "0" || !Excluded(g.Layer)).Select(g => Flatten.To2D(g, Affine3.Identity, tol, g.Layer)).ToList();
+            lines[d] = LiteStat.Segments(flat, tol).Count();
+            solid[d] = solids[d];
+            box[d] = LiteBox.Of(flat);
+            for (int i = 0; i < defs[d].Uses.Count; i++)
+            {
+                if (!Kept(d, i)) continue;
+                var u = defs[d].Uses[i];
+                lines[d] += lines[u.Def];
+                solid[d] += solid[u.Def];
+                var m = Map(box[u.Def], u.Xf.Plan);
+                if (!m.IsEmpty) { box[d].Add(m.MinX, m.MinY); box[d].Add(m.MaxX, m.MaxY); }
+            }
+        }
+        int Small(long v) => (int)Math.Min(v, int.MaxValue);
+        return order.Where(d => d != _src.Root && instances[d] > 0)
+            .Select(d => new LiteStat.BlockRow(names[d], Small(instances[d]), Small(lines[d]), box[d].Diagonal / perMm, Small(solid[d]))).ToList();
     }
 
     /// <summary>The chords of a definition's raw geometry under xf and of everything inserted in it, by the visibility rules of Place. A cycle is cut by the path (R9).</summary>
     IEnumerable<(double, double, double, double)> Raw(int def, Affine3 xf, string inherit, bool[] onPath, int depth, double tol)
     {
+        Cancel.ThrowIfCancellationRequested();
         onPath[def] = true;
         yield return default; // an empty chord per visit: a fan-out of empty blocks has to meet the budget too
         foreach (var g in _src.Defs[def].Geo)
@@ -410,6 +475,7 @@ public sealed class LiteBuild
             string layer = kv.Key;
             foreach (int pi in kv.Value)
             {
+                Cancel.ThrowIfCancellationRequested();
                 var (n, xf, inherit) = sheet.Places[pi];
                 IEnumerable<int> at = inherit == layer && n.ByLayer!.ContainsKey("0")
                     ? Enumerable.Range(0, n.Own.Count).Where(i => n.Own[i].Layer == "0" || n.Own[i].Layer == layer) // both kinds, original order

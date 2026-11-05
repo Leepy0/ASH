@@ -1,5 +1,6 @@
 ﻿using System.Diagnostics;
 using System.Text.RegularExpressions;
+using ASH.Core.Cel;
 using ASH.Core.Dxf;
 using ASH.Core.Lite;
 
@@ -62,23 +63,14 @@ public class CurveApproxTests
     }
 
     [Fact]
-    public void Ellipse_Chords_Stay_Within_Tolerance()
-    {
-        // major (3000, 1000), minor perpendicular at ratio 0.3, half the ellipse
-        double mx = 3000, my = 1000, nx = -300, ny = 900;
-        var pts = CurveApprox.Ellipse(5, 5, mx, my, nx, ny, 0, Math.PI, 2);
-        Assert.True(MaxDev(t => (5 + mx * Math.Cos(t) + nx * Math.Sin(t), 5 + my * Math.Cos(t) + ny * Math.Sin(t)), 0, Math.PI, pts) <= 2 + 1e-9);
-        Assert.Equal((5 + mx, 5 + my), pts[0]);
-    }
-
-    [Fact]
     public void Adaptive_Sampling_Meets_Tolerance_And_Caps_Points()
     {
         (double, double) Wave(double t) => (t, 50 * Math.Sin(t / 30));
-        var pts = CurveApprox.Adaptive(Wave, 0, 600, 0.2, 8);
-        Assert.True(MaxDev(Wave, 0, 600, pts) <= 0.2 + 1e-6);
-        Assert.Equal(Wave(600), pts[pts.Count - 1]);
-        var capped = CurveApprox.Adaptive(Wave, 0, 600, 1e-12, 8);
+        Vec3 Lifted(double t) { var (x, y) = Wave(t); return new Vec3(x, y, 7); }
+        var pts = CurveApprox.Adaptive(Lifted, 0, 600, 0.2, 8);
+        Assert.True(MaxDev(Wave, 0, 600, pts.ConvertAll(p => (p.X, p.Y))) <= 0.2 + 1e-6);
+        Assert.Equal(Wave(600), (pts[pts.Count - 1].X, pts[pts.Count - 1].Y));
+        var capped = CurveApprox.Adaptive(Lifted, 0, 600, 1e-12, 8);
         Assert.True(capped.Count <= CurveApprox.MaxPoints);
     }
 

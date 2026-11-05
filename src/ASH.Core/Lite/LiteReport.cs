@@ -31,8 +31,8 @@ public static class LiteReport
         Row("참고", "모델 좌표 = (도면 좌표 - Origin) x Scale. 원본에서 Origin (Ox, Oy)를 쓰던 프로젝트는 OriginX = Ox - 이동량 X, OriginY = Oy - 이동량 Y");
     }
 
-    /// <summary>The report of a level write (LiteBuild.Write(w, level)). density = LiteBuild.Histogram(), elapsed = the whole command.</summary>
-    public static void Write(TextWriter w, LiteBuild b, LiteResult r, LiteStat.Hist density, string sourcePath, long sourceBytes, string litePath, long liteBytes, DateTime now, TimeSpan elapsed)
+    /// <summary>The report of a level write (LiteBuild.Write(w, level)). density = LiteBuild.Histogram(), elapsed = the whole command, read = what the reader saw (R22).</summary>
+    public static void Write(TextWriter w, LiteBuild b, LiteResult r, LiteStat.Hist density, string sourcePath, long sourceBytes, string litePath, long liteBytes, DateTime now, TimeSpan elapsed, LiteReadLog? read = null)
     {
         void Row(params string[] cells) => Cells(w, cells);
         void Section(string title) { w.WriteLine(); Row("[" + title + "]"); }
@@ -106,6 +106,21 @@ public static class LiteReport
         Row("외곽선 끄기", YesNo(b.Settings.NoBlobs));
 
         Origin(w, r);
+
+        if (read != null)
+        {
+            Section("원본 엔티티 (모델 공간 최상위)");
+            Row("종류", "개수");
+            foreach (var kv in read.Before) Row(kv.Key, Int(kv.Value));
+            Row("합계", Int(read.Before.Values.Sum()));
+
+            Section("제거한 항목 (정의 단위)");
+            Row("종류", "개수");
+            foreach (var kv in read.Removed) Row(kv.Key, Int(kv.Value));
+            Row("3D 객체", Int(read.Solids.Sum()));
+            Row("폭발 실패 (범위 상자로 대체)", Int(read.ExplodeFailed));
+            Row("읽지 못한 엔티티", Int(read.Failures));
+        }
 
         Section("경량 도면 엔티티");
         Row("종류", "개수");

@@ -57,15 +57,21 @@ public static class Flatten
     /// <summary>Plan image of the plane through local point o with unit normal n: (x, y) along the plane's OCS axes, measured from o, to plan coordinates.</summary>
     static Affine2 PlanMap(Affine3 m, Vec3 n, Vec3 o)
     {
-        // DXF arbitrary axis algorithm
+        var (x, y) = OcsAxes(n);
+        var l = m.Linear;
+        var u = l.Ap(x.X, x.Y, x.Z);
+        var v = l.Ap(y.X, y.Y, y.Z);
+        var c = m.Ap(o.X, o.Y, o.Z);
+        return new Affine2(u.X, v.X, u.Y, v.Y, c.X, c.Y);
+    }
+
+    /// <summary>The OCS x and y axes of a unit normal: DXF arbitrary axis algorithm.</summary>
+    internal static (Vec3 X, Vec3 Y) OcsAxes(Vec3 n)
+    {
         bool nearZ = Math.Abs(n.X) < 1.0 / 64 && Math.Abs(n.Y) < 1.0 / 64;
         double ax = nearZ ? n.Z : -n.Y, ay = nearZ ? 0 : n.X, az = nearZ ? -n.X : 0, len = Math.Sqrt(ax * ax + ay * ay + az * az);
         ax /= len; ay /= len; az /= len;
-        var l = m.Linear;
-        var u = l.Ap(ax, ay, az);
-        var v = l.Ap(n.Y * az - n.Z * ay, n.Z * ax - n.X * az, n.X * ay - n.Y * ax); // OCS y = n x OCS x
-        var c = m.Ap(o.X, o.Y, o.Z);
-        return new Affine2(u.X, v.X, u.Y, v.Y, c.X, c.Y);
+        return (new Vec3(ax, ay, az), new Vec3(n.Y * az - n.Z * ay, n.Z * ax - n.X * az, n.X * ay - n.Y * ax)); // OCS y = n x OCS x
     }
 
     static double Deg(double rad) => CurveApprox.Norm360(rad * 180 / Math.PI);
