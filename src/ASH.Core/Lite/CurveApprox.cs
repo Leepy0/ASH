@@ -149,7 +149,7 @@ public static class CurveApprox
         return deg < 0 ? deg + 360 : deg;
     }
 
-    static double DistToSegment((double X, double Y) p, (double X, double Y) a, (double X, double Y) b)
+    internal static double DistToSegment((double X, double Y) p, (double X, double Y) a, (double X, double Y) b)
     {
         double dx = b.X - a.X, dy = b.Y - a.Y, len2 = dx * dx + dy * dy;
         double t = len2 > 0 ? Math.Max(0, Math.Min(1, ((p.X - a.X) * dx + (p.Y - a.Y) * dy) / len2)) : 0;

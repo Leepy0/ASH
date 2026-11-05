@@ -123,54 +123,9 @@ public sealed class LitePlan
     /// <summary>The size the minimum-size rule judges item <paramref name="i"/> by: its chain (see <see cref="ChainSizes"/>), or its block if that is smaller.</summary>
     public double SizeOf(int i) => _size[i];
 
-    /// <summary>Size of each item for the minimum-size rule: the box diagonal of the chain it belongs to. Lines, arcs and open polylines whose end points
-    /// meet (within <paramref name="snap"/>, drawing units) are one chain, so a large outline drawn as many short pieces — common in equipment blocks
-    /// from other CAD — is kept as a whole instead of losing every piece; a closed shape or a circle stands alone (a bolt hole stays a small detail).</summary>
-    internal static void ChainSizes(IReadOnlyList<LiteItem> items, double snap, double[] size)
-    {
-        int n = items.Count;
-        var parent = new int[n];
-        for (int i = 0; i < n; i++) parent[i] = i;
-        int Find(int i) { while (parent[i] != i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; }
-        void Union(int a, int b) { a = Find(a); b = Find(b); if (a != b) parent[a] = b; }
-        // one end point per grid cell is enough to link: every later point in or next to that cell within snap joins its item
-        var cells = new Dictionary<(long, long), (double X, double Y, int Item)>();
-        void End(int i, double x, double y)
-        {
-            long cx = (long)Math.Floor(x / snap), cy = (long)Math.Floor(y / snap);
-            for (long dx = -1; dx <= 1; dx++)
-                for (long dy = -1; dy <= 1; dy++)
-                    if (cells.TryGetValue((cx + dx, cy + dy), out var c) && Math.Abs(c.X - x) <= snap && Math.Abs(c.Y - y) <= snap) Union(i, c.Item);
-            if (!cells.ContainsKey((cx, cy))) cells[(cx, cy)] = (x, y, i);
-        }
-        for (int i = 0; i < n; i++)
-        {
-            if ((items[i].Flags & LiteFlags.Footprint) != 0) continue;
-            switch (items[i].Entity)
-            {
-                case LiteLine l: End(i, l.X1, l.Y1); End(i, l.X2, l.Y2); break;
-                case LiteArc a:
-                    End(i, a.Cx + a.R * Math.Cos(a.StartDeg * Math.PI / 180), a.Cy + a.R * Math.Sin(a.StartDeg * Math.PI / 180));
-                    End(i, a.Cx + a.R * Math.Cos(a.EndDeg * Math.PI / 180), a.Cy + a.R * Math.Sin(a.EndDeg * Math.PI / 180));
-                    break;
-                case LitePolyline p when !p.Closed && p.Vertices.Count >= 2:
-                    End(i, p.Vertices[0].X, p.Vertices[0].Y); End(i, p.Vertices[p.Vertices.Count - 1].X, p.Vertices[p.Vertices.Count - 1].Y);
-                    break;
-            }
-        }
-        var boxes = new Dictionary<int, LiteBox>();
-        for (int i = 0; i < n; i++)
-        {
-            var r = Find(i);
-            var b = boxes.TryGetValue(r, out var x) ? x : LiteBox.Empty;
-            items[i].Entity.Extend(ref b);
-            boxes[r] = b;
-        }
-        for (int i = 0; i < n; i++)
-        {
-            size[i] = boxes[Find(i)].Diagonal;
-        }
-    }
+    /// <summary>Size of each item for the minimum-size rule: <see cref="SmallFilter.GroupSizes"/> with the 3D footprint boxes kept out of the links.</summary>
+    internal static void ChainSizes(IReadOnlyList<LiteItem> items, double snap, double[] size) =>
+        SmallFilter.GroupSizes(items.Select(i => i.Entity).ToList(), i => (items[i].Flags & LiteFlags.Footprint) == 0, snap, size);
 
     /// <summary>Default check state of a type: off for the 3D footprint boxes (not a true plan projection) and splines (removed unless asked for:
     /// an imported equipment block may draw its outline with them, so they can be turned back on, as lines).</summary>
