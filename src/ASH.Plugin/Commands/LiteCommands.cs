@@ -196,12 +196,22 @@ public sealed class LiteCommands
                 if (_path.Contains(ins.Btr)) { LiteSource.Count(_src.Removed, "자기 자신을 포함하는 블록 (순환)"); continue; }
                 if (depth + 1 > MaxDepth) { LiteSource.Count(_src.Removed, $"블록 중첩 {MaxDepth}단계 초과"); continue; }
                 _path.Add(ins.Btr);
-                int start = _src.Items.Count;
+                int start = _src.Items.Count, solids = _src.Solids3d;
                 Walk(Geo(ins.Btr), ins.Xf.Then(xf), layer, flags | (ins.Xref ? LiteFlags.Xref : LiteFlags.None), depth + 1, parentFrozen || Frozen(layer));
-                _src.CloseBlock(start);
+                double diag = _src.CloseBlock(start);
+                var tally = Tally(ins.Btr);
+                tally.Instances++; tally.Lines += _src.Items.Count - start; tally.Solids += _src.Solids3d - solids;
+                if (diag > tally.Diagonal) tally.Diagonal = diag;
                 _path.Remove(ins.Btr);
                 if (_src.Truncated) return;
             }
+        }
+
+        private LiteSource.BlockTally Tally(ObjectId btr)
+        {
+            var name = ((BlockTableRecord)_tr.GetObject(btr, OpenMode.ForRead)).Name;
+            if (!_src.Blocks.TryGetValue(name, out var t)) _src.Blocks[name] = t = new LiteSource.BlockTally();
+            return t;
         }
 
         private BlockGeo Geo(ObjectId btrId)

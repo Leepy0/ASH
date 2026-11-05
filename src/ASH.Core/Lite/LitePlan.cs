@@ -50,14 +50,20 @@ public sealed class LiteSource
     public static void Count(IDictionary<string, int> d, string key, int n = 1) => d[key] = (d.TryGetValue(key, out var v) ? v : 0) + n;
 
     /// <summary>Items from <paramref name="start"/> on are one block insert's contents (nested ones included): stamp them with its box diagonal.</summary>
-    public void CloseBlock(int start)
+    public double CloseBlock(int start)
     {
         var b = LiteBox.Empty;
         for (int i = start; i < Items.Count; i++) Items[i].Entity.Extend(ref b);
         double d = b.Diagonal;
         for (int i = start; i < Items.Count; i++)
             if (d < Items[i].Block) Items[i] = Items[i] with { Block = d };
+        return d;
     }
+
+    /// <summary>Per block definition: what AGVLITESTAT shows (instances, expanded items, largest box diagonal in drawing units, 3D objects), by block name.</summary>
+    public Dictionary<string, BlockTally> Blocks { get; } = new(StringComparer.Ordinal);
+
+    public sealed class BlockTally { public int Instances, Lines, Solids; public double Diagonal; }
 }
 
 public sealed record LiteResult(double ShiftX, double ShiftY, LiteBox Extents, IReadOnlyDictionary<string, int> Written, int Entities);
