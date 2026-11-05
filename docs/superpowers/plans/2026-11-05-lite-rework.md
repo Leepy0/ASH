@@ -108,6 +108,20 @@ Dense 값(단위 m² 안의 선 길이 mm)은 Task 1·9의 실측으로 맞춘�
 
 ---
 
+## 실행 순서 (Task 1~9를 한 번에)
+
+측정값 없이도 끝까지 만들 수 있게 순서를 잡는다. 임계값은 §3의 가늠값으로 코드에 넣고, 측정은 사용자 PC에서 아무 때나 하며, 값이 들어오면 `LiteLevels.Table` 한 군데만 고친다.
+
+1. **Task 1** — 임시 명령 `AGVLITESTAT`과 빈 측정표. 이 커밋 뒤에는 언제든 사용자가 측정할 수 있다.
+2. **Task 2 → 3 → 4** — Core 정리 단계. 각 Task는 테스트와 함께 한 커밋.
+3. **Task 5 → 6** — 덩어리 외곽선·블록 모델·단계 자동 선택·쓰기·보고서. Task 6이 끝나면 `AGVLITE` 보고서에 밀도 히스토그램이 들어가므로 측정표는 새 보고서로도 채울 수 있다.
+4. **Task 7 → 8** — 플러그인. 빌드 PC에서 `dotnet build ASH.sln -c Release`가 통과하는 것까지(실행은 사용자 PC).
+5. **Task 9** — 사용자가 측정표를 채우면 Dense를 확정하고, 임시 명령을 지우고, 문서·수동 테스트 표를 정리한다. 측정이 늦어지면 가늠값인 채로 0.21.0을 내고 Task 9 Step 2만 뒤에 한다.
+
+커밋은 Task마다 하나씩(`feat(lite): …`, `test(lite): …`). 이 환경에는 dotnet이 없으므로 Core 테스트는 사용자 PC 또는 CI에서 돌린다. 각 Task의 커밋 메시지에 "미실행 테스트"를 적어 두고 Task 9에서 한꺼번에 확인한다.
+
+---
+
 ## File Structure
 
 Core (`src/ASH.Core/Lite/`)
@@ -123,10 +137,12 @@ Core (`src/ASH.Core/Lite/`)
 - `LitePlan.cs` — 수정. 정의 × 인스턴스에서 버킷 계산, 단계별 예상, 자동 단계 선택, 스트리밍 쓰기·전역 중복 제거.
 - `LiteDxfWriter.cs` — 수정. 단위별 정밀도.
 - `LiteReport.cs` — 수정. 쓴 단계와 임계값, 단계별 예상 크기 표, 정리 단계별 제거 표, 덩어리 상위 30(위치·크기·선 수: 사람이 도면에서 찾아볼 수 있게), 소요 시간.
+- `LiteStat.cs` — 신규. 셀 밀도 히스토그램·블록 표(Task 1 임시 명령과 보고서가 공유).
 - `LiteLayers.cs` — `RemoveKeywords`·`KeepByDefault` 삭제, `R12Names`·`AshPrefix`만 유지.
 - `CurveApprox.cs` — 유지.
 
 Plugin (`src/ASH.Plugin/`)
+- `Commands/LiteStatCommand.cs` — 임시. `AGVLITESTAT`(Task 1, Task 9에서 삭제).
 - `Commands/LiteCommands.cs` — Extractor 재작성(정의 1회 읽기 3D, 솔리드·서피스·메시 폭발, 진행률·`UserBreak` 취소), `AGVLITE`(창 없음), `AGVLITEX`(예외 조정 창).
 - `Ui/LiteDialog.cs` — `AGVLITEX` 전용으로 축소: 단계 선택(단계별 예상 크기 표시), 레이어 제외 목록, 외곽선 끄기. 블록 표 없음.
 - `Ui/AgvPaletteControl.cs` — "도면 경량화" 버튼은 `AGVLITE`, 작은 "조정…" 링크만 `AGVLITEX`.
@@ -135,19 +151,21 @@ Tests (`tests/ASH.Tests/Lite/`)
 - `FlattenTests.cs`, `CleanTests.cs`, `ChainTests.cs`, `SmallFilterTests.cs`, `BlobsTests.cs`, `BlocksTests.cs`, `LevelsTests.cs`, 기존 `LiteTests.cs`(쓰기·보고서·추정) 갱신, `LiteLayerTests`의 키워드 테스트 삭제.
 
 Docs
-- `docs/superpowers/specs/2026-10-20-ash-plugin-design.md` §5 교체, `README.md`에 "도면 경량화" 절, `docs/plugin-manual-test.md`에 "도면 경량화 재설계" 표, `docs/lite-baseline.md`(실측).
+- `docs/superpowers/specs/2026-10-20-ash-plugin-design.md` §5 교체, `README.md`에 "도면 경량화" 절, `docs/plugin-manual-test.md`에 "도면 경량화 재설계" 표, `docs/lite-baseline.md`(Task 1에서 빈 표, Task 9에서 채움).
 
 ---
 
-### Task 1: 기준 측정 — 지금 코드로 실제 도면 재기 (사용자 PC)
+### Task 1: 임시 측정 명령 `AGVLITESTAT`과 빈 측정표 (측정값은 나중에 입력)
 
 **Files:**
-- Modify: `src/ASH.Core/Lite/LiteReport.cs`, `src/ASH.Plugin/Commands/LiteCommands.cs` (진단용 통계)
-- Create: `docs/lite-baseline.md`
+- Create: `src/ASH.Core/Lite/LiteStat.cs`, `src/ASH.Plugin/Commands/LiteStatCommand.cs`, `docs/lite-baseline.md`, `tests/ASH.Tests/Lite/LiteStatTests.cs`
 
-- [ ] **Step 1:** Extractor가 정의마다 (인스턴스 수, 펼친 선·곡선 수, 범위 대각선, 3D 수)를 세고, 보고서에 "[블록 상위 30]" 표(인스턴스 × 선 수 내림차순, 이름은 참고용으로만)와 **셀 밀도 히스토그램**(1 m 셀 기준 선 길이 분포: 백분위 50/90/99/최대)을 추가한다. 읽기·쓰기 소요 시간도 적는다. 이 히스토그램이 §3 Dense 값의 근거다.
-- [ ] **Step 2:** 대표 도면 3~5개(100~300 MB, 컨베이어·로봇·판넬이 들어 있는 것)로 AGVLITE를 돌려 `docs/lite-baseline.md`에 표로 적는다: DWG 크기, 읽기 시간, 결과 DXF 크기, 엔티티 수, 잘림 여부, 상위 블록 10개와 비중, 밀도 히스토그램.
-- [ ] **Step 3:** 결과 DXF를 ZWCAD에서 열어 무엇이 깨지는지(D1·D2) 화면을 `docs/images/lite-baseline-*.png`로 남긴다. 벽·설비 부분의 1 m 셀 밀도를 몇 군데 읽어 §3 표의 Dense 가늠값을 고친다.
+임시 명령이다. Task 9에서 측정이 끝나면 지운다(리본·팔레트에는 넣지 않는다). 기존 `AGVLITE`는 손대지 않는다.
+
+- [ ] **Step 1 (테스트 먼저):** `LiteStat.Histogram(segments, cellMm)`: 1 m 셀마다 지나가는 선 길이(mm) 합산(Bresenham식 셀 순회, 길이를 셀 비율로 나눔) → 점유 셀의 50/90/99 백분위·최대, 구간별 셀 수(0~1k, 1k~5k, 5k~20k, 20k~100k, 100k~). 합성 입력(벽 두 줄 → 약 2,000, 50 mm 간격 선 20개 → 20,000)으로 값 검증. `LiteStat.BlockTable(defs)`: 정의별 (인스턴스 수, 펼친 선 수, 범위 대각선 mm, 3D 수), 인스턴스 × 선 수 내림차순 상위 30. 보고서 TSV 쓰기(`[도면]`, `[시간]`, `[밀도 히스토그램]`, `[블록 상위 30]`, `[종류별 개수]`).
+- [ ] **Step 2:** `AGVLITESTAT`: 저장된 도면에서 기존 Extractor로 읽고(창 없음, 쓰기 없음) 모델 공간 선분으로 히스토그램·블록 표를 만들어 `lite\<name>_lite.stat.tsv`에 쓴다. 명령줄에 요약 세 줄(읽기 시간, 선 수, 밀도 백분위)과 파일 경로. 읽기·히스토그램 소요 시간을 따로 잰다.
+- [ ] **Step 3:** `docs/lite-baseline.md`를 **빈 표**로 만든다. 도면마다 한 줄: 도면 번호(이름은 안 적어도 됨), DWG MB, 읽기 초, 선 수, 잘림, 밀도 50/90/99/최대, 구간별 셀 수, 상위 블록 5개의 (인스턴스 × 선 수), 메모. 아래에 "Dense 기준값 결정" 절을 비워 두고 채우는 법을 적는다(stat.tsv의 어느 줄을 어느 칸에 넣는지). 측정은 사용자 PC에서 Task 9 전에 아무 때나 한다.
+- [ ] **Step 4:** `LiteLevels.Table`(Task 6)의 Dense·MaxBlob 열에 `// 가늠값: docs/lite-baseline.md 측정 뒤 조정` 주석을 달아, 측정값을 넣을 때 고칠 곳이 그 표 한 군데가 되게 한다.
 
 ### Task 2: Core — 3D 평탄화와 퇴화 제거 (B, C)
 
@@ -204,7 +222,7 @@ Docs
 - [ ] **Step 1 (테스트 먼저):** 단계 표의 값이 §3과 같고 단계가 오르면 모든 임계값이 단조; `ChooseLevel(plan, target)`이 예상이 목표 이하인 첫 단계를 고르고, 4단계도 넘으면 4; mm 도면(INSUNITS 4) 소수 2자리, m 도면(6) 5자리, inch(1) 3자리; `Bytes`가 `Write` 출력과 바이트 단위로 같음; 같은 정의를 같은 자리에 두 번 → 두 번째는 쓰지 않음; 무작위 배치 50가지에서 예상 ≥ 실제; 설정 파일 왕복(단계·제외 레이어·외곽선 끄기), 없는 파일·모르는 키·깨진 값 → 자동; 보고서에 쓴 단계·단계별 예상 표·정리 단계별 제거 표·덩어리 상위 30·소요 시간; 출력이 `DxfLite.Read`로 읽힘; `LiteLayers`에 `KeepByDefault`가 없음(컴파일 테스트).
 - [ ] **Step 2:** `LiteLevels.Table`, `LiteSettings`(`Level` = 자동/0~4, `ExcludeLayers`, `NoBlobs`), TSV 읽기/쓰기(UTF-8 BOM, 모르는 키 보존).
 - [ ] **Step 3:** `LiteDxfWriter.Precision(insUnits)`, `Num` 포맷 인자화. `LitePlan.Write`: `HashSet<long>`(SegKey) 전역 중복 제거, 결정적 순서. `LiteResult`에 전역 중복 수·쓴 단계.
-- [ ] **Step 4:** `LiteReport`: "[단계]"(자동 선택 결과와 단계별 예상 크기), "[정리 단계]"(단계, 제거 개수, 줄인 바이트), "[덩어리 상위 30]"(중심 좌표(원본 기준)·대각선·선 밀도·지운 선 수), "[설정]", 소요 시간. 레이어 표는 유지(선택 열은 "제외" 여부만).
+- [ ] **Step 4:** `LiteReport`: "[단계]"(자동 선택 결과와 단계별 예상 크기), "[정리 단계]"(단계, 제거 개수, 줄인 바이트), "[덩어리 상위 30]"(중심 좌표(원본 기준)·대각선·선 밀도·지운 선 수), "[밀도 히스토그램]"(`LiteStat`, 정리 전 기준), "[설정]", 소요 시간. 레이어 표는 유지(선택 열은 "제외" 여부만).
 - [ ] **Step 5:** `LiteLayers.RemoveKeywords`·`KeepByDefault` 삭제, 관련 테스트 삭제.
 
 ### Task 7: 플러그인 — Extractor 재작성·3D 폭발·진행·취소·창 없는 `AGVLITE` (A, H)
@@ -227,15 +245,18 @@ Docs
 - [ ] **Step 2:** 팔레트 "도면 경량화" 버튼은 `AGVLITE`, 옆의 작은 "조정…"이 `AGVLITEX`. 리본도 같게.
 - [ ] **Step 3:** 저장된 설정이 자동이 아니면 `AGVLITE` 요약 첫 줄에 "저장된 조정값 사용(단계 k 고정, 레이어 n개 제외). 되돌리려면 AGVLITEX에서 자동"을 찍는다.
 
-### Task 9: 문서·수동 테스트·실제 도면 검증·임계값 확정
+### Task 9: 측정값 입력·임계값 확정·임시 명령 제거·문서·수동 테스트
 
 **Files:**
-- Modify: `docs/superpowers/specs/2026-10-20-ash-plugin-design.md`(§5), `README.md`, `docs/plugin-manual-test.md`, `docs/lite-baseline.md`
+- Modify: `docs/lite-baseline.md`, `src/ASH.Core/Lite/LiteLevels.cs`, `docs/superpowers/specs/2026-10-20-ash-plugin-design.md`(§5), `README.md`, `docs/plugin-manual-test.md`
+- Delete: `src/ASH.Plugin/Commands/LiteStatCommand.cs`(`LiteStat.cs`는 보고서의 밀도 표가 쓰므로 Core에 남긴다)
 
-- [ ] **Step 1:** Task 1의 도면으로 다시 측정해 `docs/lite-baseline.md`에 before/after 표(크기·시간·엔티티·자동 선택 단계·정리 단계별 제거 수)를 적는다. 5 MB에 못 미치거나(단계가 너무 높아 벽까지 뭉개짐) 남는 덩어리가 있으면 §3의 Dense·MaxBlob를 고친다.
-- [ ] **Step 2:** 결과 DXF를 ZWCAD에서 열어 경로 작도 스냅이 되는지, 컨베이어·로봇·판넬이 윤곽으로, 벽·기둥·통로가 선으로 보이는지 캡처를 남긴다. AutoMod 정적 그래픽 가져오기(한 번)와 서버 컷 편집기(`DxfLite`) 표시를 확인한다.
-- [ ] **Step 3:** `docs/plugin-manual-test.md`에 "도면 경량화 재설계" 표: L1 `AGVLITE`가 창 없이 끝난다, L2 3D 블록이 눕는다, L3 Esc 취소, L4 같은 도면 두 번 → 같은 바이트, L5 `AGVLITEX` 단계 고정이 다음 `AGVLITE`에 유지, L6 블록 이름을 바꾼 사본에서 결과 동일, L7 폭발 실패 후퇴, L8 10 MB 초과 경고와 보고서의 덩어리 표.
-- [ ] **Step 4:** 스펙 §5를 §2·§3 표로 바꾸고, README에 사용법(명령 두 개, 단계의 의미, 보고서 읽는 법)을 넣는다. `Directory.Build.props` 버전 0.21.0, `release 0.21.0` 커밋은 사용자가 결정.
+- [ ] **Step 1 (사용자 PC):** 대표 도면 3~5개에서 `AGVLITESTAT`을 실행해 `docs/lite-baseline.md`의 빈 표를 채운다. 같은 도면에서 새 `AGVLITE`를 실행해 결과 크기·자동 선택 단계·정리 단계별 제거 수·소요 시간을 "after" 열에 적고, 결과 DXF 캡처를 `docs/images/lite-after-*.png`로 남긴다.
+- [ ] **Step 2:** 측정표의 벽·통로 셀 값과 설비 셀 값 사이에서 2·3·4단계의 Dense를 정하고 `LiteLevels.Table`을 고친다. 단조 테스트(Task 6)가 계속 통과해야 한다. 5 MB에 못 미치거나 벽까지 뭉개지면 MaxBlob·MinSize도 같이 조정하고 근거를 측정표 아래 "Dense 기준값 결정" 절에 적는다.
+- [ ] **Step 3:** 결과 DXF를 ZWCAD에서 열어 경로 작도 스냅, 컨베이어·로봇·판넬이 윤곽으로·벽·기둥·통로가 선으로 보이는지 확인한다. AutoMod 정적 그래픽 가져오기(한 번)와 서버 컷 편집기(`DxfLite`) 표시를 확인한다.
+- [ ] **Step 4:** `AGVLITESTAT` 명령 파일을 지운다(`AGVLITE` 보고서의 `[밀도 히스토그램]`이 같은 정보를 계속 준다).
+- [ ] **Step 5:** `docs/plugin-manual-test.md`에 "도면 경량화 재설계" 표: L1 `AGVLITE`가 창 없이 끝난다, L2 3D 블록이 눕는다, L3 Esc 취소, L4 같은 도면 두 번 → 같은 바이트, L5 `AGVLITEX` 단계 고정이 다음 `AGVLITE`에 유지, L6 블록 이름을 바꾼 사본에서 결과 동일, L7 폭발 실패 후퇴, L8 10 MB 초과 경고와 보고서의 덩어리 표.
+- [ ] **Step 6:** 스펙 §5를 §2·§3 표로 바꾸고, README에 사용법(명령 두 개, 단계의 의미, 보고서 읽는 법)을 넣는다. `Directory.Build.props` 버전 0.21.0, `release 0.21.0` 커밋은 사용자가 결정.
 
 ---
 
