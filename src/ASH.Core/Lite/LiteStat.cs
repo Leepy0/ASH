@@ -20,14 +20,14 @@ public static class LiteStat
 
     /// <summary>Calls <paramref name="cell"/>(cx, cy, length) for every cell the segment crosses, the length split by the part inside each cell.
     /// Shared with Blobs.Occupy (Task 5).
-    /// shortcut: a segment crossing over 4 million grid lines is skipped, a corrupt coordinate, not a real line.</summary>
+    /// shortcut: a segment spanning over 4 million cells is skipped (a corrupt coordinate, not a real line), upgrade if a drawing legitimately needs longer ones.</summary>
     internal static void WalkCells(double x1, double y1, double x2, double y2, double cellSize, Action<long, long, double> cell)
     {
         double dx = x2 - x1, dy = y2 - y1, len = Math.Sqrt(dx * dx + dy * dy);
         if (!(len > 0) || double.IsInfinity(len)) return;
+        if ((Math.Abs(dx) + Math.Abs(dy)) / cellSize > 4e6) return; // decided before casting: huge values would overflow the long cell indices
         long ax = (long)Math.Floor(Math.Min(x1, x2) / cellSize), bx = (long)Math.Floor(Math.Max(x1, x2) / cellSize);
         long ay = (long)Math.Floor(Math.Min(y1, y2) / cellSize), by = (long)Math.Floor(Math.Max(y1, y2) / cellSize);
-        if ((bx - ax) + (by - ay) > 4_000_000) return;
         var ts = new List<double> { 0, 1 };
         if (dx != 0) for (long k = ax + 1; k <= bx; k++) { double t = (k * cellSize - x1) / dx; if (t > 0 && t < 1) ts.Add(t); }
         if (dy != 0) for (long k = ay + 1; k <= by; k++) { double t = (k * cellSize - y1) / dy; if (t > 0 && t < 1) ts.Add(t); }
@@ -94,12 +94,13 @@ public static class LiteStat
     static string F(double v) => v.ToString("0.###", CultureInfo.InvariantCulture);
 
     /// <summary>The stat.tsv report: sections are a [name] line, then tab-separated rows.</summary>
-    public static void Write(TextWriter w, string drawing, double readSec, double histSec, int lines, double cellMm, Hist h, IEnumerable<BlockRow> blocks, IReadOnlyDictionary<string, int> kinds)
+    public static void Write(TextWriter w, string drawing, double readSec, double histSec, int lines, bool truncated, double cellMm, Hist h, IEnumerable<BlockRow> blocks, IReadOnlyDictionary<string, int> kinds)
     {
         w.NewLine = "\r\n";
         w.WriteLine("[도면]");
         w.WriteLine("파일\t" + drawing);
         w.WriteLine("선분 수\t" + lines);
+        w.WriteLine("잘림	" + (truncated ? "예" : "아니오"));
         w.WriteLine("셀 크기 mm\t" + F(cellMm));
         w.WriteLine();
         w.WriteLine("[시간]");

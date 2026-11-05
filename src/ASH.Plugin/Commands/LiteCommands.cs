@@ -116,9 +116,9 @@ public sealed class LiteCommands
     }
 
     /// <summary>Everything AGVLITE could keep from model space, flagged by what only an option keeps (xref contents, 3D footprints, off/frozen layers).</summary>
-    internal static LiteSource Extract(Document doc, int insUnits, double tolMm)
+    internal static LiteSource Extract(Document doc, int insUnits, double tolMm, bool tallyBlocks = false)
     {
-        var src = new LiteSource { InsUnits = insUnits, Tolerance = tolMm * 0.001 / UnitScale.FromInsUnits(insUnits) };
+        var src = new LiteSource { TallyBlocks = tallyBlocks, InsUnits = insUnits, Tolerance = tolMm * 0.001 / UnitScale.FromInsUnits(insUnits) };
         using (doc.LockDocument())
         using (var tr = doc.Database.TransactionManager.StartTransaction())
         {
@@ -199,19 +199,10 @@ public sealed class LiteCommands
                 int start = _src.Items.Count, solids = _src.Solids3d;
                 Walk(Geo(ins.Btr), ins.Xf.Then(xf), layer, flags | (ins.Xref ? LiteFlags.Xref : LiteFlags.None), depth + 1, parentFrozen || Frozen(layer));
                 double diag = _src.CloseBlock(start);
-                var tally = Tally(ins.Btr);
-                tally.Instances++; tally.Lines += _src.Items.Count - start; tally.Solids += _src.Solids3d - solids;
-                if (diag > tally.Diagonal) tally.Diagonal = diag;
+                if (_src.TallyBlocks) _src.TallyBlock(((BlockTableRecord)_tr.GetObject(ins.Btr, OpenMode.ForRead)).Name, _src.Chords(start), _src.Solids3d - solids, diag);
                 _path.Remove(ins.Btr);
                 if (_src.Truncated) return;
             }
-        }
-
-        private LiteSource.BlockTally Tally(ObjectId btr)
-        {
-            var name = ((BlockTableRecord)_tr.GetObject(btr, OpenMode.ForRead)).Name;
-            if (!_src.Blocks.TryGetValue(name, out var t)) _src.Blocks[name] = t = new LiteSource.BlockTally();
-            return t;
         }
 
         private BlockGeo Geo(ObjectId btrId)

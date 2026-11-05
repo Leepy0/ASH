@@ -60,10 +60,27 @@ public sealed class LiteSource
         return d;
     }
 
-    /// <summary>Per block definition: what AGVLITESTAT shows (instances, expanded items, largest box diagonal in drawing units, 3D objects), by block name.</summary>
+    /// <summary>Per block definition, by block name, for AGVLITESTAT. Lines, Solids and Diagonal are per definition (the largest over its instances), only Instances counts up.</summary>
     public Dictionary<string, BlockTally> Blocks { get; } = new(StringComparer.Ordinal);
+    /// <summary>Set by AGVLITESTAT: the extractor then tallies <see cref="Blocks"/> (it costs a chord count per instance, so AGVLITE leaves it off).</summary>
+    public bool TallyBlocks;
 
     public sealed class BlockTally { public int Instances, Lines, Solids; public double Diagonal; }
+
+    public void TallyBlock(string name, int lines, int solids, double diag)
+    {
+        if (!Blocks.TryGetValue(name, out var t)) Blocks[name] = t = new BlockTally();
+        t.Instances++;
+        t.Lines = Math.Max(t.Lines, lines);
+        t.Solids = Math.Max(t.Solids, solids);
+        t.Diagonal = Math.Max(t.Diagonal, diag);
+    }
+
+    /// <summary>Items kept for statistics: what default options keep, no 3D footprint boxes. The histogram and the block table both use this.</summary>
+    public static bool Measured(LiteItem i) => new LiteOptions().Allows(i.Flags) && (i.Flags & LiteFlags.Footprint) == 0;
+
+    /// <summary>Chord count (LiteStat.Segments) of the measured items from <paramref name="start"/> on.</summary>
+    public int Chords(int start) => LiteStat.Segments(Items.Skip(start).Where(Measured).Select(i => i.Entity), Tolerance).Count();
 }
 
 public sealed record LiteResult(double ShiftX, double ShiftY, LiteBox Extents, IReadOnlyDictionary<string, int> Written, int Entities);

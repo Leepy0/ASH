@@ -43,12 +43,11 @@ public sealed class LiteStatCommand
         double mmPerUnit = 1000 * UnitScale.FromInsUnits(insUnits);
 
         var sw = Stopwatch.StartNew();
-        var src = LiteCommands.Extract(doc, insUnits, LiteCommands.DefaultToleranceMm);
+        var src = LiteCommands.Extract(doc, insUnits, LiteCommands.DefaultToleranceMm, tallyBlocks: true);
         double readSec = sw.Elapsed.TotalSeconds;
 
         sw.Restart();
-        var opt = new LiteOptions();
-        var ents = src.Items.Where(i => opt.Allows(i.Flags) && (i.Flags & LiteFlags.Footprint) == 0).Select(i => i.Entity);
+        var ents = src.Items.Where(LiteSource.Measured).Select(i => i.Entity);
         var segs = LiteStat.Segments(ents, src.Tolerance).Select(s => (s.Item1 * mmPerUnit, s.Item2 * mmPerUnit, s.Item3 * mmPerUnit, s.Item4 * mmPerUnit)).ToList();
         var h = LiteStat.Histogram(segs, CellMm);
         double histSec = sw.Elapsed.TotalSeconds;
@@ -56,7 +55,7 @@ public sealed class LiteStatCommand
         var blocks = src.Blocks.Select(kv => new LiteStat.BlockRow(kv.Key, kv.Value.Instances, kv.Value.Lines, kv.Value.Diagonal * mmPerUnit, kv.Value.Solids));
         Directory.CreateDirectory(Path.GetDirectoryName(outPath));
         using (var w = new StreamWriter(outPath, false, new UTF8Encoding(true))) // BOM: Excel opens the Korean text right
-            LiteStat.Write(w, Path.GetFileName(dwg), readSec, histSec, segs.Count, CellMm, h, blocks, src.Before);
+            LiteStat.Write(w, Path.GetFileName(dwg), readSec, histSec, segs.Count, src.Truncated, CellMm, h, blocks, src.Before);
 
         ed.WriteMessage($"\nAGVLITESTAT: 읽기 {readSec:0.0} 초, 히스토그램 {histSec:0.0} 초" + (src.Truncated ? " (작업 한도로 일부만 읽음)" : ""));
         ed.WriteMessage($"\n선분 {segs.Count:N0}개, 점유 셀 {h.Cells:N0}개");

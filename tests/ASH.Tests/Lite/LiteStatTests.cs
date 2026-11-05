@@ -88,9 +88,44 @@ public class LiteStatTests
     {
         var h = LiteStat.Histogram(new[] { (0.0, 100.0, 1000.0, 100.0) }, M);
         var sw = new StringWriter();
-        LiteStat.Write(sw, "a.dwg", 12.5, 3, 4, 100, h, new[] { new LiteStat.BlockRow("B", 2, 5, 300, 0) }, new Dictionary<string, int> { ["Line"] = 7 });
+        LiteStat.Write(sw, "a.dwg", 12.5, 3, 4, true, 100, h, new[] { new LiteStat.BlockRow("B", 2, 5, 300, 0) }, new Dictionary<string, int> { ["Line"] = 7 });
         var s = sw.ToString();
+        Assert.Contains("잘림	예", s);
         foreach (var k in new[] { "[도면]", "[시간]", "[밀도 히스토그램]", "[블록 상위 30]", "[종류별 개수]" }) Assert.Contains(k, s);
         Assert.Contains("Line\t7", s);
+    }
+
+    [Fact]
+    public void TallyBlock_Keeps_Per_Definition_Values_And_Counts_Instances()
+    {
+        var src = new LiteSource();
+        for (int i = 0; i < 3; i++) src.TallyBlock("B", 50, 2, 700);
+        var t = src.Blocks["B"];
+        Assert.Equal(3, t.Instances);
+        Assert.Equal(50, t.Lines);
+        Assert.Equal(2, t.Solids);
+        var row = LiteStat.BlockTable(new[] { new LiteStat.BlockRow("B", t.Instances, t.Lines, t.Diagonal, t.Solids) })[0];
+        Assert.Equal(150, (long)row.Instances * row.Lines);
+        Assert.Equal(2, row.Solids3d);
+    }
+
+    [Fact]
+    public void WalkCells_Extreme_Coordinates_Return_At_Once()
+    {
+        int n = 0;
+        LiteStat.WalkCells(-1e300, 0, 1e300, 0, M, (_, _, _) => n++);
+        LiteStat.WalkCells(0, 0, 1e15, 1, M, (_, _, _) => n++);
+        Assert.Equal(0, n);
+    }
+
+    [Fact]
+    public void Measured_Excludes_Xref_Hidden_And_Footprint_Items()
+    {
+        var e = new LiteLine("0", 0, 0, 10, 0);
+        Assert.True(LiteSource.Measured(new LiteItem(e, LiteFlags.None)));
+        foreach (var f in new[] { LiteFlags.Xref, LiteFlags.Hidden, LiteFlags.Footprint }) Assert.False(LiteSource.Measured(new LiteItem(e, f)));
+        var src = new LiteSource { Tolerance = 1 };
+        src.Items.Add(new LiteItem(e, LiteFlags.None)); src.Items.Add(new LiteItem(e, LiteFlags.Hidden));
+        Assert.Equal(1, src.Chords(0));
     }
 }
