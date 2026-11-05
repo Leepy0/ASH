@@ -80,7 +80,12 @@ public sealed class LiteSource
     public static bool Measured(LiteItem i) => new LiteOptions().Allows(i.Flags) && (i.Flags & LiteFlags.Footprint) == 0;
 
     /// <summary>Chord count (LiteStat.Segments) of the measured items from <paramref name="start"/> on.</summary>
-    public int Chords(int start) => LiteStat.Segments(Items.Skip(start).Where(Measured).Select(i => i.Entity), Tolerance).Count();
+    public int Chords(int start)
+    {
+        var kept = new List<LiteEntity>(); // index loop: Skip would walk from 0 on net48, once per instance
+        for (int i = start; i < Items.Count; i++) if (Measured(Items[i])) kept.Add(Items[i].Entity);
+        return LiteStat.Segments(kept, Tolerance).Count();
+    }
 }
 
 public sealed record LiteResult(double ShiftX, double ShiftY, LiteBox Extents, IReadOnlyDictionary<string, int> Written, int Entities);
