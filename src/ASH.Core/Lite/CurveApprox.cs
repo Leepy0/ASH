@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using ASH.Core.Cel;
 
 namespace ASH.Core.Lite;
 
@@ -31,27 +32,13 @@ public static class CurveApprox
         return o;
     }
 
-    /// <summary>Points of C + M cos t + N sin t for t from t0 to t1 (an ellipse, or the plan projection of a tilted one).</summary>
-    public static List<(double X, double Y)> Ellipse(double cx, double cy, double mx, double my, double nx, double ny, double t0, double t1, double tol)
-    {
-        double norm = new Affine2(mx, nx, my, ny, 0, 0).Norm;
-        int k = Steps(t1 - t0, norm, tol);
-        var o = new List<(double, double)>(k + 1);
-        for (int j = 0; j <= k; j++)
-        {
-            double t = t0 + (t1 - t0) * j / k, c = Math.Cos(t), s = Math.Sin(t);
-            o.Add((cx + mx * c + nx * s, cy + my * c + ny * s));
-        }
-        return o;
-    }
-
-    /// <summary>Samples any parametric curve (a spline evaluated by ZWCAD): `initial` equal steps, then each step is halved while its mid or quarter points lie farther than tol
+    /// <summary>Samples any parametric curve in 3D (a spline evaluated by ZWCAD): `initial` equal steps, then each step is halved while its mid or quarter points lie farther than tol
     /// from the chord (16 halvings at most, MaxPoints in all). Start the count high enough to catch S bends inside one step (the plugin uses 4 per control point).</summary>
-    public static List<(double X, double Y)> Adaptive(Func<double, (double X, double Y)> f, double t0, double t1, double tol, int initial)
+    public static List<Vec3> Adaptive(Func<double, Vec3> f, double t0, double t1, double tol, int initial)
     {
         initial = Math.Max(1, Math.Min(MaxPoints - 1, initial));
-        var o = new List<(double X, double Y)> { f(t0) };
-        var stack = new Stack<(double A, double B, (double X, double Y) Pb, int Depth)>();
+        var o = new List<Vec3> { f(t0) };
+        var stack = new Stack<(double A, double B, Vec3 Pb, int Depth)>();
         for (int i = initial; i >= 1; i--) stack.Push((t0 + (t1 - t0) * (i - 1) / initial, t0 + (t1 - t0) * i / initial, f(t0 + (t1 - t0) * i / initial), 0));
         while (stack.Count > 0)
         {
@@ -149,11 +136,14 @@ public static class CurveApprox
         return deg < 0 ? deg + 360 : deg;
     }
 
-    static double DistToSegment((double X, double Y) p, (double X, double Y) a, (double X, double Y) b)
+    internal static double DistToSegment((double X, double Y) p, (double X, double Y) a, (double X, double Y) b) =>
+        DistToSegment(new Vec3(p.X, p.Y, 0), new Vec3(a.X, a.Y, 0), new Vec3(b.X, b.Y, 0));
+
+    internal static double DistToSegment(Vec3 p, Vec3 a, Vec3 b)
     {
-        double dx = b.X - a.X, dy = b.Y - a.Y, len2 = dx * dx + dy * dy;
-        double t = len2 > 0 ? Math.Max(0, Math.Min(1, ((p.X - a.X) * dx + (p.Y - a.Y) * dy) / len2)) : 0;
-        double ex = a.X + t * dx - p.X, ey = a.Y + t * dy - p.Y;
-        return Math.Sqrt(ex * ex + ey * ey);
+        double dx = b.X - a.X, dy = b.Y - a.Y, dz = b.Z - a.Z, len2 = dx * dx + dy * dy + dz * dz;
+        double t = len2 > 0 ? Math.Max(0, Math.Min(1, ((p.X - a.X) * dx + (p.Y - a.Y) * dy + (p.Z - a.Z) * dz) / len2)) : 0;
+        double ex = a.X + t * dx - p.X, ey = a.Y + t * dy - p.Y, ez = a.Z + t * dz - p.Z;
+        return Math.Sqrt(ex * ex + ey * ey + ez * ez);
     }
 }

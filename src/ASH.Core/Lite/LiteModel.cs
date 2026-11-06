@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using ASH.Core.Cel;
 
 namespace ASH.Core.Lite;
 
@@ -123,3 +124,45 @@ public readonly record struct Affine2(double A, double B, double C, double D, do
         return scale > 0 && (mirrored ? Math.Abs(A + D) <= tol && Math.Abs(B - C) <= tol : Math.Abs(A - D) <= tol && Math.Abs(B + C) <= tol);
     }
 }
+
+/// <summary>A block transform in 3D, row-major as Matrix3d.ToArray(): x' = M00 x + M01 y + M02 z + M03, y' = M10 x + ... + M13, z' = M20 x + ... + M23.</summary>
+public readonly record struct Affine3(double M00, double M01, double M02, double M03, double M10, double M11, double M12, double M13, double M20, double M21, double M22, double M23)
+{
+    public static readonly Affine3 Identity = new(1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0);
+    /// <summary>From Matrix3d.ToArray(): the bottom row of its 16 values is always 0 0 0 1.</summary>
+    public static Affine3 From(double[] a) => new(a[0], a[1], a[2], a[3], a[4], a[5], a[6], a[7], a[8], a[9], a[10], a[11]);
+    public (double X, double Y, double Z) Ap(double x, double y, double z) =>
+        (M00 * x + M01 * y + M02 * z + M03, M10 * x + M11 * y + M12 * z + M13, M20 * x + M21 * y + M22 * z + M23);
+    /// <summary>This first, then o.</summary>
+    public Affine3 Then(Affine3 o) => new(
+        o.M00 * M00 + o.M01 * M10 + o.M02 * M20, o.M00 * M01 + o.M01 * M11 + o.M02 * M21, o.M00 * M02 + o.M01 * M12 + o.M02 * M22, o.M00 * M03 + o.M01 * M13 + o.M02 * M23 + o.M03,
+        o.M10 * M00 + o.M11 * M10 + o.M12 * M20, o.M10 * M01 + o.M11 * M11 + o.M12 * M21, o.M10 * M02 + o.M11 * M12 + o.M12 * M22, o.M10 * M03 + o.M11 * M13 + o.M12 * M23 + o.M13,
+        o.M20 * M00 + o.M21 * M10 + o.M22 * M20, o.M20 * M01 + o.M21 * M11 + o.M22 * M21, o.M20 * M02 + o.M21 * M12 + o.M22 * M22, o.M20 * M03 + o.M21 * M13 + o.M22 * M23 + o.M23);
+    /// <summary>The plan rows without their z terms; the whole plan transform when PlanHasZ is false.</summary>
+    public Affine2 Plan => new(M00, M01, M10, M11, M03, M13);
+    /// <summary>A point's plan position depends on its local z: the placement tilts the block. Relative to the plan scale, so a tiny block's tilt still counts.</summary>
+    public bool PlanHasZ => Math.Max(Math.Abs(M02), Math.Abs(M12)) > 1e-9 * Math.Max(Plan.Norm, 1e-300);
+    /// <summary>The 3x3 part alone (translation zero).</summary>
+    public Affine3 Linear => new(M00, M01, M02, 0, M10, M11, M12, 0, M20, M21, M22, 0);
+}
+
+/// <summary>3D geometry as read from a block definition, in the block's local coordinates (WCS in model space), before any insert transform.
+/// Flatten turns it into LiteEntity for one placement. Normals are unit vectors (Entity.Normal). Thickness is ignored by design.</summary>
+public abstract record Geo3(string Layer);
+
+/// <summary>Line.StartPoint and Line.EndPoint.</summary>
+public sealed record Line3(string Layer, Vec3 A, Vec3 B) : Geo3(Layer);
+
+/// <summary>Center is the local 3D point Circle.Center reports, not OCS coordinates.</summary>
+public sealed record Circle3(string Layer, Vec3 Center, Vec3 Normal, double R) : Geo3(Layer);
+
+/// <summary>Center as in Circle3. StartRad and EndRad are Arc.StartAngle and Arc.EndAngle unchanged: radians from the OCS x axis (DXF arbitrary axis algorithm on Normal),
+/// counter-clockwise about Normal, so a -Z normal needs no swap or sign change. The arc runs from StartRad up to EndRad; EndRad &lt;= StartRad wraps past 2 pi.</summary>
+public sealed record Arc3(string Layer, Vec3 Center, Vec3 Normal, double R, double StartRad, double EndRad) : Geo3(Layer);
+
+/// <summary>Polyline or SimplePoly Polyline2d. Vertices hold X and Y in the OCS of Normal (Polyline.GetPoint2dAt, Vertex2d.Position; not the WCS of GetPoint3dAt) and the Bulge
+/// as stored, counter-clockwise about Normal (GetBulgeAt, Vertex2d.Bulge; no flip for a -Z normal). Elevation is the OCS z of the plane (Polyline.Elevation).</summary>
+public sealed record Poly3(string Layer, IReadOnlyList<LiteVertex> Vertices, bool Closed, Vec3 Normal, double Elevation) : Geo3(Layer);
+
+/// <summary>Local 3D points joined by straight spans: Polyline3d vertices, or samples of a curve (spline, ellipse, fit polyline).</summary>
+public sealed record Points3(string Layer, IReadOnlyList<Vec3> Points, bool Closed) : Geo3(Layer);

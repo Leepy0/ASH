@@ -1,10 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using ASH.Core.Cel;
 using ASH.Core.Lite;
-using ASH.Core.Settings;
 using ASH.Plugin.Ui;
 using ZwSoft.ZwCAD.ApplicationServices;
 using ZwSoft.ZwCAD.DatabaseServices;
@@ -16,87 +18,97 @@ using Application = ZwSoft.ZwCAD.ApplicationServices.Application;
 
 namespace ASH.Plugin.Commands;
 
-/// <summary>AGVLITE (spec §5): a light copy of the open factory drawing to draw AGV paths on and to use as AutoMod's background.
-/// Reads model space (read-only: the open drawing is never changed) with every block expanded, lets the user pick entity types and a minimum size in LiteDialog, and writes lite\&lt;name&gt;_lite.dxf (R12, ASH's own writer)
-/// plus lite\&lt;name&gt;_lite.report.tsv next to the drawing.</summary>
+/// <summary>AGVLITE (spec §5): a light copy of the open factory drawing to draw AGV paths on and to use as AutoMod's background. No dialog: it reads every block definition once
+/// (read-only: the open drawing is never changed), Core picks the cleanup level off ZWCAD's thread and writes lite\&lt;name&gt;_lite.dxf (R12, ASH's own writer) with its report and settings.
+/// AGVLITEX reads and measures the same way, then asks for what a person must override (level, layers left out, blob outlines), saves it to the settings and writes as AGVLITE does.</summary>
 public sealed class LiteCommands
 {
-    /// <summary>Default chord error for ellipses and stretched arcs: 10 mm, well under an AGV's path accuracy and invisible at plan scale.</summary>
-    internal const double DefaultToleranceMm = 10;
-
-    /// <summary>Default minimum size: lines shorter (and objects whose box diagonal is smaller) than 100 mm are bolts, symbols and fittings, not plan geometry.</summary>
-    internal const double DefaultMinSizeMm = 100;
-
     [CommandMethod("AGVLITE")]
-    public void AgvLite()
+    public void AgvLite() => Guarded("AGVLITE", doc => Make(doc, "AGVLITE", false));
+
+    [CommandMethod("AGVLITEX")]
+    public void AgvLiteX() => Guarded("AGVLITEX", doc => Make(doc, "AGVLITEX", true));
+
+    private static void Guarded(string cmd, Action<Document> run)
     {
         var doc = Application.DocumentManager.MdiActiveDocument;
         if (doc == null) return;
-        try { Run(doc); }
+        try { run(doc); }
         catch (System.Exception ex)
         {
-            doc.Editor.WriteMessage($"\nAGVLITE 오류: {ex.GetType().Name}: {ex.Message}");
-            PluginLog.Write("AGVLITE failed", ex);
-            PaletteStatus.Set("AGVLITE 오류: " + ex.Message);
+            doc.Editor.WriteMessage($"\n{cmd} 오류: {ex.GetType().Name}: {ex.Message}");
+            PluginLog.Write(cmd + " failed", ex);
+            PaletteStatus.Set($"{cmd} 오류: " + ex.Message);
         }
     }
 
-    private static void Run(Document doc)
+    private static void Make(Document doc, string cmd, bool adjust)
     {
+        var clock = Stopwatch.StartNew();
         var ed = doc.Editor;
         void Say(string t) { ed.WriteMessage("\n" + t); PaletteStatus.Set(t); }
-        if (Convert.ToInt32(Application.GetSystemVariable("DWGTITLED")) == 0) { Say("AGVLITE: 도면을 먼저 저장하세요. 경량 도면은 도면 폴더의 lite\\ 에 만듭니다."); return; }
+        if (Convert.ToInt32(Application.GetSystemVariable("DWGTITLED")) == 0) { Say($"{cmd}: 도면을 먼저 저장하세요. 경량 도면은 도면 폴더의 lite\\ 에 만듭니다."); return; }
         var dir = (string)Application.GetSystemVariable("DWGPREFIX");
         var dwg = Path.Combine(dir, (string)Application.GetSystemVariable("DWGNAME"));
         var name = Path.GetFileNameWithoutExtension(dwg);
         var outDir = Path.Combine(dir, "lite");
         var dxfPath = Path.Combine(outDir, name + "_lite.dxf");
         var reportPath = Path.Combine(outDir, name + "_lite.report.tsv");
+        var settingsPath = Path.Combine(outDir, name + "_lite.settings.tsv");
         int insUnits = Convert.ToInt32(Application.GetSystemVariable("INSUNITS"));
 
-        double tolMm = DefaultToleranceMm;
-        Say("AGVLITE: 도면 읽는 중… (원본은 바꾸지 않습니다)");
-        var plan = new LitePlan(Extract(doc, insUnits, tolMm));
-        if (plan.Types.Count == 0) { Say("AGVLITE: 모델 공간에 남길 선·곡선이 없습니다."); return; }
-
-        LiteOptions options;
-        List<string> types;
-        using (var dlg = new LiteDialog(plan, Path.GetFileName(dwg), @"lite\" + Path.GetFileName(dxfPath), tolMm, DefaultMinSizeMm))
-        {
-            if (Application.ShowModalDialog(dlg) != System.Windows.Forms.DialogResult.OK) { PaletteStatus.Set("AGVLITE 취소"); return; }
-            options = dlg.Options;
-            types = dlg.Types;
-            if (Math.Abs(dlg.ToleranceMm - tolMm) > 1e-9)
-            {
-                tolMm = dlg.ToleranceMm;
-                Say($"AGVLITE: 곡선 허용 오차 {tolMm} mm로 다시 읽는 중…");
-                plan = new LitePlan(Extract(doc, insUnits, tolMm));
-            }
-        }
-
-        Directory.CreateDirectory(outDir);
-        LiteResult r;
-        try
-        {
-            using (var w = new StreamWriter(dxfPath, false, Encoding.ASCII)) r = plan.Write(w, options, types);
-        }
+        LiteSettings settings;
+        bool saveSettings = true;
+        try { settings = LiteSettings.Load(settingsPath); }
         catch (System.Exception ex) when (ex is IOException || ex is UnauthorizedAccessException)
         {
-            Say($"AGVLITE: {dxfPath}에 쓰지 못했습니다(다른 프로그램이 열고 있나요?): {ex.Message}");
-            return;
+            settings = new LiteSettings();
+            if (adjust) { Say($"{cmd}: 설정 파일 읽기 실패: {settingsPath}"); return; } // saving over a file that was not read would lose what is in it
+            saveSettings = false; // what AGVLITEX fixed in that file must outlive this run (AGVLITEX itself stops above)
+            Say($"{cmd}: 설정 파일 읽기 실패, 자동 단계 사용: {ex.Message}");
         }
-        long liteBytes = new FileInfo(dxfPath).Length, srcBytes = File.Exists(dwg) ? new FileInfo(dwg).Length : 0;
-        using (var w = new StreamWriter(reportPath, false, new UTF8Encoding(true))) // BOM: Excel opens the Korean text right
-            LiteReport.Write(w, plan, options, types, r, dwg, srcBytes, dxfPath, liteBytes, ASH.Core.SeoulTime.Now);
 
-        var src = plan.Source;
-        ed.WriteMessage($"\nAGVLITE: 엔티티 {r.Entities:N0}개, {liteBytes / 1048576.0:0.00} MB (원본 DWG {srcBytes / 1048576.0:0.00} MB)");
+        Say($"{cmd}: 도면 읽는 중… (원본은 바꾸지 않습니다)");
+        var log = new LiteReadLog();
+        var blocks = Read(doc, insUnits, log, Say);
+        if (blocks == null) { Say(cmd + " 취소"); return; }
+        if (blocks.Defs.All(d => d.Geo.Count == 0)) { Say($"{cmd}: 모델 공간에 남길 선·곡선이 없습니다."); return; }
+
+        if (adjust)
+        {
+            // every level, for the exclusions as saved: the dialog shows them as they are, they do not follow the ticks
+            var measured = Pump(cmd, "측정 중", Say, (ct, k) => LiteJob.Measure(new LiteBuild(blocks, settings), ct, k));
+            if (measured == null) { Say(cmd + " 취소"); return; }
+            var excluded = new HashSet<string>(settings.ExcludeLayers, StringComparer.Ordinal);
+            var rows = blocks.Layers.Where(kv => !LiteLayers.IsAsh(kv.Key)).OrderBy(kv => kv.Key, StringComparer.Ordinal)
+                .Select(kv => new LiteLayerRow(kv.Key, kv.Value.Frozen ? "동결" : kv.Value.Off ? "꺼짐" : "", !excluded.Contains(kv.Key))).ToList();
+            using var dlg = new LiteDialog(Path.GetFileName(dwg), Path.Combine("lite", name + "_lite.dxf"), measured, rows, settings.Level, settings.NoBlobs);
+            if (Application.ShowModalDialog(dlg) != System.Windows.Forms.DialogResult.OK) { Say(cmd + " 취소"); return; }
+            settings.Level = dlg.Level;
+            settings.NoBlobs = dlg.NoBlobs;
+            settings.SetExcluded(rows.Where(r => r.State.Length == 0).Select(r => r.Name), dlg.ExcludedLayers); // off, frozen and absent layers keep their saved exclusion
+        }
+
+        var files = new LiteFiles(dwg, File.Exists(dwg) ? new FileInfo(dwg).Length : 0, dxfPath, reportPath, settingsPath);
+        var build = new LiteBuild(blocks, settings);
+        var o = Pump(cmd, "정리 중", Say, (ct, k) => LiteJob.Run(build, log, files, saveSettings, clock, ct, k));
+        if (o.Cancelled) { Say(cmd + " 취소"); return; }
+        if (o.Failed != null) { Say($"{cmd}: {o.Failed}에 쓰지 못했습니다(다른 프로그램이 열고 있나요?): {o.Why}"); return; }
+
+        var r = o.Result!;
+        var s = o.Stats!;
+        double mb = o.Bytes / 1048576.0;
+        if (settings.Describe() is string fixedBy) ed.WriteMessage("\n" + fixedBy);
+        ed.WriteMessage($"\n{cmd}: {r.Level}단계, 엔티티 {r.Entities:N0}개, {mb:0.00} MB, 덩어리 {s.Blobs:N0}개 외곽선, 중복 {s.Duplicate.Count + r.Deduped:N0}개·작은 요소 {s.Small.Count + s.SmallInstances:N0}개 제거 (원본 DWG {files.SourceBytes / 1048576.0:0.00} MB)");
         ed.WriteMessage($"\n원점 이동 ({r.ShiftX:0.###}, {r.ShiftY:0.###}): 원본 좌표로 되돌리려면 ash.settings.tsv에 OriginX {-r.ShiftX:0.###}, OriginY {-r.ShiftY:0.###} (보고서 참고)");
         ed.WriteMessage($"\nDXF: {dxfPath}\n보고서: {reportPath}");
-        if (liteBytes > 10L * 1048576) ed.WriteMessage("\n경고: 10 MB를 넘습니다. AutoMod가 느려지거나 멈출 수 있습니다. 최소 크기를 키우거나 큰 종류를 끄고 다시 실행하세요(보고서의 종류 표 참고).");
-        if (src.Truncated) ed.WriteMessage("\n경고: 작업 한도에 도달해 도면 일부만 담았습니다(블록 중첩·반복이 너무 많음).");
-        if (src.Failures > 0) ed.WriteMessage($"\n참고: 읽지 못한 엔티티 {src.Failures:N0}개를 건너뛰었습니다.");
-        PaletteStatus.Set($"AGVLITE 완료: {liteBytes / 1048576.0:0.00} MB" + (liteBytes > 10L * 1048576 ? " (10 MB 초과)" : src.Truncated ? " (일부 누락)" : ""));
+        if (s.Partial) ed.WriteMessage("\n경고: 예산 초과, 일부만 출력. 빠진 인스턴스가 있습니다.");
+        if (o.Bytes > LiteLevels.WarnBytes) ed.WriteMessage("\n경고: 10 MB를 넘습니다. AutoMod가 느려지거나 멈출 수 있습니다(보고서의 큰 덩어리·큰 레이어 참고).");
+        if (o.Unsaved != null) ed.WriteMessage($"\n경고: 설정 저장 실패: {o.Unsaved}");
+        if (log.ExplodeFailed > 0) ed.WriteMessage($"\n참고: 폭발 실패 {log.ExplodeFailed:N0}개, 범위 상자로 대체.");
+        if (log.Over3D > 0) ed.WriteMessage($"\n참고: 3D 예산 초과 {log.Over3D:N0}개, 범위 상자로 대체.");
+        if (log.Failures > 0) ed.WriteMessage($"\n참고: 읽지 못한 엔티티 {log.Failures:N0}개를 건너뛰었습니다.");
+        PaletteStatus.Set($"{cmd} 완료: {r.Level}단계, {mb:0.00} MB" + (o.Bytes > LiteLevels.WarnBytes ? " (10 MB 초과)" : "") + (s.Partial ? " (일부만 출력)" : ""));
 
         if (PathCommands.Keyword(ed, "\n경량 도면을 ZWCAD에서 열까요? [Y/N] <Y>", "Y", "Y", "N") != "Y") return;
         try
@@ -105,217 +117,194 @@ public sealed class LiteCommands
             Application.DocumentManager.ExecuteInApplicationContext(_ =>
             {
                 try { Application.DocumentManager.Open(dxfPath, false); }
-                catch (System.Exception ex) { PluginLog.Write("AGVLITE open", ex); }
+                catch (System.Exception ex) { PluginLog.Write(cmd + " open", ex); }
             }, null);
         }
         catch (System.Exception ex)
         {
-            PluginLog.Write("AGVLITE open", ex);
+            PluginLog.Write(cmd + " open", ex);
             ed.WriteMessage("\n자동으로 열지 못했습니다. 직접 여세요: " + dxfPath);
         }
     }
 
-    /// <summary>Everything AGVLITE could keep from model space, flagged by what only an option keeps (xref contents, 3D footprints, off/frozen layers).</summary>
-    internal static LiteSource Extract(Document doc, int insUnits, double tolMm)
+    /// <summary>Runs work off ZWCAD's thread while this one keeps the window alive, says each level it reports and stops it on Esc (work then answers for itself: a cancelled outcome or null).</summary>
+    private static T Pump<T>(string cmd, string what, Action<string> say, Func<CancellationToken, Action<int>, T> work)
     {
-        var src = new LiteSource { InsUnits = insUnits, Tolerance = tolMm * 0.001 / UnitScale.FromInsUnits(insUnits) };
+        using var esc = new CancellationTokenSource();
+        int level = -1, shown = -1;
+        var docs = Application.DocumentManager;
+        bool activation = false, guarded = false;
+        Task<T>? task = null;
+        try
+        {
+            // the pump below must not switch or close the drawing under ed; if ZWCAD refuses the guard, carry on without it
+            try { activation = docs.DocumentActivationEnabled; docs.DocumentActivationEnabled = false; guarded = true; }
+            catch (System.Exception ex) { PluginLog.Write(cmd + " activation guard", ex); }
+            task = Task.Run(() => work(esc.Token, k => Volatile.Write(ref level, k)));
+            while (!((IAsyncResult)task).AsyncWaitHandle.WaitOne(100))
+            {
+                int k = Volatile.Read(ref level);
+                if (k != shown) say($"{cmd}: {what} {shown = k}단계…");
+                if (HostApplicationServices.Current.UserBreak()) esc.Cancel();
+                // a minutes-long wait: without a pump the window goes "not responding" and these lines never paint. After UserBreak, so the pump cannot eat the Esc.
+                System.Windows.Forms.Application.DoEvents();
+            }
+        }
+        finally
+        {
+            if (task != null && !task.IsCompleted) esc.Cancel(); // never leave the work running behind an error, nor behind a restore that throws
+            if (guarded)
+            {
+                try { docs.DocumentActivationEnabled = activation; }
+                catch (System.Exception ex) { PluginLog.Write(cmd + " activation restore", ex); }
+            }
+        }
+        HostApplicationServices.Current.UserBreak(); // an Esc from the last wait is spent here, not on the prompt below
+        return task.GetAwaiter().GetResult();
+    }
+
+    /// <summary>Every block definition model space reaches, in block-local 3D; null when Esc stopped it. The document lock ends here: Core never needs the drawing again.</summary>
+    internal static LiteBlocks? Read(Document doc, int insUnits, LiteReadLog log, Action<string> say)
+    {
+        var blocks = new LiteBlocks { InsUnits = insUnits };
         using (doc.LockDocument())
         using (var tr = doc.Database.TransactionManager.StartTransaction())
         {
-            new Extractor(tr, src).Run(doc.Database);
+            bool done = new Reader(tr, blocks, log, LiteRead.Tolerance(insUnits), say).Run(doc.Database);
             tr.Commit(); // read-only; commit is just cheaper than abort
+            return done ? blocks : null;
         }
-        return src;
     }
 
-    /// <summary>Reads each block definition once into block-local neutral geometry, then places it per insert with the composed transform.
-    /// The work budget keeps a drawing with huge INSERT fan-out from hanging ZWCAD; a malformed block that contains itself is cut where it loops.</summary>
-    private sealed class Extractor
+    /// <summary>Reads each definition once, in the order inserts name them: a definition only lists its inserts, so reading never recurses and a block that contains itself is left to Core (R9).</summary>
+    private sealed class Reader
     {
-        /// <summary>Only a stack guard: real nesting (imported equipment assemblies run deep) is followed to the end, a loop is cut by <see cref="_path"/>.</summary>
-        private const int MaxDepth = 256;
-        /// <summary>Items placed + inserts expanded. 2 million lines are ~200 MB of DXF, far past anything AutoMod opens, so only a runaway drawing reaches it.</summary>
-        private const int Budget = 2_000_000;
-
-        private sealed class BlockGeo
-        {
-            public readonly List<(LiteEntity Geo, LiteFlags Flags, string Type)> Items = new List<(LiteEntity, LiteFlags, string)>();
-            public readonly List<(ObjectId Btr, Affine2 Xf, string Layer, bool Xref, bool Resolved)> Inserts = new List<(ObjectId, Affine2, string, bool, bool)>();
-            public readonly Dictionary<string, int> Removed = new Dictionary<string, int>();
-            public readonly Dictionary<string, int> Kinds = new Dictionary<string, int>();
-            public int Solids;
-        }
+        /// <summary>Progress and Esc per this many definitions (plan Step 4)...</summary>
+        private const int DefsPerReport = 100;
+        /// <summary>...and Esc per this many entities: model space alone can hold millions.</summary>
+        private const int EntitiesPerBreak = 4096;
+        /// <summary>Solid to Region or Surface to curves is three: more means an object that explodes into itself.</summary>
+        private const int MaxExplode = 8;
+        private static readonly Vec3 Up = new Vec3(0, 0, 1);
 
         private readonly Transaction _tr;
-        private readonly LiteSource _src;
-        private readonly Dictionary<ObjectId, BlockGeo> _cache = new Dictionary<ObjectId, BlockGeo>();
-        private readonly HashSet<ObjectId> _path = new HashSet<ObjectId>(); // blocks being expanded above the current one
-        private int _left = Budget;
+        private readonly LiteBlocks _blocks;
+        private readonly LiteReadLog _log;
+        private readonly double _tol;
+        private readonly Action<string> _say;
+        private readonly Dictionary<ObjectId, int> _defs = new Dictionary<ObjectId, int>();
+        private readonly Queue<ObjectId> _todo = new Queue<ObjectId>();
+        private int _at, _seen, _depth; // definition being read, entities looked at, explosions under way
 
-        public Extractor(Transaction tr, LiteSource src) { _tr = tr; _src = src; }
+        public Reader(Transaction tr, LiteBlocks blocks, LiteReadLog log, double tol, Action<string> say) { _tr = tr; _blocks = blocks; _log = log; _tol = tol; _say = say; }
 
-        public void Run(Database db)
+        private static bool Esc() => HostApplicationServices.Current.UserBreak();
+
+        public bool Run(Database db)
         {
             var lt = (LayerTable)_tr.GetObject(db.LayerTableId, OpenMode.ForRead);
             foreach (ObjectId id in lt)
                 if (_tr.GetObject(id, OpenMode.ForRead) is LayerTableRecord l && !l.IsErased)
-                    _src.Layers[l.Name] = new LiteLayerState(l.Color.IsByAci ? l.Color.ColorIndex : (short)7, l.IsOff, l.IsFrozen);
-            var bt = (BlockTableRecord)_tr.GetObject(((BlockTable)_tr.GetObject(db.BlockTableId, OpenMode.ForRead))[BlockTableRecord.ModelSpace], OpenMode.ForRead);
-            var ms = Read(bt); // not cached: model space is read once
-            foreach (var kv in ms.Kinds) LiteSource.Count(_src.Before, kv.Key, kv.Value);
-            Walk(ms, Affine2.Identity, "0", LiteFlags.None, 0, false);
-        }
+                    _blocks.Layers[l.Name] = new LiteLayerState(l.Color.IsByAci ? l.Color.ColorIndex : (short)7, l.IsOff, l.IsFrozen);
+            var ms = ((BlockTable)_tr.GetObject(db.BlockTableId, OpenMode.ForRead))[BlockTableRecord.ModelSpace];
+            _blocks.Root = Def((BlockTableRecord)_tr.GetObject(ms, OpenMode.ForRead));
 
-        private bool Take() { if (_left > 0) { _left--; return true; } _src.Truncated = true; return false; }
-
-        private bool Hidden(string layer) => _src.Layers.TryGetValue(layer, out var s) && (s.Off || s.Frozen);
-        private bool Frozen(string layer) => _src.Layers.TryGetValue(layer, out var s) && s.Frozen;
-
-        private void Walk(BlockGeo g, Affine2 xf, string inherit, LiteFlags flags, int depth, bool parentFrozen)
-        {
-            foreach (var (geo, f, type) in g.Items)
+            long lines = 0;
+            for (_at = 0; _todo.Count > 0; _at++) // the queue holds definitions in Defs order
             {
-                if (!Take()) return;
-                var layer = depth > 0 && geo.Layer == "0" ? inherit : geo.Layer; // block contents on layer 0 take the insert's layer
-                if (LiteLayers.IsAsh(layer)) { LiteSource.Count(_src.Removed, "AGV_ 레이어 (ASH 경로·CP)"); continue; }
-                var fl = flags | f | (parentFrozen || Hidden(layer) ? LiteFlags.Hidden : LiteFlags.None);
-                try { _src.Items.Add(new LiteItem(CurveApprox.Transform(geo, xf, _src.Tolerance, layer), fl, type)); }
-                catch (System.Exception) { _src.Failures++; }
+                var g = _blocks.Defs[_at];
+                if (!Read((BlockTableRecord)_tr.GetObject(_todo.Dequeue(), OpenMode.ForRead), g)) return false;
+                lines += g.Geo.Count;
+                if ((_at + 1) % DefsPerReport != 0) continue;
+                _say($"AGVLITE: 읽는 중 {_at + 1:N0}/{_blocks.Defs.Count:N0} 정의, 선 {lines:N0}개");
+                if (Esc()) return false;
             }
-            foreach (var kv in g.Removed) LiteSource.Count(_src.Removed, kv.Key, kv.Value);
-            _src.Solids3d += g.Solids;
-            foreach (var ins in g.Inserts)
-            {
-                if (!Take()) return;
-                var layer = depth > 0 && ins.Layer == "0" ? inherit : ins.Layer;
-                if (ins.Xref)
-                {
-                    _src.XrefRefs++;
-                    if (!ins.Resolved) { LiteSource.Count(_src.Removed, "외부참조 (찾을 수 없거나 언로드됨)"); continue; }
-                }
-                if (_path.Contains(ins.Btr)) { LiteSource.Count(_src.Removed, "자기 자신을 포함하는 블록 (순환)"); continue; }
-                if (depth + 1 > MaxDepth) { LiteSource.Count(_src.Removed, $"블록 중첩 {MaxDepth}단계 초과"); continue; }
-                _path.Add(ins.Btr);
-                int start = _src.Items.Count;
-                Walk(Geo(ins.Btr), ins.Xf.Then(xf), layer, flags | (ins.Xref ? LiteFlags.Xref : LiteFlags.None), depth + 1, parentFrozen || Frozen(layer));
-                _src.CloseBlock(start);
-                _path.Remove(ins.Btr);
-                if (_src.Truncated) return;
-            }
+            return true;
         }
 
-        private BlockGeo Geo(ObjectId btrId)
+        private int Def(BlockTableRecord b)
         {
-            // a block that (wrongly) contains itself is cut by _path in Walk: Read never recurses
-            if (!_cache.TryGetValue(btrId, out var g)) _cache[btrId] = g = Read((BlockTableRecord)_tr.GetObject(btrId, OpenMode.ForRead));
-            return g;
+            if (_defs.TryGetValue(b.ObjectId, out int d)) return d;
+            _defs[b.ObjectId] = d = _blocks.Defs.Count;
+            _blocks.Defs.Add(new BlockDef());
+            _log.Names.Add(b.Name);
+            _log.Solids.Add(0);
+            _todo.Enqueue(b.ObjectId);
+            return d;
         }
 
-        private BlockGeo Read(BlockTableRecord btr)
+        private bool Read(BlockTableRecord btr, BlockDef g)
         {
-            var g = new BlockGeo();
             foreach (ObjectId id in btr)
             {
-                if (_left <= 0) { _src.Truncated = true; break; }
+                if (++_seen % EntitiesPerBreak == 0 && Esc()) return false;
                 try
                 {
                     if (!(_tr.GetObject(id, OpenMode.ForRead, false) is Entity e) || e.IsErased) continue;
-                    LiteSource.Count(g.Kinds, e.GetType().Name);
-                    if (!e.Visible) { LiteSource.Count(g.Removed, "숨긴 엔티티"); continue; }
+                    if (_at == _blocks.Root) LiteReadLog.Count(_log.Before, e.GetType().Name);
+                    if (!e.Visible) { LiteReadLog.Count(_log.Removed, "숨긴 엔티티"); continue; }
                     Add(g, e);
                 }
-                catch (System.Exception) { _src.Failures++; } // an odd entity must never stop the command
+                catch (System.Exception) { _log.Failures++; } // an odd entity must never stop the command
             }
-            return g;
+            return true;
         }
 
-        private void Add(BlockGeo g, Entity e)
+        private void Add(BlockDef g, Entity e)
         {
             string layer = e.Layer;
-            double tol = _src.Tolerance;
-            void Item(LiteEntity x, string type, LiteFlags f = LiteFlags.None) => g.Items.Add((x, f, type));
-            void Drop(string kind) => LiteSource.Count(g.Removed, kind);
-            void Poly(List<(double X, double Y)> pts, bool closed, string type)
+            void Drop(string kind) => LiteReadLog.Count(_log.Removed, kind);
+            void Sample(Curve c, int initial)
             {
-                if (closed && pts.Count > 2 && pts[0] == pts[pts.Count - 1]) pts.RemoveAt(pts.Count - 1);
-                if (pts.Count >= 2) Item(new LitePolyline(layer, pts.Select(p => new LiteVertex(p.X, p.Y)).ToArray(), closed), type);
+                var pts = CurveApprox.Adaptive(t => V(c.GetPointAtParameter(t)), c.StartParam, c.EndParam, _tol, initial);
+                if (c.Closed && pts.Count > 2) pts.RemoveAt(pts.Count - 1); // the end parameter is the start point again
+                if (pts.Count >= 2) g.Geo.Add(new Points3(layer, pts, c.Closed));
             }
-            void Sample(Curve c, int initial, string type) =>
-                Poly(CurveApprox.Adaptive(t => { var p = c.GetPointAtParameter(t); return (p.X, p.Y); }, c.StartParam, c.EndParam, tol, initial), c.Closed, type);
-            bool Flat(Vector3d n) => Math.Abs(Math.Abs(n.Z) - 1) < 1e-9;
 
             switch (e)
             {
                 case Table _: Drop("표"); break;
                 case MInsertBlock mi:
                 {
-                    // shortcut: the row/column offsets are rotated by Rotation in the plan only (no OCS tilt); tilted MINSERTs are rare in factory layouts
-                    var b = Block(mi, out var xref, out var resolved);
-                    if (b == null) break;
-                    var xf = ToAffine(mi.BlockTransform);
-                    double co = Math.Cos(mi.Rotation), si = Math.Sin(mi.Rotation);
-                    for (int r = 0; r < mi.Rows; r++)
-                        for (int c = 0; c < mi.Columns; c++)
-                        {
-                            double dx = c * mi.ColumnSpacing, dy = r * mi.RowSpacing;
-                            g.Inserts.Add((b.Value, xf.Then(new Affine2(1, 0, 0, 1, co * dx - si * dy, si * dx + co * dy)), layer, xref, resolved));
-                        }
+                    if (Target(mi) is not int def) break;
+                    foreach (var cell in LiteRead.Minsert(Affine3.From(mi.BlockTransform.ToArray()), V(mi.Normal), mi.Rotation, mi.Rows, mi.Columns, mi.RowSpacing, mi.ColumnSpacing, _log))
+                        g.Uses.Add(new BlockUse(def, cell, layer));
                     break;
                 }
                 case BlockReference br:
-                {
-                    var b = Block(br, out var xref, out var resolved);
-                    if (b != null) g.Inserts.Add((b.Value, ToAffine(br.BlockTransform), layer, xref, resolved));
+                    if (Target(br) is int d) g.Uses.Add(new BlockUse(d, Affine3.From(br.BlockTransform.ToArray()), layer));
                     break;
-                }
-                case Line l: Item(new LiteLine(layer, l.StartPoint.X, l.StartPoint.Y, l.EndPoint.X, l.EndPoint.Y), LiteTypes.Line); break;
+                case Line l: g.Geo.Add(new Line3(layer, V(l.StartPoint), V(l.EndPoint))); break;
                 case Polyline pl:
                 {
                     if (IsRevCloud(pl)) { Drop("구름형 리비전"); break; }
-                    if (!Flat(pl.Normal) && pl.HasBulges) { Sample(pl, Math.Max(8, pl.NumberOfVertices * 4), LiteTypes.Polyline); break; }
-                    double flip = pl.Normal.Z < 0 ? -1 : 1; // the bulge is measured about the normal: CCW about -Z is CW in plan
                     var v = new LiteVertex[pl.NumberOfVertices];
-                    for (int i = 0; i < v.Length; i++) { var p = pl.GetPoint3dAt(i); v[i] = new LiteVertex(p.X, p.Y, pl.GetBulgeAt(i) * flip); }
-                    if (v.Length >= 2) Item(new LitePolyline(layer, v, pl.Closed), LiteTypes.Polyline);
+                    for (int i = 0; i < v.Length; i++) { var p = pl.GetPoint2dAt(i); v[i] = new LiteVertex(p.X, p.Y, pl.GetBulgeAt(i)); } // OCS, as Poly3 wants
+                    if (v.Length >= 2) g.Geo.Add(new Poly3(layer, v, pl.Closed, V(pl.Normal), pl.Elevation));
                     break;
                 }
                 case Polyline2d p2:
                 {
-                    if (p2.PolyType != Poly2dType.SimplePoly || !Flat(p2.Normal)) { Sample(p2, 64, LiteTypes.Polyline); break; } // fit / spline-fit curves: sample the curve ZWCAD shows
-                    double flip = p2.Normal.Z < 0 ? -1 : 1;
+                    if (p2.PolyType != Poly2dType.SimplePoly) { Sample(p2, 64); break; } // fit / spline-fit curves: sample the curve ZWCAD shows
                     var v = new List<LiteVertex>();
                     foreach (ObjectId vid in p2)
-                        if (_tr.GetObject(vid, OpenMode.ForRead) is Vertex2d vx) { var p = p2.VertexPosition(vx); v.Add(new LiteVertex(p.X, p.Y, vx.Bulge * flip)); }
-                    if (v.Count >= 2) Item(new LitePolyline(layer, v.ToArray(), p2.Closed), LiteTypes.Polyline);
+                        if (_tr.GetObject(vid, OpenMode.ForRead) is Vertex2d vx) v.Add(new LiteVertex(vx.Position.X, vx.Position.Y, vx.Bulge)); // OCS: not p2.VertexPosition, that is WCS
+                    if (v.Count >= 2) g.Geo.Add(new Poly3(layer, v, p2.Closed, V(p2.Normal), p2.Elevation));
                     break;
                 }
                 case Polyline3d p3:
                 {
-                    if (p3.PolyType != Poly3dType.SimplePoly) { Sample(p3, 64, LiteTypes.Polyline); break; }
-                    var pts = new List<(double X, double Y)>();
+                    if (p3.PolyType != Poly3dType.SimplePoly) { Sample(p3, 64); break; }
+                    var pts = new List<Vec3>();
                     foreach (ObjectId vid in p3)
-                        if (_tr.GetObject(vid, OpenMode.ForRead) is PolylineVertex3d vx) pts.Add((vx.Position.X, vx.Position.Y)); // flattened: Z dropped
-                    Poly(pts, p3.Closed, LiteTypes.Polyline);
+                        if (_tr.GetObject(vid, OpenMode.ForRead) is PolylineVertex3d vx) pts.Add(V(vx.Position));
+                    if (pts.Count >= 2) g.Geo.Add(new Points3(layer, pts, p3.Closed));
                     break;
                 }
-                case Circle c:
-                    if (Flat(c.Normal)) Item(new LiteCircle(layer, c.Center.X, c.Center.Y, c.Radius), LiteTypes.Circle);
-                    else Sample(c, 16, LiteTypes.Circle);
-                    break;
-                case Arc a:
-                {
-                    if (!Flat(a.Normal)) { Sample(a, 8, LiteTypes.Arc); break; }
-                    double s = Deg(a.StartPoint, a.Center), en = Deg(a.EndPoint, a.Center);
-                    Item(a.Normal.Z < 0 ? new LiteArc(layer, a.Center.X, a.Center.Y, a.Radius, en, s) : new LiteArc(layer, a.Center.X, a.Center.Y, a.Radius, s, en), LiteTypes.Arc);
-                    break;
-                }
-                case Ellipse el:
-                {
-                    bool full = Math.Abs(el.EndParam - el.StartParam - 2 * Math.PI) < 1e-9;
-                    Poly(CurveApprox.Ellipse(el.Center.X, el.Center.Y, el.MajorAxis.X, el.MajorAxis.Y, el.MinorAxis.X, el.MinorAxis.Y, el.StartParam, el.EndParam, tol), full, LiteTypes.Ellipse);
-                    break;
-                }
-                case Spline sp: Sample(sp, Math.Max(8, sp.NumControlPoints * 4), LiteTypes.Spline); break; // a type of its own, off by default
+                case Circle c: g.Geo.Add(new Circle3(layer, V(c.Center), V(c.Normal), c.Radius)); break;
+                case Arc a: g.Geo.Add(new Arc3(layer, V(a.Center), V(a.Normal), a.Radius, a.StartAngle, a.EndAngle)); break;
+                case Ellipse el: Sample(el, 16); break;
+                case Spline sp: Sample(sp, Math.Max(8, sp.NumControlPoints * 4)); break;
                 case Leader _: case MLeader _: Drop("지시선"); break;
                 case Ray _: case Xline _: Drop("구성선 (XLINE/RAY)"); break;
                 case Hatch _: Drop("해치"); break;
@@ -330,34 +319,100 @@ public sealed class LiteCommands
                 case RasterImage _: Drop("래스터 이미지"); break;
                 case Ole2Frame _: Drop("OLE 개체"); break;
                 case UnderlayReference _: Drop("언더레이 (PDF/DWF/DGN)"); break;
-                case Solid3d _: case Body _: case SubDMesh _: case PolyFaceMesh _: case PolygonMesh _: case ZwSoft.ZwCAD.DatabaseServices.Surface _:
-                {
-                    g.Solids++;
-                    var x = e.GeometricExtents; // footprint box only, not a true projection (the dialog says so)
-                    Item(new LitePolyline(layer, new[] { new LiteVertex(x.MinPoint.X, x.MinPoint.Y), new LiteVertex(x.MaxPoint.X, x.MinPoint.Y), new LiteVertex(x.MaxPoint.X, x.MaxPoint.Y), new LiteVertex(x.MinPoint.X, x.MaxPoint.Y) }, true), LiteTypes.Footprint, LiteFlags.Footprint);
+                case Solid3d _: case Body _: case ZwSoft.ZwCAD.DatabaseServices.Surface _:
+                    if (_depth == 0) _log.Solids[_at]++;
+                    Whole(g, e, one => Burst(one, e));
                     break;
-                }
-                case Mline _: case Region _:
-                {
-                    // walls drawn as MLINE and REGION outlines: their exploded lines and arcs are plan geometry
-                    var parts = new DBObjectCollection();
-                    e.Explode(parts);
-                    foreach (DBObject o in parts)
-                        using (o)
-                            if (o is Entity pe && !(pe is Mline) && !(pe is Region)) Add(g, pe);
+                case SubDMesh _: case PolyFaceMesh _: case PolygonMesh _:
+                    _log.Solids[_at]++;
+                    Whole(g, e, one => Mesh(one, e));
                     break;
-                }
+                case Mline _: case Region _: Whole(g, e, one => Burst(one, e)); break; // walls drawn as MLINE and REGION outlines: their exploded lines and arcs are plan geometry
                 default: Drop("기타: " + e.GetType().Name); break;
             }
         }
 
-        // the block an insert shows (a dynamic block's current shape is its anonymous record); null for a layout
-        private ObjectId? Block(BlockReference br, out bool xref, out bool resolved)
+        // what an insert draws: null for a layout, and for an xref with nothing to read (counted)
+        private int? Target(BlockReference br)
         {
-            var b = (BlockTableRecord)_tr.GetObject(br.BlockTableRecord, OpenMode.ForRead);
-            xref = b.IsFromExternalReference;
-            resolved = !xref || (b.IsResolved && !b.IsUnloaded);
-            return b.IsLayout ? (ObjectId?)null : b.ObjectId;
+            var b = (BlockTableRecord)_tr.GetObject(br.BlockTableRecord, OpenMode.ForRead); // a dynamic block's current shape is its anonymous record
+            if (b.IsLayout) return null;
+            if (b.IsFromExternalReference && (!b.IsResolved || b.IsUnloaded)) { LiteReadLog.Count(_log.Removed, "외부참조 (찾을 수 없거나 언로드됨)"); return null; }
+            return Def(b);
+        }
+
+        // an object or one exploded piece of it goes in whole, or as its box with a count: half a solid would look like a real shape
+        private void Whole(BlockDef g, Entity e, Action<BlockDef> read) =>
+            g.Geo.AddRange(LiteRead.Whole(_log, _depth == 0, () => { var one = new BlockDef(); read(one); return one.Geo; }, () => Box(e)));
+
+        private static Geo3 Box(Entity e)
+        {
+            var x = e.GeometricExtents;
+            var box = new[] { new LiteVertex(x.MinPoint.X, x.MinPoint.Y), new LiteVertex(x.MaxPoint.X, x.MinPoint.Y), new LiteVertex(x.MaxPoint.X, x.MaxPoint.Y), new LiteVertex(x.MinPoint.X, x.MaxPoint.Y) };
+            return new Poly3(e.Layer, box, true, Up, x.MinPoint.Z);
+        }
+
+        private void Burst(BlockDef g, Entity e)
+        {
+            if (_depth >= MaxExplode) throw new InvalidOperationException("explode too deep");
+            using (var parts = new DBObjectCollection())
+            {
+                _depth++;
+                try
+                {
+                    e.Explode(parts);
+                    if (parts.Count == 0) throw new InvalidOperationException("explode gave nothing");
+                    foreach (DBObject o in parts)
+                        if (o is Entity pe) Add(g, pe);
+                }
+                finally
+                {
+                    _depth--;
+                    foreach (DBObject o in parts) o.Dispose(); // they are in no database: nothing else frees them
+                }
+            }
+        }
+
+        private void Mesh(BlockDef g, Entity e)
+        {
+            var pts = new List<Vec3>();
+            List<(int A, int B)> edges;
+            switch (e)
+            {
+                case SubDMesh m:
+                {
+                    // shortcut: the base cage, not the smoothed surface (Sub Divided arrays grow fast); a smoothed mesh reads slightly larger, upgrade if its outline looks wrong
+                    foreach (Point3d p in m.Vertices) pts.Add(V(p));
+                    var faces = new List<int>();
+                    foreach (int i in m.FaceArray) faces.Add(i);
+                    edges = LiteRead.FaceEdges(faces);
+                    break;
+                }
+                case PolyFaceMesh pf:
+                {
+                    var faces = new List<int[]>();
+                    foreach (ObjectId id in pf)
+                        switch (_tr.GetObject(id, OpenMode.ForRead))
+                        {
+                            case PolyFaceMeshVertex v: pts.Add(V(v.Position)); break;
+                            case FaceRecord f:
+                                faces.Add(Enumerable.Range(0, 4).Select(i => (short)i).Select(i => f.IsEdgeVisibleAt(i) ? Math.Abs((int)f.GetVertexAt(i)) : -Math.Abs((int)f.GetVertexAt(i))).ToArray());
+                                break;
+                        }
+                    edges = LiteRead.RecordEdges(faces);
+                    break;
+                }
+                case PolygonMesh pm:
+                {
+                    // shortcut: a surface-fit mesh gives its control net, not the fitted surface; upgrade with MSurfaceDensity if one looks wrong
+                    foreach (ObjectId id in pm)
+                        if (_tr.GetObject(id, OpenMode.ForRead) is PolygonMeshVertex v && v.VertexType != Vertex3dType.FitVertex) pts.Add(V(v.Position));
+                    edges = LiteRead.GridEdges(pm.MSize, pm.NSize, pm.IsMClosed, pm.IsNClosed);
+                    break;
+                }
+                default: throw new ArgumentException(e.GetType().Name);
+            }
+            foreach (var (a, b) in edges) g.Geo.Add(new Line3(e.Layer, pts[a], pts[b]));
         }
 
         // shortcut: REVCLOUD leaves a plain polyline, so it is told by shape (4+ segments, every one an arc); a real outline made only of arcs is dropped too
@@ -367,13 +422,7 @@ public sealed class LiteCommands
             return segs >= 4 && Enumerable.Range(0, segs).All(i => pl.GetBulgeAt(i) != 0);
         }
 
-        private static double Deg(Point3d p, Point3d c) => CurveApprox.Norm360(Math.Atan2(p.Y - c.Y, p.X - c.X) * 180 / Math.PI);
-
-        // shortcut: plan rows of the 3D matrix (z terms dropped); exact unless a block is tilted out of plan and holds geometry off z = 0
-        private static Affine2 ToAffine(Matrix3d m)
-        {
-            var a = m.ToArray(); // row-major
-            return new Affine2(a[0], a[1], a[4], a[5], a[3], a[7]);
-        }
+        private static Vec3 V(Point3d p) => new Vec3(p.X, p.Y, p.Z);
+        private static Vec3 V(Vector3d v) => new Vec3(v.X, v.Y, v.Z);
     }
 }

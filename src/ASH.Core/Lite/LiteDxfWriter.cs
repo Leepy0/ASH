@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using ASH.Core.Settings;
 
 namespace ASH.Core.Lite;
 
@@ -12,84 +13,108 @@ namespace ASH.Core.Lite;
 /// (layer names go through LiteLayers.R12Names first). Every entity is moved by (-dx, -dy).</summary>
 public static class LiteDxfWriter
 {
-    static readonly CultureInfo C = CultureInfo.InvariantCulture;
+    const int AngleDecimals = 4; // degrees: 0.0001 is 0.2 mm on a 100 m radius, whatever the unit
 
-    public static void Write(TextWriter w, IReadOnlyList<LiteEntity> ents, IReadOnlyDictionary<string, string> names, IReadOnlyDictionary<string, short> colors, double dx, double dy)
+    static readonly CultureInfo C = CultureInfo.InvariantCulture;
+    static readonly string[] Formats = Enumerable.Range(0, 16).Select(d => "0." + new string('#', d)).ToArray();
+
+    /// <summary>Decimals of a length in this unit: the power of ten nearest 0.01 mm (mm 2, inch 3, m 5).</summary>
+    public static int Precision(int insUnits) => Math.Max(0, (int)Math.Round(-Math.Log10(1e-5 / UnitScale.FromInsUnits(insUnits))));
+
+    /// <summary>Header, tables and the start of ENTITIES for a stream of entities (LiteBuild.Write): box is their extents, layers the original layer names they use.</summary>
+    public static void Begin(TextWriter w, LiteBox box, IEnumerable<string> layers, IReadOnlyDictionary<string, string> names, IReadOnlyDictionary<string, short> colors, double dx, double dy, int decimals)
     {
-        var box = LiteBox.Of(ents);
         if (box.IsEmpty) box = new LiteBox { MinX = dx, MinY = dy, MaxX = dx, MaxY = dy };
         Pair(w, 0, "SECTION"); Pair(w, 2, "HEADER");
         Pair(w, 9, "$ACADVER"); Pair(w, 1, "AC1009");
-        Pair(w, 9, "$INSBASE"); Xyz(w, 10, 0, 0);
-        Pair(w, 9, "$EXTMIN"); Xyz(w, 10, box.MinX - dx, box.MinY - dy);
-        Pair(w, 9, "$EXTMAX"); Xyz(w, 10, box.MaxX - dx, box.MaxY - dy);
-        Pair(w, 9, "$LIMMIN"); Real(w, 10, box.MinX - dx); Real(w, 20, box.MinY - dy);
-        Pair(w, 9, "$LIMMAX"); Real(w, 10, box.MaxX - dx); Real(w, 20, box.MaxY - dy);
+        Pair(w, 9, "$INSBASE"); Xyz(w, 10, 0, 0, decimals);
+        Pair(w, 9, "$EXTMIN"); Xyz(w, 10, box.MinX - dx, box.MinY - dy, decimals);
+        Pair(w, 9, "$EXTMAX"); Xyz(w, 10, box.MaxX - dx, box.MaxY - dy, decimals);
+        Pair(w, 9, "$LIMMIN"); Real(w, 10, box.MinX - dx, decimals); Real(w, 20, box.MinY - dy, decimals);
+        Pair(w, 9, "$LIMMAX"); Real(w, 10, box.MaxX - dx, decimals); Real(w, 20, box.MaxY - dy, decimals);
         Pair(w, 0, "ENDSEC");
 
         // layer table: "0" always, then every layer an entity uses, in name order
-        var layers = ents.Select(e => e.Layer).Distinct(StringComparer.Ordinal).Select(l => (Out: Name(names, l), Color: colors.TryGetValue(l, out var c) ? c : (short)7))
+        var table = layers.Distinct(StringComparer.Ordinal).Select(l => (Out: Name(names, l), Color: colors.TryGetValue(l, out var c) ? c : (short)7))
             .Where(l => l.Out != "0").GroupBy(l => l.Out, StringComparer.Ordinal).Select(g => g.First()).OrderBy(l => l.Out, StringComparer.Ordinal).ToList();
         Pair(w, 0, "SECTION"); Pair(w, 2, "TABLES");
         Pair(w, 0, "TABLE"); Pair(w, 2, "LTYPE"); Int(w, 70, 1);
-        Pair(w, 0, "LTYPE"); Pair(w, 2, "CONTINUOUS"); Int(w, 70, 0); Pair(w, 3, "Solid line"); Int(w, 72, 65); Int(w, 73, 0); Real(w, 40, 0);
+        Pair(w, 0, "LTYPE"); Pair(w, 2, "CONTINUOUS"); Int(w, 70, 0); Pair(w, 3, "Solid line"); Int(w, 72, 65); Int(w, 73, 0); Real(w, 40, 0, decimals);
         Pair(w, 0, "ENDTAB");
-        Pair(w, 0, "TABLE"); Pair(w, 2, "LAYER"); Int(w, 70, layers.Count + 1);
+        Pair(w, 0, "TABLE"); Pair(w, 2, "LAYER"); Int(w, 70, table.Count + 1);
         Layer(w, "0", colors.TryGetValue("0", out var c0) ? c0 : (short)7);
-        foreach (var (o, col) in layers) Layer(w, o, col);
+        foreach (var (o, col) in table) Layer(w, o, col);
         Pair(w, 0, "ENDTAB");
         Pair(w, 0, "ENDSEC");
         Pair(w, 0, "SECTION"); Pair(w, 2, "BLOCKS"); Pair(w, 0, "ENDSEC");
 
         Pair(w, 0, "SECTION"); Pair(w, 2, "ENTITIES");
-        foreach (var e in ents) Entity(w, e, Name(names, e.Layer), dx, dy);
+    }
+
+    public static void End(TextWriter w)
+    {
         Pair(w, 0, "ENDSEC");
         Pair(w, 0, "EOF");
     }
 
     /// <summary>Bytes Entity writes for e: the size estimate is the writer itself, so it is exact for the entities (the header and tables add a few hundred bytes).</summary>
-    public static long Bytes(LiteEntity e, string layer, double dx, double dy)
+    public static long Bytes(LiteEntity e, string layer, double dx, double dy, int decimals)
     {
         var cw = new CountingWriter();
-        Entity(cw, e, layer, dx, dy);
+        Entity(cw, e, layer, dx, dy, decimals);
         return cw.Count;
     }
 
-    /// <summary>Header + tables + section markers for this many layers (approximate: the extents' digits vary).</summary>
-    public static long OverheadBytes(int layers) => 650 + 60L * layers;
-
-    public static void Entity(TextWriter w, LiteEntity e, string layer, double dx, double dy)
+    /// <summary>Returns the R12 kind written, null when nothing was: an arc the angle precision cannot hold is written as its chord, and dropped when that is a point at this precision.</summary>
+    public static string? Entity(TextWriter w, LiteEntity e, string layer, double dx, double dy, int decimals)
     {
+        if (e is LiteArc arc && AnglesMeet(arc))
+        {
+            var (x1, y1) = (arc.Cx + arc.R * Math.Cos(arc.StartDeg * Math.PI / 180), arc.Cy + arc.R * Math.Sin(arc.StartDeg * Math.PI / 180));
+            var (x2, y2) = (arc.Cx + arc.R * Math.Cos(arc.EndDeg * Math.PI / 180), arc.Cy + arc.R * Math.Sin(arc.EndDeg * Math.PI / 180));
+            if (Num(x1 - dx, Formats[decimals]) == Num(x2 - dx, Formats[decimals]) && Num(y1 - dy, Formats[decimals]) == Num(y2 - dy, Formats[decimals])) return null;
+            e = new LiteLine(arc.Layer, x1, y1, x2, y2);
+        }
         switch (e)
         {
             case LiteLine l:
                 Pair(w, 0, "LINE"); Pair(w, 8, layer);
-                Xyz(w, 10, l.X1 - dx, l.Y1 - dy); Xyz(w, 11, l.X2 - dx, l.Y2 - dy);
+                Xyz(w, 10, l.X1 - dx, l.Y1 - dy, decimals); Xyz(w, 11, l.X2 - dx, l.Y2 - dy, decimals);
                 break;
             case LiteCircle c:
                 Pair(w, 0, "CIRCLE"); Pair(w, 8, layer);
-                Xyz(w, 10, c.Cx - dx, c.Cy - dy); Real(w, 40, c.R);
+                Xyz(w, 10, c.Cx - dx, c.Cy - dy, decimals); Real(w, 40, c.R, decimals);
                 break;
             case LiteArc a:
                 Pair(w, 0, "ARC"); Pair(w, 8, layer);
-                Xyz(w, 10, a.Cx - dx, a.Cy - dy); Real(w, 40, a.R); Real(w, 50, a.StartDeg); Real(w, 51, a.EndDeg);
+                Xyz(w, 10, a.Cx - dx, a.Cy - dy, decimals); Real(w, 40, a.R, decimals); Real(w, 50, a.StartDeg, AngleDecimals); Real(w, 51, a.EndDeg, AngleDecimals);
                 break;
             case LitePolyline p:
                 Pair(w, 0, "POLYLINE"); Pair(w, 8, layer); Int(w, 66, 1);
-                Xyz(w, 10, 0, 0); Int(w, 70, p.Closed ? 1 : 0);
+                Xyz(w, 10, 0, 0, decimals); Int(w, 70, p.Closed ? 1 : 0);
                 foreach (var v in p.Vertices)
                 {
                     Pair(w, 0, "VERTEX"); Pair(w, 8, layer);
-                    Xyz(w, 10, v.X - dx, v.Y - dy);
+                    Xyz(w, 10, v.X - dx, v.Y - dy, decimals);
                     if (v.Bulge != 0) Bulge(w, v.Bulge);
                 }
                 Pair(w, 0, "SEQEND"); Pair(w, 8, layer);
                 break;
             default: throw new ArgumentException("unknown lite entity " + e.GetType().Name);
         }
+        return e.Kind;
     }
 
-    static string Name(IReadOnlyDictionary<string, string> names, string layer) => names.TryGetValue(layer, out var n) ? n : "0";
+    /// <summary>A tiny arc whose angles write the same: ZWCAD and DxfLite would read a full circle. Near 360 degrees that reading is the right one, so those stay arcs.</summary>
+    static bool AnglesMeet(LiteArc a)
+    {
+        string Text(double deg) { var s = Num(deg, Formats[AngleDecimals]); return s == "360.0" ? "0.0" : s; }
+        double sweep = a.EndDeg - a.StartDeg;
+        if (sweep <= 0) sweep += 360;
+        return sweep < 180 && Text(a.StartDeg) == Text(a.EndDeg);
+    }
+
+    public static string Name(IReadOnlyDictionary<string, string> names, string layer) => names.TryGetValue(layer, out var n) ? n : "0";
 
     static void Layer(TextWriter w, string name, short color)
     {
@@ -108,11 +133,11 @@ public static class LiteDxfWriter
     }
 
     static void Int(TextWriter w, int code, int v) => Pair(w, code, v.ToString(C));
-    static void Real(TextWriter w, int code, double v) => Pair(w, code, Num(v, "0.####"));
+    static void Real(TextWriter w, int code, double v, int decimals) => Pair(w, code, Num(v, Formats[decimals]));
     static void Bulge(TextWriter w, double v) => Pair(w, 42, Num(v, "0.##########"));
-    static void Xyz(TextWriter w, int code, double x, double y) { Real(w, code, x); Real(w, code + 10, y); Pair(w, code + 20, "0.0"); }
+    static void Xyz(TextWriter w, int code, double x, double y, int decimals) { Real(w, code, x, decimals); Real(w, code + 10, y, decimals); Pair(w, code + 20, "0.0"); }
 
-    /// <summary>4 decimals = 0.1 um in a mm drawing, 0.1 mm in a metre drawing; "100" is written "100.0".</summary>
+    /// <summary>format holds the decimals; "100" is written "100.0".</summary>
     static string Num(double v, string format)
     {
         if (double.IsNaN(v) || double.IsInfinity(v)) v = 0;
@@ -121,7 +146,7 @@ public static class LiteDxfWriter
         return s.IndexOf('.') < 0 ? s + ".0" : s;
     }
 
-    sealed class CountingWriter : TextWriter
+    internal sealed class CountingWriter : TextWriter
     {
         public long Count;
         public override System.Text.Encoding Encoding => System.Text.Encoding.ASCII;

@@ -158,7 +158,7 @@ public sealed class AgvPaletteControl : UserControl
                 problems.Items.Add(new ListViewItem(new[] { r.Kind, r.Target, r.Message }) { Tag = r, ForeColor = r.Warning ? Theme.Warning : Theme.Error, ToolTipText = r.Message });
             problems.EndUpdate();
         };
-        tabs.TabPages.Add(Page("검증·내보내기", Theme.Section("도면 준비"), Theme.Make("도면 경량화", GlyphKind.Lite, "AGVLITE"),
+        tabs.TabPages.Add(Page("검증·내보내기", Theme.Section("도면 준비"), Theme.Make("도면 경량화", GlyphKind.Lite, "AGVLITE"), Theme.Make("경량화 조정", GlyphKind.Lite, "AGVLITEX"),
             Theme.Section("검증"),Theme.Make("검증", GlyphKind.Check, "AGVCHECK"), checkResult,
             Theme.Caption("문제 목록 — 더블클릭하면 그 위치로 이동"), problems,
             // "모델 생성" also does what "내보내기" did (AGVEXPORT is still a command): <Model>.arc, and <Model>.dir when this PC has AutoMod
